@@ -16,11 +16,7 @@ class FollowTheGapPlanner:
     def __init__(self, speed_fraction = 1):
     
         print("Controller initialized")
-        # self.currentPosition = np.array([0.0, 0.0])
-        # self.nextPosition = np.array([0.0, 0.0])
-        # self.nextPositions = [[0.0, 0.0]]
-
-        # self.drawn_waypoints = []
+    
         self.lidar_border_points = 1080 * [[0,0]]
         self.lidar_live_points = []
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
@@ -38,15 +34,10 @@ class FollowTheGapPlanner:
 
 
 
-    def render_ftg(self, e):
+    def render(self, e):
 
 
         if not self.draw_lidar_data: return
-
-        # Render lidar data
-        # for i in range(len(self.lidar_border_points)):
-        #     e.batch.add(1, GL_POINTS, None, ('v3f/stream', [self.lidar_border_points[i][0], self.lidar_border_points[i][1], 0.]),
-        #                 ('c3B', (255, 0, 255)))
 
         self.vertex_list.delete()
         
@@ -119,7 +110,7 @@ class FollowTheGapPlanner:
         # ignore close points:
         for i in range(len(distances)):
 
-            if(distances[i] < 1.5):
+            if(distances[i] < 3):
                 distances[i] = 0
 
             if (distances[i] > 6):
@@ -144,7 +135,7 @@ class FollowTheGapPlanner:
         gap_treshold = 1.499
         max_distance = 0
         gap_found = False
-  
+        gap_integral = 0
 
         for i in range(len(distances) - 1):
             # Rising
@@ -153,18 +144,33 @@ class FollowTheGapPlanner:
                     gap_opening_angle = angles[i+1]  # + math.sin(0.05) * distances[i]
                     gap_starting_index = i+1
                     gap_open = True
-             
+                if(distances[i+1] > 6):
+                    gap_opening_angle = angles[i+1]
+                    gap_starting_index = i+1
+                    gap_open = True
 
             # Falling
             if(gap_open):
+                gap_integral += distances[i] # Integrating over gap
                 if(max_distance < distances[i]):
                      max_distance = distances[i]
 
                 if(distances[i] > distances[i+1] + gap_treshold ):
+
+                    # Find out gap width:
+                    gap_width = i - gap_starting_index                    
+                    # print("gap_width",gap_width)
+                    # if(gap_width > 2):
                     gap_closing_angle = angles[i] #- math.sin(0.05) * distances[i]
                     gap_closing_index = i
-                    gap = [gap_opening_angle,  gap_closing_angle, gap_starting_index, gap_closing_index]
-                    gaps.append(gap)
+
+                    # gap: [open angle, closing angle, starting index of distances, closing index of distances, gap integral, gap width]
+                    gap = [gap_opening_angle,  gap_closing_angle, gap_starting_index, gap_closing_index, gap_integral,gap_width]
+
+                    # The gap has to have a certain area that we recognize it as gap (avoid traps)
+                    if(gap_integral > 30): 
+                        gaps.append(gap)
+
                     gap_open = False
                     gap_found = True
           
@@ -174,6 +180,8 @@ class FollowTheGapPlanner:
         largest_gap_angle = 0
         largest_gap_index = 0
         largest_gap_center = 0
+        largest_gap_integral = 0
+        largest_gap_width = 0
         for i in range(len(gaps)):
             gap = gaps[i]
             gap_angle = abs(gap[1] - gap[0])
@@ -181,21 +189,32 @@ class FollowTheGapPlanner:
                 largest_gap_angle = gap_angle
                 largest_gap_index = i
                 largest_gap_center = (gap[0] + gap[1]) / 2
+                largest_gap_integral = gap[4]
+                largest_gap_width = gap[5]
 
-
-
+        
         # Speed Calculation
-
-        speed = self.speed_fraction * max_distance - 3 * abs(largest_gap_center)
+        speed = self.speed_fraction * max_distance 
         if(speed < 0.1): speed = 0.1 #Dont stand still
 
-        if max_distance > 8:
-            speed = 14
+
+        # print("largest_gap_integral", largest_gap_integral)
+        # print("largest_gap_width", largest_gap_width)
+        # print("max_distance", max_distance)
+
+
+        speed = speed - 8 * abs(largest_gap_center)
 
         # Emergency Brake
         if(not gap_found):
-            speed = 0.0
+            speed = 0.1
             print("Emergency Brake")
+
+        for i in range(50, 58): # Only front cone, not all 180 degree (use 0 to 108 for all lidar points)
+            index = 10*i # Only use every 10th lidar point
+            if(scans[index] < 0.5):
+                speed = 0.0
+                print("Emergency Brake: Obstacle in front")
 
         # print("Speed", speed)
 
