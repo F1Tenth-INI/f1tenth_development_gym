@@ -1,8 +1,10 @@
 import sys
 sys.path.insert(1, '../FollowTheGap')
+sys.path.insert(1, '../examples')
 
 # Import Planner Classes
 from ftg_planner import FollowTheGapPlanner
+from pure_pursuit_planner import PurePursuitPlanner
 
 import time
 
@@ -34,19 +36,24 @@ def main():
     conf = Namespace(**conf_dict)
 
     # First car
-    planner = FollowTheGapPlanner(0.8)
-    planner.plot_lidar_data = False
+    planner = FollowTheGapPlanner()
+    planner.speed_fraction = 1.1
+    planner.plot_lidar_data =False
     planner.draw_lidar_data = True
     planner.lidar_visualization_color = (255, 0, 255)
 
 
 
     # 2nd Car
-    planner_2 = FollowTheGapPlanner(0.7)
-    planner_2.plot_lidar_data = False
-    planner_2.draw_lidar_data = True
-    planner_2.lidar_visualization_color = (255, 255, 255)
-   
+    # planner_2 = FollowTheGapPlanner(0.7)
+    # planner_2.plot_lidar_data = False
+    # planner_2.draw_lidar_data = True
+    # planner_2.lidar_visualization_color = (255, 255, 255)
+
+    with open('config_example_map.yaml') as file:
+        conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+    conf = Namespace(**conf_dict)
+    planner_2 = PurePursuitPlanner(conf, 0.17145+0.15875)
 
 
     def render_callback(env_renderer):
@@ -65,8 +72,8 @@ def main():
         e.top = top + 800
         e.bottom = bottom - 800
 
-        planner.render_ftg(env_renderer)
-        planner_2.render_ftg(env_renderer)
+        planner.render(env_renderer)
+        planner_2.render(env_renderer)
 
     env = gym.make('f110_gym:f110-v0', map=conf.map_path,
                    map_ext=conf.map_ext, num_agents=2)
@@ -120,8 +127,8 @@ def main():
         }
 
         speed_2, steer_2 = planner_2.process_observation(ranges_oponent, odom_2)
+        # speed_2, steer_2 = 0,0
         accl_2, sv_2 = pid(speed_2, steer_2, car_2.state[3], car_2.state[2], car_2.params['sv_max'], car_2.params['a_max'], car_2.params['v_max'], car_2.params['v_min'])
-
 
         obs, step_reward, done, info = env.step(np.array([[ accl, sv],[ accl_2, sv_2]]))
 
