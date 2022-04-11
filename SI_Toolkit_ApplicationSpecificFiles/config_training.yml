@@ -1,0 +1,29 @@
+modeling:
+  NET_NAME: 'Dense-32H1-32H2'
+paths:
+  # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
+  path_to_experiment: 'Experiment-1/'
+  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ApplicationSpecificFiles/Experiments/'  # Path where the experiments data is stored
+
+training_default:
+  # For training closed loop dynamics model:
+  control_inputs: []
+  state_inputs: ['LIDAR_0', 'LIDAR_1', 'LIDAR_2', 'LIDAR_3', 'LIDAR_4', 'LIDAR_5', 'LIDAR_6', 'LIDAR_7', 'LIDAR_8', 'LIDAR_9', 'LIDAR_10', 'LIDAR_11', 'LIDAR_12', 'LIDAR_13', 'LIDAR_14', 'LIDAR_15', 'LIDAR_16', 'LIDAR_17', 'LIDAR_18', 'LIDAR_19', 'LIDAR_20', 'LIDAR_21', 'LIDAR_22', 'LIDAR_23', 'LIDAR_24', 'LIDAR_25', 'LIDAR_26', 'LIDAR_27', 'LIDAR_28', 'LIDAR_29', 'LIDAR_30', 'LIDAR_31', 'LIDAR_32', 'LIDAR_33', 'LIDAR_34', 'LIDAR_35', 'LIDAR_36', 'LIDAR_37', 'LIDAR_38', 'LIDAR_39', 'LIDAR_40', 'LIDAR_41', 'LIDAR_42', 'LIDAR_43', 'LIDAR_44', 'LIDAR_45', 'LIDAR_46', 'LIDAR_47', 'LIDAR_48', 'LIDAR_49', 'LIDAR_50', 'LIDAR_51', 'LIDAR_52', 'LIDAR_53', 'LIDAR_54', 'LIDAR_55', 'LIDAR_56', 'LIDAR_57', 'LIDAR_58', 'LIDAR_59', 'LIDAR_60', 'LIDAR_61', 'LIDAR_62', 'LIDAR_63', 'LIDAR_64', 'LIDAR_65', 'LIDAR_66', 'LIDAR_67']
+  setpoint_inputs: []  # Can be only 'target_position' or empty for CartPole
+  outputs: ['speed', 'steering']
+  # For training open loop dynamics model:
+  # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
+  # outputs = inputs_list
+  # For training of RNN imitating MPC:
+  # inputs = ['position', 'positionD', 'angle', 'angleD', 'target_position']
+  # outputs = ['Q']
+  EPOCHS: 5
+  BATCH_SIZE: 16
+  SEED: 1873
+  LR: 1.0e-2
+  WASH_OUT_LEN: 10
+  POST_WASH_OUT_LEN: 20
+  ON_FLY_DATA_GENERATION: False
+  NORMALIZE: True
+  SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
+
