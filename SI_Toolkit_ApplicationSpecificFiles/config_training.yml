@@ -1,5 +1,5 @@
 modeling:
-  NET_NAME: 'Dense-32H1-32H2'
+  NET_NAME: 'Dense-64H1-64H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: 'Experiment-1/'
@@ -17,12 +17,12 @@ training_default:
   # For training of RNN imitating MPC:
   # inputs = ['position', 'positionD', 'angle', 'angleD', 'target_position']
   # outputs = ['Q']
-  EPOCHS: 5
+  EPOCHS: 15
   BATCH_SIZE: 16
   SEED: 1873
   LR: 1.0e-2
-  WASH_OUT_LEN: 10
-  POST_WASH_OUT_LEN: 20
+  WASH_OUT_LEN: 1
+  POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
   SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
