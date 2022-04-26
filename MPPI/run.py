@@ -10,6 +10,12 @@ from track import *
 from car import *
 from car_controller import *
 
+from numpy import savetxt
+from tqdm import trange
+
+
+import pandas as pd
+
 from OpenGL.GL import *
 from numba import njit
 
@@ -322,8 +328,9 @@ class PurePursuitPlanner:
             
         self.nextPosition = self.car_model.state[:2]
         mppi_speed, mppi_steering = self.car_controller.plan()
+
     
-        return speed, mppi_steering
+        return mppi_speed, mppi_steering
 
 
 def main():
@@ -331,109 +338,159 @@ def main():
     main entry point
     """
 
-    work = {'mass': 3.463388126201571, 'lf': 0.15597534362552312,
-            'tlad': 1.82461887897713965, 'vgain': 1.30338203837889}
+    header = ["lidar_"+str(x) for x in range(108)]
+    header = ','.join(header)
+    header = "# speed, steer, posX, posY, posTheta," + header  + "\n"
+    now = datetime.now()
+    filename = "experiments/data_" + str(now) + ".csv"
+    with open(filename, "a") as f:
+        f.write(header)
+        print("File initialized")
+       
+    # np.savetxt('data.csv', "a", [[]], delimiter=',', header=header)
+    for i in trange(10):
 
-    with open('config_example_map.yaml') as file:
-        conf_dict = yaml.load(file, Loader=yaml.FullLoader)
-    conf = Namespace(**conf_dict)
+        work = {'mass': 3.463388126201571, 'lf': 0.15597534362552312,
+                'tlad': 1.82461887897713965, 'vgain': 1.30338203837889}
 
-    planner = PurePursuitPlanner(conf, 0.17145+0.15875)
+        with open('config_example_map.yaml') as file:
+            conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+        conf = Namespace(**conf_dict)
 
-    def render_callback(env_renderer):
-        # custom extra drawing function
+        planner = PurePursuitPlanner(conf, 0.17145+0.15875)
 
-        e = env_renderer
+        def render_callback(env_renderer):
+            # custom extra drawing function
 
-        # update camera to follow car
-        x = e.cars[0].vertices[::2]
-        y = e.cars[0].vertices[1::2]
-        top, bottom, left, right = max(y), min(y), min(x), max(x)
-        e.score_label.x = left
-        e.score_label.y = top - 700
-        e.left = left - 800
-        e.right = right + 800
-        e.top = top + 800
-        e.bottom = bottom - 800
+            e = env_renderer
 
-        planner.render_waypoints(env_renderer)
-        planner.render_test(env_renderer)
+            # update camera to follow car
+            x = e.cars[0].vertices[::2]
+            y = e.cars[0].vertices[1::2]
+            top, bottom, left, right = max(y), min(y), min(x), max(x)
+            e.score_label.x = left
+            e.score_label.y = top - 700
+            e.left = left - 800
+            e.right = right + 800
+            e.top = top + 800
+            e.bottom = bottom - 800
 
-    env = gym.make('f110_gym:f110-v0', map=conf.map_path,
-                   map_ext=conf.map_ext, num_agents=1)
-    env.add_render_callback(render_callback)
+            planner.render_waypoints(env_renderer)
+            planner.render_test(env_renderer)
 
-    obs, step_reward, done, info = env.reset(
-        np.array([[conf.sx, conf.sy, conf.stheta]]))
+        env = gym.make('f110_gym:f110-v0', map=conf.map_path,
+                    map_ext=conf.map_ext, num_agents=1)
+        env.add_render_callback(render_callback)
 
-    print("initial car state", PurePursuitPlanner.car_model.state)
+        obs, step_reward, done, info = env.reset(
+            np.array([[conf.sx, conf.sy, conf.stheta]]))
 
-    env.render()
+        print("initial car state", PurePursuitPlanner.car_model.state)
 
-    laptime = 0.0
-    start = time.time()
+        env.render()
 
-    while not done:
+        laptime = 0.0
+        start = time.time()
 
-        car = env.sim.agents[0] 
-        car_state = env.sim.agents[0].state
-        scans = obs['scans'][0]
+        lidar_and_controls = []
 
-        # print("scan_angles", car.scan_angles)
-        # print("side_distances", car.side_distances)
+        simulation_index = 0
 
-        # print("Scans",  obs['scans'][0])
-        # print("Car state", car_state)
+        sv = 0
+        accl = 0
+        
 
-        planner.lidar_border_points = []
-        points = []
 
-        # Use all sensor data
-        # for i in range(1080):
-        #     p1 = car_state[0] + scans[i] * math.cos(car.scan_angles[i] + car_state[4])
-        #     p2 = car_state[1] + scans[i] * math.sin(car.scan_angles[i] + car_state[4])
-        #     planner.lidar_border_points.append([50* p1, 50* p2])
 
-        # Use only a part
+ 
+        while not done:
+            
+            car = env.sim.agents[0] 
+            car_state = env.sim.agents[0].state
+            scans = obs['scans'][0]
 
-        scans = [x - 0.2 for x in scans]
+            
+        
+            # print("scan_angles", car.scan_angles)
+            # print("side_distances", car.side_distances)
 
-        max_dist = 0
-        farthest_point = (0,0)
-        for i in range(50):
-            max_distance = 15
-            index = 20*i
-            if(scans[index] > max_distance): continue
-            p1 = car_state[0] + scans[index] * math.cos(car.scan_angles[index] + car_state[4])
-            p2 = car_state[1] + scans[index] * math.sin(car.scan_angles[index] + car_state[4])
-            points.append((p1,p2))
-            planner.lidar_border_points.append([50* p1, 50* p2])
-            if( scans[index] > max_dist):
-                max_dist = scans[index]
-                farthest_point = (p1,p2)
+            # print("Scans",  obs['scans'][0])
+            # print("Car state", car_state)
 
-        planner.car_controller.goal_point = farthest_point   
-        planner.track.add_new_lidar_points_to_segments(points)
-        # print("CARSTATE", car_state)
-        # [ obs['poses_x'][0] , obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0], obs['ang_vels_z'][0], 0. , 0. ]
-        # print("Scans",  np.array(obs['scans']).shape)
-        # print("obs",  (obs))
-        planner.car_model.state = car_state
-        planner.car_controller.car_state = car_state
+            planner.lidar_border_points = []
+            points = []
 
-        speed, steer = planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], work['tlad'], work['vgain'])
-        accl, sv = pid(speed, steer, car.state[3], car.state[2], car.params['sv_max'], car.params['a_max'], car.params['v_max'], car.params['v_min'])
+            # Use all sensor data
+            # for i in range(1080):
+            #     p1 = car_state[0] + scans[i] * math.cos(car.scan_angles[i] + car_state[4])
+            #     p2 = car_state[1] + scans[i] * math.sin(car.scan_angles[i] + car_state[4])
+            #     planner.lidar_border_points.append([50* p1, 50* p2])
 
-        # sv = steer
+            # Use only a part
 
-        obs, step_reward, done, info = env.step(np.array([[ accl, sv]]))
+            # scans = [x - 0.4 for x in scans]
 
-        planner.currentPosition = [obs['poses_x'][0], obs['poses_y'][0]]
+            max_dist = 0
+            farthest_point = (0,0)
+            for i in range(108):
+                max_distance = 15
+                index = 10*i
+                if(scans[index] > max_distance): continue
+                p1 = car_state[0] + scans[index] * math.cos(car.scan_angles[index] + car_state[4])
+                p2 = car_state[1] + scans[index] * math.sin(car.scan_angles[index] + car_state[4])
+                points.append((p1,p2))
+                planner.lidar_border_points.append([50* p1, 50* p2])
+                if( scans[index] > max_dist):
+                    max_dist = scans[index]
+                    farthest_point = (p1,p2)
 
-        laptime += step_reward
-        env.render(mode='human')
+            planner.car_controller.goal_point = farthest_point   
 
-    print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
+            planner.track.add_new_lidar_points_to_segments(points)
+            # print("CARSTATE", car_state)
+            # [ obs['poses_x'][0] , obs['poses_y'][0], obs['poses_theta'][0], obs['linear_vels_x'][0], obs['ang_vels_z'][0], 0. , 0. ]
+            # print("Scans",  np.array(obs['scans']).shape)
+            # print("obs",  (obs))
+            planner.car_model.state = car_state
+            planner.car_controller.car_state = car_state
+
+
+
+            if(simulation_index % 1 == 0):
+                start = time.time()
+                speed, steer = planner.plan(obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0], work['tlad'], work['vgain'])
+                end = time.time()
+                # print("Plan one step", end - start)
+                accl, sv = pid(speed, steer, car.state[3], car.state[2], car.params['sv_max'], car.params['a_max'], car.params['v_max'], car.params['v_min'])
+            # accl, sv  = speed, steer   
+            # sv = steer
+
+            # lidar_and_control =  #scans
+
+        
+
+
+            lidar_and_control = np.append([speed, steer,obs['poses_x'][0] , obs['poses_y'][0], obs['poses_theta'][0]], scans[::10])
+            lidar_and_controls.append(lidar_and_control)
+
+            obs, step_reward, done, info = env.step(np.array([[ accl, sv]]))
+            print("Speed, steer: ", speed, steer)
+
+            planner.currentPosition = [obs['poses_x'][0], obs['poses_y'][0]]
+
+            laptime += step_reward
+            env.render(mode='human')    
+
+
+            # a_file = open("controls_for_lidat.txt", "w",)
+            # np.savetxt(a_file, lidar_and_controls,  delimiter=',')
+            # a_file.close()
+
+            # with open(filename,'a') as csvfile:
+            #     np.savetxt(csvfile,lidar_and_controls ,delimiter=',', comments='')
+            simulation_index += 1
+
+        print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
 if __name__ == '__main__':

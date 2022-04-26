@@ -2,6 +2,7 @@ import sys
 
 from numba.core import compiler_machinery
 
+from scipy.spatial.distance import cdist
 # sys.path.insert(0, "./commonroad-vehicle-models/PYTHON/")
 
 from globals import *
@@ -103,6 +104,7 @@ class CarController:
         # Goal point for new cost function
         self.goal_point = (0,0)
 
+        self.collision_corse = False
         # Get track ready
         self.update_trackline()
 
@@ -214,6 +216,8 @@ class CarController:
         cost = 0
         index = 0
 
+
+        start = time.time()
         for control_input in control_inputs:
             if cost > MAX_COST:
                 cost = MAX_COST
@@ -224,8 +228,14 @@ class CarController:
             simulated_trajectory.append(simulated_state)
 
             index += 1
+        end = time.time()
+        # print("Simulate all trajectories", end - start)
 
-        cost = self.border_cost_function(simulated_trajectory)
+
+        start = time.time()
+        cost = self.point_cloud_cost_function(simulated_trajectory, control_inputs)
+        end = time.time()
+        # print("Get distance from cost function", end - start)
 
         return simulated_trajectory, cost
 
@@ -280,7 +290,7 @@ class CarController:
 
         costs = []
         for result in results:
-            cost = self.border_cost_function(result)
+            cost = self.border_segments_cost_function(result)
             costs.append(cost)
 
         self.simulated_history = results
@@ -320,9 +330,14 @@ class CarController:
             INITIAL_STEERING_VARIANCE,
             NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
         )
-        acceleration = np.random.normal(
-            1,
-            INITIAL_ACCELERATION_VARIANCE,
+        # acceleration = np.random.normal(
+        #     INITIAL_ACCELERATION_MEAN,
+        #     INITIAL_ACCELERATION_VARIANCE,
+        #     NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
+        # )
+        acceleration = np.random.uniform(
+            -10,
+            10,
             NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
         )
 
@@ -333,7 +348,7 @@ class CarController:
         )
         return control_input_sequences
 
-    def sample_control_inputs_history_based(self, last_control_sequence):
+    def sample_control_inputs_history_based(self, last_control_sequence, ):
         """
         Sample history based control sequences (simmilar to the last "perfect" strategy)
         @returns: results{list<control sequence>}: A history based small variance distribution of control sequences
@@ -345,6 +360,8 @@ class CarController:
 
         # Not initialized
         if len(last_control_sequence) == 0:
+            return self.sample_control_inputs()
+        if self.collision_corse:
             return self.sample_control_inputs()
 
         # Delete the first step of the last control sequence because it is already done
@@ -382,13 +399,75 @@ class CarController:
 
         return control_input_sequences
 
-    def border_cost_function(self, trajectory):
+    def point_cloud_cost_function(self, trajectory, control_inputs, log = False):
+
+        def dist(p1, p2):
+            return (p1[0] - p2[0]) **2 + (p1[1] - p2[1]) **2
+
+        def dist_to_array(point, points2):
+            points1 = len(points2) * [point]
+
+            points1 = np.array(points1)
+            points2 = np.array(points2)
+
+            diff_x = points1[:,0] - points2[:,0]
+            diff_y = points1[:,1] - points2[:,1]
+            squared_distances = np.square(diff_x) + np.square(diff_y)
+
+            return squared_distances
+
+
+        # print("ControlInputs", control_inputs.shape)
+        executed_control_input = control_inputs[0]
+        # print("executed_control_input", executed_control_input)
+        
+        executed_acceleration = executed_control_input[1]
+
+        acceleration_cost =  10 - executed_acceleration
+        # print("acceleration_cost",  acceleration_cost)
+
+        initial_state = trajectory[0] 
+        initial_position = initial_state[:2]
+
+        terminal_state = trajectory[-1]
+    
+        distance_cost = 0
+
+        steer_sum = 0
+        for control_input in control_inputs:
+            steer_sum += abs(control_input[0])
+        
+        trajectory = np.array(trajectory)
+
+
+        for state in trajectory:
+            distances = dist_to_array(state, self.track.lidar_points_live)
+            if(np.any(distances < 0.15) ):
+                return 10000
+
+        speed_cost = 10.4 - terminal_state[3]
+        steer_cost = steer_sum
+
+        
+
+        cost = 0 * distance_cost + 1 * speed_cost + 2 * steer_cost + 1 * acceleration_cost
+
+        if(log):
+            print("distance_cost", distance_cost)
+            print("speed_cost", speed_cost)
+            print("steer_cost", steer_cost)
+            print("acceleration_cost", acceleration_cost)
+            print("cost", cost)
+
+
+        return cost
+
+    def border_segments_cost_function(self, trajectory):
         """
         calculate the cost of a trajectory
         @param: trajectory {list<state>} The trajectory of states that needs to be evaluated
         @returns: cost {float}: the scalar cost of the trajectory
         """
-
         distance_cost_weight = 1
         terminal_speed_cost_weight = 0
         terminal_position_cost_weight = 1
@@ -403,13 +482,15 @@ class CarController:
 
 
         # Don't come too close to border
-        # for state in trajectory:
+        for state in trajectory:
 
-        #     simulated_position = geom.Point(state[0], state[1])
+            simulated_position = geom.Point(state[0], state[1])
 
-        #     for border_line in self.track.line_strings:
-        #         distance_to_border = simulated_position.distance(border_line)
-        #         distance_cost += 1 / math.exp(distance_to_border)
+            for border_line in self.track.line_strings:
+                distance_to_border = simulated_position.distance(border_line)
+                distance_cost += 1 / math.exp(distance_to_border)
+                # if(distance_to_border < 0.15):
+                #     distance_cost += 1000
 
   
         # Initial State
@@ -428,12 +509,12 @@ class CarController:
 
         # Terminal Position cost
         terminal_position = geom.Point(terminal_state[0], terminal_state[1])
-        terminal_distance_to_track = terminal_position.distance(geom.Point(self.goal_point))
-        terminal_position_cost += abs(terminal_distance_to_track)
+        terminal_distance_to_initial_state = terminal_position.distance(geom.Point(initial_state))
+        terminal_position_cost += abs(terminal_distance_to_initial_state)
 
         # Don't cross the border
         trajectory_line = geom.LineString([initial_state[:2], terminal_state[:2]])
-        # border_line = self.track.line_strings[0]
+        border_line = self.track.line_strings[0]
         for border_line in self.track.line_strings:
             if(border_line.crosses(trajectory_line)):
                 terminal_position_cost = 1000
@@ -451,6 +532,8 @@ class CarController:
         )
         # print("cost", cost)
         return cost
+
+       
 
 
     def waypoint_cost_function(self, trajectory):
@@ -541,8 +624,8 @@ class CarController:
     def plan(self):
         # dist = self.sample_control_inputs()
 
-        # dist = self.sample_control_inputs_history_based(self.best_control_sequenct)
-        dist = self.sample_control_inputs()
+        dist = self.sample_control_inputs_history_based(self.best_control_sequenct)
+        # dist = self.sample_control_inputs()
 
         self.update_trackline()
         
@@ -551,6 +634,7 @@ class CarController:
         if(math.isnan(costs[0])):
             min_index = 0
             mppi_steering = dist[min_index][0][0]
+            mppi_speed = dist[min_index][0][1]
 
         else:
             min_index = np.argmin(costs)
@@ -558,23 +642,41 @@ class CarController:
             mppi_steering =  dist[min_index][0][0]
 
             weights = np.zeros(len(dist))
+            best_index = 0
             for i in range(len(dist)):
                 lowest_cost = 100000
 
                 cost = costs[i]
                 # find best
-                # if cost < lowest_cost:
-                #     best_index = i
-                #     lowest_cost = cost
+                if cost < lowest_cost:
+                    best_index = i
+                    lowest_cost = cost
 
-                if(cost < 999):
+                if(cost < 9999):
                     weight = math.exp((-1 / INVERSE_TEMP) * cost)
                 else:
                     weight = 0
                 
                 weights[i] = weight
 
-            next_control_sequence = np.average(dist, axis=0, weights=weights)
+            if not np.all((weights == 0)):
+                next_control_sequence = np.average(dist, axis=0, weights=weights)
+                self.collision_corse = False
+
+            else:
+                next_control_sequence = [[0,-5]] * NUMBER_OF_STEPS_PER_TRAJECTORY
+                mppi_steering = 0
+                mppi_speed = -5
+                print("No good trajectory")
+                self.collision_corse = True
+                # next_control_sequence = dist[best_index]
+
+            # next_control_sequence = dist[best_index]
+            
+            best_route, best_cost = np.array(self.simulate_trajectory(next_control_sequence))
+            # executed_cost = self.point_cloud_cost_function(best_route, next_control_sequence, log = True)
+
+            print("lowest_cost",lowest_cost)
 
             mppi_steering = next_control_sequence[0][0]
             mppi_speed = next_control_sequence[0][1]
@@ -586,7 +688,7 @@ class CarController:
             self.draw_simulated_history(0, best_route)
 
 
-        # print("Planning in Car Controller", mppi_steering, mppi_speed)
+        print("Planning in Car Controller",mppi_speed, mppi_steering )
 
         return mppi_speed, mppi_steering
 
@@ -653,7 +755,16 @@ class CarController:
 
         plt.clf()
 
+        plt.xlim(-6, 6)
+        plt.ylim(-2, 10)
+
         fig, position_ax = plt.subplots()
+
+        for segment in self.track.segments:
+            x_val = [x[0] for x in segment]
+            y_val = [x[1] for x in segment]
+
+            plt.plot(x_val,y_val,'o')
 
         plt.title("History based random control")
         plt.xlabel("Position x [m]")
@@ -667,15 +778,15 @@ class CarController:
         indices = []
         for trajectory in self.simulated_history:
             cost = self.simulated_costs[i]
-            # if cost < MAX_COST:
-            for state in trajectory:
-                # if state[0] > 1:
-                s_x.append(state[0])
-                s_y.append(state[1])
-                costs.append(cost)
-                indices.append(cost)
-                ind += 1
-            i += 1
+            if cost < 9999:
+                for state in trajectory:
+                    # if state[0] > 1:
+                    s_x.append(state[0])
+                    s_y.append(state[1])
+                    costs.append(cost)
+                    indices.append(cost)
+                    ind += 1
+                i += 1
 
         trajectory_costs = position_ax.scatter(s_x, s_y, c=indices)
         colorbar = fig.colorbar(trajectory_costs)
@@ -708,13 +819,13 @@ class CarController:
 
         # Draw Borders
 
-        segment = np.array(self.track.segments[0])
+        # segment = np.array(self.track.segments[0])
         # print("Segment", segment)
-        w_x = segment[:,0]
-        w_y = segment[:,1]
+        # w_x = segment[:,0]
+        # w_y = segment[:,1]
         # print("w_x", w_x)
         # print("w_y", w_y)
-        position_ax.scatter(w_x, w_y, c="#008800", label="Next waypoints")
+        # position_ax.scatter(w_x, w_y, c="#008800", label="Next waypoints")
         # Plot Chosen Trajectory
         t_x = []
         t_y = []
