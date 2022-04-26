@@ -39,6 +39,9 @@ class Track:
         self.segments = []
         self.line_strings = []
 
+        self.lidar_points = []
+        self.lidar_points_live = []
+
 
     
     def get_ordered_list(points, x, y):
@@ -56,8 +59,24 @@ class Track:
 
     def add_new_lidar_points_to_segments(self, points):
 
-        # return
-        d_treshold = 1.5
+
+        self.lidar_points_live = points
+        return
+        
+        def dist(p1, p2):
+            return (p1[0] - p2[0]) **2 + (p1[1] - p2[1]) **2
+
+        for point in points:
+            add = True
+            for lidar_point in self.lidar_points:
+                if(dist(point, lidar_point) < 0.1):
+                    add = False
+            if(add):
+                self.lidar_points.append(point)
+            # print("self.lidarpojnts", np.array(self.lidar_points).shape)
+
+        return
+        d_treshold = 1.0
         for point in points:
 
             connected_segment_index = -1
@@ -69,7 +88,7 @@ class Track:
                 closest_dist = get_distance_from_point_to_points(point, segment)
 
                 # Avoid taking into account already measured points
-                if(closest_dist < 0.8): 
+                if(closest_dist < 0.2): 
                     new_segment = False
                     segment_index+=1
                     continue
@@ -106,7 +125,7 @@ class Track:
                 x_val = [x[0] for x in segment]
                 y_val = [x[1] for x in segment]
 
-            plt.plot(x_val,y_val,'o')
+                plt.plot(x_val,y_val,'o')
             # plt.show()
             plt.savefig("Myfile.png",format="png")
 
