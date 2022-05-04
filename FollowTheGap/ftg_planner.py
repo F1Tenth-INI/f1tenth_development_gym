@@ -6,7 +6,6 @@ from pyglet.gl import GL_POINTS
 import pyglet
 import numpy as np
 import math
-from settings import *
 import matplotlib.pyplot as plt
 
 
