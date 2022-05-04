@@ -1,15 +1,11 @@
-import sys
-# Insert every folder where driver classes are in
-# like this we can start the project from the root folder
-# sys.path.insert(1, 'FollowTheGap')
-# sys.path.insert(1, 'examples')
+
 
 # Import Planner Classes
 from FollowTheGap.ftg_planner import FollowTheGapPlanner as FollowTheGapPlannerFlo
-
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
-
 from examples.pure_pursuit_planner import PurePursuitPlanner
+
+# Obstacle creation
 from tobi.random_obstacle_creator import RandomObstacleCreator
 
 import time
@@ -26,9 +22,8 @@ from Settings import Settings
 from OpenGL.GL import *
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
-
+# Config
 map_config_file = Settings.MAP_CONFIG_FILE
-
 
 
 # First planner settings
@@ -112,6 +107,8 @@ def main():
     racetrack = conf.map_path
     starting_positions =  conf.starting_positions[0:number_of_drivers]
     
+    # Tobi: Place random obstacles on the track
+    # For obstacle settings, look @ random_obstacles.yaml
     if(Settings.PLACE_RANDOM_OBSTACLES):
         random_obstacle_creator = RandomObstacleCreator()
         racetrack=random_obstacle_creator.add_random_obstacles(racetrack, starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
