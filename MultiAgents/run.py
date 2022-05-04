@@ -7,6 +7,7 @@ import sys
 # Import Planner Classes
 from FollowTheGap.ftg_planner import FollowTheGapPlanner
 from examples.pure_pursuit_planner import PurePursuitPlanner
+from tobi.random_obstacle_creator import RandomObstacleCreator
 
 import time
 
@@ -17,13 +18,13 @@ import gym
 import numpy as np
 from argparse import Namespace
 import json
-
+from Settings import Settings
 
 from OpenGL.GL import *
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
 
-config_file = "MultiAgents/config_Oschersleben.yaml"
+map_config_file = Settings.MAP_CONFIG_FILE
 
 
 
@@ -43,12 +44,13 @@ planner2.draw_lidar_data = True
 planner2.lidar_visualization_color = (255, 255, 255)
 
 # second planner
-# planner2 = PurePursuitPlanner(config_file = config_file)
+# planner2 = PurePursuitPlanner(map_config_file = map_config_file)
 
 
 
 ##################### DEFINE DRIVERS HERE #####################    
-drivers = [ planner1, planner2]
+# drivers = [ planner1, planner2]
+drivers = [ planner1]
 ###############################################################    
 
 
@@ -66,12 +68,9 @@ def main():
     """
     
 
-    with open(config_file) as file:
+    with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
-
-   
-    
     
 
     def get_odom(obs, agent_index):
@@ -86,15 +85,12 @@ def main():
         return odom
 
 
-
-
     def render_callback(env_renderer):
         # custom extra drawing function
 
         e = env_renderer
         
-        
-        if False:
+        if Settings.CAMERA_AUTO_FOLLOW:
             # update camera to follow car
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
@@ -110,13 +106,19 @@ def main():
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)
 
-    env = gym.make('f110_gym:f110-v0', map=conf.map_path,
-                   map_ext=conf.map_ext, num_agents=number_of_drivers)
-    env.add_render_callback(render_callback)
-    
-    
-    cars = [env.sim.agents[i] for i in range(number_of_drivers)]
+    racetrack = conf.map_path
     starting_positions =  conf.starting_positions[0:number_of_drivers]
+    
+    if(Settings.PLACE_RANDOM_OBSTACLES):
+        random_obstacle_creator = RandomObstacleCreator()
+        racetrack=random_obstacle_creator.add_random_obstacles(racetrack, starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
+
+
+    env = gym.make('f110_gym:f110-v0', map=racetrack,
+                   map_ext=conf.map_ext, num_agents=number_of_drivers)
+    env.add_render_callback(render_callback)    
+    cars = [env.sim.agents[i] for i in range(number_of_drivers)]
+  
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
 
@@ -143,7 +145,7 @@ def main():
         obs, step_reward, done, info = env.step(np.array(controlls))
 
         laptime += step_reward
-        env.render(mode='human_fast')
+        env.render(mode=Settings.RENDER_MODE)
         render_index += 1
 
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
