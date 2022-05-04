@@ -22,27 +22,33 @@ import json
 from OpenGL.GL import *
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
+
+config_file = "MultiAgents/config_Oschersleben.yaml"
+
+
+
 # First planner settings
 planner1 = FollowTheGapPlanner()
-planner1.speed_fraction = 1.1
+planner1.speed_fraction = 1.3
 planner1.plot_lidar_data =False
 planner1.draw_lidar_data = True
 planner1.lidar_visualization_color = (255, 0, 255)
 
 
 # 2nd Car
-# planner2 = FollowTheGapPlanner(0.7)
-# planner2.plot_lidar_data = False
-# planner2.draw_lidar_data = True
-# planner2.lidar_visualization_color = (255, 255, 255)
+planner2 = FollowTheGapPlanner()
+planner1.speed_fraction = 1.1
+planner2.plot_lidar_data = False
+planner2.draw_lidar_data = True
+planner2.lidar_visualization_color = (255, 255, 255)
 
 # second planner
-planner2 = PurePursuitPlanner()
+# planner2 = PurePursuitPlanner(config_file = config_file)
 
 
 
 ##################### DEFINE DRIVERS HERE #####################    
-drivers = [planner1,planner2]
+drivers = [ planner1, planner2]
 ###############################################################    
 
 
@@ -58,8 +64,9 @@ def main():
     """
     main entry point
     """
+    
 
-    with open('MultiAgents/config_example_map.yaml') as file:
+    with open(config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
 
@@ -85,17 +92,19 @@ def main():
         # custom extra drawing function
 
         e = env_renderer
-
-        # update camera to follow car
-        x = e.cars[0].vertices[::2]
-        y = e.cars[0].vertices[1::2]
-        top, bottom, left, right = max(y), min(y), min(x), max(x)
-        e.score_label.x = left
-        e.score_label.y = top - 700
-        e.left = left - 800
-        e.right = right + 800
-        e.top = top + 800
-        e.bottom = bottom - 800
+        
+        
+        if False:
+            # update camera to follow car
+            x = e.cars[0].vertices[::2]
+            y = e.cars[0].vertices[1::2]
+            top, bottom, left, right = max(y), min(y), min(x), max(x)
+            e.score_label.x = left
+            e.score_label.y = top - 700
+            e.left = left - 800
+            e.right = right + 800
+            e.top = top + 800
+            e.bottom = bottom - 800
 
         for driver in drivers:
             if hasattr(driver, 'render'):

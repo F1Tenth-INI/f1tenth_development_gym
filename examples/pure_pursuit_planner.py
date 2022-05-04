@@ -152,12 +152,11 @@ class PurePursuitPlanner:
     """
     Example Planner
     """
-    def __init__(self, conf = None, wb = None):
+    def __init__(self, config_file, wb = None):
         
-        if(conf == None):
-            with open('MultiAgents/config_example_map.yaml') as file:
-                conf_dict = yaml.load(file, Loader=yaml.FullLoader)
-            conf = Namespace(**conf_dict)
+        with open(config_file) as file:
+            conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+        conf = Namespace(**conf_dict)
 
         if( wb == None):
             wb = 0.17145+0.15875        

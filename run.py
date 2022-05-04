@@ -38,7 +38,7 @@ def main():
         # custom extra drawing function
 
         e = env_renderer
-
+    
         # update camera to follow car
         x = e.cars[0].vertices[::2]
         y = e.cars[0].vertices[1::2]
