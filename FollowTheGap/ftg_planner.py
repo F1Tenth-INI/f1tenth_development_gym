@@ -1,3 +1,7 @@
+import sys
+sys.path.insert(1, 'FollowtheGap')
+
+
 from pyglet.gl import GL_POINTS
 import pyglet
 import numpy as np

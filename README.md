@@ -2,38 +2,68 @@
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
 
 # Changes by Florian
-For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle.
 
-## Follow The Gap
-
-The follow tha Gap controller can be tested in a single agent environment like this: 
-
+## Setup
+I highly recommend using Conda for virtual environments.
+First create a conda environment. 
 ```bash
-cd FollowTheGap
-python3 run.py
+conda create -n f1t python=3.8
+conda activate f1t
 ```
 
-The Controller itself is implemented in ftg_planner. 
-```process_observation(self, ranges=None, ego_odom=None) ```
-This is the function that is required to take place in the ICRA gym race and is called by the ENV at every timestep with the according arguments.
 
-
-## MPPI
+Then install the gym inside the environment.
 ```bash
-cd MPPI
-python3 run.py
+pip3 install --user -e gym/
 ```
-An implementation of the MPPI Controller - Is much too slow to run real-time
-Please don't touch yet - WORK IN PROGRESS
 
 
-## Multi Agents
-If you want to let two cars race against each other, there is a multi agent environment. You can plan the controls for the two different cars with different Planner classes / settings.
+## Run
 
+Please run all python scripts from the root folder
+
+The  environment you should use is in the MultiAgents folder.
 ```bash
-cd MultiAgent
-python3 run.py
+python MultiAgents/run.py
 ```
+
+You can add one or multiple instances of driver classes to the drivers array:
+```python
+##################### DEFINE DRIVERS HERE #####################    
+drivers = [planner1,planner2]
+###############################################################   
+```
+ 
+ ## Develop
+ Every driver class must have the function process_ovservation, whith the following arguments:
+```python
+def process_observation(self, ranges=None, ego_odom=None):
+      """
+      gives actuation given observation
+      @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
+      @ ego_odom: A dict with following indices:
+      {
+          'pose_x': float,
+          'pose_y': float,
+          'pose_theta': float,
+          'linear_vel_x': float,
+          'linear_vel_y': float,
+          'angular_vel_z': float,
+      }
+      """
+      desired_speed = 0
+      desired_angle = 0
+
+      return desired_speed, desired_angle
+
+```
+The function should return the desired speed and the desired angle
+
+
+<!-- For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle. -->
+
+
+
 
 
 # The F1TENTH Gym environment

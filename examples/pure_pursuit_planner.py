@@ -1,14 +1,14 @@
 
 import numpy as np
-
+from os.path import exists
 from numba import njit
+import yaml
+from argparse import Namespace
 
 from pyglet.gl import GL_POINTS
 
-
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
-import sys
-sys.path.insert(1, '../examples')
+
 
 
 
@@ -152,7 +152,15 @@ class PurePursuitPlanner:
     """
     Example Planner
     """
-    def __init__(self, conf, wb):
+    def __init__(self, conf = None, wb = None):
+        
+        if(conf == None):
+            with open('MultiAgents/config_example_map.yaml') as file:
+                conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+            conf = Namespace(**conf_dict)
+
+        if( wb == None):
+            wb = 0.17145+0.15875        
         self.wheelbase = wb
         self.conf = conf
         self.load_waypoints(conf)
@@ -168,7 +176,11 @@ class PurePursuitPlanner:
         """
         loads waypoints
         """
-        self.waypoints = np.loadtxt(conf.wpt_path, delimiter=conf.wpt_delim, skiprows=conf.wpt_rowskip)
+        if exists(conf.wpt_path):
+            self.waypoints = np.loadtxt(conf.wpt_path, delimiter=conf.wpt_delim, skiprows=conf.wpt_rowskip)
+        else:
+            print("Waypoint file does not exist")
+            exit()
 
     def render(self, e):
         """

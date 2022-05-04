@@ -6,7 +6,7 @@ import numpy as np
 from argparse import Namespace
 import json
 
-from ftg_planner import FollowTheGapPlanner
+from FollowTheGap.ftg_planner import FollowTheGapPlanner
 
 from OpenGL.GL import *
 from numba import njit
@@ -21,7 +21,7 @@ def main():
     main entry point
     """
 
-    with open('config_example_map.yaml') as file:
+    with open('FollowTheGap/config_example_map.yaml') as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
 
@@ -95,7 +95,7 @@ def main():
         obs, step_reward, done, info = env.step(np.array([[ accl, sv]]))
 
         laptime += step_reward
-        env.render(mode='human')
+        env.render(mode='human_fast')
         render_index += 1
 
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
