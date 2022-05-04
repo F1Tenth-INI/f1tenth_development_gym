@@ -5,7 +5,10 @@ import sys
 # sys.path.insert(1, 'examples')
 
 # Import Planner Classes
-from FollowTheGap.ftg_planner import FollowTheGapPlanner
+from FollowTheGap.ftg_planner import FollowTheGapPlanner as FollowTheGapPlannerFlo
+
+from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
+
 from examples.pure_pursuit_planner import PurePursuitPlanner
 from tobi.random_obstacle_creator import RandomObstacleCreator
 
@@ -29,16 +32,16 @@ map_config_file = Settings.MAP_CONFIG_FILE
 
 
 # First planner settings
-planner1 = FollowTheGapPlanner()
-planner1.speed_fraction = 1.3
+planner1 = FollowTheGapPlannerFlo()
+planner1.speed_fraction = 1.5
 planner1.plot_lidar_data =False
 planner1.draw_lidar_data = True
 planner1.lidar_visualization_color = (255, 0, 255)
 
 
 # 2nd Car
-planner2 = FollowTheGapPlanner()
-planner1.speed_fraction = 1.1
+planner2 = FollowTheGapPlannerXiang()
+planner2.speed_fraction = 2.1
 planner2.plot_lidar_data = False
 planner2.draw_lidar_data = True
 planner2.lidar_visualization_color = (255, 255, 255)
@@ -50,7 +53,7 @@ planner2.lidar_visualization_color = (255, 255, 255)
 
 ##################### DEFINE DRIVERS HERE #####################    
 # drivers = [ planner1, planner2]
-drivers = [ planner1]
+drivers = [ planner2, planner1]
 ###############################################################    
 
 
