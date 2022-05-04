@@ -1,7 +1,7 @@
 ![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
 
-# Changes by Florian
+# Notes by Florian
 
 ## Setup
 I highly recommend using Conda for virtual environments.
@@ -33,8 +33,15 @@ You can add one or multiple instances of driver classes to the drivers array:
 drivers = [planner1,planner2]
 ###############################################################   
 ```
+
+### Settings
+Have a look at the MultiAgent's settings file: [Settings.py](https://github.com/Florian-Bolli/f1tenth_development_gym/blob/main/MultiAgents/Settings.py) 
+
  
  ## Develop
+ Please work on your own branches and do pull requests to the main branch. 
+ If possible, seperate your code into your own folders.
+
  Every driver class must have the function process_ovservation, whith the following arguments:
 ```python
 def process_observation(self, ranges=None, ego_odom=None):
