@@ -27,11 +27,16 @@ class WptUtil:
         path = self.dir_path+filename
         waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
         self.wpts = waypoints
+        if True:
+            # path2 = self.dir_path+'/nicholas_icra_global_wpnts'
+            # waypoints2 = pd.read_csv(path2+'.csv', header=None).to_numpy()
+            # waypoints2=waypoints2[0:-1:10,1:3] 
 
-        # path2 = self.dir_path+'/nicholas_icra_global_wpnts'
-        # waypoints2 = pd.read_csv(path2+'.csv', header=None).to_numpy()
-        # self.wpts_opt = waypoints2[:,2:4]
-        # print(self.wpts_opt.shape)
+            path2 = self.dir_path+'/Oschersleben_map_wpts_dense800_60'
+            waypoints2 = pd.read_csv(path2+'.csv', header=None).to_numpy()
+            waypoints2=waypoints2[0:-1:1,1:3] 
+            self.wpts_opt=waypoints2 
+            self.wpts=self.wpts_opt
     def normalizeAngle(self,theta):
         """return angle in [-pi, pi]
         """
@@ -67,7 +72,7 @@ class WptUtil:
             #     dists[i] = np.sqrt(np.sum(temp*temp))
             min_dist_segment = np.argmin(distssq)
             return projections[min_dist_segment], np.sqrt(distssq[min_dist_segment]), t[min_dist_segment], min_dist_segment
-    def get_wpt_ref(self,pose_x,pose_y,pose_theta, min_dist_segment,K=2):
+    def get_wpt_ref(self,pose_x,pose_y,pose_theta, min_dist_segment,K=3):
         next_wpt_id = min_dist_segment+K
         if next_wpt_id >= self.wpts.shape[0]:
             next_wpt_id = next_wpt_id-self.wpts.shape[0]
@@ -106,17 +111,24 @@ class WptUtil:
                 gap_starting_index=gap[2]
                 gap_closing_index=gap[3]
                 distances_sub=distances[gap_starting_index+1:gap_closing_index]
+                if np.array(distances_sub).size==0:
+                    distances_sub=distances[gap_starting_index:gap_closing_index+1]
                 # print(distances_sub)
                 max_distance=np.nanmean(distances_sub)
             gap=gaps[index_gapII]
             gap_starting_index=gap[2]
             gap_closing_index=gap[3]
+            distances_sub=distances[gap_starting_index+1:gap_closing_index]
+            if np.array(distances_sub).size==0:
+                gap_starting_index-=1
+                gap_closing_index+=1
             angles_sub=angles[gap_starting_index+1:gap_closing_index]
             distances_sub=distances[gap_starting_index+1:gap_closing_index]
             theta_dist=self.angleDistance(angles_sub,theta2wpt)
             isel= np.argmin(theta_dist)
             steering_angleII=angles_sub[isel]
             steering_angle=(steering_angleII+3*steering_angle)/4
+            # max_distance=distances_sub[isel]
         return steering_angle, max_distance        
     def normalizedProjection(self,pose_x,pose_y,targets,wpt_ref):
         diff_tar = targets-[pose_x,pose_y]
