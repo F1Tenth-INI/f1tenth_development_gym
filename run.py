@@ -6,7 +6,7 @@ import numpy as np
 from argparse import Namespace
 import json
 
-from ftg_planner import FollowTheGapPlanner
+from FollowTheGap.ftg_planner import FollowTheGapPlanner
 
 from Recorder import Recorder
 
@@ -33,7 +33,7 @@ def main():
     """
 for i in trange(number_of_experiments):
         print()
-        with open('config_example_map.yaml') as file:
+        with open('FollowTheGap/config_example_map.yaml') as file:
             conf_dict = yaml.load(file, Loader=yaml.FullLoader)
         conf = Namespace(**conf_dict)
 
@@ -49,18 +49,18 @@ for i in trange(number_of_experiments):
         def render_callback(env_renderer):
             # custom extra drawing function
 
-            e = env_renderer
+        e = env_renderer
 
-            # update camera to follow car
-            x = e.cars[0].vertices[::2]
-            y = e.cars[0].vertices[1::2]
-            top, bottom, left, right = max(y), min(y), min(x), max(x)
-            e.score_label.x = left
-            e.score_label.y = top - 700
-            e.left = left - 800
-            e.right = right + 800
-            e.top = top + 800
-            e.bottom = bottom - 800
+        # update camera to follow car
+        x = e.cars[0].vertices[::2]
+        y = e.cars[0].vertices[1::2]
+        top, bottom, left, right = max(y), min(y), min(x), max(x)
+        e.score_label.x = left
+        e.score_label.y = top - 700
+        e.left = left - 800
+        e.right = right + 800
+        e.top = top + 800
+        e.bottom = bottom - 800
 
             planner.render(env_renderer)
 
@@ -111,7 +111,7 @@ for i in trange(number_of_experiments):
             laptime += step_reward
 
             if render == True:
-                env.render(mode='human')
+                env.render(mode='human_fast')
                 render_index += 1
         print()
         print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
