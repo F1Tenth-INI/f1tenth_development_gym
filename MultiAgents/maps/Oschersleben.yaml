@@ -1,0 +1,7 @@
+image: Oschersleben.png # 2000 x 2000 px = 85.9 x 85.9 m, track is 49 px or 2.1m wide
+resolution: 0.04295 # m/px, i.e. 23 px/m
+origin: [-55.07650228661655,-33.57884064395765, 0.000000] # origin of track in m... not clear what is the coordinate system 0,0 corner is at upper left and y increases downwards
+# however note that map is flipped up down so it is necessary to substract a map pixel coordinate from the map height in pixels to obtain a map coordinate in pixels; see random_obstacle_creator.py for example
+negate: 0
+occupied_thresh: 0.45
+free_thresh: 0.196
