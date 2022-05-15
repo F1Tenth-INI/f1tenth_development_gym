@@ -12,5 +12,6 @@ setup(name='f110_gym',
                         'numba',
                         'pyyaml',
                         'pyglet',
-                        'pyopengl']
+                        'pyopengl',
+                        'matplotlib']
       )
