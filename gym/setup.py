@@ -13,5 +13,7 @@ setup(name='f110_gym',
                         'pyyaml',
                         'pyglet',
                         'pyopengl',
-                        'matplotlib']
+                        'matplotlib',
+                        'tqdm',
+                        ]
       )
