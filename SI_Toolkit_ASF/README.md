@@ -1,4 +1,4 @@
-# SI_Toolkit_ApplicationSpecificFiles
+# SI_Toolkit_ASF
 
 Only relevant if you are setting up SI_Toolkit
 for a completely new project!
@@ -8,10 +8,10 @@ which need to be customized
 for each project separately.
 
 We provide the template for the necessary files
-in SI_Toolkit_ApplicationSpecificFiles_Template folder.
+in SI_Toolkit_ASF_Template folder.
 Please copy this folder outside of SI_Toolkit
 AND
-rename it to SI_Toolkit_ApplicationSpecificFiles.
+rename it to SI_Toolkit_ASF.
 
 Most of the functions it contains
 does not need to be modified for basic functionalities.

@@ -5,25 +5,38 @@ import numpy as np
 
 
 STATE_INDICES = {} # This could be imported
-STATE_INDICES_TF = tf.lookup.StaticHashTable(  # TF style dictionary
-    initializer=tf.lookup.KeyValueTensorInitializer(
-        keys=tf.constant(list(STATE_INDICES.keys())), values=tf.constant(list(STATE_INDICES.values()))),
-    default_value=-100, name=None
-)
 
 
 class next_state_predictor_ODE_tf():
 
-    def __init__(self, dt, intermediate_steps):
+    def __init__(self, dt, intermediate_steps, disable_individual_compilation=False):
         self.s = None
 
         self.intermediate_steps = tf.convert_to_tensor(intermediate_steps, dtype=tf.int32)
+        self.intermediate_steps_float = tf.convert_to_tensor(intermediate_steps, dtype=tf.float32)
         self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps), dtype=tf.float32)
 
-    @Compile
-    def step(self, s, Q, params):
+        if disable_individual_compilation:
+            self.step = self._step
+        else:
+            self.step = Compile(self._step)
 
-        s_next = s
+    @Compile
+    def _step(self, s, Q, params):
+
+        pose_x = s[:, 0]
+        pose_y = s[:, 1]
+        pose_theta = s[:, 2]
+
+        speed = Q[:, 0]
+        steering = Q[:, 1]
+
+        for _ in tf.range(self.intermediate_steps):
+            pose_theta = pose_theta+(steering/self.intermediate_steps_float)
+            pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
+            pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
+
+        s_next = tf.stack([pose_x, pose_y, pose_theta], axis=1)
 
         return s_next
 

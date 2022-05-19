@@ -1,6 +1,6 @@
 from SI_Toolkit.load_and_normalize import get_paths_to_datafiles, load_data
 
-folder_with_data_to_calculate_norm_info = 'SI_Toolkit_ApplicationSpecificFiles/Experiments/Experiment-1/Recordings/Train'
+folder_with_data_to_calculate_norm_info = 'SI_Toolkit_ASF/Experiments/Experiment-1/Recordings/Train'
 
 list_of_paths_to_datafiles = get_paths_to_datafiles(folder_with_data_to_calculate_norm_info)
 

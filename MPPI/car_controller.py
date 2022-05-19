@@ -396,10 +396,6 @@ class CarController:
         distance_cost = 0
         terminal_speed_cost = 0
         terminal_position_cost = 0
-       
-
-        number_of_states = len(trajectory)
-        index = 0
 
 
         # Don't come too close to border
