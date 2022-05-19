@@ -1,8 +1,8 @@
 import numpy as np
 
-STATE_VARIABLES=None
+STATE_VARIABLES=['pose_x', 'pose_y', 'pose_theta']
 STATE_INDICES=None
-CONTROL_INPUTS=None
+CONTROL_INPUTS=['speed', 'steering']
 
 class next_state_predictor_ODE():
 
