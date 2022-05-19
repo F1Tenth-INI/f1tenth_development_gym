@@ -1,9 +1,9 @@
 
-
 # Import Planner Classes
 from FollowTheGap.ftg_planner import FollowTheGapPlanner as FollowTheGapPlannerFlo
-from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
+from xiang.ftg_planner_postqualification import FollowTheGapPlanner as FollowTheGapPlannerXiang
 from examples.pure_pursuit_planner import PurePursuitPlanner
+from MPPI.mppi_planner import MppiPlanner
 
 # Obstacle creation
 from tobi.random_obstacle_creator import RandomObstacleCreator
@@ -27,28 +27,22 @@ map_config_file = Settings.MAP_CONFIG_FILE
 
 
 # First planner settings
-planner1 = FollowTheGapPlannerFlo()
-planner1.speed_fraction = 1.5
-planner1.plot_lidar_data =False
-planner1.draw_lidar_data = True
-planner1.lidar_visualization_color = (255, 0, 255)
+# planner1 = FollowTheGapPlannerFlo()
+# planner1.speed_fraction = 1.3
+# planner1.plot_lidar_data =False
+# planner1.draw_lidar_data = True
+# planner1.lidar_visualization_color = (255, 0, 255)
 
 
-# 2nd Car
-planner2 = FollowTheGapPlannerXiang()
-planner2.speed_fraction = 2.1
-planner2.plot_lidar_data = False
-planner2.draw_lidar_data = True
-planner2.lidar_visualization_color = (255, 255, 255)
 
-# second planner
-# planner2 = PurePursuitPlanner(map_config_file = map_config_file)
+# MPPI Planer
+mppi_planner = MppiPlanner()
 
 
 
 ##################### DEFINE DRIVERS HERE #####################    
-# drivers = [ planner1, planner2]
-drivers = [ planner2, planner1]
+drivers = [ mppi_planner ]
+# drivers = [ planner3]
 ###############################################################    
 
 
@@ -129,6 +123,9 @@ def main():
 
     render_index = 0
     while not done:
+        
+        # print("car1 state", cars[0].state)
+        # print("car1 observation", get_odom(obs, 0))
 
 
         ranges = obs['scans']
@@ -138,8 +135,12 @@ def main():
         
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
-            speed, steer =  driver.process_observation(ranges[index], odom)
-            accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+            if render_index % 1 == 0:
+                print("state", cars[index].state)
+                driver.car_state = cars[index].state
+                speed, steer =  driver.process_observation(ranges[index], odom)
+                accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+                # accl, sv = speed, steer # No PID
             controlls.append([accl, sv])
 
         obs, step_reward, done, info = env.step(np.array(controlls))
