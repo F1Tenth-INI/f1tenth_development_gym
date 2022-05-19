@@ -1,5 +1,5 @@
-from globals import *
-from util import *
+from MPPI.globals import *
+from MPPI.util import *
 import math
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,7 +23,7 @@ class Track:
         # track_info = np.load('racing/tracks/{}_info.npy'.format(TRACK_NAME), allow_pickle=True).item()
         # print("track_info", track_info)
 
-        waypoints = np.loadtxt( './example_waypoints.csv', delimiter=';', skiprows= 3)
+        waypoints = np.loadtxt( 'MPPI/example_waypoints.csv', delimiter=';', skiprows= 3)
 
         self.waypoints_x = waypoints[:,1]
         self.waypoints_y = waypoints[:,2]
