@@ -46,6 +46,8 @@ SQRTRHODTINV = tf.convert_to_tensor(config["controller"]["mppi"]["SQRTRHOINV"]) 
 GAMMA = config["controller"]["mppi"]["GAMMA"]
 SAMPLING_TYPE = config["controller"]["mppi"]["SAMPLING_TYPE"]
 
+clip_control_input = tf.constant(config["controller"]["mppi"]["CLIP_CONTROL_INPUT"], dtype=tf.float32)
+
 #create predictor
 predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 
@@ -58,6 +60,11 @@ elif predictor_type == "NeuralNet":
     predictor = predictor_autoregressive_tf(
         horizon=mppi_samples, batch_size=num_rollouts, net_name=NET_NAME
     )
+
+GET_ROLLOUTS_FROM_MPPI = True
+# GET_ROLLOUTS_FROM_MPPI = False
+
+GET_OPTIMAL_TRAJECTORY = True
 
 #mppi correction
 def mppi_correction_cost(u, delta_u):
@@ -106,18 +113,30 @@ class controller_mppi_tf(template_controller):
         self.u_nom = tf.ones([1, mppi_samples, num_control_inputs], dtype=tf.float32)*tf.constant([6.0, 0.0], dtype=tf.float32)
         self.u = tf.convert_to_tensor([6.0, 0.0], dtype=tf.float32)
 
+        self.rollout_trajectory = None
+        self.traj_cost = None
+
+        self.optimal_trajectory = None
+
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
         # generate random input sequence and clip to control limits
         delta_u = inizialize_pertubation(random_gen)
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
-        u_run = tf.clip_by_value(u_run, -6.0, 6.0)
+        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input)
         rollout_trajectory = predictor.predict_tf(s, u_run)
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -6.0, 6.0)
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)
         u = u_nom[0, 0, :]
-        u_nom = tf.concat([u_nom[:, 1:, :], tf.constant(0.0, shape=[1, 1, num_control_inputs])], axis=1)
-        return u, u_nom
+        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
+        if GET_ROLLOUTS_FROM_MPPI:
+            return u, u_nom, rollout_trajectory, traj_cost
+        else:
+            return u, u_nom, None, None
+
+    @Compile
+    def predict_optimal_trajectory(self, s, u_nom):
+        return predictor.predict_tf(s, u_nom)
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
@@ -125,7 +144,15 @@ class controller_mppi_tf(template_controller):
         s = tf.convert_to_tensor(s, dtype=tf.float32)
         target = tf.convert_to_tensor(target, dtype=tf.float32)
 
-        self.u, self.u_nom = self.predict_and_cost(s, target, self.u_nom, self.rng_cem, self.u)
+        self.u, self.u_nom, rollout_trajectory, traj_cost = self.predict_and_cost(s, target, self.u_nom, self.rng_cem,
+                                                                                  self.u)
+        if GET_ROLLOUTS_FROM_MPPI:
+            self.rollout_trajectory = rollout_trajectory.numpy()
+            self.traj_cost = traj_cost.numpy()
+
+        if GET_OPTIMAL_TRAJECTORY:
+            self.optimal_trajectory = self.predict_optimal_trajectory(s, self.u_nom).numpy()
+
         return self.u.numpy()
 
     def controller_reset(self):
