@@ -22,6 +22,8 @@ NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 
 from MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
 
+from MPPI_Marcin.TargetGenerator import TargetGenerator
+
 class MPPI_F1TENTH:
     """
     Example Planner
@@ -41,6 +43,8 @@ class MPPI_F1TENTH:
         self.mppi = controller_mppi_tf()
 
         self.Render = Render()
+
+        self.TargetGenerator = TargetGenerator()
 
     def render(self, e):
         self.Render.render(e)
@@ -63,6 +67,8 @@ class MPPI_F1TENTH:
         pose_y = ego_odom['pose_y']
         pose_theta = ego_odom['pose_theta']
 
+        target_positions = self.TargetGenerator.step((pose_x, pose_y), )
+
         scans = np.array(ranges)
         # Take into account size of car
         # scans -= 0.3
@@ -77,6 +83,7 @@ class MPPI_F1TENTH:
         largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
 
         target = np.vstack((largest_gap_middle_point, lidar_points))
+        target = np.vstack((target_positions, lidar_points))
         s = np.array((pose_x, pose_y, pose_theta))
         speed, steering_angle = self.mppi.step(s, target=target)
 
