@@ -32,7 +32,7 @@ class next_state_predictor_ODE_tf():
         steering = Q[:, 1]
 
         for _ in tf.range(self.intermediate_steps):
-            pose_theta = pose_theta+(steering/self.intermediate_steps_float)
+            pose_theta = pose_theta + 0.5*(steering/self.intermediate_steps_float)
             pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
 
