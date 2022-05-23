@@ -178,7 +178,11 @@ class PurePursuitPlanner:
     def __init__(self, conf, wb):
         self.wheelbase = wb
         self.conf = conf
-        self.load_waypoints(conf)
+        self.waypoints = None
+        try:
+            self.load_waypoints(conf)
+        except:
+            print("No waypoints provided")
         self.max_reacquire = 20.
 
 
@@ -199,11 +203,6 @@ class PurePursuitPlanner:
         """
         self.waypoints = np.loadtxt(
             conf.wpt_path, delimiter=conf.wpt_delim, skiprows=conf.wpt_rowskip)
-
-        waypoints_x = self.waypoints[:,1]
-        waypoints_y = self.waypoints[:,2]
-
-        # print("WP", self.waypoints[:,1].shape)
 
 
     def render_test(self, e):
@@ -309,9 +308,13 @@ class PurePursuitPlanner:
         gives actuation given observation
         """
         position = np.array([pose_x, pose_y])
-        lookahead_point = self._get_current_waypoint(
-            self.waypoints, lookahead_distance, position, pose_theta)
+        if self.waypoints is not None:
+            lookahead_point = self._get_current_waypoint(
+                self.waypoints, lookahead_distance, position, pose_theta)
+        else:
+            lookahead_point = None
 
+        # lookahead_point = None
         if lookahead_point is None:
             return 4.0, 0.0
 
