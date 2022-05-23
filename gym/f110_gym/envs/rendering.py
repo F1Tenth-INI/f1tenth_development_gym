@@ -162,6 +162,7 @@ class EnvRenderer(pyglet.window.Window):
         # mask and only leave the obstacle points
         map_mask = map_img == 0.0
         map_mask_flat = map_mask.flatten()
+        # Problem was here
         map_points = 50. * map_coords[:, map_mask_flat].T
         for i in range(map_points.shape[0]):
             self.batch.add(1, GL_POINTS, None, ('v3f/stream', [map_points[i, 0], map_points[i, 1], map_points[i, 2]]), ('c3B/stream', [183, 193, 222]))

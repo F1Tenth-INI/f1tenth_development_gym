@@ -4,7 +4,7 @@ run_name: 'map_wide'
 perf_num: 6
 
 # map paths
-map_path: 'MultiAgents/maps/Oschersleben'
+map_path: 'maps_files/maps/Oschersleben'
 map_ext: '.png'
 
 # starting pose for map
