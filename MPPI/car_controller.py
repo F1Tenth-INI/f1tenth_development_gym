@@ -396,10 +396,6 @@ class CarController:
         distance_cost = 0
         terminal_speed_cost = 0
         terminal_position_cost = 0
-       
-
-        number_of_states = len(trajectory)
-        index = 0
 
 
         # Don't come too close to border
@@ -553,28 +549,12 @@ class CarController:
             mppi_steering = dist[min_index][0][0]
 
         else:
-            min_index = np.argmin(costs)
-
-            mppi_steering =  dist[min_index][0][0]
-
-            weights = np.zeros(len(dist))
-            for i in range(len(dist)):
-                lowest_cost = 100000
-
-                cost = costs[i]
-                # find best
-                # if cost < lowest_cost:
-                #     best_index = i
-                #     lowest_cost = cost
-
-                if(cost < 999):
-                    weight = math.exp((-1 / INVERSE_TEMP) * cost)
-                else:
-                    weight = 0
-                
-                weights[i] = weight
-
-            next_control_sequence = np.average(dist, axis=0, weights=weights)
+            costs[costs > 1000] = 1000
+            weights = np.exp((-1 / INVERSE_TEMP) * costs)
+            if np.sum(weights) == 0:
+                next_control_sequence = self.best_control_sequenct
+            else:
+                next_control_sequence = np.average(dist, axis=0, weights=weights)
 
             mppi_steering = next_control_sequence[0][0]
             mppi_speed = next_control_sequence[0][1]
