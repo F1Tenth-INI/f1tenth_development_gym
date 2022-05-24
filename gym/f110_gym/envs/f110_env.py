@@ -235,6 +235,7 @@ class F110Env(gym.Env):
 
         dist2 = delta_pt[0, :]**2 + temp_y**2
         closes = dist2 <= 0.1
+        #### Comment the for loop below for to make uninterrupted long recording (not clear, what exactly it disables) ####
         for i in range(self.num_agents):
             if closes[i] and not self.near_starts[i]:
                 self.near_starts[i] = True
