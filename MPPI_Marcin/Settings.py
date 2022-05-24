@@ -1,5 +1,8 @@
 # Configuration for main
 class Settings:
+
+    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
+    EXPERIMENT_LENGTH = 200000  # in timesteps, only valid if default termination after two laps is off.
     
     # The map config file contains all information about the map, including the map_path, starting positions
     # pysical params etc. 
@@ -15,7 +18,6 @@ class Settings:
     
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True
-    
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
     # RENDER_MODE = None
