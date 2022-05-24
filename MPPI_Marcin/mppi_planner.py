@@ -122,6 +122,7 @@ class Render:
         self.rollout_trajectory, self.traj_cost = None, None
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None
+        self.target_point = None
 
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
                largest_gap_middle_point=None, target_point=None):
