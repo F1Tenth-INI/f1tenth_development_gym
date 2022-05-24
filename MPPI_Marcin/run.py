@@ -17,6 +17,7 @@ import gym
 import numpy as np
 from argparse import Namespace
 import json
+from tqdm import trange
 from Settings import Settings
 
 from Recorder import Recorder
@@ -124,8 +125,10 @@ def main():
     start = time.time()
 
     render_index = 0
-    while not done:
 
+    for _ in trange(Settings.EXPERIMENT_LENGTH):
+        if done:
+            break
         ranges = obs['scans']
 
         # First car
@@ -150,4 +153,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+
+    for i in range(Settings.NUMBER_OF_EXPERIMENTS):
+        print('Experiment nr.: {}'.format(i+1))
+        main()
