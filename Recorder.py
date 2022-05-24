@@ -21,7 +21,10 @@ rounding_decimals = 5
 path_to_experiment_recordings = 'ExperimentRecordings/'
 
 class Recorder:
-    def __init__(self, controller_name=None, create_header=True):
+    def __init__(self, controller_name=None, create_header=True, dt=None):
+
+        self.dt = dt
+
         self.ranges_decimate = ranges_decimate
         self.ranges_forward_only = ranges_forward_only
         self.path_to_experiment_recordings = path_to_experiment_recordings
@@ -34,10 +37,15 @@ class Recorder:
         self.rounding_decimals = 3
 
         self.headers_already_saved = False
+
+        self.keys_time = None
         self.keys_ranges = None
         self.keys_odometry = None
         self.keys_control_inputs = None
+
         self.csv_filepath = None
+
+        self.time_dict = None
         self.ranges_dict = None
         self.odometry_dict = None
         self.control_inputs_dict = None
@@ -66,13 +74,19 @@ class Recorder:
         if self.keys_odometry is None:
             self.keys_odometry = self.odometry_dict.keys()
 
+    def get_time(self, time):
+        self.time_dict = {'time': time}
+        if self.keys_time is None:
+            self.keys_time = self.time_dict.keys()
+
     def get_control_inputs(self, control_inputs):
         speed, steering = control_inputs
         self.control_inputs_dict = {'speed': speed, 'steering': steering}
         if self.keys_control_inputs is None:
             self.keys_control_inputs = self.control_inputs_dict.keys()
 
-    def save_data(self, control_inputs, odometry, ranges):
+    def save_data(self, control_inputs, odometry, ranges, time):
+        self.get_time(time)
         self.get_control_inputs(control_inputs=control_inputs)
         self.get_odometry(odometry_dict=odometry)
         self.get_ranges(ranges=ranges)
@@ -80,6 +94,7 @@ class Recorder:
 
     def save_csv(self):
 
+        self.dict_to_save.update(self.time_dict)
         self.dict_to_save.update(self.control_inputs_dict)
         self.dict_to_save.update(self.odometry_dict)
         self.dict_to_save.update(self.ranges_dict)
@@ -145,6 +160,10 @@ class Recorder:
 
             writer.writerow(['#'])
 
+            writer.writerow(['# Saving: {} s'.format(self.dt)])
+
+            writer.writerow(['#'])
+
             writer.writerow(['# Controller: {}'.format(self.controller_name)])
 
             writer.writerow(['#'])
@@ -153,10 +172,12 @@ class Recorder:
 
     def reset(self):
         self.headers_already_saved = False
+        self.keys_time = None
         self.keys_ranges = None
         self.keys_odometry = None
         self.keys_control_inputs = None
         self.csv_filepath = None
+        self.time_dict = None
         self.ranges_dict = None
         self.odometry_dict = None
         self.control_inputs_dict = None
