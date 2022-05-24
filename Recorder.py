@@ -16,7 +16,7 @@ except:
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
 ranges_forward_only = True # Only LIDAR scans in forward direction are saved
 
-rounding_decimals = 3
+rounding_decimals = 5
 
 path_to_experiment_recordings = 'ExperimentRecordings/'
 
