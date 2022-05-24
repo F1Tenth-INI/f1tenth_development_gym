@@ -40,6 +40,9 @@ class MPPI_F1TENTH:
         self.plot_lidar_data = False
 
         self.largest_gap_middle_point = None
+        self.lidar_points = None
+        self.largest_gap_middle_point = None
+
 
         self.mppi = controller_mppi_tf()
 
@@ -91,9 +94,10 @@ class MPPI_F1TENTH:
 
         speed = self.SpeedGenerator.step()
 
-        self.Render.update(lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
-                           self.mppi.optimal_trajectory, largest_gap_middle_point)
+        self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
+                           self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_positions)
         self.simulation_index += 1
+
         return speed, steering_angle
 
 
@@ -106,11 +110,13 @@ class Render:
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
         self.optimal_trajectory_visualization_color = (255, 165, 0)
+        self.target_point_visualization_color = (255, 204, 0)
 
         self.lidar_vertices = None
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
         self.optimal_trajectory_vertices = None
+        self.target_vertex = None
 
         self.lidar_border_points = None
         self.rollout_trajectory, self.traj_cost = None, None
@@ -118,11 +124,12 @@ class Render:
         self.largest_gap_middle_point = None
 
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
-               largest_gap_middle_point=None):
+               largest_gap_middle_point=None, target_point=None):
         self.lidar_border_points = lidar_points
         self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
         self.optimal_trajectory = optimal_trajectory
         self.largest_gap_middle_point = largest_gap_middle_point
+        self.target_point = target_point
 
     def render(self, e):
         if not self.draw_lidar_data: return
@@ -172,3 +179,10 @@ class Render:
                                                ('c3B', self.optimal_trajectory_visualization_color * howmany_mppi_optimal))
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
+
+        if self.target_point is not None:
+
+            scaled_target_point = 50.0*np.array(self.target_point)
+            scaled_target_point_flat = scaled_target_point.flatten()
+            self.gap_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+
