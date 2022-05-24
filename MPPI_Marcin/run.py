@@ -19,6 +19,8 @@ from argparse import Namespace
 import json
 from Settings import Settings
 
+from Recorder import Recorder
+
 from OpenGL.GL import *
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
@@ -106,8 +108,11 @@ def main():
 
     env = gym.make('f110_gym:f110-v0', map=racetrack,
                    map_ext=conf.map_ext, num_agents=number_of_drivers)
-    env.add_render_callback(render_callback)    
+    env.add_render_callback(render_callback)
+    timestep = env.timestep
+    current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
+    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=timestep) for i in range(number_of_drivers)]
   
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
@@ -128,6 +133,7 @@ def main():
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
             speed, steer =  driver.process_observation(ranges[index], odom)
+            recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
             accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
             controlls.append([accl, sv])
 
@@ -137,6 +143,7 @@ def main():
         env.render(mode=Settings.RENDER_MODE)
         render_index += 1
 
+        current_time_in_simulation += timestep
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
