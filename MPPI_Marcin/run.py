@@ -117,7 +117,8 @@ def main():
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
 
-    env.render()
+    if Settings.RENDER_MODE is not None:
+        env.render()
 
     laptime = 0.0
     start = time.time()
@@ -140,8 +141,9 @@ def main():
         obs, step_reward, done, info = env.step(np.array(controlls))
 
         laptime += step_reward
-        env.render(mode=Settings.RENDER_MODE)
-        render_index += 1
+        if Settings.RENDER_MODE is not None:
+            env.render(mode=Settings.RENDER_MODE)
+            render_index += 1
 
         current_time_in_simulation += timestep
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
