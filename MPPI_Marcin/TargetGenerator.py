@@ -1,4 +1,16 @@
 import numpy as np
+from math import fmod
+
+# Wraps the angle into range [-π, π]
+def wrap_angle_rad(angle: float) -> float:
+    Modulo = fmod(angle, 2 * np.pi)  # positive modulo
+    if Modulo < -np.pi:
+        angle = Modulo + 2 * np.pi
+    elif Modulo > np.pi:
+        angle = Modulo - 2 * np.pi
+    else:
+        angle = Modulo
+    return angle
 
 
 class TargetGenerator:
@@ -30,6 +42,13 @@ class TargetGenerator:
             self.current_target = self.generate_random_target_position()
 
         return self.current_target
+
+    def angle_to_target(self, pos, theta):
+        (x_target, y_target) = self.current_target[0]-pos
+        angle_target = np.arctan2(y_target, x_target)
+
+        return angle_target-wrap_angle_rad(theta)
+
 
 
 
