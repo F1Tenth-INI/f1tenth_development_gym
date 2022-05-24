@@ -18,6 +18,7 @@ class Settings:
     
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
+    # RENDER_MODE = None
     # RENDER_MODE = "human_fast"
     RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 10
