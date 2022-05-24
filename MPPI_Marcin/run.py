@@ -10,20 +10,21 @@ from tobi.random_obstacle_creator import RandomObstacleCreator
 
 import time
 
-from matplotlib.font_manager import json_dump
-from matplotlib.pyplot import close, sca
 import yaml
 import gym
 import numpy as np
 from argparse import Namespace
-import json
+
 from tqdm import trange
 from Settings import Settings
 
 from Recorder import Recorder
 
-from OpenGL.GL import *
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
+from f110_gym.envs.dynamic_models import pid
+
+
+def add_noise(x, noise_level=0.1):
+    return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 # Config
 map_config_file = Settings.MAP_CONFIG_FILE
