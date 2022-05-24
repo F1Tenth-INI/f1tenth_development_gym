@@ -1,8 +1,9 @@
 import numpy as np
 
-STATE_VARIABLES=['pose_x', 'pose_y', 'pose_theta']
-STATE_INDICES=None
-CONTROL_INPUTS=['speed', 'steering']
+STATE_VARIABLES = np.sort(['pose_x', 'pose_y', 'pose_theta'])
+STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
+CONTROL_INPUTS = np.sort(['speed', 'steering'])
+CONTROL_INDICES = {x: np.where(CONTROL_INPUTS == x)[0][0] for x in CONTROL_INPUTS}
 
 class next_state_predictor_ODE():
 
