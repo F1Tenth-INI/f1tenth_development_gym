@@ -18,7 +18,7 @@ ranges_forward_only = True # Only LIDAR scans in forward direction are saved
 
 rounding_decimals = 3
 
-path_to_experiment_recordings = '../ExperimentRecordings/'
+path_to_experiment_recordings = 'ExperimentRecordings/'
 
 class Recorder:
     def __init__(self, controller_name=None, create_header=True):
