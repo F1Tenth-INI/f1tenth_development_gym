@@ -149,7 +149,7 @@ class Render:
 
             scaled_point_gap = 50.0*np.array(self.largest_gap_middle_point)
             scaled_points_gap_flat = scaled_point_gap.flatten()
-            self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=(50, 225, 30), batch=e.batch)
+            self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=self.gap_visualization_color, batch=e.batch)
 
 
         if self.rollout_trajectory is not None:
