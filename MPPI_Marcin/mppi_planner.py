@@ -23,6 +23,7 @@ NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 from MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
 
 from MPPI_Marcin.TargetGenerator import TargetGenerator
+from MPPI_Marcin.SpeedGenerator import SpeedGenerator
 
 class MPPI_F1TENTH:
     """
@@ -45,6 +46,7 @@ class MPPI_F1TENTH:
         self.Render = Render()
 
         self.TargetGenerator = TargetGenerator()
+        self.SpeedGenerator = SpeedGenerator()
 
     def render(self, e):
         self.Render.render(e)
@@ -86,6 +88,8 @@ class MPPI_F1TENTH:
         target = np.vstack((target_positions, lidar_points))
         s = np.array((pose_x, pose_y, pose_theta))
         speed, steering_angle = self.mppi.step(s, target=target)
+
+        speed = self.SpeedGenerator.step()
 
         self.Render.update(lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
                            self.mppi.optimal_trajectory, largest_gap_middle_point)
