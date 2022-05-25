@@ -15,6 +15,9 @@ class Settings:
     # You can place random obstacles on the map. Have a look at the obstacle settings in MultiAgents/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
     
+    FOLLOW_RANDOM_TARGETS = False
+    SAVE_RECORDINGS = False
+    
     
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True
@@ -23,7 +26,7 @@ class Settings:
     # RENDER_MODE = None
     # RENDER_MODE = "human_fast"
     RENDER_MODE = "human"
-    NUM_TRAJECTORIES_TO_PLOT = 10
+    NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
     LOOK_FORWARD_ONLY = False
