@@ -88,7 +88,7 @@ class MPPI_F1TENTH:
         self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
 
         target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
-        # target = np.vstack((target_positions, lidar_points))
+        target = np.vstack((target_positions, self.lidar_points))
         s = np.array((pose_x, pose_y, pose_theta))
         speed, steering_angle = self.mppi.step(s, target=target)
 
