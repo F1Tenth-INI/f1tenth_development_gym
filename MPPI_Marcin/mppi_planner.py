@@ -89,7 +89,7 @@ class MPPI_F1TENTH:
 
         target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
         target = np.vstack((target_positions, self.lidar_points))
-        s = np.array((pose_x, pose_y, pose_theta))
+        s = np.array((pose_theta, pose_x, pose_y))
         speed, steering_angle = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
@@ -156,7 +156,7 @@ class Render:
 
         if self.rollout_trajectory is not None:
             num_trajectories_to_plot = np.minimum(NUM_TRAJECTORIES_TO_PLOT, self.rollout_trajectory.shape[0])
-            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, :2]
+            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, 1:]
 
             scaled_trajectory_points = 50. * trajectory_points
 
@@ -170,7 +170,7 @@ class Render:
                 self.mppi_rollouts_vertices.vertices = scaled_trajectory_points_flat
 
         if self.optimal_trajectory is not None:
-            optimal_trajectory_points = self.optimal_trajectory[:, :, :2]
+            optimal_trajectory_points = self.optimal_trajectory[:, :, 1:]
 
             scaled_optimal_trajectory_points = 50. * optimal_trajectory_points
 
