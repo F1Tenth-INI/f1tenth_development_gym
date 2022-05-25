@@ -4,6 +4,7 @@
 from MPPI_Marcin.mppi_planner import MPPI_F1TENTH
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
 from examples.pure_pursuit_planner import PurePursuitPlanner
+from MPPI.mppi_planner import MppiPlanner
 
 # Obstacle creation
 from tobi.random_obstacle_creator import RandomObstacleCreator
@@ -39,7 +40,8 @@ planner1.lidar_visualization_color = (255, 0, 255)
 # second planner
 # planner2 = PurePursuitPlanner(map_config_file = map_config_file)
 
-
+# Old MPPI Planner without TF
+# planner2 = MppiPlanner()
 
 ##################### DEFINE DRIVERS HERE #####################    
 drivers = [planner1]
@@ -131,16 +133,21 @@ def main():
         if done:
             break
         ranges = obs['scans']
-
+        
         # First car
         controlls = []
         
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
             speed, steer =  driver.process_observation(ranges[index], odom)
-            # print("Speed, steer b4 pid", speed, steer)
+            
+            # Set the driver's true car state in case it is needed            
+            true_car_state = env.sim.agents[index].state
+            driver.car_state = true_car_state
+
             if(Settings.SAVE_RECORDINGS):
                 recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
+                
             accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
             controlls.append([accl, sv])
 
