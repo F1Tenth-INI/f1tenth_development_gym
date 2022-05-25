@@ -131,8 +131,7 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
-    # @tf.function
-    @Compile
+    # @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
         """
         Generate random input sequence and clip to control limits
