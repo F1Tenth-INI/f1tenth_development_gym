@@ -71,8 +71,8 @@ class MPPI_F1TENTH:
         pose_x = ego_odom['pose_x']
         pose_y = ego_odom['pose_y']
         pose_theta = ego_odom['pose_theta']
-
-        target_positions = self.TargetGenerator.step((pose_x, pose_y), )
+        
+       
 
         scans = np.array(ranges)
         # Take into account size of car
@@ -86,9 +86,13 @@ class MPPI_F1TENTH:
         self.lidar_points = np.stack((p1, p2), axis=1)
 
         self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
+        
+        target_point = self.largest_gap_middle_point
+        
+        if(Settings.FOLLOW_RANDOM_TARGETS):
+            target_point = self.TargetGenerator.step((pose_x, pose_y), )
 
-        target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
-        target = np.vstack((target_positions, self.lidar_points))
+        target = np.vstack((target_point, self.lidar_points))
         s = np.array((pose_x, pose_y, pose_theta))
         speed, steering_angle = self.mppi.step(s, target=target)
 
@@ -97,7 +101,7 @@ class MPPI_F1TENTH:
         # speed = self.SpeedGenerator.step()
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
-                           self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_positions)
+            self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.simulation_index += 1
 
         return speed, steering_angle

@@ -6,7 +6,7 @@ controller:
     SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
     dt: 0.05                              # sec
     mpc_horizon: 0.5                      # sec
-    num_rollouts: 1000                      # Number of Monte Carlo samples
+    num_rollouts: 2000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
     NET_NAME: 'GRU-6IN-32H1-32H2-5OUT-0'  # Applies only if predictor_type is NeuralNet
@@ -20,7 +20,7 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [0.1, 0.1]
+    SQRTRHOINV: [0.1, 0.02]
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
