@@ -42,6 +42,12 @@ def control_change_rate_cost(u, u_prev):
     u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1]))*u_prev, u[:, :-1, :]), axis=1)
     return (u - u_prev_vec) ** 2
 
+
+def low_speed_cost(s):
+    speed = tf.sqrt(tf.reduce_sum((s[:, 1:, 1:]-s[:, :-1, 1:])**2, axis=-1))  # 100.0 is for default dt
+    speed = tf.concat((tf.zeros((speed.shape[0], 1), dtype=tf.float32), speed), axis=1)
+    return -speed
+
 #all stage costs together
 def q(s,u,target, u_prev):
     # crash_penelty = check_collision(s[:, :, :2], target)
