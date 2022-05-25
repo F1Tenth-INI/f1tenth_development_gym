@@ -21,12 +21,11 @@ config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
 
 num_control_inputs = 2  # specific to a system
 
-# q, phi = None, None
-# cost_function = config["controller"]["general"]["cost_function"]
-# cost_function = cost_function.replace('-', '_')
-# cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q, phi'
-# exec(cost_function_cmd)
-from MPPI_Marcin.cost_functions.default import q, phi
+q, phi = None, None
+cost_function = config["controller"]["general"]["cost_function"]
+cost_function = cost_function.replace('-', '_')
+cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q, phi'
+exec(cost_function_cmd)
 
 dt = config["controller"]["mppi"]["dt"]
 mppi_horizon = config["controller"]["mppi"]["mpc_horizon"]
