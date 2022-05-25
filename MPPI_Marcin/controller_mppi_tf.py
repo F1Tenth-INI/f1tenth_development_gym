@@ -10,11 +10,11 @@ from MPPI_Marcin.template_controller import template_controller
 
 import yaml
 
-from SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
-from SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
-from SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
+from SI_Toolkit.src.SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
+from  SI_Toolkit.src.SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
+from  SI_Toolkit.src.SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
 
-from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from  SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Compile import Compile
 
 #load constants from config file
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
