@@ -11,5 +11,5 @@ docs/_build/
 flycheck_*
 
 
-MultiAgents/maps/WithRandomObstacles/*
+main/maps/WithRandomObstacles/*
 Experimentrecordings/*

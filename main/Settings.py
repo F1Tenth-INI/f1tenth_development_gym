@@ -7,12 +7,12 @@ class Settings:
     # The map config file contains all information about the map, including the map_path, starting positions
     # pysical params etc. 
     # If you want to create a new file, orientate on existing ones.
-    # MAP_CONFIG_FILE =  "MultiAgents/config_example_map.yaml"
+    # MAP_CONFIG_FILE =  "maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "maps_files/config_Oschersleben.yaml"
     # MAP_CONFIG_FILE =  "maps_files/config_empty_map.yaml"
     
     
-    # You can place random obstacles on the map. Have a look at the obstacle settings in MultiAgents/random_obstacles.yaml
+    # You can place random obstacles on the map. Have a look at the obstacle settings in maps_filesr/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
