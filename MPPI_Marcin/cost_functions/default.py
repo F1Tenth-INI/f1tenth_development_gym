@@ -31,7 +31,7 @@ def phi(s, target):
     Here it checks the distance to the target at the endpoint
     """
     dd = dd_weight * distance_difference_cost(
-        s[:, -1, :2], target
+        s[:, -1, 1:], target
     )
     terminal_cost = dd
     return terminal_cost
