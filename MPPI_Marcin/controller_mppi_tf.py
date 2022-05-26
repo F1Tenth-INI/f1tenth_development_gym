@@ -65,6 +65,13 @@ GET_ROLLOUTS_FROM_MPPI = True
 
 GET_OPTIMAL_TRAJECTORY = True
 
+def check_dimensions_s(s):
+    # Make sure the input is at least 2d
+    if tf.rank(s) == 1:
+        s = s[tf.newaxis, :]
+
+    return s
+
 #mppi correction
 def mppi_correction_cost(u, delta_u):
     return tf.math.reduce_sum(cc_weight * (0.5 * (1 - 1.0 / NU) * R * (delta_u ** 2) + R * u * delta_u + 0.5 * R * (u ** 2)), axis=-1)
@@ -119,6 +126,8 @@ class controller_mppi_tf(template_controller):
 
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
+        s = check_dimensions_s(s)
+        s = tf.tile(s, tf.constant([num_rollouts, 1]))
         # generate random input sequence and clip to control limits
         delta_u = inizialize_pertubation(random_gen)
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
@@ -139,7 +148,6 @@ class controller_mppi_tf(template_controller):
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
-        s = np.tile(s, tf.constant([num_rollouts, 1]))
         s = tf.convert_to_tensor(s, dtype=tf.float32)
         target = tf.convert_to_tensor(target, dtype=tf.float32)
 
