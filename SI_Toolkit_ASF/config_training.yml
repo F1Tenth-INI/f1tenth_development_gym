@@ -7,10 +7,10 @@ paths:
 
 training_default:
   # For training closed loop dynamics model:
-  state_inputs: ['pose_x', 'pose_y', 'pose_theta']
+  state_inputs: ['pose_theta', 'pose_x', 'pose_y']
   control_inputs: ['speed', 'steering']
   setpoint_inputs: []
-  outputs: ['pose_x', 'pose_y', 'pose_theta']
+  outputs: ['pose_theta', 'pose_x', 'pose_y']
   # For training open loop dynamics model:
   # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
   # outputs = inputs_list
