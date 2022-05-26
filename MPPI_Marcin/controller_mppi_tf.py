@@ -53,11 +53,16 @@ predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 """Define Predictor"""
 if predictor_type == "EulerTF":
     predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=10, disable_individual_compilation=True)
+    predictor_single_trajectory = predictor
 elif predictor_type == "Euler":
     predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
+    predictor_single_trajectory = predictor
 elif predictor_type == "NeuralNet":
     predictor = predictor_autoregressive_tf(
-        horizon=mppi_samples, batch_size=num_rollouts, net_name=NET_NAME
+        horizon=mppi_samples, batch_size=num_rollouts, net_name=NET_NAME, disable_individual_compilation=True
+    )
+    predictor_single_trajectory = predictor_autoregressive_tf(
+        horizon=mppi_samples, batch_size=1, net_name=NET_NAME, disable_individual_compilation=True
     )
 
 GET_ROLLOUTS_FROM_MPPI = True
@@ -144,7 +149,8 @@ class controller_mppi_tf(template_controller):
 
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
-        return predictor.predict_tf(s, u_nom)
+        s = check_dimensions_s(s)
+        return predictor_single_trajectory.predict_tf(s, u_nom)
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
