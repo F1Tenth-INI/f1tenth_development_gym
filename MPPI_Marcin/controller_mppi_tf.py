@@ -112,7 +112,6 @@ def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAM
 
 
 
-#cem class
 class controller_mppi_tf(template_controller):
     def __init__(self):
         #First configure random sampler
@@ -134,6 +133,7 @@ class controller_mppi_tf(template_controller):
         s = check_dimensions_s(s)
         s = tf.tile(s, tf.constant([num_rollouts, 1]))
         # generate random input sequence and clip to control limits
+        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         delta_u = inizialize_pertubation(random_gen)
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
         u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input)
@@ -141,7 +141,9 @@ class controller_mppi_tf(template_controller):
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
         u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)
         u = u_nom[0, 0, :]
-        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
+        if predictor_type ==  'NeuralNet':
+            u_tiled = tf.tile(u_nom[:, :1, :], tf.constant([num_rollouts, 1, 1]))
+            predictor.update_internal_state_tf(s=s, Q0=u_tiled)
         if GET_ROLLOUTS_FROM_MPPI:
             return u, u_nom, rollout_trajectory, traj_cost
         else:
@@ -150,7 +152,10 @@ class controller_mppi_tf(template_controller):
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
         s = check_dimensions_s(s)
-        return predictor_single_trajectory.predict_tf(s, u_nom)
+        optimal_trajectory = predictor_single_trajectory.predict_tf(s, u_nom)
+        if predictor_type ==  'NeuralNet':
+            predictor_single_trajectory.update_internal_state_tf(s=s, Q0=u_nom[:, :1, :])
+        return optimal_trajectory
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
