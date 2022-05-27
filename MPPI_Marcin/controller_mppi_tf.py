@@ -45,7 +45,13 @@ SQRTRHODTINV = tf.convert_to_tensor(config["controller"]["mppi"]["SQRTRHOINV"]) 
 GAMMA = config["controller"]["mppi"]["GAMMA"]
 SAMPLING_TYPE = config["controller"]["mppi"]["SAMPLING_TYPE"]
 
-clip_control_input = tf.constant(config["controller"]["mppi"]["CLIP_CONTROL_INPUT"], dtype=tf.float32)
+clip_control_input = config["controller"]["mppi"]["CLIP_CONTROL_INPUT"]
+if isinstance(clip_control_input[0], list):
+    clip_control_input_low = tf.constant(clip_control_input[0], dtype=tf.float32)
+    clip_control_input_high = tf.constant(clip_control_input[1], dtype=tf.float32)
+else:
+    clip_control_input_high = tf.constant(clip_control_input, dtype=tf.float32)
+    clip_control_input_low = -clip_control_input_high
 
 #create predictor
 predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
@@ -136,10 +142,10 @@ class controller_mppi_tf(template_controller):
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         delta_u = inizialize_pertubation(random_gen)
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
-        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input)
+        u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)
         rollout_trajectory = predictor.predict_tf(s, u_run)
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)
         u = u_nom[0, 0, :]
         if predictor_type ==  'NeuralNet':
             u_tiled = tf.tile(u_nom[:, :1, :], tf.constant([num_rollouts, 1, 1]))
