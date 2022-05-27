@@ -187,5 +187,5 @@ class Render:
 
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
-            self.gap_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+            self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
 
