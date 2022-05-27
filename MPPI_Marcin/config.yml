@@ -9,7 +9,7 @@ controller:
     num_rollouts: 1000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
-    NET_NAME: 'GRU-6IN-32H1-32H2-5OUT-0'  # Applies only if predictor_type is NeuralNet
+    NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
     dd_weight: 120.0
     cc_weight: 0.0
     ccrc_weight: 0.0
@@ -20,13 +20,13 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [0.1, 0.1]
+    SQRTRHOINV: [0.5, 0.01]
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
     LOGGING: False                        # Collect and show detailed insights into the controller's behavior
     WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
-    CLIP_CONTROL_INPUT: [7, 3]            # How to clip control input, symmetric
+    CLIP_CONTROL_INPUT: [[1, -3],[4, 3]]       # How to clip control input, symmetric
 
 data_generator:
   SEED: 1  # If "None" random seed based on datetime is used
