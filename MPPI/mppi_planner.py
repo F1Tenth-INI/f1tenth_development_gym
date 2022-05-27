@@ -15,7 +15,6 @@ from scipy.integrate import odeint
 import shapely.geometry as geom
 import matplotlib.pyplot as plt
 
-
 import time
 import math
 import csv
@@ -229,7 +228,6 @@ class MppiPlanner:
             x_next[4] = x_next[4] - 6.28
 
         return x_next
-
 
 
     def simulate_trajectory(self, control_inputs):

@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Compile import Compile
 import numpy as np
 
 
@@ -46,10 +46,10 @@ class predictor_output_augmentation_tf:
         self.net_output_indices = {key: value for value, key in enumerate(net_info.outputs)}
         indices_augmentation = []
         features_augmentation = []
-        if 'sin(x)' not in net_info.outputs:
-            indices_augmentation.append(STATE_INDICES['sin(x)'])
-            features_augmentation.append('sin(x)')
-
+        # if 'sin(x)' not in net_info.outputs:
+        #     indices_augmentation.append(STATE_INDICES['sin(x)'])
+        #     features_augmentation.append('sin(x)')
+        #
         self.indices_augmentation = indices_augmentation
         self.features_augmentation = features_augmentation
         self.augmentation_len = len(self.indices_augmentation)

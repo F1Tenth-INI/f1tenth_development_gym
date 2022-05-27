@@ -13,8 +13,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-obstacles_config_path = 'MultiAgents/random_obstables.yaml'
-path_where_to_save_the_map = 'MultiAgents/maps/WithRandomObstacles'
+obstacles_config_path = 'main/random_obstables.yaml'
+path_where_to_save_the_map = 'main/maps/WithRandomObstacles'
 
 def create_obstacles(map_arr, map_resolution, obstacles_config_path=obstacles_config_path, start_point=None):
 
