@@ -1,0 +1,8 @@
+
+image: empty_map_with_obstacles.png
+starting_positions:
+- [0.0, 0.0, 0]
+
+# map paths
+map_path: 'maps_files/maps/empty_map_with_obstacles'
+map_ext: '.png'

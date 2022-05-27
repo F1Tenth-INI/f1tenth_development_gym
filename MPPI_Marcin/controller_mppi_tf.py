@@ -10,23 +10,22 @@ from MPPI_Marcin.template_controller import template_controller
 
 import yaml
 
-from SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
-from SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
-from SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
+from SI_Toolkit.src.SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
+from  SI_Toolkit.src.SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
+from  SI_Toolkit.src.SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
 
-from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from  SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Compile import Compile
 
 #load constants from config file
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
 
 num_control_inputs = 2  # specific to a system
 
-# q, phi = None, None
-# cost_function = config["controller"]["general"]["cost_function"]
-# cost_function = cost_function.replace('-', '_')
-# cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q, phi'
-# exec(cost_function_cmd)
-from MPPI_Marcin.cost_functions.default import q, phi
+q, phi = None, None
+cost_function = config["controller"]["general"]["cost_function"]
+cost_function = cost_function.replace('-', '_')
+cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q, phi'
+exec(cost_function_cmd)
 
 dt = config["controller"]["mppi"]["dt"]
 mppi_horizon = config["controller"]["mppi"]["mpc_horizon"]
@@ -70,16 +69,28 @@ GET_OPTIMAL_TRAJECTORY = True
 def mppi_correction_cost(u, delta_u):
     return tf.math.reduce_sum(cc_weight * (0.5 * (1 - 1.0 / NU) * R * (delta_u ** 2) + R * u * delta_u + 0.5 * R * (u ** 2)), axis=-1)
 
-#total cost of the trajectory
 def cost(s_hor ,u, target, u_prev, delta_u):
-    stage_cost = q(s_hor[:,1:,:],u,target, u_prev)
+    '''
+    total cost of the trajectory
+    @param s_hor: All rollout results (trajectories) for the whole horizon
+    @param u: all control inputs for rollouts s_hor
+    @param target: (109, 2), target point (largest gap) and sensor data
+    @param u_prev: (2,) prevoius control input 
+    @param delta_u: (2000, 10, 2) perturbation of previous best control sequence
+    '''
+    stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (2000,10), all costs for every step in the trajectory
     stage_cost = stage_cost + mppi_correction_cost(u, delta_u)
-    total_cost = tf.math.reduce_sum(stage_cost,axis=1)
-    total_cost = total_cost + phi(s_hor, target)
+    total_cost = tf.math.reduce_sum(stage_cost,axis=1) # (2000) Ads up the stage costs to the total cost
+    total_cost = total_cost + phi(s_hor, target) # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
+    # print(stage_cost.numpy())
     return total_cost
 
 
 def reward_weighted_average(S, delta_u):
+    '''
+    @param S: (2000), costs for tracectories
+    @param delta_u: (2000, 10, 2): Perturbation of optimal trajectory to be weighted 
+    '''
     rho = tf.math.reduce_min(S)
     exp_s = tf.exp(-1.0/LBD * (S-rho))
     a = tf.math.reduce_sum(exp_s)
@@ -108,8 +119,10 @@ class controller_mppi_tf(template_controller):
         SEED = config["controller"]["mppi"]["SEED"]
         if SEED == "None":
             SEED = int((datetime.now() - datetime(1970, 1, 1)).total_seconds() * 1000.0)
+        #Random generator (from Tensorflow)
         self.rng_cem = tf.random.Generator.from_seed(SEED)
-
+        
+        #Last control input ?
         self.u_nom = tf.ones([1, mppi_samples, num_control_inputs], dtype=tf.float32)*tf.constant([6.0, 0.0], dtype=tf.float32)
         self.u = tf.convert_to_tensor([6.0, 0.0], dtype=tf.float32)
 
@@ -118,16 +131,23 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
-    @Compile
+    # @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
-        # generate random input sequence and clip to control limits
-        delta_u = inizialize_pertubation(random_gen)
-        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
-        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input)
-        rollout_trajectory = predictor.predict_tf(s, u_run)
-        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)
-        u = u_nom[0, 0, :]
+        """
+        Generate random input sequence and clip to control limits
+        @param: s: current state of the car [x,y,theta]
+        @param: target: Target state of the car and lidat scans stacked on each other
+        @param: u_nom: Last optimal control sequence (Array of control inputs)
+        @param: random_gen: Tensoflow random generator 
+        @param: u_old: Last optimal control input
+        """
+        delta_u = inizialize_pertubation(random_gen) #(2000, 10, 2) perturbation of the last control input for rollouts
+        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u #(2000, 10, 2) Hostiry based control inputs for rollouts (last optimal + perturbation)
+        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input) # (2000, 10, 2) Clip control input based on model parameters
+        rollout_trajectory = predictor.predict_tf(s, u_run) # (2000, 11, 3) All trajectories for the state distribution
+        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (2000,) Cost for each trajectory
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input) # (1, 10, 2) Find optimal control sequence by weighted average of trajectory costs
+        u = u_nom[0, 0, :] # (2,) Return only the first step of the optimal control sequence
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         if GET_ROLLOUTS_FROM_MPPI:
             return u, u_nom, rollout_trajectory, traj_cost
@@ -140,6 +160,12 @@ class controller_mppi_tf(template_controller):
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
+        """
+        Execute one full step of the MPPI contol based on the sensor measurements and returns the control input
+        @param: s: current state of the car [x,y,theta]
+        @param: target: Target state of the car and lidat scans stacked on each other
+        @param: time: 
+        """
         s = np.tile(s, tf.constant([num_rollouts, 1]))
         s = tf.convert_to_tensor(s, dtype=tf.float32)
         target = tf.convert_to_tensor(target, dtype=tf.float32)
