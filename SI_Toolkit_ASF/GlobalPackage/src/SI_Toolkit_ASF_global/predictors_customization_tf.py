@@ -34,10 +34,12 @@ class next_state_predictor_ODE_tf():
             pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
 
-        # pose_theta_cos = tf.math.cos(pose_theta)
-        # pose_theta_sin = tf.math.sin(pose_theta)
+        pose_theta_cos = tf.math.cos(pose_theta)
+        pose_theta_sin = tf.math.sin(pose_theta)
 
-        s_next = tf.stack([tf.zeros_like(pose_x), tf.zeros_like(pose_x), tf.zeros_like(pose_x), pose_theta, pose_x, pose_y], axis=1)
+        s_next = tf.stack([tf.zeros_like(pose_x), tf.zeros_like(pose_x), tf.zeros_like(pose_x),
+                           pose_theta, pose_theta_cos, pose_theta_sin,
+                           pose_x, pose_y], axis=1)
 
         return s_next
 
@@ -62,8 +64,13 @@ class predictor_output_augmentation_tf:
         self.features_augmentation = features_augmentation
         self.augmentation_len = len(self.indices_augmentation)
 
-        if 'x' in net_info.outputs:
-            self.index_x = tf.convert_to_tensor(self.net_output_indices['x'])
+        if 'pose_theta' in net_info.outputs:
+            self.index_pose_theta = tf.convert_to_tensor(self.net_output_indices['pose_theta'])
+        if 'pose_theta_sin' in net_info.outputs:
+            self.index_pose_theta_sin = tf.convert_to_tensor(self.net_output_indices['pose_theta_sin'])
+        if 'pose_theta_cos' in net_info.outputs:
+            self.index_pose_theta_cos = tf.convert_to_tensor(self.net_output_indices['pose_theta_cos'])
+
 
         if disable_individual_compilation:
             self.augment = self._augment
@@ -88,5 +95,21 @@ class predictor_output_augmentation_tf:
         if 'linear_vel_y' in self.features_augmentation:
             linear_vel_y = tf.zeros_like(net_output[:, :, -1:])
             output = tf.concat([output, linear_vel_y], axis=-1)
+
+        if 'pose_theta' in self.features_augmentation:
+            pose_theta = tf.math.atan2(
+                    net_output[..., self.index_pose_theta_sin],
+                    net_output[..., self.index_pose_theta_cos])[:, :, tf.newaxis]  # tf.math.atan2 removes the features (last) dimension, so it is added back with [:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta], axis=-1)
+
+        if 'angle_sin' in self.features_augmentation:
+            pose_theta_sin = \
+                tf.sin(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta_sin], axis=-1)
+
+        if 'angle_cos' in self.features_augmentation:
+            pose_theta_cos = \
+                tf.cos(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta_cos], axis=-1)
 
         return output
