@@ -35,6 +35,18 @@ from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
+from math import fmod
+# Wraps the angle into range [-π, π]
+def wrap_angle_rad(angle: float) -> float:
+    Modulo = fmod(angle, 2 * np.pi)  # positive modulo
+    if Modulo < -np.pi:
+        angle = Modulo + 2 * np.pi
+    elif Modulo > np.pi:
+        angle = Modulo - 2 * np.pi
+    else:
+        angle = Modulo
+    return angle
+
 class RaceCar(object):
     """
     Base level race car class, handles the physics and laser scan of a single vehicle
@@ -299,10 +311,11 @@ class RaceCar(object):
         self.state = self.state + f * self.time_step
 
         # bound yaw angle
-        if self.state[4] > 2*np.pi:
-            self.state[4] = self.state[4] - 2*np.pi
-        elif self.state[4] < 0:
-            self.state[4] = self.state[4] + 2*np.pi
+        # if self.state[4] > 2*np.pi:
+        #     self.state[4] = self.state[4] - 2*np.pi
+        # elif self.state[4] < 0:
+        #     self.state[4] = self.state[4] + 2*np.pi
+        self.state[4] = wrap_angle_rad(self.state[4])
 
         # update scan
         current_scan = RaceCar.scan_simulator.scan(np.append(self.state[0:2], self.state[4]), self.scan_rng)
