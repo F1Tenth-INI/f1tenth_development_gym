@@ -134,6 +134,22 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
+        if predictor_type ==  'NeuralNet':
+            self.update_internal_state = self.update_internal_state_of_RNN
+        else:
+            self.update_internal_state = lambda s, u_nom: ...
+
+        if GET_ROLLOUTS_FROM_MPPI:
+            self.mppi_output = self.return_all
+        else:
+            self.mppi_output = self.return_restricted
+
+    def return_all(self, u, u_nom, rollout_trajectory, traj_cost):
+        return u, u_nom, rollout_trajectory, traj_cost
+
+    def return_restricted(self, u, u_nom, rollout_trajectory, traj_cost):
+        return u, u_nom, None, None
+
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
         s = check_dimensions_s(s)
@@ -147,13 +163,12 @@ class controller_mppi_tf(template_controller):
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
         u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)
         u = u_nom[0, 0, :]
-        if predictor_type ==  'NeuralNet':
-            u_tiled = tf.tile(u_nom[:, :1, :], tf.constant([num_rollouts, 1, 1]))
-            predictor.update_internal_state_tf(s=s, Q0=u_tiled)
-        if GET_ROLLOUTS_FROM_MPPI:
-            return u, u_nom, rollout_trajectory, traj_cost
-        else:
-            return u, u_nom, None, None
+        self.update_internal_state(s, u_nom)
+        return self.mppi_output(u, u_nom, rollout_trajectory, traj_cost)
+
+    def update_internal_state_of_RNN(self, s, u_nom):
+        u_tiled = tf.tile(u_nom[:, :1, :], tf.constant([num_rollouts, 1, 1]))
+        predictor.update_internal_state_tf(s=s, Q0=u_tiled)
 
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
