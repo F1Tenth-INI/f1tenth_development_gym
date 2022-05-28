@@ -74,6 +74,8 @@ class MPPI_F1TENTH:
         linear_vel_y = ego_odom['linear_vel_y']
 
         pose_theta = ego_odom['pose_theta']
+        pose_theta_cos = ego_odom['pose_theta_cos']
+        pose_theta_sin = ego_odom['pose_theta_sin']
         pose_x = ego_odom['pose_x']
         pose_y = ego_odom['pose_y']
 
@@ -94,7 +96,7 @@ class MPPI_F1TENTH:
 
         target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
         # target = np.vstack((target_positions, self.lidar_points))
-        s = np.array((angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_x, pose_y))
+        s = np.array((angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_theta_cos, pose_theta_sin, pose_x, pose_y))
         speed, steering_angle = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random

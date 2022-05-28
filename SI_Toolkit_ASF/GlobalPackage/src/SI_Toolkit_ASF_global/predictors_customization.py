@@ -5,8 +5,8 @@ STATE_VARIABLES = np.sort([
     'linear_vel_x',
     'linear_vel_y',
     'pose_theta',
-    # 'pose_theta_cos',
-    # 'pose_theta_sin',
+    'pose_theta_cos',
+    'pose_theta_sin',
     'pose_x',
     'pose_y',
 ])
@@ -15,6 +15,8 @@ CONTROL_INPUTS = np.sort(['speed', 'steering'])
 CONTROL_INDICES = {x: np.where(CONTROL_INPUTS == x)[0][0] for x in CONTROL_INPUTS}
 
 POSE_THETA_IDX = STATE_INDICES['pose_theta']
+POSE_THETA_COS_IDX = STATE_INDICES['pose_theta_cos']
+POSE_THETA_SIN_IDX = STATE_INDICES['pose_theta_sin']
 POSE_X_IDX = STATE_INDICES['pose_x']
 POSE_Y_IDX = STATE_INDICES['pose_y']
 
