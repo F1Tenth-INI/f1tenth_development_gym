@@ -1,12 +1,15 @@
 import numpy as np
 
-STATE_VARIABLES = np.sort(['pose_theta',
-                           'pose_x',
-                           'pose_y',
-                           'linear_vel_x',
-                           'linear_vel_y',
-                           'angular_vel_z'
-                           ])
+STATE_VARIABLES = np.sort([
+    'angular_vel_z',
+    'linear_vel_x',
+    'linear_vel_y',
+    'pose_theta',
+    # 'pose_theta_cos',
+    # 'pose_theta_sin',
+    'pose_x',
+    'pose_y',
+])
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
 CONTROL_INPUTS = np.sort(['speed', 'steering'])
 CONTROL_INDICES = {x: np.where(CONTROL_INPUTS == x)[0][0] for x in CONTROL_INPUTS}
