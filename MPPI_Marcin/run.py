@@ -111,10 +111,10 @@ def main():
     env = gym.make('f110_gym:f110-v0', map=racetrack,
                    map_ext=conf.map_ext, num_agents=number_of_drivers)
     env.add_render_callback(render_callback)
-    timestep = env.timestep
+    assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=timestep) for i in range(number_of_drivers)]
+    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=Settings.TIMESTEP_CONTROL) for i in range(number_of_drivers)]
   
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
@@ -142,14 +142,15 @@ def main():
             accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
             controlls.append([accl, sv])
 
-        obs, step_reward, done, info = env.step(np.array(controlls))
+        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            obs, step_reward, done, info = env.step(np.array(controlls))
 
         laptime += step_reward
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
             render_index += 1
 
-        current_time_in_simulation += timestep
+        current_time_in_simulation += Settings.TIMESTEP_CONTROL
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
