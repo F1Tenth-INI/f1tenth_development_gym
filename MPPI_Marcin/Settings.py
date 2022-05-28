@@ -4,7 +4,7 @@ class Settings:
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_LENGTH = 200000  # in timesteps, only valid if default termination after two laps is off.
 
-    TIMESTEP_CONTROL = 0.1    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.05    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions
     # pysical params etc. 
