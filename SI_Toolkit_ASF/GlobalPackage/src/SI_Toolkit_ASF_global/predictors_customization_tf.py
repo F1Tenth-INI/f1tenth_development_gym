@@ -3,7 +3,7 @@ import tensorflow as tf
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
 
 from SI_Toolkit_ASF_global.predictors_customization import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, SPEED_IDX, STEERING_IDX
-
+from SI_Toolkit_ASF_global.predictors_customization import STATE_INDICES
 
 class next_state_predictor_ODE_tf():
 
@@ -34,20 +34,30 @@ class next_state_predictor_ODE_tf():
             pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
 
+        # pose_theta_cos = tf.math.cos(pose_theta)
+        # pose_theta_sin = tf.math.sin(pose_theta)
+
         s_next = tf.stack([tf.zeros_like(pose_x), tf.zeros_like(pose_x), tf.zeros_like(pose_x), pose_theta, pose_x, pose_y], axis=1)
 
         return s_next
 
 
 class predictor_output_augmentation_tf:
-    def __init__(self, net_info):
+    def __init__(self, net_info, disable_individual_compilation=False):
         self.net_output_indices = {key: value for value, key in enumerate(net_info.outputs)}
         indices_augmentation = []
         features_augmentation = []
-        # if 'sin(x)' not in net_info.outputs:
-        #     indices_augmentation.append(STATE_INDICES['sin(x)'])
-        #     features_augmentation.append('sin(x)')
-        #
+        if 'angular_vel_z' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['angular_vel_z'])
+            features_augmentation.append('angular_vel_z')
+        if 'linear_vel_x' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['linear_vel_x'])
+            features_augmentation.append('linear_vel_x')
+        if 'linear_vel_y' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['linear_vel_y'])
+            features_augmentation.append('linear_vel_y')
+
+
         self.indices_augmentation = indices_augmentation
         self.features_augmentation = features_augmentation
         self.augmentation_len = len(self.indices_augmentation)
@@ -55,18 +65,28 @@ class predictor_output_augmentation_tf:
         if 'x' in net_info.outputs:
             self.index_x = tf.convert_to_tensor(self.net_output_indices['x'])
 
+        if disable_individual_compilation:
+            self.augment = self._augment
+        else:
+            self.augment = Compile(self._augment)
+
     def get_indices_augmentation(self):
         return self.indices_augmentation
 
     def get_features_augmentation(self):
         return self.features_augmentation
 
-    @Compile
-    def augment(self, net_output):
+    def _augment(self, net_output):
 
         output = net_output
-        # if 'sin(x)' in self.features_augmentation:
-        #     sin_x = tf.math.sin(net_output[..., self.index_x])[:, :, tf.newaxis]
-        #     output = tf.concat([output, sin_x], axis=-1)
+        if 'angular_vel_z' in self.features_augmentation:
+            angular_vel_z = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, angular_vel_z], axis=-1)
+        if 'linear_vel_x' in self.features_augmentation:
+            linear_vel_x = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, linear_vel_x], axis=-1)
+        if 'linear_vel_y' in self.features_augmentation:
+            linear_vel_y = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, linear_vel_y], axis=-1)
 
         return output
