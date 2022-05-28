@@ -1,9 +1,27 @@
 import numpy as np
 
-STATE_VARIABLES = np.sort(['pose_x', 'pose_y', 'pose_theta'])
+STATE_VARIABLES = np.sort(['pose_theta',
+                           'pose_x',
+                           'pose_y',
+                           'linear_vel_x',
+                           'linear_vel_y',
+                           'angular_vel_z'
+                           ])
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
 CONTROL_INPUTS = np.sort(['speed', 'steering'])
 CONTROL_INDICES = {x: np.where(CONTROL_INPUTS == x)[0][0] for x in CONTROL_INPUTS}
+
+POSE_THETA_IDX = STATE_INDICES['pose_theta']
+POSE_X_IDX = STATE_INDICES['pose_x']
+POSE_Y_IDX = STATE_INDICES['pose_y']
+
+LINEAR_VEL_X = STATE_INDICES['linear_vel_x']
+LINEAR_VEL_Y = STATE_INDICES['linear_vel_y']
+ANGULAR_VEL_Z = STATE_INDICES['angular_vel_z']
+
+SPEED_IDX = CONTROL_INDICES['speed']
+STEERING_IDX = CONTROL_INDICES['steering']
+
 
 class next_state_predictor_ODE():
 
@@ -14,7 +32,6 @@ class next_state_predictor_ODE():
         self.t_step = np.float32(dt / float(self.intermediate_steps))
 
     def step(self, s, Q, params):
-
         s_next = np.copy(s)
 
         return s_next

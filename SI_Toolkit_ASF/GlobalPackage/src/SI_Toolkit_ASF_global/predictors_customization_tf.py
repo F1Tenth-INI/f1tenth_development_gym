@@ -1,10 +1,8 @@
 import tensorflow as tf
 
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
-import numpy as np
 
-
-STATE_INDICES = {} # This could be imported
+from SI_Toolkit_ASF_global.predictors_customization import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, SPEED_IDX, STEERING_IDX
 
 
 class next_state_predictor_ODE_tf():
@@ -24,19 +22,19 @@ class next_state_predictor_ODE_tf():
     @Compile
     def _step(self, s, Q, params):
 
-        pose_theta = s[:, 0]
-        pose_x = s[:, 1]
-        pose_y = s[:, 2]
+        pose_theta = s[:, POSE_THETA_IDX]
+        pose_x = s[:, POSE_X_IDX]
+        pose_y = s[:, POSE_Y_IDX]
 
-        speed = Q[:, 0]
-        steering = Q[:, 1]
+        speed = Q[:, SPEED_IDX]
+        steering = Q[:, STEERING_IDX]
 
         for _ in tf.range(self.intermediate_steps):
             pose_theta = pose_theta + 0.5*(steering/self.intermediate_steps_float)
             pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
 
-        s_next = tf.stack([pose_theta, pose_x, pose_y], axis=1)
+        s_next = tf.stack([tf.zeros_like(pose_x), tf.zeros_like(pose_x), tf.zeros_like(pose_x), pose_theta, pose_x, pose_y], axis=1)
 
         return s_next
 
