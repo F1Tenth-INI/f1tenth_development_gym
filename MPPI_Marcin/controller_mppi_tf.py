@@ -134,6 +134,7 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
+        # Defining function - the compiled part must not have if-else statements with changing output dimensions
         if predictor_type ==  'NeuralNet':
             self.update_internal_state = self.update_internal_state_of_RNN
         else:
@@ -152,7 +153,6 @@ class controller_mppi_tf(template_controller):
 
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
-        s = check_dimensions_s(s)
         s = tf.tile(s, tf.constant([num_rollouts, 1]))
         # generate random input sequence and clip to control limits
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
@@ -172,7 +172,6 @@ class controller_mppi_tf(template_controller):
 
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
-        s = check_dimensions_s(s)
         optimal_trajectory = predictor_single_trajectory.predict_tf(s, u_nom)
         if predictor_type ==  'NeuralNet':
             predictor_single_trajectory.update_internal_state_tf(s=s, Q0=u_nom[:, :1, :])
@@ -181,6 +180,7 @@ class controller_mppi_tf(template_controller):
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
         s = tf.convert_to_tensor(s, dtype=tf.float32)
+        s = check_dimensions_s(s)
         target = tf.convert_to_tensor(target, dtype=tf.float32)
 
         self.u, self.u_nom, rollout_trajectory, traj_cost = self.predict_and_cost(s, target, self.u_nom, self.rng_cem,
