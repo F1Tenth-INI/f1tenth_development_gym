@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.TF.TF_Functions.Compile import Compile
 import numpy as np
 
 

@@ -17,7 +17,16 @@ Then install the gym inside the environment.
 pip3 install --user -e gym/
 ```
 
-
+To set up he SI_Toolkit, pull all sub modules:
+```bash
+git submodule update --init --recursive
+git submodule update --recursive --remote
+```
+and then install the packages: 
+```bash
+python -m pip install --user -e ./SI_Toolkit
+python3 -m pip install --user -e ./SI_Toolkit_ASF/GlobalPackage
+```
 ## Run
 
 Please run all python scripts from the root folder

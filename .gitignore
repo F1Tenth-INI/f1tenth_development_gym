@@ -10,6 +10,10 @@ docs/_build/
 *.mypy_cache/
 flycheck_*
 
-
+# Experiment data
 main/maps/WithRandomObstacles/*
 Experimentrecordings/*
+
+# Submodule specific config files
+SI_Toolkit/src/SI_Tooklit/SI_Toolkit.egg-info/*
+SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*

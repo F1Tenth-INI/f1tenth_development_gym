@@ -2,16 +2,16 @@ import tensorflow as tf
 
 from types import SimpleNamespace
 
-from SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Normalising import normalize_tf, denormalize_tf
+from SI_Toolkit.TF.TF_Functions.Normalising import normalize_tf, denormalize_tf
 
 try:
-    from SI_Toolkit_ASF.GlobalPackage.src.SI_Toolkit_ASF_global.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
+    from SI_Toolkit_ASF_global.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
         CONTROL_INPUTS, augment_predictor_output
 except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
 
-from SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Initialization import get_net, get_norm_info_for_net
-from SI_Toolkit.src.SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.TF.TF_Functions.Initialization import get_net, get_norm_info_for_net
+from SI_Toolkit.TF.TF_Functions.Compile import Compile
 
 NET_NAME = 'Dense-68IN-32H1-32H2-2OUT-0'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-1/Models/'
