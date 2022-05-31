@@ -289,7 +289,7 @@ class RaceCar(object):
         # update physics, get RHS of diff'eq
         f = vehicle_dynamics_st(
             self.state,
-            np.array([vel, raw_steer]),
+            np.array([raw_steer, vel]),
             self.params['mu'],
             self.params['C_Sf'],
             self.params['C_Sr'],

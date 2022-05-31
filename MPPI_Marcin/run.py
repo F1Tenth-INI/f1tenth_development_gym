@@ -142,7 +142,7 @@ def main():
             speed, steer =  driver.process_observation(ranges[index], odom)
             recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
             accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            controlls.append([accl, sv])
+            controlls.append([sv, accl])
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             obs, step_reward, done, info = env.step(np.array(controlls))
