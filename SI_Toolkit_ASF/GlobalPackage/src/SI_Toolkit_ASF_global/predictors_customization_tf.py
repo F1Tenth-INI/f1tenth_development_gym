@@ -59,6 +59,15 @@ class predictor_output_augmentation_tf:
             indices_augmentation.append(STATE_INDICES['linear_vel_y'])
             features_augmentation.append('linear_vel_y')
 
+        if 'pose_theta' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['pose_theta'])
+            features_augmentation.append('pose_theta')
+        if 'pose_theta_cos' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
+            features_augmentation.append('pose_theta_cos')
+        if 'pose_theta_sin' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
+            features_augmentation.append('pose_theta_sin')
 
         self.indices_augmentation = indices_augmentation
         self.features_augmentation = features_augmentation
@@ -70,7 +79,6 @@ class predictor_output_augmentation_tf:
             self.index_pose_theta_sin = tf.convert_to_tensor(self.net_output_indices['pose_theta_sin'])
         if 'pose_theta_cos' in net_info.outputs:
             self.index_pose_theta_cos = tf.convert_to_tensor(self.net_output_indices['pose_theta_cos'])
-
 
         if disable_individual_compilation:
             self.augment = self._augment
