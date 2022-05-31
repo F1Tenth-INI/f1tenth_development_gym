@@ -2,6 +2,8 @@ testing:
   tests: ['EulerTF' ]  # May be 'Euler', Euler-predictor, name of network or None = 'Dense-16H1-16H2'
   TEST_FILE: 'F1TENTH_Blank-MPPI-0__2022-05-23_22-48-10.csv'
   features: ['pose_theta',
+             'pose_theta_sin',
+             'pose_theta_cos',
      'pose_x',
      'pose_y',
      'linear_vel_x',
