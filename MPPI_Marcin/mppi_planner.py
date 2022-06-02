@@ -142,8 +142,8 @@ class Render:
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
                largest_gap_middle_point=None, target_point=None):
         self.lidar_border_points = lidar_points
-        self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
-        self.optimal_trajectory = optimal_trajectory
+        self.rollout_trajectory, self.traj_cost = rollout_trajectory[:, 1:, :], traj_cost
+        self.optimal_trajectory = optimal_trajectory[:, 1:, :]
         self.largest_gap_middle_point = largest_gap_middle_point
         self.target_point = target_point
 
