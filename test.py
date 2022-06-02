@@ -22,7 +22,7 @@ next_step_predictor = next_state_predictor_ODE_tf(dt, intermediate_steps, disabl
 # x6: yaw rate
 # x7: slip angle at vehicle center
         
-test_initial_state = [5, 6, 0.3, 10, 0, 0, 0]
+test_initial_state = [5, 6, 0.3, 5, 0, 0, 0]
 
 # Steering velocity / Acceleration
 test_control_input = [0.,1.0]

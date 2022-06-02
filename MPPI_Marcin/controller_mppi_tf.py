@@ -53,6 +53,7 @@ predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 """Define Predictor"""
 if predictor_type == "EulerTF":
     predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=10, disable_individual_compilation=True)
+    # predictor = predictor_ODE_tf(horizon=mppi_samples, dt=0.04, intermediate_steps=4, disable_individual_compilation=True) #To be consistent with conventional MPPI
 elif predictor_type == "Euler":
     predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 elif predictor_type == "NeuralNet":
@@ -80,9 +81,15 @@ def cost(s_hor ,u, target, u_prev, delta_u):
     '''
     stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (2000,10), all costs for every step in the trajectory
     stage_cost = stage_cost + mppi_correction_cost(u, delta_u)
+    
     total_cost = tf.math.reduce_sum(stage_cost,axis=1) # (2000) Ads up the stage costs to the total cost
+    
     total_cost = total_cost + phi(s_hor, target) # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
     # print(stage_cost.numpy())
+    # sc = stage_cost.numpy()[:10]
+    # tc1 = total_cost.numpy()[:10]
+    # tc2 = total_cost.numpy()[:10]
+    # print("Tc", tc)
     return total_cost
 
 
@@ -131,7 +138,7 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
-    # @Compile
+    @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
         """
         Generate random input sequence and clip to control limits
