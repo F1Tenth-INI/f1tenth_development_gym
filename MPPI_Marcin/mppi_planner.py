@@ -91,7 +91,8 @@ class MPPI_F1TENTH:
 
         self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
         
-        target_point = self.largest_gap_middle_point
+        # target_point = self.largest_gap_middle_point
+        target_point = [0,0] #dont need the target point anymore
         
         if(Settings.FOLLOW_RANDOM_TARGETS):
             target_point = self.TargetGenerator.step((pose_x, pose_y), )
@@ -157,10 +158,10 @@ class Render:
                 self.lidar_vertices.vertices = scaled_points_flat
 
         if self.largest_gap_middle_point is not None:
-
+            
             scaled_point_gap = 50.0*np.array(self.largest_gap_middle_point)
             scaled_points_gap_flat = scaled_point_gap.flatten()
-            self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=self.gap_visualization_color, batch=e.batch)
+            # self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=self.gap_visualization_color, batch=e.batch)
 
 
         if self.rollout_trajectory is not None:
@@ -196,5 +197,5 @@ class Render:
 
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
-            self.gap_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+            # self.gap_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
 

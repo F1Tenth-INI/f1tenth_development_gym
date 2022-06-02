@@ -13,6 +13,9 @@ R = config["controller"]["mppi"]["R"]
 
 ccrc_weight = config["controller"]["mppi"]["ccrc_weight"]
 
+acceleration_cost_weight = config["controller"]["mppi"]["acceleration_cost_weight"]
+steering_cost_weight = config["controller"]["mppi"]["steering_cost_weight"]
+
 #cost for distance from track edge
 def distance_difference_cost(position, target):
     """Compute penalty for distance of cart to the target position"""
@@ -35,31 +38,21 @@ def phi(s, target):
     "Information theoretic MPC for model-based reinforcement learning"
 
     Here it checks the distance to the target at the endpoint
-    @param s: (2000, 11, 7) The parallel state evolutions of the car
+    @param s: (batch_size, horizon, len(state)) The parallel state evolutions of the car
     """
+        
     dd = dd_weight * distance_difference_cost(
         s[:, -1, :2], target
     )
     
+    # For later: Initial state to calculate differences between initial and terminal state
     initial_state = s[0, 0, :]
     initial_position = initial_state[:2]
-
+    initial_speed = initial_state[3]
     
-    i_shoud_be_this_fast = tf.fill([2000], 7.0)
+    terminal_cost = dd 
     
-    # go_fast_cost = terminal_distance_cost(
-    #     s[:, -1, :2], initial_position
-    # )
-    
-    i_am_this_fast = s[:, -1, 3]
-    
-    
-    go_fast_cost = tf.math.abs(tf.add(i_shoud_be_this_fast, - i_am_this_fast))
-    terminal_cost = go_fast_cost
-    
-    # t = terminal_cost.numpy()
-    # print("t", t[:5])
-    return terminal_cost
+    return 0 * terminal_cost
 
 #cost of changeing control to fast
 def control_change_rate_cost(u, u_prev):
@@ -68,10 +61,21 @@ def control_change_rate_cost(u, u_prev):
     return (u - u_prev_vec) ** 2
 
 
-def low_speed_cost(s):
-    speed = tf.sqrt(tf.reduce_sum((s[:, 1:, 1:]-s[:, :-1, 1:])**2, axis=-1))  # 100.0 is for default dt
-    speed = tf.concat((tf.zeros((speed.shape[0], 1), dtype=tf.float32), speed), axis=1)
-    return -speed
+def get_acceleration_cost(u):
+    accelerations = u[:,:,0]
+    max_acceleration = 9.2 # From car parameters
+    acceleration_cost = max_acceleration - accelerations
+    acceleration_cost = tf.abs(acceleration_cost)
+    acceleration_cost = acceleration_cost_weight * acceleration_cost
+    
+    return acceleration_cost
+
+def get_steering_cost(u):
+    steering = u[:,:,1]
+    steering = tf.abs(steering)
+    steering_cost = steering_cost_weight * steering
+    return steering_cost
+    
 
 #all stage costs together
 def q(s,u,target, u_prev):
@@ -79,62 +83,44 @@ def q(s,u,target, u_prev):
     cc = tf.math.reduce_sum(cc_weight * CC_cost(u), axis=-1)
     ccrc = tf.math.reduce_sum(ccrc_weight * control_change_rate_cost(u,u_prev), axis=-1)
     
-    accelerations = u[:,:,0]
-    max_accelerations = tf.fill([2000, 10], 9.2)
-    acceleration_costs = max_accelerations - accelerations
-    acceleration_costs = 0.01 * acceleration_costs
+    acceleration_cost = get_acceleration_cost(u)
+    steering_cost = get_steering_cost(u)
     
-    steering = u[:,:,1]
-    steering = tf.abs(steering)
-    do_not_steer_cost = 5 * steering
+    stage_cost = cc + ccrc + crash_penelty + acceleration_cost + steering_cost 
     
-    # steering_numpy = steering.numpy()[:20]
-    # accelerations_numpy = accelerations.numpy()[:20]
-    # max_accelerations_numpy = max_accelerations.numpy()[:20]
-    # acceleration_costs_numpy = acceleration_costs.numpy()[:20]
-    # do_not_steer_cost_numpy= do_not_steer_cost.numpy()[:20]
+    
+    # Read out values for cost weight callibration: Uncomment for debugging
+    
+    # acceleration_cost_numpy = acceleration_cost.numpy()[:20]
+    # steering_cost_numpy= steering_cost.numpy()[:20]
     # crash_penelty_numpy= crash_penelty.numpy()[:20]
     # cc_numpy= cc.numpy()[:20]
     # ccrc_numpy= ccrc.numpy()[:20]
+    # stage_cost_numpy= stage_cost.numpy()[:20]
     
-    # acceleration_sums = tf.reduce_sum(accelerations, axis=1)
-    # print(acceleration_costs.numpy())
-    stage_cost = cc+ccrc+crash_penelty +acceleration_costs
-    return stage_cost + do_not_steer_cost 
+    return stage_cost 
 
 
 # @tf.function
 def get_crash_penelty(trajectories, target):
     trajectories_shape = tf.shape(trajectories)
+    number_of_rollouts = trajectories_shape[0]
+    number_of_steps = trajectories_shape[1]
+    
     points_of_trajectories = tf.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1],2])
     squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,target)
-    summed_distances = tf.reduce_sum(squared_distances, axis = 1)
-    summed_distances = tf.reshape(summed_distances, (2000, 10))
-    # summed_distances = tf.reduce_sum(summed_distances, axis = 1)
-    
-    
-    # max_value = tf.reduce_max(summed_distances, axis = 1 )
-        
-    distance_cost = tf.divide(1, summed_distances)
-    
-
-    
-    distance_cost = tf.multiply(100000.00, distance_cost)
-    
-
+    summed_squared_distances = tf.reduce_sum(squared_distances, axis = 1)
+    summed_squared_distances = tf.reshape(summed_squared_distances, (number_of_rollouts, number_of_steps))
     
     minima = tf.math.reduce_min(squared_distances, axis=1)
     
-    
-    distance_threshold = tf.constant([0.2])
-
+    distance_threshold = tf.constant([0.3])
     indices_too_close = tf.math.less(minima, distance_threshold)
-    crash_cost = tf.cast(indices_too_close, tf.float32) * 10000
+    crash_cost = tf.cast(indices_too_close, tf.float32) * 10000 # Disqualify trajectories too close to sensor points
     
     crash_cost = tf.reshape(crash_cost, [trajectories_shape[0],trajectories_shape[1]])
-    # print(minima.numpy())
-    # print(crash_cost.numpy())
-    return crash_cost # +distance_cost
+
+    return crash_cost
 
 
 

@@ -143,13 +143,14 @@ def main():
             true_car_state = env.sim.agents[index].state
             driver.car_state = true_car_state
 
-            speed, steer =  driver.process_observation(ranges[index], odom)
+            if(render_index % 2 == 0): # We dont need to do the whole control calculations every time step
+                speed, steer =  driver.process_observation(ranges[index], odom)
 
             if(Settings.SAVE_RECORDINGS):
                 recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
             
-            accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            accl, sv = speed, steer
+            # accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+            accl, sv = speed, steer # Mppi doesn't need a PID 
             # print("speed, steer:", speed, steer)
             print("accl, sv:", accl, sv)
             controlls.append([accl, sv])
