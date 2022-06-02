@@ -62,10 +62,30 @@ class next_state_predictor_ODE_tf():
         steering = Q[:, STEERING_IDX]
         linear_vel_x = s[:, LINEAR_VEL_X_IDX]
 
+        x = tf.stack([pose_x, pose_y, tf.zeros_like(pose_x), linear_vel_x, pose_theta, tf.zeros_like(pose_x), tf.zeros_like(pose_x)], axis=-1)
         for _ in tf.range(self.intermediate_steps):
-            pose_theta = pose_theta + 0.5*(steering/self.intermediate_steps_float)
-            pose_x = pose_x + self.t_step_fine * speed * tf.math.cos(pose_theta)
-            pose_y = pose_y + self.t_step_fine * speed * tf.math.sin(pose_theta)
+
+            # Simplified model of PID
+            vel_diff = speed - x[:, 3]
+            accel = 4.755 * vel_diff
+            # steer_velocity = tf.math.sign(steer_diff) * 3.2
+
+            # Predict accel and steer_velocity directly
+            # accel = speed
+            # steer_velocity
+
+            # steer_velocity = tf.math.sign(steering)*0.5   # Try to do is as in original PID
+            steer_velocity = steering/self.dt  # Assuming/Guessing that the PID can make the car follow the chosen angle withing control period
+
+            # Car model
+            u = tf.stack([steer_velocity, accel], axis=-1)
+            f = vehicle_dynamics_simple(x, u)
+            x += self.t_step_fine * f
+
+        pose_x = x[:, 0]
+        pose_y = x[:, 1]
+        pose_theta = x[:, 4]
+        linear_vel_x = x[:, 3]
 
         pose_theta_cos = tf.math.cos(pose_theta)
         pose_theta_sin = tf.math.sin(pose_theta)

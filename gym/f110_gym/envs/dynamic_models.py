@@ -216,35 +216,47 @@ def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v)
             accl (float): desired input acceleration
             sv (float): desired input steering velocity
     """
-    # steering
-    steer_diff = steer - current_steer
-    if np.fabs(steer_diff) > 1e-4:
-        sv = (steer_diff / np.fabs(steer_diff)) * max_sv
+    # version = 'simplified'
+    version = 'full'
+    if version == 'simplified':
+        vel_diff = speed - current_speed
+        accl = 4.755 * vel_diff
+        sv = steer
     else:
-        sv = 0.0
+        # steering - Modified from F1TENTH, the original version too jittery, see below
+        steer_diff = steer - current_steer
+        if np.fabs(steer_diff) > 1e-4:
+            sv = steer_diff / 0.1  # Try to make the steering within one timestep
+        else:
+            sv = 0.0
+    # Original PID for steering
+    #     if np.fabs(steer_diff) > 1e-4:
+    #         sv = (steer_diff / np.fabs(steer_diff)) * max_sv
+    #     else:
+    #         sv = 0.0
 
-    # accl
-    vel_diff = speed - current_speed
-    # currently forward
-    if current_speed > 0.:
-        if (vel_diff > 0):
-            # accelerate
-            kp = 10.0 * max_a / max_v
-            accl = kp * vel_diff
+        # acceleration - Exactly as original F1TENTH
+        vel_diff = speed - current_speed
+        # currently forward
+        if current_speed > 0.:
+            if (vel_diff > 0):
+                # accelerate
+                kp = 10.0 * max_a / max_v
+                accl = kp * vel_diff
+            else:
+                # braking
+                kp = 10.0 * max_a / (-min_v)
+                accl = kp * vel_diff
+        # currently backwards
         else:
-            # braking
-            kp = 10.0 * max_a / (-min_v)
-            accl = kp * vel_diff
-    # currently backwards
-    else:
-        if (vel_diff > 0):
-            # braking
-            kp = 2.0 * max_a / max_v
-            accl = kp * vel_diff
-        else:
-            # accelerating
-            kp = 2.0 * max_a / (-min_v)
-            accl = kp * vel_diff
+            if (vel_diff > 0):
+                # braking
+                kp = 2.0 * max_a / max_v
+                accl = kp * vel_diff
+            else:
+                # accelerating
+                kp = 2.0 * max_a / (-min_v)
+                accl = kp * vel_diff
 
     return accl, sv
 
