@@ -216,12 +216,12 @@ def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v)
             accl (float): desired input acceleration
             sv (float): desired input steering velocity
     """
-    # version = 'simplified'
-    version = 'full'
+    version = 'simplified'
+    # version = 'full'
     if version == 'simplified':
         vel_diff = speed - current_speed
         accl = 4.755 * vel_diff
-        sv = steer
+        sv = steer/0.1
     else:
         # steering - Modified from F1TENTH, the original version too jittery, see below
         steer_diff = steer - current_steer
