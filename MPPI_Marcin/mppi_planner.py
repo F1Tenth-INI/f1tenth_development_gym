@@ -34,6 +34,9 @@ class MPPI_F1TENTH:
 
         print("Controller initialized")
 
+        self.speed = None
+        self.steering_angle = None
+
         self.lidar_live_points = []
         self.lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
         self.simulation_index = 0
@@ -106,6 +109,9 @@ class MPPI_F1TENTH:
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
                            self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_positions)
         self.simulation_index += 1
+
+        self.speed = speed
+        self.steering_angle = steering_angle
 
         return speed, steering_angle
 
