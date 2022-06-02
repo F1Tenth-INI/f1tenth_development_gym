@@ -86,6 +86,36 @@ def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min,
 
     return steering_velocity
 
+def vehicle_dynamics_simple(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
+    """
+    Single Track Kinematic Vehicle Dynamics.
+
+        Args:
+            x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5)
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels # In car coordinates
+                x3: velocity in x direction # car coordinates, straight ahead
+                x4: yaw angle # In gloabal coordinates
+                x5: yaw rate
+                x6: slip angle at vehicle center
+            u (numpy.ndarray (2, )): control input vector (u1, u2)
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
+
+        Returns:
+            f (numpy.ndarray): right hand side of differential equations
+    """
+    u = u_init
+    # system dynamics
+    f = np.array([x[3]*np.cos(x[4]),
+         x[3]*np.sin(x[4]),
+         0.0,
+         u[1],
+         u[0],
+         0.0,
+         0.0])
+    return f
 
 def vehicle_dynamics_ks(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
     """
