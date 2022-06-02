@@ -146,8 +146,8 @@ def main():
                                cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 controlls.append([sv, accl])
             obs, step_reward, done, info = env.step(np.array(controlls))
+            laptime += step_reward
 
-        laptime += step_reward
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
             render_index += 1
