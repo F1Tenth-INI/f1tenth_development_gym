@@ -132,19 +132,19 @@ def main():
             break
         ranges = obs['scans']
 
-        # First car
-        controlls = []
-        
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
             odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
             speed, steer =  driver.process_observation(ranges[index], odom)
             recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
-            accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            controlls.append([sv, accl])
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            controlls = []
+            for index, driver in enumerate(drivers):
+                accl, sv = pid(driver.speed, driver.steering_angle, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                               cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+                controlls.append([sv, accl])
             obs, step_reward, done, info = env.step(np.array(controlls))
 
         laptime += step_reward
