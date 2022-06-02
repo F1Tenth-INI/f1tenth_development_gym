@@ -31,7 +31,7 @@ Author: Hongrui Zheng
 import numpy as np
 from numba import njit
 
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
+from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid, vehicle_dynamics_simple
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
@@ -288,6 +288,7 @@ class RaceCar(object):
 
         # update physics, get RHS of diff'eq
         f = vehicle_dynamics_st(
+        # f = vehicle_dynamics_simple(
             self.state,
             np.array([raw_steer, vel]),
             self.params['mu'],
