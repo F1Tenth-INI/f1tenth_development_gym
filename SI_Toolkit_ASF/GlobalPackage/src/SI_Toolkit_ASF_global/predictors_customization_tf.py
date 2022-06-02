@@ -36,6 +36,11 @@ def vehicle_dynamics_simple(x, u):
                  axis=-1)
     return f
 
+
+def wrap_angle_rad(sin, cos):
+    return tf.math.atan2(sin, cos)
+
+
 class next_state_predictor_ODE_tf():
 
     def __init__(self, dt, intermediate_steps, disable_individual_compilation=False):
@@ -89,6 +94,7 @@ class next_state_predictor_ODE_tf():
 
         pose_theta_cos = tf.math.cos(pose_theta)
         pose_theta_sin = tf.math.sin(pose_theta)
+        pose_theta = wrap_angle_rad(pose_theta_sin, pose_theta_cos)  # Wrap angle
 
         s_next = tf.stack([tf.zeros_like(pose_x), linear_vel_x, tf.zeros_like(pose_x),
                            pose_theta, pose_theta_cos, pose_theta_sin,
