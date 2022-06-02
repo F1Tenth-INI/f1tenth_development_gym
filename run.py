@@ -103,8 +103,9 @@ for i in trange(number_of_experiments):
 
             speed, steer =  planner.process_observation(ranges, odom_1)
             # R.save_data(control_inputs=(speed, steer), odometry=odom_1, ranges=ranges)
-            accl, sv = pid(add_noise(speed), add_noise(steer), car.state[3], car.state[2], car.params['sv_max'], car.params['a_max'], car.params['v_max'], car.params['v_min'])
+            # accl, sv = pid(add_noise(speed), add_noise(steer), car.state[3], car.state[2], car.params['sv_max'], car.params['a_max'], car.params['v_max'], car.params['v_min'])
 
+            accl, sv = speed, steer
 
             obs, step_reward, done, info = env.step(np.array([[ accl, sv]]))
 
