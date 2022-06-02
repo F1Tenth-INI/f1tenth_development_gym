@@ -75,7 +75,7 @@ class next_state_predictor_ODE_tf():
             # steer_velocity
 
             # steer_velocity = tf.math.sign(steering)*0.5   # Try to do is as in original PID
-            steer_velocity = steering/self.dt  # Assuming/Guessing that the PID can make the car follow the chosen angle withing control period
+            steer_velocity = steering/0.1  # Assuming/Guessing that the PID can make the car follow the chosen angle withing control period
 
             # Car model
             u = tf.stack([steer_velocity, accel], axis=-1)

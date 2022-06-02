@@ -287,8 +287,8 @@ class RaceCar(object):
         # print("pid",sv,accl )
 
         # update physics, get RHS of diff'eq
-        f = vehicle_dynamics_st(
-        # f = vehicle_dynamics_simple(
+        # f = vehicle_dynamics_st(
+        f = vehicle_dynamics_simple(
             self.state,
             np.array([raw_steer, vel]),
             self.params['mu'],
