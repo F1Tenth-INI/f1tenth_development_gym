@@ -26,7 +26,7 @@ controller:
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
     LOGGING: False                        # Collect and show detailed insights into the controller's behavior
     WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
-    CLIP_CONTROL_INPUT: [[1, -3],[4, 3]]       # How to clip control input, symmetric
+    CLIP_CONTROL_INPUT: [[1, -1],[4, 1]]       # How to clip control input, symmetric # speed, steering angle
 
 data_generator:
   SEED: 1  # If "None" random seed based on datetime is used
