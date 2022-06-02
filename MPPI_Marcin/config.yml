@@ -20,7 +20,7 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [0.1, 0.02]
+    SQRTRHOINV: [0.2,0.4]
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]

@@ -2,6 +2,64 @@ from re import S
 import tensorflow as tf
 import numpy as np
 
+
+from MPPI.mppi_planner import MppiPlanner
+
+from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
+
+from SI_Toolkit_ASF_global.predictors_customization_tf import next_state_predictor_ODE_tf
+dt=0.04
+intermediate_steps=4,
+num_rollouts = 2000
+
+next_step_predictor = next_state_predictor_ODE_tf(dt, intermediate_steps, disable_individual_compilation=True)
+
+# x1: x position in global coordinates
+# x2: y position in global coordinates
+# x3: steering angle of front wheels
+# x4: velocity in x direction
+# x5: yaw angle
+# x6: yaw rate
+# x7: slip angle at vehicle center
+        
+test_initial_state = [5, 6, 0.3, 10, 0, 0, 0]
+
+# Steering velocity / Acceleration
+test_control_input = [0.,1.0]
+
+
+number_of_steps = 1
+
+# Conventional model:
+
+planner = MppiPlanner()
+planner.car_state = test_initial_state
+next_state = test_initial_state
+for  i in range(number_of_steps):
+    next_state = planner.simulate_step(next_state ,test_control_input)
+
+
+result = np.around(next_state, 3)
+print("Conventional Next state: ", result)
+
+
+initial_state = test_initial_state
+initial_state = np.tile(initial_state, tf.constant([num_rollouts, 1]))
+initial_state = tf.convert_to_tensor(initial_state, dtype=tf.float32)
+
+control_input = [test_control_input[1],test_control_input[0]] 
+control_input = np.tile(control_input, tf.constant([num_rollouts, 1]))
+control_input = tf.convert_to_tensor(control_input, dtype=tf.float32)
+
+for  i in range(number_of_steps):
+    next_state = next_step_predictor.step(initial_state, control_input, 0)
+
+result = next_state.numpy()
+result = np.around(result, 3)
+print("Tensorflow Next State",result[0])
+
+exit()
+
 def get_minimmum_distances(distances):
     minima = tf.math.reduce_min(distances, axis=1)
     

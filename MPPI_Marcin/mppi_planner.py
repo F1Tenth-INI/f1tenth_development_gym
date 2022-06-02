@@ -47,7 +47,7 @@ class MPPI_F1TENTH:
         self.mppi = controller_mppi_tf()
 
         self.Render = Render()
-
+        self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
@@ -71,7 +71,11 @@ class MPPI_F1TENTH:
         pose_x = ego_odom['pose_x']
         pose_y = ego_odom['pose_y']
         pose_theta = ego_odom['pose_theta']
+        linear_vel_x = ego_odom['linear_vel_x']
         
+        if self.simulation_index < 20:
+            self.simulation_index += 1
+            return 10, 0
        
 
         scans = np.array(ranges)
@@ -93,7 +97,8 @@ class MPPI_F1TENTH:
             target_point = self.TargetGenerator.step((pose_x, pose_y), )
 
         target = np.vstack((target_point, self.lidar_points))
-        s = np.array((pose_x, pose_y, pose_theta))
+        # s = np.array((pose_x, pose_y, 0, 0, pose_theta, 0, 0))
+        s = np.array(self.car_state)
         speed, steering_angle = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random

@@ -1,3 +1,4 @@
+from numpy import dtype
 import tensorflow as tf
 import yaml
 
@@ -17,6 +18,11 @@ def distance_difference_cost(position, target):
     """Compute penalty for distance of cart to the target position"""
     return tf.math.reduce_sum(((position - target[0, :]) / distance_normalization) ** 2, axis=-1)
 
+def terminal_distance_cost(positions, initial_position):
+    """Compute penalty for distance of cart to the target position"""
+    return tf.math.reduce_sum(((positions - initial_position) / distance_normalization) ** 2, axis=-1)
+
+
 #actuation cost
 def CC_cost(u):
     return R * (u ** 2)
@@ -29,11 +35,30 @@ def phi(s, target):
     "Information theoretic MPC for model-based reinforcement learning"
 
     Here it checks the distance to the target at the endpoint
+    @param s: (2000, 11, 7) The parallel state evolutions of the car
     """
     dd = dd_weight * distance_difference_cost(
         s[:, -1, :2], target
     )
-    terminal_cost = dd
+    
+    initial_state = s[0, 0, :]
+    initial_position = initial_state[:2]
+
+    
+    i_shoud_be_this_fast = tf.fill([2000], 7.0)
+    
+    # go_fast_cost = terminal_distance_cost(
+    #     s[:, -1, :2], initial_position
+    # )
+    
+    i_am_this_fast = s[:, -1, 3]
+    
+    
+    go_fast_cost = tf.math.abs(tf.add(i_shoud_be_this_fast, - i_am_this_fast))
+    terminal_cost = go_fast_cost
+    
+    # t = terminal_cost.numpy()
+    # print("t", t[:5])
     return terminal_cost
 
 #cost of changeing control to fast
@@ -54,25 +79,54 @@ def q(s,u,target, u_prev):
     cc = tf.math.reduce_sum(cc_weight * CC_cost(u), axis=-1)
     ccrc = tf.math.reduce_sum(ccrc_weight * control_change_rate_cost(u,u_prev), axis=-1)
     
-    acceleration_cost_weight= tf.constant(0.1)
     accelerations = u[:,:,0]
+    max_accelerations = tf.fill([2000, 10], 9.2)
+    acceleration_costs = max_accelerations - accelerations
+    acceleration_costs = 0.01 * acceleration_costs
     
-    acceleration_costs = tf.scalar_mul(acceleration_cost_weight, accelerations)
+    steering = u[:,:,1]
+    steering = tf.abs(steering)
+    do_not_steer_cost = 5 * steering
+    
+    # steering_numpy = steering.numpy()[:20]
+    # accelerations_numpy = accelerations.numpy()[:20]
+    # max_accelerations_numpy = max_accelerations.numpy()[:20]
+    # acceleration_costs_numpy = acceleration_costs.numpy()[:20]
+    # do_not_steer_cost_numpy= do_not_steer_cost.numpy()[:20]
+    # crash_penelty_numpy= crash_penelty.numpy()[:20]
+    # cc_numpy= cc.numpy()[:20]
+    # ccrc_numpy= ccrc.numpy()[:20]
+    
     # acceleration_sums = tf.reduce_sum(accelerations, axis=1)
     # print(acceleration_costs.numpy())
-    stage_cost = cc+ccrc+crash_penelty #-acceleration_costs
-    return stage_cost
+    stage_cost = cc+ccrc+crash_penelty +acceleration_costs
+    return stage_cost + do_not_steer_cost 
 
 
-@tf.function
+# @tf.function
 def get_crash_penelty(trajectories, target):
     trajectories_shape = tf.shape(trajectories)
     points_of_trajectories = tf.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1],2])
     squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,target)
+    summed_distances = tf.reduce_sum(squared_distances, axis = 1)
+    summed_distances = tf.reshape(summed_distances, (2000, 10))
+    # summed_distances = tf.reduce_sum(summed_distances, axis = 1)
+    
+    
+    # max_value = tf.reduce_max(summed_distances, axis = 1 )
+        
+    distance_cost = tf.divide(1, summed_distances)
+    
+
+    
+    distance_cost = tf.multiply(100000.00, distance_cost)
+    
+
+    
     minima = tf.math.reduce_min(squared_distances, axis=1)
     
     
-    distance_threshold = tf.constant([0.5])
+    distance_threshold = tf.constant([0.2])
 
     indices_too_close = tf.math.less(minima, distance_threshold)
     crash_cost = tf.cast(indices_too_close, tf.float32) * 10000
@@ -80,7 +134,7 @@ def get_crash_penelty(trajectories, target):
     crash_cost = tf.reshape(crash_cost, [trajectories_shape[0],trajectories_shape[1]])
     # print(minima.numpy())
     # print(crash_cost.numpy())
-    return crash_cost
+    return crash_cost # +distance_cost
 
 
 
