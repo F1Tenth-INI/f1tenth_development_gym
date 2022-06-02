@@ -4,7 +4,7 @@ controller:
     cost_function: 'default' #from 'quadratic-boundary', 'quadratic-boundary-nonconvex', 'default'
   mppi:
     SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
-    dt: 0.05                              # sec
+    dt: 0.1                              # sec
     mpc_horizon: 0.5                      # sec
     num_rollouts: 1000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
