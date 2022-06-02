@@ -1,8 +1,8 @@
 # Configuration for main
 class Settings:
 
-    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 200000  # in timesteps, only valid if default termination after two laps is off.
+    NUMBER_OF_EXPERIMENTS = 10  # How many times to run the car racing experiment
+    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if default termination after two laps is off.
 
     TIMESTEP_CONTROL = 0.1    # Multiple of 0.01
     
@@ -22,9 +22,9 @@ class Settings:
     CAMERA_AUTO_FOLLOW = True
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
-    # RENDER_MODE = None
+    RENDER_MODE = None
     # RENDER_MODE = "human_fast"
-    RENDER_MODE = "human"
+    # RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 10
 
     # If false the max range of LIDAR is considered, otherwise only forward cone

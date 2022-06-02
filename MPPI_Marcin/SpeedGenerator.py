@@ -5,7 +5,7 @@ from scipy.interpolate import BPoly, interp1d
 class SpeedGenerator:
     def __init__(self):
 
-        self.speed_min = 1.0
+        self.speed_min = 0.5
         self.speed_max = 8.0
 
         self.target_speed = None
