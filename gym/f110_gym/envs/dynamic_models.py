@@ -93,14 +93,14 @@ def vehicle_dynamics_ks(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max
 
         Args:
             x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5)
-                x1: x position in global coordinates
-                x2: y position in global coordinates
-                x3: steering angle of front wheels
-                x4: velocity in x direction
-                x5: yaw angle
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels
+                x3: velocity in x direction
+                x4: yaw angle
             u (numpy.ndarray (2, )): control input vector (u1, u2)
-                u1: steering angle velocity of front wheels
-                u2: longitudinal acceleration
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
 
         Returns:
             f (numpy.ndarray): right hand side of differential equations
@@ -125,16 +125,16 @@ def vehicle_dynamics_st(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max
 
         Args:
             x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5, x6, x7)
-                x1: x position in global coordinates
-                x2: y position in global coordinates
-                x3: steering angle of front wheels
-                x4: velocity in x direction
-                x5: yaw angle
-                x6: yaw rate
-                x7: slip angle at vehicle center
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels
+                x3: velocity in x direction
+                x4: yaw angle
+                x5: yaw rate
+                x6: slip angle at vehicle center
             u (numpy.ndarray (2, )): control input vector (u1, u2)
-                u1: steering angle velocity of front wheels
-                u2: longitudinal acceleration
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
 
         Returns:
             f (numpy.ndarray): right hand side of differential equations
