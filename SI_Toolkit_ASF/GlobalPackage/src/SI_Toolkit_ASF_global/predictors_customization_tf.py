@@ -28,7 +28,7 @@ class next_state_predictor_ODE_tf():
 
         speed = Q[:, SPEED_IDX]
         steering = Q[:, STEERING_IDX]
-        linear_vel_x = s[:, LINEAR_VEL_X]
+        linear_vel_x = s[:, LINEAR_VEL_X_IDX]
 
         for _ in tf.range(self.intermediate_steps):
             pose_theta = pose_theta + 0.5*(steering/self.intermediate_steps_float)
