@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
 
-from SI_Toolkit_ASF_global.predictors_customization import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, SPEED_IDX, STEERING_IDX
+from SI_Toolkit_ASF_global.predictors_customization import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, SPEED_IDX, STEERING_IDX, LINEAR_VEL_X_IDX
 from SI_Toolkit_ASF_global.predictors_customization import STATE_INDICES
 
 class next_state_predictor_ODE_tf():
