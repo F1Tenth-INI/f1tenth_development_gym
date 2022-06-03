@@ -104,7 +104,8 @@ class MPPI_F1TENTH:
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
-        speed = self.SpeedGenerator.step()
+        # speed = self.SpeedGenerator.step()
+        # speed = 0.1
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
                            self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_positions)
