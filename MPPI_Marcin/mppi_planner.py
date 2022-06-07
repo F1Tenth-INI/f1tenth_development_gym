@@ -6,8 +6,9 @@ from pyglet.gl import GL_POINTS
 from pyglet import shapes
 
 import numpy as np
+import pandas as pd
 
-from Settings import Settings
+from main.Settings import Settings
 
 from FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -50,6 +51,12 @@ class MPPI_F1TENTH:
         self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
+        
+        # Get waypoints
+        path = Settings.MAP_WAYPOINT_FILE
+        waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+        waypoints=waypoints[0:-1:1,1:3] 
+        self.wpts_opt=waypoints 
 
     def render(self, e):
         self.Render.render(e)
@@ -73,17 +80,16 @@ class MPPI_F1TENTH:
         pose_theta = ego_odom['pose_theta']
         linear_vel_x = ego_odom['linear_vel_x']
         
-        if self.simulation_index < 20:
+        # Accelerate at the beginning (St model expoldes for small velocity)
+        if self.simulation_index < 50:
             self.simulation_index += 1
             return 10, 0
        
 
         scans = np.array(ranges)
-        # Take into account size of car
-        # scans -= 0.3
 
-        distances = scans[lidar_range_min:lidar_range_max:10] # Only use every 10th lidar point
-        angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:10]
+        distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 10th lidar point
+        angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
         p1 = pose_x + distances * np.cos(angles + pose_theta)
         p2 = pose_y + distances * np.sin(angles + pose_theta)
@@ -96,10 +102,13 @@ class MPPI_F1TENTH:
         
         if(Settings.FOLLOW_RANDOM_TARGETS):
             target_point = self.TargetGenerator.step((pose_x, pose_y), )
-
+        
+        # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
         target = np.vstack((target_point, self.lidar_points))
+        target = np.vstack((target, self.wpts_opt))
+        
         # s = np.array((pose_x, pose_y, 0, 0, pose_theta, 0, 0))
-        s = np.array(self.car_state)
+        s = np.array(self.car_state) # The MPPI needs true state
         speed, steering_angle = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
