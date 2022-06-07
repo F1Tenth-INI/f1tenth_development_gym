@@ -17,9 +17,9 @@ acceleration_cost_weight = config["controller"]["mppi"]["acceleration_cost_weigh
 steering_cost_weight = config["controller"]["mppi"]["steering_cost_weight"]
 
 #cost for distance from track edge
-def distance_difference_cost(position, target):
+def distance_difference_cost(position, target_position):
     """Compute penalty for distance of cart to the target position"""
-    return tf.math.reduce_sum(((position - target[0, :]) / distance_normalization) ** 2, axis=-1)
+    return tf.math.reduce_sum(((position - target_position) / distance_normalization) ** 2, axis=-1)
 
 def terminal_distance_cost(positions, initial_position):
     """Compute penalty for distance of cart to the target position"""
@@ -41,18 +41,27 @@ def phi(s, target):
     @param s: (batch_size, horizon, len(state)) The parallel state evolutions of the car
     """
         
+    target_position = target[0, :]
+    lidar_scans = target[1:217]
+    waypoints = target[218:]
+    
+        
     dd = dd_weight * distance_difference_cost(
-        s[:, -1, :2], target
+        s[:, -1, :2], target_position
     )
     
     # For later: Initial state to calculate differences between initial and terminal state
-    initial_state = s[0, 0, :]
-    initial_position = initial_state[:2]
-    initial_speed = initial_state[3]
+    initial_state = s[:, 0, :]
+    terminal_state = s[:, -1, :]
+    initial_position = initial_state[:, :2]
+    initial_speed = initial_state[:,3]
     
-    terminal_cost = dd 
+    terminal_speed = terminal_state[:, 3]
     
-    return 0 * terminal_cost
+    terminal_speed_cost = terminal_speed_cost_weight * terminal_speed
+    terminal_cost = dd + terminal_speed_cost 
+
+    return terminal_cost
 
 #cost of changeing control to fast
 def control_change_rate_cost(u, u_prev):
@@ -74,15 +83,21 @@ def get_steering_cost(u):
     steering = u[:,:,1]
     steering = tf.abs(steering)
     steering_cost = steering_cost_weight * steering
+    
     return steering_cost
     
 
 #all stage costs together
 def q(s,u,target, u_prev):
-    crash_penelty = get_crash_penelty(s[:, :, :2], target)
+    
+    target_position = target[0]
+    lidar_scans = target[1:217]
+    waypoints = target[218:]
+    
     cc = tf.math.reduce_sum(cc_weight * CC_cost(u), axis=-1)
     ccrc = tf.math.reduce_sum(ccrc_weight * control_change_rate_cost(u,u_prev), axis=-1)
     
+    crash_penelty = get_crash_penelty(s[:, :, :2], lidar_scans)
     acceleration_cost = get_acceleration_cost(u)
     steering_cost = get_steering_cost(u)
     
@@ -101,22 +116,22 @@ def q(s,u,target, u_prev):
     return stage_cost 
 
 
-# @tf.function
-def get_crash_penelty(trajectories, target):
+@tf.function
+def get_crash_penelty(trajectories, border_points):
     trajectories_shape = tf.shape(trajectories)
     number_of_rollouts = trajectories_shape[0]
     number_of_steps = trajectories_shape[1]
     
     points_of_trajectories = tf.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1],2])
-    squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,target)
+    squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,border_points)
     summed_squared_distances = tf.reduce_sum(squared_distances, axis = 1)
     summed_squared_distances = tf.reshape(summed_squared_distances, (number_of_rollouts, number_of_steps))
     
     minima = tf.math.reduce_min(squared_distances, axis=1)
     
-    distance_threshold = tf.constant([0.3])
+    distance_threshold = tf.constant([0.36]) #0.6 ^2
     indices_too_close = tf.math.less(minima, distance_threshold)
-    crash_cost = tf.cast(indices_too_close, tf.float32) * 10000 # Disqualify trajectories too close to sensor points
+    crash_cost = tf.cast(indices_too_close, tf.float32) * 1000000 # Disqualify trajectories too close to sensor points
     
     crash_cost = tf.reshape(crash_cost, [trajectories_shape[0],trajectories_shape[1]])
 
@@ -125,7 +140,6 @@ def get_crash_penelty(trajectories, target):
 
 
 def distances_to_list_of_points(point, points2):
-    
     length = tf.shape(points2)[0]
     points1 = tf.tile([point], [length, 1])
     
