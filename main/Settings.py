@@ -9,6 +9,7 @@ class Settings:
     # If you want to create a new file, orientate on existing ones.
     # MAP_CONFIG_FILE =  "maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "maps_files/config_Oschersleben.yaml"
+    MAP_WAYPOINT_FILE = 'maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
     # MAP_CONFIG_FILE =  "maps_files/config_empty_map.yaml"
     
     

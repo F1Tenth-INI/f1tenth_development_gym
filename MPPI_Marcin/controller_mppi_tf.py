@@ -28,6 +28,7 @@ cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q,
 exec(cost_function_cmd)
 
 dt = config["controller"]["mppi"]["dt"]
+control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
 mppi_horizon = config["controller"]["mppi"]["mpc_horizon"]
 num_rollouts = config["controller"]["mppi"]["num_rollouts"]
 
@@ -52,8 +53,7 @@ predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 
 """Define Predictor"""
 if predictor_type == "EulerTF":
-    predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=10, disable_individual_compilation=True)
-    # predictor = predictor_ODE_tf(horizon=mppi_samples, dt=0.04, intermediate_steps=4, disable_individual_compilation=True) #To be consistent with conventional MPPI
+    predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=1, disable_individual_compilation=True)
 elif predictor_type == "Euler":
     predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 elif predictor_type == "NeuralNet":
@@ -75,14 +75,14 @@ def cost(s_hor ,u, target, u_prev, delta_u):
     total cost of the trajectory
     @param s_hor: All rollout results (trajectories) for the whole horizon
     @param u: all control inputs for rollouts s_hor
-    @param target: (109, 2), target point (largest gap) and sensor data
-    @param u_prev: (2,) prevoius control input 
-    @param delta_u: (2000, 10, 2) perturbation of previous best control sequence
+    @param target: (number_of_lidar_points, 2), target point (largest gap) and sensor data
+    @param u_prev: (len(control_input)) prevoius control input 
+    @param delta_u: (batch_size, horizon, len(control_input)) perturbation of previous best control sequence
     '''
-    stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (2000,10), all costs for every step in the trajectory
+    stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (batch_size,horizon), all costs for every step in the trajectory
     stage_cost = stage_cost + mppi_correction_cost(u, delta_u)
     
-    total_cost = tf.math.reduce_sum(stage_cost,axis=1) # (2000) Ads up the stage costs to the total cost
+    total_cost = tf.math.reduce_sum(stage_cost,axis=1) # (batch_size) Ads up the stage costs to the total cost
     
     total_cost = total_cost + phi(s_hor, target) # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
     # print(stage_cost.numpy())
@@ -95,8 +95,8 @@ def cost(s_hor ,u, target, u_prev, delta_u):
 
 def reward_weighted_average(S, delta_u):
     '''
-    @param S: (2000), costs for tracectories
-    @param delta_u: (2000, 10, 2): Perturbation of optimal trajectory to be weighted 
+    @param S: (batch_size), costs for tracectories
+    @param delta_u: (batch_size, horizon, len(control_input)): Perturbation of optimal trajectory to be weighted 
     '''
     rho = tf.math.reduce_min(S)
     exp_s = tf.exp(-1.0/LBD * (S-rho))
@@ -116,6 +116,49 @@ def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAM
     else:
         delta_u = random_gen.normal([num_rollouts, mppi_samples, num_control_inputs], dtype=tf.float32) * stdev
     return delta_u
+
+
+
+
+def interpolate_mean(a, number_of_steps):
+    '''Interpolate control inputs
+    @param a: list of control inputs (number_of_rollouts, horizon, len(control_input))
+    @param number_of_steps: number of steps between each control input 
+    
+    We want to increase the resolution of the rollouts without the need of a larger batch size:
+    For every consecutive control input, we calculate number_of_steps values in between (linear interpolation), with the following trick:
+    
+    For example we take number_of_steps = 3 and a control input of [1,2,3,4,5]
+    We calculate the interpolation by adding shifted repeated versions of the control input
+    
+        1 1 1 2 2 2 3 3 3 4 4 4 5 
+    +   1 1 2 2 2 3 3 3 4 4 4 5 5 
+    +   1 2 2 2 3 3 3 4 4 4 5 5 5
+    / 3
+    =   1.0 1.333 1.666 2.0 ....        ...4.666 5.0
+    
+    returns result: list of control inputs (number_of_rollouts, horizon * number_of_steps,  len(control_input))
+    '''
+
+
+    index_steps = number_of_steps - 1
+
+    a = tf.repeat(a, number_of_steps, axis=1)
+    interpolation = tf.zeros([tf.shape(a)[0], tf.shape(a)[1] - index_steps, tf.shape(a)[2]], dtype= tf.float32)
+
+    i = tf.constant(0)
+    while_condition = lambda i, interpolation, a: tf.less(i, number_of_steps)
+    def body(i, interpolation, a):
+        lenght = tf.shape(a)[1] - index_steps
+        a_sliced = tf.slice(a, [0, i, 0], [a.shape[0], lenght ,a.shape[2]])
+        interpolation = tf.add(interpolation, a_sliced)
+        return [tf.add(i, 1), interpolation, a]
+
+    # do the loop:
+    index, result, a = tf.while_loop(while_condition, body, [i, interpolation, a])
+    result = result/number_of_steps
+    
+    return result
 
 
 
@@ -148,12 +191,15 @@ class controller_mppi_tf(template_controller):
         @param: random_gen: Tensoflow random generator 
         @param: u_old: Last optimal control input
         """
-        delta_u = inizialize_pertubation(random_gen) #(2000, 10, 2) perturbation of the last control input for rollouts
-        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u #(2000, 10, 2) Hostiry based control inputs for rollouts (last optimal + perturbation)
-        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input) # (2000, 10, 2) Clip control input based on model parameters
-        rollout_trajectory = predictor.predict_tf(s, u_run) # (2000, 11, 3) All trajectories for the state distribution
-        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (2000,) Cost for each trajectory
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input) # (1, 10, 2) Find optimal control sequence by weighted average of trajectory costs
+        delta_u = inizialize_pertubation(random_gen) #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
+        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u #(batch_size, horizon, len(control_input)) Hostiry based control inputs for rollouts (last optimal + perturbation)
+        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input) # (batch_size, horizon, len(control_input)) Clip control input based on model parameters
+        u_run = interpolate_mean(u_run, control_interpolation_steps) # Increase resolution for control inputs (same horizon but smaller timestep)
+        delta_u_ext = tf.repeat(delta_u, control_interpolation_steps, axis=1)[:, :-1, :] # Fit dimensions with interpolated version
+        
+        rollout_trajectory = predictor.predict_tf(s, u_run) # (batch_size, 11, 3) All trajectories for the state distribution
+        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u_ext)  # (batch_size,) Cost for each trajectory
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input) # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs
         u = u_nom[0, 0, :] # (2,) Return only the first step of the optimal control sequence
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         if GET_ROLLOUTS_FROM_MPPI:
