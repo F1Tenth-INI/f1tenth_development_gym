@@ -3,24 +3,31 @@ import tensorflow as tf
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
 import numpy as np
 
+import yaml
 
 STATE_INDICES = {} # This could be imported
+
+
+config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
+control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
 
 
 class next_state_predictor_ODE_tf():
 
     def __init__(self, dt, intermediate_steps, disable_individual_compilation=False):
         self.s = None
-
+        
         self.intermediate_steps = tf.convert_to_tensor(intermediate_steps, dtype=tf.int32)
         self.intermediate_steps_float = tf.convert_to_tensor(intermediate_steps, dtype=tf.float32)
-        self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps), dtype=tf.float32)
-
+        self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps) , dtype=tf.float32)
+        
+        self.t_step = self.t_step / control_interpolation_steps
+        
         if disable_individual_compilation:
             # self.step = self._step
             self.step = self._step_st
         else:
-            self.step = Compile(self._step)
+            self.step = Compile(self._step_st)
 
     # @Compile
     def _step(self, s, Q, params):

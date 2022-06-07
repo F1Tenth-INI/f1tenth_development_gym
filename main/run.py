@@ -143,7 +143,7 @@ def main():
             true_car_state = env.sim.agents[index].state
             driver.car_state = true_car_state
 
-            if(render_index % 2 == 0): # We dont need to do the whole control calculations every time step
+            if(render_index % 1 == 0): # We dont need to do the whole control calculations every time step
                 speed, steer =  driver.process_observation(ranges[index], odom)
 
             if(Settings.SAVE_RECORDINGS):

@@ -2,12 +2,68 @@ from re import S
 import tensorflow as tf
 import numpy as np
 
+import tensorflow_probability as tfp
+
 
 from MPPI.mppi_planner import MppiPlanner
 
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
 from SI_Toolkit_ASF_global.predictors_customization_tf import next_state_predictor_ODE_tf
+
+
+
+
+
+
+def interpolate_mean(a, number_of_steps):
+    '''Interpolate control inputs
+    @param a: list of control inputs (number_of_rollouts, horizon, number of control inputs)'''
+
+    index_steps = number_of_steps - 1
+
+    a = tf.repeat(a, number_of_steps, axis=1)
+
+    interpolation = tf.zeros([tf.shape(a)[0], tf.shape(a)[1] - index_steps, tf.shape(a)[2]], dtype= tf.float32)
+
+    i = tf.constant(0)
+    while_condition = lambda i, interpolation, a: tf.less(i, number_of_steps)
+    def body(i, interpolation, a):
+        # do something here which you want to do in your loop
+        # increment i
+
+        lenght = tf.shape(a)[1] - index_steps
+        
+        a_sliced = tf.slice(a, [0, i, 0], [a.shape[0], lenght ,a.shape[2]])
+        a_numpy = a.numpy()
+        
+        interpolation = tf.add(interpolation, a_sliced)
+        interpolation_numpy = interpolation.numpy()
+        return [tf.add(i, 1), interpolation, a]
+
+    # do the loop:
+    index, result, a = tf.while_loop(while_condition, body, [i, interpolation, a])
+
+    result = result/number_of_steps
+    
+    return result
+
+
+
+# interpolation = (
+#     a[3:] + a[2:-1] + a[1:-2] + a[:-3]
+#     )/number_of_steps
+
+# length = tf.cast(tf.shape(a), tf.float32)
+# mask_every_second = tf.math.mod(tf.range(0.0, length, 1), 2)
+
+
+a = tf.constant([[[0.0, 0.0], [1.0, 1.0], [2.0, 2.0],[3.0, 3.0],[4.0, 4.0], [5.0, 5.0]]])
+result =interpolate_mean(a, 2)
+
+print("result_numpy",result.numpy())
+exit()
+
 dt=0.04
 intermediate_steps=4,
 num_rollouts = 2000
