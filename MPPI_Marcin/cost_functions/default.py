@@ -1,3 +1,4 @@
+from numpy import dtype
 import tensorflow as tf
 import yaml
 
@@ -12,14 +13,35 @@ R = config["controller"]["mppi"]["R"]
 
 ccrc_weight = config["controller"]["mppi"]["ccrc_weight"]
 
+acceleration_cost_weight = config["controller"]["mppi"]["acceleration_cost_weight"]
+steering_cost_weight = config["controller"]["mppi"]["steering_cost_weight"]
+distance_to_waypoints_cost_weight = config["controller"]["mppi"]["distance_to_waypoints_cost_weight"]
+terminal_speed_cost_weight = config["controller"]["mppi"]["terminal_speed_cost_weight"]
+desired_max_speed = config["controller"]["mppi"]["desired_max_speed"]
+
 #cost for distance from track edge
-def distance_difference_cost(position, target):
+def distance_difference_cost(position, target_position):
     """Compute penalty for distance of cart to the target position"""
-    return tf.math.reduce_sum(((position - target[0, :]) / distance_normalization) ** 2, axis=-1)
+    return tf.math.reduce_sum(((position - target_position) / distance_normalization) ** 2, axis=-1)
+
+def terminal_distance_cost(positions, initial_position):
+    """Compute penalty for distance of cart to the target position"""
+    return tf.math.reduce_sum(((positions - initial_position) / distance_normalization) ** 2, axis=-1)
+
 
 #actuation cost
 def CC_cost(u):
     return R * (u ** 2)
+
+def terminal_speed_cost_function(terminal_state):
+    ''' Compute penality for deviation from desired max speed'''
+    terminal_speed = terminal_state[:, 3]
+    
+    desired_speed = tf.fill(tf.shape(terminal_speed), desired_max_speed)
+    speed_diff = tf.abs(terminal_speed - desired_speed)
+    terminal_speed_cost = terminal_speed_cost_weight * speed_diff
+    
+    return terminal_speed_cost
 
 #final stage cost
 def phi(s, target):
@@ -29,11 +51,25 @@ def phi(s, target):
     "Information theoretic MPC for model-based reinforcement learning"
 
     Here it checks the distance to the target at the endpoint
+    @param s: (batch_size, horizon, len(state)) The parallel state evolutions of the car
     """
+    
+    target_position = target[0, :]
+    lidar_scans = target[1:217]
+    waypoints = target[218:]
+    
+        
     dd = dd_weight * distance_difference_cost(
-        s[:, -1, :2], target
+        s[:, -1, :2], target_position
     )
-    terminal_cost = dd
+    
+    # For later: Initial state to calculate differences between initial and terminal state
+    initial_state = s[:, 0, :]
+    terminal_state = s[:, -1, :]
+
+    terminal_speed_cost = terminal_speed_cost_function(terminal_state)
+    terminal_cost = dd + terminal_speed_cost
+
     return terminal_cost
 
 #cost of changeing control to fast
@@ -43,49 +79,95 @@ def control_change_rate_cost(u, u_prev):
     return (u - u_prev_vec) ** 2
 
 
-def low_speed_cost(s):
-    speed = tf.sqrt(tf.reduce_sum((s[:, 1:, 1:]-s[:, :-1, 1:])**2, axis=-1))  # 100.0 is for default dt
-    speed = tf.concat((tf.zeros((speed.shape[0], 1), dtype=tf.float32), speed), axis=1)
-    return -speed
+def get_acceleration_cost(u):
+    ''' Calculate cost for deviation from desired acceleration at every timestep'''
+    accelerations = u[:,:,0]
+    max_acceleration = 9.2 # From car parameters
+    acceleration_cost = max_acceleration - accelerations
+    acceleration_cost = tf.abs(acceleration_cost)
+    acceleration_cost = acceleration_cost_weight * acceleration_cost
+    
+    return acceleration_cost
+
+def get_steering_cost(u):
+    ''' Calculate cost for steering at every timestep'''
+    steering = u[:,:,1]
+    steering = tf.abs(steering)
+    steering_cost = steering_cost_weight * steering
+    
+    return steering_cost
+
+def get_distance_to_waypoints_cost(s, waypoints):
+    positions = s[:,: ,:2]
+    trajectories_shape = tf.shape(positions)
+    number_of_rollouts = trajectories_shape[0]
+    number_of_steps = trajectories_shape[1]
+    number_of_waypoints = tf.shape(waypoints)[0]
+    
+    positions_of_trajectories = tf.reshape(positions, [trajectories_shape[0] * trajectories_shape[1],2])
+    distance_to_waypoints = distances_from_list_to_list_of_points(positions_of_trajectories, waypoints)
+    distance_to_waypoints_per_rollout = tf.reshape(distance_to_waypoints, (number_of_rollouts, number_of_steps,number_of_waypoints))
+    min_distance_to_waypoints_per_rollout = tf.reduce_min(distance_to_waypoints_per_rollout, axis=2)    
+    distance_to_waypoints_cost = distance_to_waypoints_cost_weight * min_distance_to_waypoints_per_rollout
+    
+    return distance_to_waypoints_cost
+    
 
 #all stage costs together
 def q(s,u,target, u_prev):
-    crash_penelty = get_crash_penelty(s[:, :, :2], target)
+    
+    target_position = target[0]
+    lidar_scans = target[1:217]
+    waypoints = target[218:]
+    
     cc = tf.math.reduce_sum(cc_weight * CC_cost(u), axis=-1)
     ccrc = tf.math.reduce_sum(ccrc_weight * control_change_rate_cost(u,u_prev), axis=-1)
     
-    acceleration_cost_weight= tf.constant(0.1)
-    accelerations = u[:,:,0]
+    crash_penelty = get_crash_penelty(s[:, :, :2], lidar_scans)
+    acceleration_cost = get_acceleration_cost(u)
+    steering_cost = get_steering_cost(u)
+    distance_to_waypoints_cost = get_distance_to_waypoints_cost(s, waypoints)
     
-    acceleration_costs = tf.scalar_mul(acceleration_cost_weight, accelerations)
-    # acceleration_sums = tf.reduce_sum(accelerations, axis=1)
-    # print(acceleration_costs.numpy())
-    stage_cost = cc+ccrc+crash_penelty #-acceleration_costs
-    return stage_cost
+    stage_cost = cc + ccrc + distance_to_waypoints_cost + crash_penelty +steering_cost  + acceleration_cost  
+    
+    
+    # Read out values for cost weight callibration: Uncomment for debugging
+    
+    # distance_to_waypoints_cost_numpy = distance_to_waypoints_cost.numpy()[:20]
+    # acceleration_cost_numpy = acceleration_cost.numpy()[:20]
+    # steering_cost_numpy= steering_cost.numpy()[:20]
+    # crash_penelty_numpy= crash_penelty.numpy()[:20]
+    # cc_numpy= cc.numpy()[:20]
+    # ccrc_numpy= ccrc.numpy()[:20]
+    # stage_cost_numpy= stage_cost.numpy()[:20]
+    
+    return stage_cost 
 
 
 @tf.function
-def get_crash_penelty(trajectories, target):
+def get_crash_penelty(trajectories, border_points):
     trajectories_shape = tf.shape(trajectories)
+    number_of_rollouts = trajectories_shape[0]
+    number_of_steps = trajectories_shape[1]
+    
     points_of_trajectories = tf.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1],2])
-    squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,target)
+    squared_distances = distances_from_list_to_list_of_points(points_of_trajectories,border_points)
+    summed_squared_distances = tf.reduce_sum(squared_distances, axis = 1)
+    summed_squared_distances = tf.reshape(summed_squared_distances, (number_of_rollouts, number_of_steps))
+    
     minima = tf.math.reduce_min(squared_distances, axis=1)
-    
-    
-    distance_threshold = tf.constant([0.5])
-
+     
+    distance_threshold = tf.constant([0.36]) #0.6 ^2
     indices_too_close = tf.math.less(minima, distance_threshold)
-    crash_cost = tf.cast(indices_too_close, tf.float32) * 10000
+    crash_cost = tf.cast(indices_too_close, tf.float32) * 1000000 # Disqualify trajectories too close to sensor points
     
     crash_cost = tf.reshape(crash_cost, [trajectories_shape[0],trajectories_shape[1]])
-    # print(minima.numpy())
-    # print(crash_cost.numpy())
+
     return crash_cost
 
 
 
 def distances_to_list_of_points(point, points2):
-    
     length = tf.shape(points2)[0]
     points1 = tf.tile([point], [length, 1])
     
