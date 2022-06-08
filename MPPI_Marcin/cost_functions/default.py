@@ -15,8 +15,9 @@ ccrc_weight = config["controller"]["mppi"]["ccrc_weight"]
 
 acceleration_cost_weight = config["controller"]["mppi"]["acceleration_cost_weight"]
 steering_cost_weight = config["controller"]["mppi"]["steering_cost_weight"]
-terminal_speed_cost_weight = config["controller"]["mppi"]["terminal_speed_cost_weight"]
 distance_to_waypoints_cost_weight = config["controller"]["mppi"]["distance_to_waypoints_cost_weight"]
+terminal_speed_cost_weight = config["controller"]["mppi"]["terminal_speed_cost_weight"]
+desired_max_speed = config["controller"]["mppi"]["desired_max_speed"]
 
 #cost for distance from track edge
 def distance_difference_cost(position, target_position):
@@ -31,6 +32,16 @@ def terminal_distance_cost(positions, initial_position):
 #actuation cost
 def CC_cost(u):
     return R * (u ** 2)
+
+def terminal_speed_cost_function(terminal_state):
+    ''' Compute penality for deviation from desired max speed'''
+    terminal_speed = terminal_state[:, 3]
+    
+    desired_speed = tf.fill(tf.shape(terminal_speed), desired_max_speed)
+    speed_diff = tf.abs(terminal_speed - desired_speed)
+    terminal_speed_cost = terminal_speed_cost_weight * speed_diff
+    
+    return terminal_speed_cost
 
 #final stage cost
 def phi(s, target):
@@ -55,13 +66,9 @@ def phi(s, target):
     # For later: Initial state to calculate differences between initial and terminal state
     initial_state = s[:, 0, :]
     terminal_state = s[:, -1, :]
-    initial_position = initial_state[:, :2]
-    initial_speed = initial_state[:,3]
-    
-    terminal_speed = terminal_state[:, 3]
-    
-    terminal_speed_cost = terminal_speed_cost_weight * terminal_speed
-    terminal_cost = dd + terminal_speed_cost 
+
+    terminal_speed_cost = terminal_speed_cost_function(terminal_state)
+    terminal_cost = dd + terminal_speed_cost
 
     return terminal_cost
 
@@ -73,6 +80,7 @@ def control_change_rate_cost(u, u_prev):
 
 
 def get_acceleration_cost(u):
+    ''' Calculate cost for deviation from desired acceleration at every timestep'''
     accelerations = u[:,:,0]
     max_acceleration = 9.2 # From car parameters
     acceleration_cost = max_acceleration - accelerations
@@ -82,6 +90,7 @@ def get_acceleration_cost(u):
     return acceleration_cost
 
 def get_steering_cost(u):
+    ''' Calculate cost for steering at every timestep'''
     steering = u[:,:,1]
     steering = tf.abs(steering)
     steering_cost = steering_cost_weight * steering

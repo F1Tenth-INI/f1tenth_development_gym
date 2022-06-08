@@ -81,7 +81,7 @@ class MPPI_F1TENTH:
         linear_vel_x = ego_odom['linear_vel_x']
         
         # Accelerate at the beginning (St model expoldes for small velocity)
-        if self.simulation_index < 50:
+        if self.simulation_index < 20:
             self.simulation_index += 1
             return 10, 0
        
