@@ -29,6 +29,9 @@ pose_x = data['pose_x'].to_numpy()
 pose_y = data['pose_y'].to_numpy()
 speed = data['speed']
 
+angular_vel_z = data['angular_vel_z']
+print('angular vel: max: {} min: {}'.format(max(angular_vel_z), min(angular_vel_z)))
+
 plt.figure()
 plt.scatter(pose_x, pose_y, c=speed)
 plt.show()
