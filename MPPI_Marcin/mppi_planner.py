@@ -6,8 +6,9 @@ from pyglet.gl import GL_POINTS
 from pyglet import shapes
 
 import numpy as np
+import pandas as pd
 
-from Settings import Settings
+from main.Settings import Settings
 
 from FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -50,9 +51,15 @@ class MPPI_F1TENTH:
         self.mppi = controller_mppi_tf()
 
         self.Render = Render()
-
+        self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]  # FIXME: I Don't want to have something hardcoded here
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
+
+        # Get waypoints
+        path = Settings.MAP_WAYPOINT_FILE
+        waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+        waypoints=waypoints[0:-1:1,1:3]
+        self.wpts_opt=waypoints
 
     def render(self, e):
         self.Render.render(e)
@@ -72,6 +79,12 @@ class MPPI_F1TENTH:
         }
         """
 
+        #  FIXME Make sure the destinction between velocity and acceleration prediction works
+        # Accelerate at the beginning (St model expoldes for small velocity)
+        if self.simulation_index < 20:
+            self.simulation_index += 1
+            return 10, 0
+
         angular_vel_z = ego_odom['angular_vel_z']
         linear_vel_x = ego_odom['linear_vel_x']
         linear_vel_y = ego_odom['linear_vel_y']
@@ -82,24 +95,33 @@ class MPPI_F1TENTH:
         pose_x = ego_odom['pose_x']
         pose_y = ego_odom['pose_y']
 
+
+        # FIXME: You want this only if you are not on the racetrack
         target_positions = self.TargetGenerator.step((pose_x, pose_y), )
 
         scans = np.array(ranges)
-        # Take into account size of car
-        # scans -= 0.3
 
-        distances = scans[lidar_range_min:lidar_range_max:10] # Only use every 10th lidar point
-        angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:10]
+        distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 5th lidar point
+        angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
         p1 = pose_x + distances * np.cos(angles + pose_theta)
         p2 = pose_y + distances * np.sin(angles + pose_theta)
         self.lidar_points = np.stack((p1, p2), axis=1)
 
-        self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
-
+        # self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
         # target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
-        target = np.vstack((target_positions, self.lidar_points))
-        s = np.array((angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_theta_cos, pose_theta_sin, pose_x, pose_y))
+        # target = np.vstack((target_positions, self.lidar_points))
+        target_point = [0, 0]  # dont need the target point for racing anymore
+
+        if (Settings.FOLLOW_RANDOM_TARGETS):
+            target_point = self.TargetGenerator.step((pose_x, pose_y), )
+
+        # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
+        target = np.vstack((target_point, self.lidar_points))
+        target = np.vstack((target, self.wpts_opt))
+
+        # s = np.array((pose_x, pose_y, pose_theta))
+        s = np.array(self.car_state)  # The MPPI needs true state
         speed, steering_angle = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
@@ -108,7 +130,7 @@ class MPPI_F1TENTH:
         # speed = 0.1
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
-                           self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_positions)
+            self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.simulation_index += 1
 
         self.speed = speed
@@ -144,9 +166,9 @@ class Render:
                largest_gap_middle_point=None, target_point=None):
         self.lidar_border_points = lidar_points
         if rollout_trajectory is not None:
-            self.rollout_trajectory, self.traj_cost = rollout_trajectory[:, 1:, :], traj_cost
+            self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
         if optimal_trajectory is not None:
-            self.optimal_trajectory = optimal_trajectory[:, 1:, :]
+            self.optimal_trajectory = optimal_trajectory
         self.largest_gap_middle_point = largest_gap_middle_point
         self.target_point = target_point
 
