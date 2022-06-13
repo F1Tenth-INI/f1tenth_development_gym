@@ -169,10 +169,8 @@ class controller_mppi_tf(template_controller):
         SEED = config["controller"]["mppi"]["SEED"]
         if SEED == "None":
             SEED = int((datetime.now() - datetime(1970, 1, 1)).total_seconds() * 1000.0)
-        #Random generator (from Tensorflow)
         self.rng_cem = tf.random.Generator.from_seed(SEED)
-        
-        #Last control input ?
+
         self.u_nom = tf.ones([1, mppi_samples, num_control_inputs], dtype=tf.float32)*tf.constant([6.0, 0.0], dtype=tf.float32)
         self.u = tf.convert_to_tensor([6.0, 0.0], dtype=tf.float32)
 
@@ -199,8 +197,8 @@ class controller_mppi_tf(template_controller):
         
         rollout_trajectory = predictor.predict_tf(s, u_run) # (batch_size, 11, 3) All trajectories for the state distribution
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u_ext)  # (batch_size,) Cost for each trajectory
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input) # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs
-        u = u_nom[0, 0, :] # (2,) Return only the first step of the optimal control sequence
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs
+        u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         if GET_ROLLOUTS_FROM_MPPI:
             return u, u_nom, rollout_trajectory, traj_cost
@@ -214,9 +212,9 @@ class controller_mppi_tf(template_controller):
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
         """
-        Execute one full step of the MPPI contol based on the sensor measurements and returns the control input
+        Execute one full step of the MPPI contol based on the available information about car state and returns the control input
         @param: s: current state of the car [x,y,theta]
-        @param: target: Target state of the car and lidat scans stacked on each other
+        @param: target: Target state of the car and lidar scans stacked to form one matrix
         @param: time: 
         """
         s = np.tile(s, tf.constant([num_rollouts, 1]))
