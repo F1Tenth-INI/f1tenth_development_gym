@@ -58,7 +58,7 @@ predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 
 """Define Predictor"""
 if predictor_type == "EulerTF":
-    predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=10, disable_individual_compilation=True)
+    predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=1, disable_individual_compilation=True)
     predictor_single_trajectory = predictor
 elif predictor_type == "Euler":
     predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
@@ -87,16 +87,27 @@ def check_dimensions_s(s):
 def mppi_correction_cost(u, delta_u):
     return tf.math.reduce_sum(cc_weight * (0.5 * (1 - 1.0 / NU) * R * (delta_u ** 2) + R * u * delta_u + 0.5 * R * (u ** 2)), axis=-1)
 
-#total cost of the trajectory
 def cost(s_hor ,u, target, u_prev, delta_u):
-    stage_cost = q(s_hor[:,1:,:],u,target, u_prev)
+    '''
+    total cost of the trajectory
+    @param s_hor: All rollout results (trajectories) for the whole horizon
+    @param u: all control inputs for rollouts s_hor
+    @param target: (number_of_lidar_points, 2), target point (largest gap) and sensor data
+    @param u_prev: (len(control_input)) prevoius control input
+    @param delta_u: (batch_size, horizon, len(control_input)) perturbation of previous best control sequence
+    '''
+    stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (batch_size,horizon), all costs for every step in the trajectory
     stage_cost = stage_cost + mppi_correction_cost(u, delta_u)
-    total_cost = tf.math.reduce_sum(stage_cost,axis=1)
-    total_cost = total_cost + phi(s_hor, target)
+    total_cost = tf.math.reduce_sum(stage_cost,axis=1)  # (batch_size) Ads up the stage costs to the total cost
+    total_cost = total_cost + phi(s_hor, target)  # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
     return total_cost
 
 
 def reward_weighted_average(S, delta_u):
+    '''
+    @param S: (batch_size), costs for tracectories
+    @param delta_u: (batch_size, horizon, len(control_input)): Perturbation of optimal trajectory to be weighted
+    '''
     rho = tf.math.reduce_min(S)
     exp_s = tf.exp(-1.0/LBD * (S-rho))
     a = tf.math.reduce_sum(exp_s)
@@ -153,22 +164,25 @@ class controller_mppi_tf(template_controller):
 
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
+        """
+        Part of MPPI which can be XLS (with Tensorflow) compiled.
+        @param: s: current state of the car
+        @param: target: Target position of the car and lidat scans stacked on each other
+        @param: u_nom: Last optimal control sequence (Array of control inputs)
+        @param: random_gen: Tensoflow random generator
+        @param: u_old: Last optimal control input
+        """
         s = tf.tile(s, tf.constant([num_rollouts, 1]))
-        # generate random input sequence and clip to control limits
-        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
-        delta_u = inizialize_pertubation(random_gen)
-        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u
-        u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)
+        delta_u = inizialize_pertubation(random_gen)  #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
+        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u  #(batch_size, horizon, len(control_input)) Control inputs for MPPI rollouts (last optimal + perturbation)
+        u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)  # (batch_size, horizon, len(control_input)) Clip control input based on system parameters
         rollout_trajectory = predictor.predict_tf(s, u_run)
-        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)
-        u = u_nom[0, 0, :]
+        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (batch_size,) Cost for each trajectory
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
+        u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
         self.update_internal_state(s, u_nom)
+        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         return self.mppi_output(u, u_nom, rollout_trajectory, traj_cost)
-
-    def update_internal_state_of_RNN(self, s, u_nom):
-        u_tiled = tf.tile(u_nom[:, :1, :], tf.constant([num_rollouts, 1, 1]))
-        predictor.update_internal_state_tf(s=s, Q0=u_tiled)
 
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
@@ -179,6 +193,12 @@ class controller_mppi_tf(template_controller):
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
+        """
+        Execute one full step of the MPPI contol based on the available information about car state and returns the control input
+        @param: s: current state of the car [x,y,theta]
+        @param: target: Target state of the car and lidar scans stacked to form one matrix
+        @param: time:
+        """
         s = tf.convert_to_tensor(s, dtype=tf.float32)
         s = check_dimensions_s(s)
         target = tf.convert_to_tensor(target, dtype=tf.float32)

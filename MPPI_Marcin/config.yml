@@ -4,8 +4,10 @@ controller:
     cost_function: 'default' #from 'quadratic-boundary', 'quadratic-boundary-nonconvex', 'default'
   mppi:
     SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
-    dt: 0.1                              # sec
-    mpc_horizon: 0.5                      # sec
+    dt: 0.05                                # sec
+    mpc_horizon: 0.5                       # sec
+    control_interpolation_steps: 2          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
+    # FIXME:  We want to interpolate trajectory instead
     num_rollouts: 1000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
@@ -20,13 +22,20 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [0.5, 0.01]
+    SQRTRHOINV: [0.8,0.8]                #Speed, steering
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
-    SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
+    SAMPLING_TYPE: "uniform"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
     LOGGING: False                        # Collect and show detailed insights into the controller's behavior
     WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
-    CLIP_CONTROL_INPUT: [[1, -1],[4, 1]]       # How to clip control input, symmetric # speed, steering angle
+    CLIP_CONTROL_INPUT: [7, 3.5]            # How to clip control input, symmetric
+
+    # Added for car racing
+    acceleration_cost_weight: 0.0
+    steering_cost_weight: 0.0
+    terminal_speed_cost_weight: 1.0
+    desired_max_speed: 17.0               # desired max speed for the car [m/s]
+    distance_to_waypoints_cost_weight: 1.0
 
 data_generator:
   SEED: 1  # If "None" random seed based on datetime is used

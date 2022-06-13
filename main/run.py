@@ -1,54 +1,50 @@
 
 
 # Import Planner Classes
-from FollowTheGap.ftg_planner import FollowTheGapPlanner as FollowTheGapPlannerFlo
+from MPPI_Marcin.mppi_planner import MPPI_F1TENTH
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
 from examples.pure_pursuit_planner import PurePursuitPlanner
+# from MPPI.mppi_planner import MppiPlanner
 
 # Obstacle creation
 from tobi.random_obstacle_creator import RandomObstacleCreator
 
 import time
 
-from matplotlib.font_manager import json_dump
-from matplotlib.pyplot import close, sca
 import yaml
 import gym
 import numpy as np
 from argparse import Namespace
-import json
+
+from tqdm import trange
 from Settings import Settings
 
-from OpenGL.GL import *
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
+from Recorder import Recorder
+
+from f110_gym.envs.dynamic_models import pid
+
+
+def add_noise(x, noise_level=0.1):
+    return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 # Config
 map_config_file = Settings.MAP_CONFIG_FILE
 
 
 # First planner settings
-planner1 = FollowTheGapPlannerFlo()
-planner1.speed_fraction = 1.5
-planner1.plot_lidar_data =False
+planner1 = MPPI_F1TENTH()
+planner1.plot_lidar_data = False
 planner1.draw_lidar_data = True
 planner1.lidar_visualization_color = (255, 0, 255)
-
-
-# 2nd Car
-planner2 = FollowTheGapPlannerXiang()
-planner2.speed_fraction = 2.1
-planner2.plot_lidar_data = False
-planner2.draw_lidar_data = True
-planner2.lidar_visualization_color = (255, 255, 255)
 
 # second planner
 # planner2 = PurePursuitPlanner(map_config_file = map_config_file)
 
-
+# Old MPPI Planner without TF
+# planner2 = MppiPlanner()
 
 ##################### DEFINE DRIVERS HERE #####################    
-# drivers = [ planner1, planner2]
-drivers = [ planner2, planner1]
+drivers = [planner1]
 ###############################################################    
 
 
@@ -116,40 +112,64 @@ def main():
 
     env = gym.make('f110_gym:f110-v0', map=racetrack,
                    map_ext=conf.map_ext, num_agents=number_of_drivers)
-    env.add_render_callback(render_callback)    
+    env.add_render_callback(render_callback)
+    assert(env.timestep == 0.01)
+    current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
+    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=Settings.TIMESTEP_CONTROL) for i in range(number_of_drivers)]
   
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
 
-    env.render()
+    if Settings.RENDER_MODE is not None:
+        env.render()
 
     laptime = 0.0
     start = time.time()
 
     render_index = 0
-    while not done:
 
-
+    for _ in trange(Settings.EXPERIMENT_LENGTH):
+        if done:
+            break
         ranges = obs['scans']
 
-        # First car
-        controlls = []
-        
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
-            speed, steer =  driver.process_observation(ranges[index], odom)
-            accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            controlls.append([accl, sv])
+            odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
+            odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
+            speed, steer = driver.process_observation(ranges[index], odom)
+            driver.car_state = env.sim.agents[index].state # Get the driver's true car state in case it is needed
 
-        obs, step_reward, done, info = env.step(np.array(controlls))
+            if (Settings.SAVE_RECORDINGS):
+                recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges,
+                                           time=current_time_in_simulation)
 
-        laptime += step_reward
-        env.render(mode=Settings.RENDER_MODE)
-        render_index += 1
+        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            controlls = []
 
+            for index, driver in enumerate(drivers):
+                if with_pid:
+                    accl, sv = pid(driver.speed, driver.steering_angle, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                   cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+                else:
+                    accl, sv = speed, steer  # FIXME: Notation! :-(
+
+                controlls.append([sv, accl])  # FIXME: This was also reversed by Florian
+
+            obs, step_reward, done, info = env.step(np.array(controlls))
+            laptime += step_reward
+
+        if Settings.RENDER_MODE is not None:
+            env.render(mode=Settings.RENDER_MODE)
+            render_index += 1
+
+        current_time_in_simulation += Settings.TIMESTEP_CONTROL
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
 if __name__ == '__main__':
-    main()
+
+    for i in range(Settings.NUMBER_OF_EXPERIMENTS):
+        print('Experiment nr.: {}'.format(i+1))
+        main()
