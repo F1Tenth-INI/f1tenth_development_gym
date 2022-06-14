@@ -90,7 +90,7 @@ class MPPI_F1TENTH:
         if Settings.ONLY_ODOMETRY_AVAILABLE:
             s = odometry_dict_to_state(ego_odom)
         else:
-            s = full_state_original_to_alphabetical(self.car_state)
+            s = self.car_state
 
         scans = np.array(ranges)
 

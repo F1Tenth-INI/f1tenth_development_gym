@@ -140,8 +140,8 @@ def main():
             odom = get_odom(obs, index)
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
             odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-            translational_control, angular_control = driver.process_observation(ranges[index], odom)
             driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+            translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].save_data(control_inputs=(translational_control, angular_control),
