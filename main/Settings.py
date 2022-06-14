@@ -19,7 +19,7 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
 
 
     # Automatically follow the first car on the map
@@ -33,3 +33,12 @@ class Settings:
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
     LOOK_FORWARD_ONLY = False
+
+    # Decide if to use PID as in the original F1TENTH implementation
+    # Or bypass it.
+    # Warning: Even if set to True, the PID algorithm is modified
+    # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
+    WITH_PID = False
+
+    # Decide if available state consists of full car state or only of odometry
+    ONLY_ODOMETRY_AVAILABLE = False

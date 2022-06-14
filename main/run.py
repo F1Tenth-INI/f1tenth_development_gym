@@ -23,6 +23,8 @@ from Recorder import Recorder
 
 from f110_gym.envs.dynamic_models import pid
 
+from main.state_utilities import full_state_original_to_alphabetical
+
 
 def add_noise(x, noise_level=0.1):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
@@ -138,24 +140,25 @@ def main():
             odom = get_odom(obs, index)
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
             odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-            speed, steer = driver.process_observation(ranges[index], odom)
-            driver.car_state = env.sim.agents[index].state # Get the driver's true car state in case it is needed
+            translational_control, angular_control = driver.process_observation(ranges[index], odom)
+            driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
 
             if (Settings.SAVE_RECORDINGS):
-                recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges,
+                recorders[index].save_data(control_inputs=(translational_control, angular_control),
+                                           odometry=odom, ranges=ranges, state=driver.car_state,
                                            time=current_time_in_simulation)
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
 
             for index, driver in enumerate(drivers):
-                if with_pid:
-                    accl, sv = pid(driver.speed, driver.steering_angle, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                if Settings.WITH_PID:
+                    accl, sv = pid(driver.translational_control, driver.angular_control, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
-                    accl, sv = speed, steer  # FIXME: Notation! :-(
+                    accl, sv = driver.translational_control, driver.angular_control
 
-                controlls.append([sv, accl])  # FIXME: This was also reversed by Florian
+                controlls.append([sv, accl])
 
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward

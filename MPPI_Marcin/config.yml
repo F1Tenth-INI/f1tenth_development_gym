@@ -32,6 +32,7 @@ controller:
 
     # Added for car racing
     acceleration_cost_weight: 0.0
+    max_acceleration: 9.2
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
     desired_max_speed: 17.0               # desired max speed for the car [m/s]
