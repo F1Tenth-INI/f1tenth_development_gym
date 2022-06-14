@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from main.Settings import Settings
+from main.state_utilities import *
 
 from FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -35,8 +36,8 @@ class MPPI_F1TENTH:
 
         print("Controller initialized")
 
-        self.speed = None
-        self.steering_angle = None
+        self.translational_control = None
+        self.angular_control = None
 
         self.lidar_live_points = []
         self.lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
@@ -51,7 +52,7 @@ class MPPI_F1TENTH:
         self.mppi = controller_mppi_tf()
 
         self.Render = Render()
-        self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]  # FIXME: I Don't want to have something hardcoded here
+        self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
@@ -79,33 +80,25 @@ class MPPI_F1TENTH:
         }
         """
 
-        #  FIXME Make sure the destinction between velocity and acceleration prediction works
         # Accelerate at the beginning (St model expoldes for small velocity)
         if self.simulation_index < 20:
             self.simulation_index += 1
-            return 10, 0
+            self.translational_control = 10
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
 
-        angular_vel_z = ego_odom['angular_vel_z']
-        linear_vel_x = ego_odom['linear_vel_x']
-        linear_vel_y = ego_odom['linear_vel_y']
-
-        pose_theta = ego_odom['pose_theta']
-        pose_theta_cos = ego_odom['pose_theta_cos']
-        pose_theta_sin = ego_odom['pose_theta_sin']
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-
-
-        # FIXME: You want this only if you are not on the racetrack
-        target_positions = self.TargetGenerator.step((pose_x, pose_y), )
+        if Settings.ONLY_ODOMETRY_AVAILABLE:
+            s = odometry_dict_to_state(ego_odom)
+        else:
+            s = full_state_original_to_alphabetical(self.car_state)
 
         scans = np.array(ranges)
 
         distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 5th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
-        p1 = pose_x + distances * np.cos(angles + pose_theta)
-        p2 = pose_y + distances * np.sin(angles + pose_theta)
+        p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])
+        p2 = s[POSE_Y_IDX] + distances * np.sin(angles + s[POSE_THETA_IDX])
         self.lidar_points = np.stack((p1, p2), axis=1)
 
         # self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
@@ -114,29 +107,27 @@ class MPPI_F1TENTH:
         target_point = [0, 0]  # dont need the target point for racing anymore
 
         if (Settings.FOLLOW_RANDOM_TARGETS):
-            target_point = self.TargetGenerator.step((pose_x, pose_y), )
+            target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
         # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
         target = np.vstack((target_point, self.lidar_points))
         target = np.vstack((target, self.wpts_opt))
 
-        # s = np.array((pose_x, pose_y, pose_theta))
-        s = np.array(self.car_state)  # The MPPI needs true state
-        speed, steering_angle = self.mppi.step(s, target=target)
+        translational_control, angular_control = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
-        # speed = self.SpeedGenerator.step()
-        # speed = 0.1
+        # translational_control = self.SpeedGenerator.step()
+        # translational_control = 0.1
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
             self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.simulation_index += 1
 
-        self.speed = speed
-        self.steering_angle = steering_angle
+        self.translational_control = translational_control
+        self.angular_control = angular_control
 
-        return speed, steering_angle
+        return translational_control, angular_control
 
 
 class Render:
@@ -194,7 +185,7 @@ class Render:
 
         if self.rollout_trajectory is not None:
             num_trajectories_to_plot = np.minimum(NUM_TRAJECTORIES_TO_PLOT, self.rollout_trajectory.shape[0])
-            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, -2:]
+            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, POSE_X_IDX:POSE_Y_IDX+1]
 
             scaled_trajectory_points = 50. * trajectory_points
 
@@ -208,7 +199,7 @@ class Render:
                 self.mppi_rollouts_vertices.vertices = scaled_trajectory_points_flat
 
         if self.optimal_trajectory is not None:
-            optimal_trajectory_points = self.optimal_trajectory[:, :, -2:]
+            optimal_trajectory_points = self.optimal_trajectory[:, :, POSE_X_IDX:POSE_Y_IDX+1]
 
             scaled_optimal_trajectory_points = 50. * optimal_trajectory_points
 

@@ -5,11 +5,52 @@ import numpy as np
 
 import yaml
 
-STATE_INDICES = {} # This could be imported
-
+from main.state_utilities import *
 
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
 control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
+
+
+def next_state_output_odom(angular_vel_z,
+                           linear_vel_x,
+                           pose_theta,
+                           pose_theta_cos,
+                           pose_theta_sin,
+                           pose_x,
+                           pose_y,
+                           slip_angle,
+                           steering_angle):
+    return tf.stack([
+        angular_vel_z,
+        linear_vel_x,
+        pose_theta,
+        pose_theta_cos,
+        pose_theta_sin,
+        pose_x,
+        pose_y,
+    ], axis=1)
+
+
+def next_state_output_full_state(angular_vel_z,
+                                 linear_vel_x,
+                                 pose_theta,
+                                 pose_theta_cos,
+                                 pose_theta_sin,
+                                 pose_x,
+                                 pose_y,
+                                 slip_angle,
+                                 steering_angle):
+    return tf.stack([
+        angular_vel_z,
+        linear_vel_x,
+        pose_theta,
+        pose_theta_cos,
+        pose_theta_sin,
+        pose_x,
+        pose_y,
+        slip_angle,
+        steering_angle
+    ], axis=1)
 
 
 class next_state_predictor_ODE_tf():
@@ -19,9 +60,14 @@ class next_state_predictor_ODE_tf():
 
         self.intermediate_steps = tf.convert_to_tensor(intermediate_steps, dtype=tf.int32)
         self.intermediate_steps_float = tf.convert_to_tensor(intermediate_steps, dtype=tf.float32)
-        self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps) , dtype=tf.float32)
+        self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps), dtype=tf.float32)
 
         self.t_step = self.t_step / control_interpolation_steps
+
+        if Settings.ONLY_ODOMETRY_AVAILABLE:
+            self.next_step_output = next_state_output_odom
+        else:
+            self.next_step_output = next_state_output_full_state
 
         if disable_individual_compilation:
             # self.step = self._step
@@ -41,25 +87,37 @@ class next_state_predictor_ODE_tf():
 
         number_of_rollouts = tf.shape(s)[0]
 
+        pose_x = s[:, POSE_X_IDX]
+        pose_y = s[:, POSE_Y_IDX]
+        pose_theta = s[:, POSE_THETA_IDX]
 
-        pose_x = s[:, 0]
-        pose_y = s[:, 1]
-        pose_theta = s[:, 4]
-
-        speed = Q[:, 0]
-        steering = Q[:, 1]
+        speed = Q[:, TRANSLATIONAL_CONTROL_IDX]
+        steering = Q[:, ANGULAR_CONTROL_IDX]
 
         for _ in tf.range(self.intermediate_steps):
-            pose_theta = pose_theta + 0.5*(steering/self.intermediate_steps_float)
+            pose_theta = pose_theta + 0.5 * (steering / self.intermediate_steps_float)
             pose_x = pose_x + self.t_step * speed * tf.math.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * tf.math.sin(pose_theta)
 
-        # s_next = tf.stack([pose_x, pose_y, pose_theta], axis=1)
+        angular_vel_z = tf.zeros([number_of_rollouts])
+        linear_vel_x = tf.zeros([number_of_rollouts])
+        pose_theta = pose_theta
+        pose_theta_cos = tf.math.cos(pose_theta)
+        pose_theta_sin = tf.math.sin(pose_theta)
+        pose_x = pose_x
+        pose_y = pose_y
+        slip_angle = tf.zeros([number_of_rollouts])
+        steering_angle = tf.zeros([number_of_rollouts])
 
-        s_next = tf.stack([pose_x, pose_y, tf.zeros([number_of_rollouts]), tf.zeros([number_of_rollouts]), pose_theta, tf.zeros([number_of_rollouts]), tf.zeros([number_of_rollouts])], axis=1)
-
-
-        return s_next
+        return self.next_step_output(angular_vel_z,
+                                     linear_vel_x,
+                                     pose_theta,
+                                     pose_theta_cos,
+                                     pose_theta_sin,
+                                     pose_x,
+                                     pose_y,
+                                     slip_angle,
+                                     steering_angle)
 
     def _step_ks(self, s, Q, params):
         '''
@@ -76,14 +134,14 @@ class next_state_predictor_ODE_tf():
         # Dimensions
         number_of_rollouts = tf.shape(s)[0]
 
-        s_x = s[:, 0]           # Pose X
-        s_y = s[:, 1]           # Pose Y
-        delta = s[:, 2]         # Fron Wheel steering angle
-        theta = s[:, 3]         # Speed
-        psi = s[:, 4]           # Yaw Angle
+        s_x = s[:, POSE_X_IDX]  # Pose X
+        s_y = s[:, POSE_Y_IDX]  # Pose Y
+        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+        theta = s[:, LINEAR_VEL_X_IDX]  # Speed
+        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
 
-        delta_dot = Q[:, 1]     # steering angle velocity of front wheels
-        theta_dot = Q[:, 0]     # longitudinal acceleration
+        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        theta_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # Constaints
         theta_dot = self.accl_constraints(theta, theta_dot)
@@ -91,11 +149,11 @@ class next_state_predictor_ODE_tf():
 
         # Euler stepping
         for _ in tf.range(self.intermediate_steps):
-            s_x_dot = tf.multiply(theta,tf.cos(psi))
-            s_y_dot = tf.multiply(theta,tf.sin(psi))
+            s_x_dot = tf.multiply(theta, tf.cos(psi))
+            s_y_dot = tf.multiply(theta, tf.sin(psi))
             # delta_dot = delta_dot
             # theta_dot = theta_dot
-            psi_dot = tf.divide(theta, lwb)*tf.tan(delta)
+            psi_dot = tf.divide(theta, lwb) * tf.tan(delta)
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
@@ -103,9 +161,25 @@ class next_state_predictor_ODE_tf():
             theta = theta + self.t_step * theta_dot
             psi = psi + self.t_step * psi_dot
 
-        s_next = tf.stack([s_x, s_y, delta,theta, psi,tf.zeros([number_of_rollouts]),tf.zeros([number_of_rollouts])], axis=1)
+        angular_vel_z = tf.zeros([number_of_rollouts])
+        linear_vel_x = theta
+        pose_theta = psi
+        pose_theta_cos = tf.math.cos(pose_theta)
+        pose_theta_sin = tf.math.sin(pose_theta)
+        pose_x = s_x
+        pose_y = s_y
+        slip_angle = tf.zeros([number_of_rollouts])
+        steering_angle = delta
 
-        return s_next
+        return self.next_step_output(angular_vel_z,
+                                     linear_vel_x,
+                                     pose_theta,
+                                     pose_theta_cos,
+                                     pose_theta_sin,
+                                     pose_x,
+                                     pose_y,
+                                     slip_angle,
+                                     steering_angle)
 
     def _step_st(self, s, Q, params):
         '''
@@ -117,28 +191,28 @@ class next_state_predictor_ODE_tf():
         '''
 
         # params
-        mu = 1.0489       # friction coefficient  [-]
-        C_Sf = 4.718      # cornering stiffness front [1/rad]
-        C_Sr = 5.4562     # cornering stiffness rear [1/rad]
-        lf = 0.15875      # distance from venter of gracity to front axle [m]
-        lr = 0.17145      # distance from venter of gracity to rear axle [m]
-        h = 0.074         # center of gravity height of toal mass [m]
-        m = 3.74          # Total Mass of car [kg]
-        I = 0.04712       # Moment of inertia for entire mass about z axis  [kgm^2]
+        mu = 1.0489  # friction coefficient  [-]
+        C_Sf = 4.718  # cornering stiffness front [1/rad]
+        C_Sr = 5.4562  # cornering stiffness rear [1/rad]
+        lf = 0.15875  # distance from venter of gracity to front axle [m]
+        lr = 0.17145  # distance from venter of gracity to rear axle [m]
+        h = 0.074  # center of gravity height of toal mass [m]
+        m = 3.74  # Total Mass of car [kg]
+        I = 0.04712  # Moment of inertia for entire mass about z axis  [kgm^2]
         g = 9.81
 
         # State
-        s_x = s[:, 0]       # Pose X
-        s_y = s[:, 1]       # Pose Y
-        delta = s[:, 2]     # Fron Wheel steering angle
-        theta = s[:, 3]     # Speed
-        psi = s[:, 4]       # Yaw Angle
-        psi_dot = s[:, 5]   # Yaw Rate
-        beta = s[:, 6]      # Slipping Angle
+        s_x = s[:, POSE_X_IDX]  # Pose X
+        s_y = s[:, POSE_Y_IDX]  # Pose Y
+        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+        theta = s[:, LINEAR_VEL_X_IDX]  # Speed
+        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
+        psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
+        beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Control Input
-        delta_dot = Q[:, 1] # steering angle velocity of front wheels
-        theta_dot = Q[:, 0] # longitudinal acceleration
+        delta_dot = Q[:, 1]  # steering angle velocity of front wheels
+        theta_dot = Q[:, 0]  # longitudinal acceleration
 
         # Constaints
         theta_dot = self.accl_constraints(theta, theta_dot)
@@ -155,20 +229,24 @@ class next_state_predictor_ODE_tf():
         # TODO: Use ks model for slow speed
 
         for _ in tf.range(self.intermediate_steps):
-            s_x_dot = tf.multiply(theta,tf.cos(tf.add(psi, beta)))
-            s_y_dot = tf.multiply(theta,tf.sin(tf.add(psi, beta)))
+            s_x_dot = tf.multiply(theta, tf.cos(tf.add(psi, beta)))
+            s_y_dot = tf.multiply(theta, tf.sin(tf.add(psi, beta)))
 
             # delta_dot = delta_dot
             # theta_dot = theta_dot
             # psi_dot = psi_dot
 
-            psi_dot_dot =  -mu*m/(theta*I*(lr+lf))*(lf**2*C_Sf*(g*lr-theta_dot*h) + lr**2*C_Sr*(g*lf + theta_dot*h))*psi_dot \
-                +mu*m/(I*(lr+lf))*(lr*C_Sr*(g*lf + theta_dot*h) - lf*C_Sf*(g*lr - theta_dot*h))*beta \
-                +mu*m/(I*(lr+lf))*lf*C_Sf*( g*lr - theta_dot*h)*delta
+            psi_dot_dot = -mu * m / (theta * I * (lr + lf)) * (
+                    lf ** 2 * C_Sf * (g * lr - theta_dot * h) + lr ** 2 * C_Sr * (g * lf + theta_dot * h)) * psi_dot \
+                          + mu * m / (I * (lr + lf)) * (lr * C_Sr * (g * lf + theta_dot * h) - lf * C_Sf * (
+                    g * lr - theta_dot * h)) * beta \
+                          + mu * m / (I * (lr + lf)) * lf * C_Sf * (g * lr - theta_dot * h) * delta
 
-            beta_dot = (mu/(theta**2*(lr+lf))*(C_Sr*(g*lf + theta_dot*h)*lr - C_Sf*(g*lr - theta_dot*h)*lf)-1)*psi_dot \
-                -mu/(theta*(lr+lf))*(C_Sr*(g*lf + theta_dot*h) + C_Sf*(g*lr-theta_dot*h))*beta \
-                +mu/(theta*(lr+lf))*(C_Sf*(g*lr-theta_dot*h))*delta
+            beta_dot = (mu / (theta ** 2 * (lr + lf)) * (
+                    C_Sr * (g * lf + theta_dot * h) * lr - C_Sf * (g * lr - theta_dot * h) * lf) - 1) * psi_dot \
+                       - mu / (theta * (lr + lf)) * (
+                               C_Sr * (g * lf + theta_dot * h) + C_Sf * (g * lr - theta_dot * h)) * beta \
+                       + mu / (theta * (lr + lf)) * (C_Sf * (g * lr - theta_dot * h)) * delta
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
@@ -178,18 +256,32 @@ class next_state_predictor_ODE_tf():
             psi_dot = psi_dot + self.t_step * psi_dot_dot
             beta = beta + self.t_step * beta_dot
 
+        angular_vel_z = psi_dot
+        linear_vel_x = theta
+        pose_theta = psi
+        pose_theta_cos = tf.math.cos(pose_theta)
+        pose_theta_sin = tf.math.sin(pose_theta)
+        pose_x = s_x
+        pose_y = s_y
+        slip_angle = beta
+        steering_angle = delta
 
-        s_next = tf.stack([s_x, s_y, delta,theta,psi,psi_dot,beta ], axis=1)
+        return self.next_step_output(angular_vel_z,
+                                     linear_vel_x,
+                                     pose_theta,
+                                     pose_theta_cos,
+                                     pose_theta_sin,
+                                     pose_x,
+                                     pose_y,
+                                     slip_angle,
+                                     steering_angle)
 
-        return s_next
 
-    # @Compile
-    def steering_constraints (self, steering_angle, steering_velocity):
+    def steering_constraints(self, steering_angle, steering_velocity):
         s_min = tf.constant([-0.4189])
         s_max = tf.constant([0.4189])
         sv_min = tf.constant([-3.2])
         sv_max = tf.constant([3.2])
-
 
         # Steering angle constraings
         steering_angle_not_too_low_indices = tf.math.greater(steering_angle, s_min)
@@ -204,10 +296,9 @@ class next_state_predictor_ODE_tf():
         # Steering velocity is constrainted
         steering_velocity = tf.clip_by_value(steering_velocity, clip_value_min=sv_min, clip_value_max=sv_max)
 
-
         return steering_velocity
 
-    def accl_constraints (self, vel, accl):
+    def accl_constraints(self, vel, accl):
         v_switch = tf.constant([7.319])
         a_max = tf.constant([9.51])
         v_min = tf.constant([-5.0])
@@ -222,8 +313,8 @@ class next_state_predictor_ODE_tf():
         pos_limit_velocity_too_high = tf.math.divide(a_max * v_switch, vel)
         pos_limit_velocity_not_too_high = a_max
 
-        pos_limit = tf.multiply(velocity_too_high_indices, pos_limit_velocity_too_high) + tf.multiply(velocity_not_too_high_indices, pos_limit_velocity_not_too_high)
-
+        pos_limit = tf.multiply(velocity_too_high_indices, pos_limit_velocity_too_high) + tf.multiply(
+            velocity_not_too_high_indices, pos_limit_velocity_not_too_high)
 
         # accl limit reached?
         velocity_not_over_max_indices = tf.math.less(vel, v_max)
@@ -238,12 +329,8 @@ class next_state_predictor_ODE_tf():
         accl = tf.clip_by_value(accl, clip_value_min=-a_max, clip_value_max=10000)
         accl = tf.clip_by_value(accl, clip_value_min=-100000, clip_value_max=pos_limit)
 
-        #Tested until here
+        # Tested until here
         return accl
-
-
-
-
 
 
 class predictor_output_augmentation_tf:
@@ -308,8 +395,9 @@ class predictor_output_augmentation_tf:
 
         if 'pose_theta' in self.features_augmentation:
             pose_theta = tf.math.atan2(
-                    net_output[..., self.index_pose_theta_sin],
-                    net_output[..., self.index_pose_theta_cos])[:, :, tf.newaxis]  # tf.math.atan2 removes the features (last) dimension, so it is added back with [:, :, tf.newaxis]
+                net_output[..., self.index_pose_theta_sin],
+                net_output[..., self.index_pose_theta_cos])[:, :,
+                         tf.newaxis]  # tf.math.atan2 removes the features (last) dimension, so it is added back with [:, :, tf.newaxis]
             output = tf.concat([output, pose_theta], axis=-1)
 
         if 'angle_sin' in self.features_augmentation:

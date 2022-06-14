@@ -178,7 +178,7 @@ class controller_mppi_tf(template_controller):
         u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)  # (batch_size, horizon, len(control_input)) Clip control input based on system parameters
         rollout_trajectory = predictor.predict_tf(s, u_run)
         traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (batch_size,) Cost for each trajectory
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
         u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
         self.update_internal_state(s, u_nom)
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)

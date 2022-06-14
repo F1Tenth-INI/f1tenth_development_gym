@@ -1,6 +1,8 @@
 import tensorflow as tf
 import yaml
 
+from main.state_utilities import *
+
 distance_normalization = 6.0
 
 #load constants from config file
@@ -13,6 +15,7 @@ R = config["controller"]["mppi"]["R"]
 ccrc_weight = config["controller"]["mppi"]["ccrc_weight"]
 
 acceleration_cost_weight = config["controller"]["mppi"]["acceleration_cost_weight"]
+max_acceleration = config["controller"]["mppi"]["max_acceleration"]
 steering_cost_weight = config["controller"]["mppi"]["steering_cost_weight"]
 distance_to_waypoints_cost_weight = config["controller"]["mppi"]["distance_to_waypoints_cost_weight"]
 terminal_speed_cost_weight = config["controller"]["mppi"]["terminal_speed_cost_weight"]
@@ -35,7 +38,7 @@ def CC_cost(u):
 
 def terminal_speed_cost_function(terminal_state):
     ''' Compute penality for deviation from desired max speed'''
-    terminal_speed = terminal_state[:, 3]
+    terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
 
     desired_speed = tf.fill(tf.shape(terminal_speed), desired_max_speed)
     speed_diff = tf.abs(terminal_speed - desired_speed)
@@ -60,7 +63,7 @@ def phi(s, target):
 
     #FIXME: Check this! order of variables might have changed
     dd = dd_weight * distance_difference_cost(
-        s[:, -1, :2], target_position
+        s[:, -1, POSE_X_IDX:POSE_Y_IDX+1], target_position
     )
 
     # For later: Initial state to calculate differences between initial and terminal state
@@ -81,8 +84,7 @@ def control_change_rate_cost(u, u_prev):
 
 def get_acceleration_cost(u):
     ''' Calculate cost for deviation from desired acceleration at every timestep'''
-    accelerations = u[:,:,0]
-    max_acceleration = 9.2 # From car parameters
+    accelerations = u[:,:, TRANSLATIONAL_CONTROL_IDX]
     acceleration_cost = max_acceleration - accelerations
     acceleration_cost = tf.abs(acceleration_cost)
     acceleration_cost = acceleration_cost_weight * acceleration_cost
@@ -91,14 +93,14 @@ def get_acceleration_cost(u):
 
 def get_steering_cost(u):
     ''' Calculate cost for steering at every timestep'''
-    steering = u[:,:,1]
+    steering = u[:,:, ANGULAR_CONTROL_IDX]
     steering = tf.abs(steering)
     steering_cost = steering_cost_weight * steering
 
     return steering_cost
 
 def get_distance_to_waypoints_cost(s, waypoints):
-    positions = s[:,: ,:2]
+    positions = s[:,: ,POSE_X_IDX:POSE_Y_IDX+1]
     trajectories_shape = tf.shape(positions)
     number_of_rollouts = trajectories_shape[0]
     number_of_steps = trajectories_shape[1]
@@ -123,12 +125,12 @@ def q(s,u,target, u_prev):
     cc = tf.math.reduce_sum(cc_weight * CC_cost(u), axis=-1)
     ccrc = tf.math.reduce_sum(ccrc_weight * control_change_rate_cost(u,u_prev), axis=-1)
 
-    crash_penelty = get_crash_penelty(s[:, :, :2], lidar_scans)
+    crash_penelty = get_crash_penelty(s[:, :, POSE_X_IDX:POSE_Y_IDX+1], lidar_scans)
     acceleration_cost = get_acceleration_cost(u)
     steering_cost = get_steering_cost(u)
     distance_to_waypoints_cost = get_distance_to_waypoints_cost(s, waypoints)
 
-    stage_cost = cc + ccrc + distance_to_waypoints_cost + crash_penelty +steering_cost  + acceleration_cost
+    stage_cost = cc + ccrc + distance_to_waypoints_cost + crash_penelty + steering_cost  + acceleration_cost
 
 
     # Read out values for cost weight callibration: Uncomment for debugging

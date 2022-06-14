@@ -317,7 +317,6 @@ class RaceCar(object):
         # elif self.state[4] < 0:
         #     self.state[4] = self.state[4] + 2*np.pi
         self.state[4] = wrap_angle_rad(self.state[4])
-        self.state[5] = np.clip(self.state[5], -np.pi, np.pi)
 
         # update scan
         current_scan = RaceCar.scan_simulator.scan(np.append(self.state[0:2], self.state[4]), self.scan_rng)
@@ -519,6 +518,7 @@ class Simulator(object):
             observations['linear_vels_x'].append(agent.state[3])
             observations['linear_vels_y'].append(0.)
             observations['ang_vels_z'].append(agent.state[5])
+            # Missing state[2] and state[6]
 
         return observations
 

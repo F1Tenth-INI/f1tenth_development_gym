@@ -13,6 +13,8 @@ try:
 except:
     pass
 
+from main.state_utilities import FULL_STATE_VARIABLES
+
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
 ranges_forward_only = True # Only LIDAR scans in forward direction are saved
 
@@ -41,14 +43,16 @@ class Recorder:
         self.keys_time = None
         self.keys_ranges = None
         self.keys_odometry = None
+        self.keys_state = None
         self.keys_control_inputs = None
 
         self.csv_filepath = None
 
         self.time_dict = None
-        self.ranges_dict = None
-        self.odometry_dict = None
-        self.control_inputs_dict = None
+        self.ranges_dict = {}
+        self.odometry_dict = {}
+        self.state_dict = {}
+        self.control_inputs_dict = {}
         self.dict_to_save = {}
 
         if create_header:
@@ -85,11 +89,25 @@ class Recorder:
         if self.keys_control_inputs is None:
             self.keys_control_inputs = self.control_inputs_dict.keys()
 
-    def save_data(self, control_inputs, odometry, ranges, time):
+    def get_state(self, state):
+
+        state_to_save = state
+
+        if self.keys_state is None:
+            self.keys_state = FULL_STATE_VARIABLES
+
+        self.state_dict = dict(zip(self.keys_state, state_to_save))
+
+    def save_data(self, control_inputs=None, odometry=None, ranges=None, time=None, state=None):
         self.get_time(time)
-        self.get_control_inputs(control_inputs=control_inputs)
-        self.get_odometry(odometry_dict=odometry)
-        self.get_ranges(ranges=ranges)
+        if control_inputs is not None:
+            self.get_control_inputs(control_inputs=control_inputs)
+        if odometry is not None:
+            self.get_odometry(odometry_dict=odometry)
+        if state is not None:
+            self.get_state(state=state)
+        if ranges is not None:
+            self.get_ranges(ranges=ranges)
         self.save_csv()
 
     def save_csv(self):
@@ -97,6 +115,7 @@ class Recorder:
         self.dict_to_save.update(self.time_dict)
         self.dict_to_save.update(self.control_inputs_dict)
         self.dict_to_save.update(self.odometry_dict)
+        self.dict_to_save.update(self.state_dict)
         self.dict_to_save.update(self.ranges_dict)
 
         # Save this dict
