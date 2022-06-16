@@ -167,7 +167,7 @@ class controller_mppi_tf(template_controller):
         """
         Part of MPPI which can be XLS (with Tensorflow) compiled.
         @param: s: current state of the car
-        @param: target: Target position of the car and lidat scans stacked on each other
+        @param: target: Target position of the car and lidar scans stacked on each other
         @param: u_nom: Last optimal control sequence (Array of control inputs)
         @param: random_gen: Tensoflow random generator
         @param: u_old: Last optimal control input
