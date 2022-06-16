@@ -61,7 +61,7 @@ def phi(s, target):
     lidar_scans = target[1:217]
     waypoints = target[218:]
 
-    #FIXME: Check this! order of variables might have changed
+
     dd = dd_weight * distance_difference_cost(
         s[:, -1, POSE_X_IDX:POSE_Y_IDX+1], target_position
     )
