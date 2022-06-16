@@ -294,6 +294,7 @@ class next_state_predictor_ODE_tf():
         # Steering velocity is constrainted
         steering_velocity = tf.clip_by_value(steering_velocity, clip_value_min=sv_min, clip_value_max=sv_max)
 
+
         return steering_velocity
 
     def accl_constraints(self, vel, accl):
@@ -327,8 +328,11 @@ class next_state_predictor_ODE_tf():
         accl = tf.clip_by_value(accl, clip_value_min=-a_max, clip_value_max=10000)
         accl = tf.clip_by_value(accl, clip_value_min=-100000, clip_value_max=pos_limit)
 
-        # Tested until here
         return accl
+
+
+
+
 
 
 class predictor_output_augmentation_tf:

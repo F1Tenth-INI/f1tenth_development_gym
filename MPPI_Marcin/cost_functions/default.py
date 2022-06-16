@@ -166,6 +166,8 @@ def get_crash_penelty(trajectories, border_points):
 
     return crash_cost
 
+
+
 def distances_to_list_of_points(point, points2):
     length = tf.shape(points2)[0]
     points1 = tf.tile([point], [length, 1])

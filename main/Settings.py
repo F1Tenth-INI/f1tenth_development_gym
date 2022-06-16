@@ -1,7 +1,7 @@
 # Configuration for main
 class Settings:
 
-    NUMBER_OF_EXPERIMENTS = 10  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if default termination after two laps is off.
 
     TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
@@ -19,7 +19,7 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
 
 
     # Automatically follow the first car on the map
