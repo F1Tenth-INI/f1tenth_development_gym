@@ -12,7 +12,7 @@ controller:
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
     NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
-    dd_weight: 120.0
+    dd_weight: 0.0
     cc_weight: 0.0
     ccrc_weight: 0.0
     cost_noise: 0.0                       # Noise on stage cost weights by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0 othewise
