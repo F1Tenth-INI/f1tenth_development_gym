@@ -4,7 +4,7 @@ from numpy.random import SFC64, Generator
 from datetime import datetime
 from numba import jit, prange
 import tensorflow as tf
-import tensorflow_probability as tfp
+
 
 from MPPI_Marcin.template_controller import template_controller
 
@@ -15,6 +15,7 @@ from SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
 from SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
 
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.TF.TF_Functions.Interpolation import interpolate_tf
 
 #load constants from config file
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
@@ -114,14 +115,6 @@ def reward_weighted_average(S, delta_u):
     a = tf.math.reduce_sum(exp_s)
     b = tf.math.reduce_sum(exp_s[:, tf.newaxis, tf.newaxis]*delta_u, axis=0)/a
     return b
-
-
-def interpolate_tf(y_ref, step=10, axis=1):
-    range_stop = (y_ref.shape[axis]-1)*step + 1
-    t_interp = tf.cast(tf.range(range_stop), tf.float32)
-    interp = tfp.math.interp_regular_1d_grid(t_interp, t_interp[0], t_interp[-1], y_ref, axis=1)
-    return interp
-
 
 def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE, interpolation_step=INTERPOLATION_STEP):
     if sampling_type == "interpolated":
