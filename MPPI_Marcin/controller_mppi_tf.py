@@ -28,7 +28,7 @@ cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q,
 exec(cost_function_cmd)
 
 dt = config["controller"]["mppi"]["dt"]
-control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
+INTERPOLATION_STEP = config["controller"]["mppi"]["INTERPOLATION_STEP"]
 mppi_horizon = config["controller"]["mppi"]["mpc_horizon"]
 num_rollouts = config["controller"]["mppi"]["num_rollouts"]
 
@@ -123,12 +123,11 @@ def interpolate_tf(y_ref, step=10, axis=1):
     return interp
 
 
-def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE):
+def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE, interpolation_step=INTERPOLATION_STEP):
     if sampling_type == "interpolated":
-        step = 2
-        independent_samples = int(tf.math.ceil(mppi_samples / step)) + 1
+        independent_samples = int(tf.math.ceil(mppi_samples / interpolation_step)) + 1
         delta_u = random_gen.normal([num_rollouts, independent_samples, num_control_inputs], dtype=tf.float32) * stdev
-        interp = interpolate_tf(delta_u, step, axis=1)
+        interp = interpolate_tf(delta_u, interpolation_step, axis=1)
         delta_u = interp[:, :mppi_samples, :]
     else:
         delta_u = random_gen.normal([num_rollouts, mppi_samples, num_control_inputs], dtype=tf.float32) * stdev
@@ -181,6 +180,7 @@ class controller_mppi_tf(template_controller):
         @param: u_old: Last optimal control input
         """
         s = tf.tile(s, tf.constant([num_rollouts, 1]))
+        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         delta_u = inizialize_pertubation(random_gen)  #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u  #(batch_size, horizon, len(control_input)) Control inputs for MPPI rollouts (last optimal + perturbation)
         u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)  # (batch_size, horizon, len(control_input)) Clip control input based on system parameters
@@ -189,7 +189,6 @@ class controller_mppi_tf(template_controller):
         u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
         u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
         self.update_internal_state(s, u_nom)
-        u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
         return self.mppi_output(u, u_nom, rollout_trajectory, traj_cost)
 
     @Compile
