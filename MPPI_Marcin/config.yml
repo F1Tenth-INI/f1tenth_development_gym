@@ -26,6 +26,7 @@ controller:
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
+    INTERPOLATION_STEP: 2                 # Only matters if SAMPLING_TYPE: "interpolated"
     LOGGING: False                        # Collect and show detailed insights into the controller's behavior
     WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
     CLIP_CONTROL_INPUT: [7, 3.5]            # How to clip control input, symmetric
