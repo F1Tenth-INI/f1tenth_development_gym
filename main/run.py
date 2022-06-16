@@ -148,6 +148,10 @@ def main():
                                            odometry=odom, ranges=ranges, state=driver.car_state,
                                            time=current_time_in_simulation)
 
+        if Settings.RENDER_MODE is not None:
+            env.render(mode=Settings.RENDER_MODE)
+            render_index += 1
+
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
 
@@ -162,10 +166,6 @@ def main():
 
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward
-
-        if Settings.RENDER_MODE is not None:
-            env.render(mode=Settings.RENDER_MODE)
-            render_index += 1
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
