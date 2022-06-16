@@ -115,61 +115,24 @@ def reward_weighted_average(S, delta_u):
     b = tf.math.reduce_sum(exp_s[:, tf.newaxis, tf.newaxis]*delta_u, axis=0)/a
     return b
 
+
+def interpolate_tf(y_ref, step=10, axis=1):
+    range_stop = (y_ref.shape[axis]-1)*step + 1
+    t_interp = tf.cast(tf.range(range_stop), tf.float32)
+    interp = tfp.math.interp_regular_1d_grid(t_interp, t_interp[0], t_interp[-1], y_ref, axis=1)
+    return interp
+
+
 def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE):
     if sampling_type == "interpolated":
-        step = 10
-        range_stop = int(tf.math.ceil(mppi_samples / step)*step) + 1
-        t = tf.range(range_stop, delta = step)
-        t_interp = tf.cast(tf.range(range_stop), tf.float32)
-        delta_u = random_gen.normal([num_rollouts, t.shape[0], num_control_inputs], dtype=tf.float32) * stdev
-        interp = tfp.math.interp_regular_1d_grid(t_interp, t_interp[0], t_interp[-1], delta_u, axis=1)
-        delta_u = interp[:,:mppi_samples, :]
+        step = 2
+        independent_samples = int(tf.math.ceil(mppi_samples / step)) + 1
+        delta_u = random_gen.normal([num_rollouts, independent_samples, num_control_inputs], dtype=tf.float32) * stdev
+        interp = interpolate_tf(delta_u, step, axis=1)
+        delta_u = interp[:, :mppi_samples, :]
     else:
         delta_u = random_gen.normal([num_rollouts, mppi_samples, num_control_inputs], dtype=tf.float32) * stdev
     return delta_u
-
-
-
-
-def interpolate_mean(a, number_of_steps):
-    '''Interpolate control inputs
-    @param a: list of control inputs (number_of_rollouts, horizon, len(control_input))
-    @param number_of_steps: number of steps between each control input
-
-    We want to increase the resolution of the rollouts without the need of a larger batch size:
-    For every consecutive control input, we calculate number_of_steps values in between (linear interpolation), with the following trick:
-
-    For example we take number_of_steps = 3 and a control input of [1,2,3,4,5]
-    We calculate the interpolation by adding shifted repeated versions of the control input
-
-        1 1 1 2 2 2 3 3 3 4 4 4 5
-    +   1 1 2 2 2 3 3 3 4 4 4 5 5
-    +   1 2 2 2 3 3 3 4 4 4 5 5 5
-    / 3
-    =   1.0 1.333 1.666 2.0 ....        ...4.666 5.0
-
-    returns result: list of control inputs (number_of_rollouts, horizon * number_of_steps,  len(control_input))
-    '''
-
-
-    index_steps = number_of_steps - 1
-
-    a = tf.repeat(a, number_of_steps, axis=1)
-    interpolation = tf.zeros([tf.shape(a)[0], tf.shape(a)[1] - index_steps, tf.shape(a)[2]], dtype= tf.float32)
-
-    i = tf.constant(0)
-    while_condition = lambda i, interpolation, a: tf.less(i, number_of_steps)
-    def body(i, interpolation, a):
-        lenght = tf.shape(a)[1] - index_steps
-        a_sliced = tf.slice(a, [0, i, 0], [a.shape[0], lenght ,a.shape[2]])
-        interpolation = tf.add(interpolation, a_sliced)
-        return [tf.add(i, 1), interpolation, a]
-
-    # do the loop:
-    index, result, a = tf.while_loop(while_condition, body, [i, interpolation, a])
-    result = result/number_of_steps
-
-    return result
 
 
 
@@ -221,10 +184,8 @@ class controller_mppi_tf(template_controller):
         delta_u = inizialize_pertubation(random_gen)  #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
         u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u  #(batch_size, horizon, len(control_input)) Control inputs for MPPI rollouts (last optimal + perturbation)
         u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)  # (batch_size, horizon, len(control_input)) Clip control input based on system parameters
-        u_run = interpolate_mean(u_run, control_interpolation_steps)  # Increase resolution for control inputs (same horizon but smaller timestep)
-        delta_u_ext = tf.repeat(delta_u, control_interpolation_steps, axis=1)[:, :-1, :]  # Fit dimensions with interpolated version
         rollout_trajectory = predictor.predict_tf(s, u_run)
-        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u_ext)  # (batch_size,) Cost for each trajectory
+        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (batch_size,) Cost for each trajectory
         u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
         u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
         self.update_internal_state(s, u_nom)

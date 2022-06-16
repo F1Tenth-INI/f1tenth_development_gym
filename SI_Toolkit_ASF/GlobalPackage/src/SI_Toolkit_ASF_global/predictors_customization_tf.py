@@ -8,8 +8,6 @@ import yaml
 from main.state_utilities import *
 
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
-control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
-
 
 def next_state_output_odom(angular_vel_z,
                            linear_vel_x,
@@ -62,7 +60,7 @@ class next_state_predictor_ODE_tf():
         self.intermediate_steps_float = tf.convert_to_tensor(intermediate_steps, dtype=tf.float32)
         self.t_step = tf.convert_to_tensor(dt / float(self.intermediate_steps), dtype=tf.float32)
 
-        self.t_step = self.t_step / control_interpolation_steps
+        self.t_step = self.t_step
 
         if Settings.ONLY_ODOMETRY_AVAILABLE:
             self.next_step_output = next_state_output_odom
