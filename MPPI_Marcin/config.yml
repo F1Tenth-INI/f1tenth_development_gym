@@ -4,7 +4,7 @@ controller:
     cost_function: 'default' #from 'quadratic-boundary', 'quadratic-boundary-nonconvex', 'default'
   mppi:
     SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
-    dt: 0.05                                # sec
+    dt: 0.025                                # sec
     mpc_horizon: 0.5                       # sec
     control_interpolation_steps: 2          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
     # FIXME:  We want to interpolate trajectory instead
@@ -25,7 +25,7 @@ controller:
     SQRTRHOINV: [0.8,0.8]                #Speed, steering
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
-    SAMPLING_TYPE: "uniform"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
+    SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
     LOGGING: False                        # Collect and show detailed insights into the controller's behavior
     WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
     CLIP_CONTROL_INPUT: [7, 3.5]            # How to clip control input, symmetric
