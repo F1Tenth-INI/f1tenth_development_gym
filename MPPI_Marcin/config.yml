@@ -1,7 +1,7 @@
 
 controller:
   general:
-    cost_function: 'default' #from 'quadratic-boundary', 'quadratic-boundary-nonconvex', 'default'
+    cost_function: 'racing'                 # from 'racing', 'following_target'
   mppi:
     SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
     dt: 0.025                                # sec
@@ -38,6 +38,7 @@ controller:
     terminal_speed_cost_weight: 1.0
     desired_max_speed: 17.0               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
+    target_distance_cost_weight: 1.0
 
 data_generator:
   SEED: 1  # If "None" random seed based on datetime is used
