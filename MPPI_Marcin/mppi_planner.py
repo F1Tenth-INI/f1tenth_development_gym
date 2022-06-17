@@ -106,8 +106,7 @@ class MPPI_F1TENTH:
         self.lidar_points = np.stack((p1, p2), axis=1)
 
         # self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
-        # target = np.vstack((self.largest_gap_middle_point, self.lidar_points))
-        # target = np.vstack((target_positions, self.lidar_points))
+        # target_point = self.largest_gap_middle_point
         target_point = [0, 0]  # dont need the target point for racing anymore
 
         if (Settings.FOLLOW_RANDOM_TARGETS):
@@ -217,9 +216,9 @@ class Render:
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
 
-        if self.target_point is not None:
+        if self.target_point is not None and Settings.FOLLOW_RANDOM_TARGETS:
 
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
-            # self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+            self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
 
