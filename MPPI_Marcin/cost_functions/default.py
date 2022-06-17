@@ -128,10 +128,13 @@ def q(s,u,target, u_prev):
     crash_penelty = get_crash_penelty(s[:, :, POSE_X_IDX:POSE_Y_IDX+1], lidar_scans)
     acceleration_cost = get_acceleration_cost(u)
     steering_cost = get_steering_cost(u)
-    distance_to_waypoints_cost = get_distance_to_waypoints_cost(s, waypoints)
+
+    if waypoints.shape[0]:
+        distance_to_waypoints_cost = get_distance_to_waypoints_cost(s, waypoints)
+    else:
+        distance_to_waypoints_cost = tf.zeros_like(steering_cost)
 
     stage_cost = cc + ccrc + distance_to_waypoints_cost + crash_penelty + steering_cost  + acceleration_cost
-
 
     # Read out values for cost weight callibration: Uncomment for debugging
 

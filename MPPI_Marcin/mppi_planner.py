@@ -57,10 +57,14 @@ class MPPI_F1TENTH:
         self.SpeedGenerator = SpeedGenerator()
 
         # Get waypoints
-        path = Settings.MAP_WAYPOINT_FILE
-        waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-        waypoints=waypoints[0:-1:1,1:3]
-        self.wpts_opt=waypoints
+        try:
+            path = Settings.MAP_WAYPOINT_FILE
+            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+            waypoints=waypoints[0:-1:1,1:3]
+            self.wpts_opt=waypoints
+        except AttributeError:
+            self.wpts_opt = None
+
 
     def render(self, e):
         self.Render.render(e)
@@ -111,7 +115,8 @@ class MPPI_F1TENTH:
 
         # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
         target = np.vstack((target_point, self.lidar_points))
-        target = np.vstack((target, self.wpts_opt))
+        if self.wpts_opt is not None:
+            target = np.vstack((target, self.wpts_opt))
 
         translational_control, angular_control = self.mppi.step(s, target=target)
 
