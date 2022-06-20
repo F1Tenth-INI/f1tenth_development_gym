@@ -2,7 +2,9 @@
 class Settings:
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 200000  # in timesteps, only valid if default termination after two laps is off.
+    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if default termination after two laps is off.
+
+    TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions
     # pysical params etc. 
@@ -13,13 +15,13 @@ class Settings:
     # MAP_CONFIG_FILE =  "maps_files/config_empty_map.yaml"
     
     
-    # You can place random obstacles on the map. Have a look at the obstacle settings in maps_filesr/random_obstacles.yaml
+    # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
     SAVE_RECORDINGS = False
-    
-    
+
+
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True
     
@@ -31,3 +33,12 @@ class Settings:
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
     LOOK_FORWARD_ONLY = False
+
+    # Decide if to use PID as in the original F1TENTH implementation
+    # Or bypass it.
+    # Warning: Even if set to True, the PID algorithm is modified
+    # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
+    WITH_PID = False
+
+    # Decide if available state consists of full car state or only of odometry
+    ONLY_ODOMETRY_AVAILABLE = False
