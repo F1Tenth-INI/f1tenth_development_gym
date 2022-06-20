@@ -23,6 +23,8 @@ from Recorder import Recorder
 
 from f110_gym.envs.dynamic_models import pid
 
+from main.state_utilities import full_state_original_to_alphabetical
+
 
 def add_noise(x, noise_level=0.1):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
@@ -113,10 +115,10 @@ def main():
     env = gym.make('f110_gym:f110-v0', map=racetrack,
                    map_ext=conf.map_ext, num_agents=number_of_drivers)
     env.add_render_callback(render_callback)
-    timestep = env.timestep
+    assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=timestep) for i in range(number_of_drivers)]
+    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=Settings.TIMESTEP_CONTROL) for i in range(number_of_drivers)]
   
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
@@ -133,36 +135,39 @@ def main():
         if done:
             break
         ranges = obs['scans']
-        
-        # First car
-        controlls = []
-        
+
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
-            # Set the driver's true car state in case it is needed            
-            true_car_state = env.sim.agents[index].state
-            driver.car_state = true_car_state
+            odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
+            odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
+            driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+            translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
-            if(render_index % 3 == 0): # We dont need to do the whole control calculations every time step
-                speed, steer =  driver.process_observation(ranges[index], odom)
+            if (Settings.SAVE_RECORDINGS):
+                recorders[index].save_data(control_inputs=(translational_control, angular_control),
+                                           odometry=odom, ranges=ranges, state=driver.car_state,
+                                           time=current_time_in_simulation)
 
-            if(Settings.SAVE_RECORDINGS):
-                recorders[index].save_data(control_inputs=(speed, steer), odometry=odom, ranges=ranges, time=current_time_in_simulation)
-            
-            # accl, sv = pid(speed, steer, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'], cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            accl, sv = speed, steer # Mppi doesn't need a PID 
-            # print("speed, steer:", speed, steer)
-            print("accl, sv:", accl, sv)
-            controlls.append([accl, sv])
-
-        obs, step_reward, done, info = env.step(np.array(controlls))
-
-        laptime += step_reward
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
             render_index += 1
 
-        current_time_in_simulation += timestep
+        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            controlls = []
+
+            for index, driver in enumerate(drivers):
+                if Settings.WITH_PID:
+                    accl, sv = pid(driver.translational_control, driver.angular_control, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                   cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+                else:
+                    accl, sv = driver.translational_control, driver.angular_control
+
+                controlls.append([sv, accl])
+
+            obs, step_reward, done, info = env.step(np.array(controlls))
+            laptime += step_reward
+
+        current_time_in_simulation += Settings.TIMESTEP_CONTROL
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 

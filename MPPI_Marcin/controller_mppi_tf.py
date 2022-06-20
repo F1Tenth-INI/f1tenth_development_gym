@@ -4,17 +4,18 @@ from numpy.random import SFC64, Generator
 from datetime import datetime
 from numba import jit, prange
 import tensorflow as tf
-import tensorflow_probability as tfp
+
 
 from MPPI_Marcin.template_controller import template_controller
 
 import yaml
 
-from  SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
-from  SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
-from  SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
+from SI_Toolkit.Predictors.predictor_ODE import predictor_ODE
+from SI_Toolkit.Predictors.predictor_ODE_tf import predictor_ODE_tf
+from SI_Toolkit.Predictors.predictor_autoregressive_tf import predictor_autoregressive_tf
 
-from  SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.TF.TF_Functions.Interpolation import interpolate_tf
 
 #load constants from config file
 config = yaml.load(open("MPPI_Marcin/config.yml", "r"), Loader=yaml.FullLoader)
@@ -28,7 +29,7 @@ cost_function_cmd = 'from MPPI_Marcin.cost_functions.'+cost_function+' import q,
 exec(cost_function_cmd)
 
 dt = config["controller"]["mppi"]["dt"]
-control_interpolation_steps = config["controller"]["mppi"]["control_interpolation_steps"]
+INTERPOLATION_STEP = config["controller"]["mppi"]["INTERPOLATION_STEP"]
 mppi_horizon = config["controller"]["mppi"]["mpc_horizon"]
 num_rollouts = config["controller"]["mppi"]["num_rollouts"]
 
@@ -46,7 +47,13 @@ SQRTRHODTINV = tf.convert_to_tensor(config["controller"]["mppi"]["SQRTRHOINV"]) 
 GAMMA = config["controller"]["mppi"]["GAMMA"]
 SAMPLING_TYPE = config["controller"]["mppi"]["SAMPLING_TYPE"]
 
-clip_control_input = tf.constant(config["controller"]["mppi"]["CLIP_CONTROL_INPUT"], dtype=tf.float32)
+clip_control_input = config["controller"]["mppi"]["CLIP_CONTROL_INPUT"]
+if isinstance(clip_control_input[0], list):
+    clip_control_input_low = tf.constant(clip_control_input[0], dtype=tf.float32)
+    clip_control_input_high = tf.constant(clip_control_input[1], dtype=tf.float32)
+else:
+    clip_control_input_high = tf.constant(clip_control_input, dtype=tf.float32)
+    clip_control_input_low = -clip_control_input_high
 
 #create predictor
 predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
@@ -54,17 +61,29 @@ predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
 """Define Predictor"""
 if predictor_type == "EulerTF":
     predictor = predictor_ODE_tf(horizon=mppi_samples, dt=dt, intermediate_steps=1, disable_individual_compilation=True)
+    predictor_single_trajectory = predictor
 elif predictor_type == "Euler":
     predictor = predictor_ODE(horizon=mppi_samples, dt=dt, intermediate_steps=10)
+    predictor_single_trajectory = predictor
 elif predictor_type == "NeuralNet":
     predictor = predictor_autoregressive_tf(
-        horizon=mppi_samples, batch_size=num_rollouts, net_name=NET_NAME
+        horizon=mppi_samples, batch_size=num_rollouts, net_name=NET_NAME, disable_individual_compilation=True
+    )
+    predictor_single_trajectory = predictor_autoregressive_tf(
+        horizon=mppi_samples, batch_size=1, net_name=NET_NAME, disable_individual_compilation=True
     )
 
 GET_ROLLOUTS_FROM_MPPI = True
 # GET_ROLLOUTS_FROM_MPPI = False
 
 GET_OPTIMAL_TRAJECTORY = True
+
+def check_dimensions_s(s):
+    # Make sure the input is at least 2d
+    if tf.rank(s) == 1:
+        s = s[tf.newaxis, :]
+
+    return s
 
 #mppi correction
 def mppi_correction_cost(u, delta_u):
@@ -76,27 +95,20 @@ def cost(s_hor ,u, target, u_prev, delta_u):
     @param s_hor: All rollout results (trajectories) for the whole horizon
     @param u: all control inputs for rollouts s_hor
     @param target: (number_of_lidar_points, 2), target point (largest gap) and sensor data
-    @param u_prev: (len(control_input)) prevoius control input 
+    @param u_prev: (len(control_input)) prevoius control input
     @param delta_u: (batch_size, horizon, len(control_input)) perturbation of previous best control sequence
     '''
     stage_cost = q(s_hor[:,1:,:],u,target, u_prev) # (batch_size,horizon), all costs for every step in the trajectory
     stage_cost = stage_cost + mppi_correction_cost(u, delta_u)
-    
-    total_cost = tf.math.reduce_sum(stage_cost,axis=1) # (batch_size) Ads up the stage costs to the total cost
-    
-    total_cost = total_cost + phi(s_hor, target) # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
-    # print(stage_cost.numpy())
-    # sc = stage_cost.numpy()[:10]
-    # tc1 = total_cost.numpy()[:10]
-    # tc2 = total_cost.numpy()[:10]
-    # print("Tc", tc)
+    total_cost = tf.math.reduce_sum(stage_cost,axis=1)  # (batch_size) Ads up the stage costs to the total cost
+    total_cost = total_cost + phi(s_hor, target)  # phi is the terminal state cost, which is at the moment the angle to the target at the terminal state
     return total_cost
 
 
 def reward_weighted_average(S, delta_u):
     '''
     @param S: (batch_size), costs for tracectories
-    @param delta_u: (batch_size, horizon, len(control_input)): Perturbation of optimal trajectory to be weighted 
+    @param delta_u: (batch_size, horizon, len(control_input)): Perturbation of optimal trajectory to be weighted
     '''
     rho = tf.math.reduce_min(S)
     exp_s = tf.exp(-1.0/LBD * (S-rho))
@@ -104,61 +116,15 @@ def reward_weighted_average(S, delta_u):
     b = tf.math.reduce_sum(exp_s[:, tf.newaxis, tf.newaxis]*delta_u, axis=0)/a
     return b
 
-def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE):
+def inizialize_pertubation(random_gen, stdev = SQRTRHODTINV, sampling_type = SAMPLING_TYPE, interpolation_step=INTERPOLATION_STEP):
     if sampling_type == "interpolated":
-        step = 10
-        range_stop = int(tf.math.ceil(mppi_samples / step)*step) + 1
-        t = tf.range(range_stop, delta = step)
-        t_interp = tf.cast(tf.range(range_stop), tf.float32)
-        delta_u = random_gen.normal([num_rollouts, t.shape[0], num_control_inputs], dtype=tf.float32) * stdev
-        interp = tfp.math.interp_regular_1d_grid(t_interp, t_interp[0], t_interp[-1], delta_u, axis=1)
-        delta_u = interp[:,:mppi_samples, :]
+        independent_samples = int(tf.math.ceil(mppi_samples / interpolation_step)) + 1
+        delta_u = random_gen.normal([num_rollouts, independent_samples, num_control_inputs], dtype=tf.float32) * stdev
+        interp = interpolate_tf(delta_u, interpolation_step, axis=1)
+        delta_u = interp[:, :mppi_samples, :]
     else:
         delta_u = random_gen.normal([num_rollouts, mppi_samples, num_control_inputs], dtype=tf.float32) * stdev
     return delta_u
-
-
-
-
-def interpolate_mean(a, number_of_steps):
-    '''Interpolate control inputs
-    @param a: list of control inputs (number_of_rollouts, horizon, len(control_input))
-    @param number_of_steps: number of steps between each control input 
-    
-    We want to increase the resolution of the rollouts without the need of a larger batch size:
-    For every consecutive control input, we calculate number_of_steps values in between (linear interpolation), with the following trick:
-    
-    For example we take number_of_steps = 3 and a control input of [1,2,3,4,5]
-    We calculate the interpolation by adding shifted repeated versions of the control input
-    
-        1 1 1 2 2 2 3 3 3 4 4 4 5 
-    +   1 1 2 2 2 3 3 3 4 4 4 5 5 
-    +   1 2 2 2 3 3 3 4 4 4 5 5 5
-    / 3
-    =   1.0 1.333 1.666 2.0 ....        ...4.666 5.0
-    
-    returns result: list of control inputs (number_of_rollouts, horizon * number_of_steps,  len(control_input))
-    '''
-
-
-    index_steps = number_of_steps - 1
-
-    a = tf.repeat(a, number_of_steps, axis=1)
-    interpolation = tf.zeros([tf.shape(a)[0], tf.shape(a)[1] - index_steps, tf.shape(a)[2]], dtype= tf.float32)
-
-    i = tf.constant(0)
-    while_condition = lambda i, interpolation, a: tf.less(i, number_of_steps)
-    def body(i, interpolation, a):
-        lenght = tf.shape(a)[1] - index_steps
-        a_sliced = tf.slice(a, [0, i, 0], [a.shape[0], lenght ,a.shape[2]])
-        interpolation = tf.add(interpolation, a_sliced)
-        return [tf.add(i, 1), interpolation, a]
-
-    # do the loop:
-    index, result, a = tf.while_loop(while_condition, body, [i, interpolation, a])
-    result = result/number_of_steps
-    
-    return result
 
 
 
@@ -169,10 +135,8 @@ class controller_mppi_tf(template_controller):
         SEED = config["controller"]["mppi"]["SEED"]
         if SEED == "None":
             SEED = int((datetime.now() - datetime(1970, 1, 1)).total_seconds() * 1000.0)
-        #Random generator (from Tensorflow)
         self.rng_cem = tf.random.Generator.from_seed(SEED)
-        
-        #Last control input ?
+
         self.u_nom = tf.ones([1, mppi_samples, num_control_inputs], dtype=tf.float32)*tf.constant([6.0, 0.0], dtype=tf.float32)
         self.u = tf.convert_to_tensor([6.0, 0.0], dtype=tf.float32)
 
@@ -181,46 +145,62 @@ class controller_mppi_tf(template_controller):
 
         self.optimal_trajectory = None
 
+        # Defining function - the compiled part must not have if-else statements with changing output dimensions
+        if predictor_type ==  'NeuralNet':
+            self.update_internal_state = self.update_internal_state_of_RNN
+        else:
+            self.update_internal_state = lambda s, u_nom: ...
+
+        if GET_ROLLOUTS_FROM_MPPI:
+            self.mppi_output = self.return_all
+        else:
+            self.mppi_output = self.return_restricted
+
+    def return_all(self, u, u_nom, rollout_trajectory, traj_cost):
+        return u, u_nom, rollout_trajectory, traj_cost
+
+    def return_restricted(self, u, u_nom, rollout_trajectory, traj_cost):
+        return u, u_nom, None, None
+
     @Compile
     def predict_and_cost(self, s, target, u_nom, random_gen, u_old):
         """
-        Generate random input sequence and clip to control limits
-        @param: s: current state of the car [x,y,theta]
-        @param: target: Target state of the car and lidat scans stacked on each other
+        Part of MPPI which can be XLS (with Tensorflow) compiled.
+        @param: s: current state of the car
+        @param: target: Target position of the car and lidar scans stacked on each other
         @param: u_nom: Last optimal control sequence (Array of control inputs)
-        @param: random_gen: Tensoflow random generator 
+        @param: random_gen: Tensoflow random generator
         @param: u_old: Last optimal control input
         """
-        delta_u = inizialize_pertubation(random_gen) #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
-        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u #(batch_size, horizon, len(control_input)) Hostiry based control inputs for rollouts (last optimal + perturbation)
-        u_run = tf.clip_by_value(u_run, -clip_control_input, clip_control_input) # (batch_size, horizon, len(control_input)) Clip control input based on model parameters
-        u_run = interpolate_mean(u_run, control_interpolation_steps) # Increase resolution for control inputs (same horizon but smaller timestep)
-        delta_u_ext = tf.repeat(delta_u, control_interpolation_steps, axis=1)[:, :-1, :] # Fit dimensions with interpolated version
-        
-        rollout_trajectory = predictor.predict_tf(s, u_run) # (batch_size, 11, 3) All trajectories for the state distribution
-        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u_ext)  # (batch_size,) Cost for each trajectory
-        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), -clip_control_input, clip_control_input) # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs
-        u = u_nom[0, 0, :] # (2,) Return only the first step of the optimal control sequence
+        s = tf.tile(s, tf.constant([num_rollouts, 1]))
         u_nom = tf.concat([u_nom[:, 1:, :], u_nom[:, -1, tf.newaxis, :]], axis=1)
-        if GET_ROLLOUTS_FROM_MPPI:
-            return u, u_nom, rollout_trajectory, traj_cost
-        else:
-            return u, u_nom, None, None
+        delta_u = inizialize_pertubation(random_gen)  #(batch_size, horizon, len(control_input)) perturbation of the last control input for rollouts
+        u_run = tf.tile(u_nom, [num_rollouts, 1, 1])+delta_u  #(batch_size, horizon, len(control_input)) Control inputs for MPPI rollouts (last optimal + perturbation)
+        u_run = tf.clip_by_value(u_run, clip_control_input_low, clip_control_input_high)  # (batch_size, horizon, len(control_input)) Clip control input based on system parameters
+        rollout_trajectory = predictor.predict_tf(s, u_run)
+        traj_cost = cost(rollout_trajectory, u_run, target, u_old, delta_u)  # (batch_size,) Cost for each trajectory
+        u_nom = tf.clip_by_value(u_nom + reward_weighted_average(traj_cost, delta_u), clip_control_input_low, clip_control_input_high)  # (1, horizon, len(control_input)) Find optimal control sequence by weighted average of trajectory costs and clip the result
+        u = u_nom[0, 0, :]  # (number of control inputs e.g. 2 for speed and steering,) Returns only the first step of the optimal control sequence
+        self.update_internal_state(s, u_nom)
+        return self.mppi_output(u, u_nom, rollout_trajectory, traj_cost)
 
     @Compile
     def predict_optimal_trajectory(self, s, u_nom):
-        return predictor.predict_tf(s, u_nom)
+        optimal_trajectory = predictor_single_trajectory.predict_tf(s, u_nom)
+        if predictor_type ==  'NeuralNet':
+            predictor_single_trajectory.update_internal_state_tf(s=s, Q0=u_nom[:, :1, :])
+        return optimal_trajectory
 
     #step function to find control
     def step(self, s: np.ndarray, target: np.ndarray, time=None):
         """
-        Execute one full step of the MPPI contol based on the sensor measurements and returns the control input
+        Execute one full step of the MPPI contol based on the available information about car state and returns the control input
         @param: s: current state of the car [x,y,theta]
-        @param: target: Target state of the car and lidat scans stacked on each other
-        @param: time: 
+        @param: target: Target state of the car and lidar scans stacked to form one matrix
+        @param: time:
         """
-        s = np.tile(s, tf.constant([num_rollouts, 1]))
         s = tf.convert_to_tensor(s, dtype=tf.float32)
+        s = check_dimensions_s(s)
         target = tf.convert_to_tensor(target, dtype=tf.float32)
 
         self.u, self.u_nom, rollout_trajectory, traj_cost = self.predict_and_cost(s, target, self.u_nom, self.rng_cem,

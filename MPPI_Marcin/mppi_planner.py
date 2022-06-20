@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from main.Settings import Settings
+from main.state_utilities import *
 
 from FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -35,6 +36,9 @@ class MPPI_F1TENTH:
 
         print("Controller initialized")
 
+        self.translational_control = None
+        self.angular_control = None
+
         self.lidar_live_points = []
         self.lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
         self.simulation_index = 0
@@ -51,12 +55,16 @@ class MPPI_F1TENTH:
         self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
-        
+
         # Get waypoints
-        path = Settings.MAP_WAYPOINT_FILE
-        waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-        waypoints=waypoints[0:-1:1,1:3] 
-        self.wpts_opt=waypoints 
+        try:
+            path = Settings.MAP_WAYPOINT_FILE
+            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+            waypoints=waypoints[0:-1:1,1:3]
+            self.wpts_opt=waypoints
+        except AttributeError:
+            self.wpts_opt = None
+
 
     def render(self, e):
         self.Render.render(e)
@@ -75,51 +83,55 @@ class MPPI_F1TENTH:
             'angular_vel_z': float,
         }
         """
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-        pose_theta = ego_odom['pose_theta']
-        linear_vel_x = ego_odom['linear_vel_x']
-        
+
         # Accelerate at the beginning (St model expoldes for small velocity)
         if self.simulation_index < 20:
             self.simulation_index += 1
-            return 10, 0
-       
+            self.translational_control = 10
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
+
+        if Settings.ONLY_ODOMETRY_AVAILABLE:
+            s = odometry_dict_to_state(ego_odom)
+        else:
+            s = self.car_state
 
         scans = np.array(ranges)
 
-        distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 10th lidar point
+        distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 5th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
-        p1 = pose_x + distances * np.cos(angles + pose_theta)
-        p2 = pose_y + distances * np.sin(angles + pose_theta)
+        p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])
+        p2 = s[POSE_Y_IDX] + distances * np.sin(angles + s[POSE_THETA_IDX])
         self.lidar_points = np.stack((p1, p2), axis=1)
 
-        self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
-        
+        # self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
         # target_point = self.largest_gap_middle_point
-        target_point = [0,0] #dont need the target point anymore
-        
-        if(Settings.FOLLOW_RANDOM_TARGETS):
-            target_point = self.TargetGenerator.step((pose_x, pose_y), )
-        
+        target_point = [0, 0]  # dont need the target point for racing anymore
+
+        if (Settings.FOLLOW_RANDOM_TARGETS):
+            target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
+
         # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
         target = np.vstack((target_point, self.lidar_points))
-        target = np.vstack((target, self.wpts_opt))
-        
-        # s = np.array((pose_x, pose_y, 0, 0, pose_theta, 0, 0))
-        s = np.array(self.car_state) # The MPPI needs true state
-        speed, steering_angle = self.mppi.step(s, target=target)
+        if self.wpts_opt is not None:
+            target = np.vstack((target, self.wpts_opt))
+
+        translational_control, angular_control = self.mppi.step(s, target=target)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
-        # speed = self.SpeedGenerator.step()
+        # translational_control = self.SpeedGenerator.step()
+        # translational_control = 0.1
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
             self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.simulation_index += 1
 
-        return speed, steering_angle
+        self.translational_control = translational_control
+        self.angular_control = angular_control
+
+        return translational_control, angular_control
 
 
 class Render:
@@ -148,8 +160,10 @@ class Render:
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
                largest_gap_middle_point=None, target_point=None):
         self.lidar_border_points = lidar_points
-        self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
-        self.optimal_trajectory = optimal_trajectory
+        if rollout_trajectory is not None:
+            self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
+        if optimal_trajectory is not None:
+            self.optimal_trajectory = optimal_trajectory
         self.largest_gap_middle_point = largest_gap_middle_point
         self.target_point = target_point
 
@@ -167,15 +181,15 @@ class Render:
                 self.lidar_vertices.vertices = scaled_points_flat
 
         if self.largest_gap_middle_point is not None:
-            
+
             scaled_point_gap = 50.0*np.array(self.largest_gap_middle_point)
             scaled_points_gap_flat = scaled_point_gap.flatten()
-            # self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=self.gap_visualization_color, batch=e.batch)
+            self.gap_vertex = shapes.Circle(scaled_points_gap_flat[0], scaled_points_gap_flat[1], 5, color=self.gap_visualization_color, batch=e.batch)
 
 
         if self.rollout_trajectory is not None:
             num_trajectories_to_plot = np.minimum(NUM_TRAJECTORIES_TO_PLOT, self.rollout_trajectory.shape[0])
-            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, :2]
+            trajectory_points = self.rollout_trajectory[:num_trajectories_to_plot, :, POSE_X_IDX:POSE_Y_IDX+1]
 
             scaled_trajectory_points = 50. * trajectory_points
 
@@ -189,7 +203,7 @@ class Render:
                 self.mppi_rollouts_vertices.vertices = scaled_trajectory_points_flat
 
         if self.optimal_trajectory is not None:
-            optimal_trajectory_points = self.optimal_trajectory[:, :, :2]
+            optimal_trajectory_points = self.optimal_trajectory[:, :, POSE_X_IDX:POSE_Y_IDX+1]
 
             scaled_optimal_trajectory_points = 50. * optimal_trajectory_points
 
@@ -202,9 +216,9 @@ class Render:
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
 
-        if self.target_point is not None:
+        if self.target_point is not None and Settings.FOLLOW_RANDOM_TARGETS:
 
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
-            # self.gap_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+            self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
 

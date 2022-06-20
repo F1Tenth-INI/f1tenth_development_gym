@@ -86,6 +86,36 @@ def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min,
 
     return steering_velocity
 
+def vehicle_dynamics_simple(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
+    """
+    Single Track Kinematic Vehicle Dynamics.
+
+        Args:
+            x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5)
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels # In car coordinates
+                x3: velocity in x direction # car coordinates, straight ahead
+                x4: yaw angle # In gloabal coordinates
+                x5: yaw rate
+                x6: slip angle at vehicle center
+            u (numpy.ndarray (2, )): control input vector (u1, u2)
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
+
+        Returns:
+            f (numpy.ndarray): right hand side of differential equations
+    """
+    u = u_init
+    # system dynamics
+    f = np.array([x[3]*np.cos(x[4]),
+         x[3]*np.sin(x[4]),
+         0.0,
+         u[1],
+         u[0],
+         0.0,
+         0.0])
+    return f
 
 def vehicle_dynamics_ks(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
     """
@@ -93,14 +123,14 @@ def vehicle_dynamics_ks(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max
 
         Args:
             x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5)
-                x1: x position in global coordinates
-                x2: y position in global coordinates
-                x3: steering angle of front wheels
-                x4: velocity in x direction
-                x5: yaw angle
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels
+                x3: velocity in x direction
+                x4: yaw angle
             u (numpy.ndarray (2, )): control input vector (u1, u2)
-                u1: steering angle velocity of front wheels
-                u2: longitudinal acceleration
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
 
         Returns:
             f (numpy.ndarray): right hand side of differential equations
@@ -125,16 +155,16 @@ def vehicle_dynamics_st(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max
 
         Args:
             x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5, x6, x7)
-                x1: x position in global coordinates
-                x2: y position in global coordinates
-                x3: steering angle of front wheels
-                x4: velocity in x direction
-                x5: yaw angle
-                x6: yaw rate
-                x7: slip angle at vehicle center
+                x0: x position in global coordinates
+                x1: y position in global coordinates
+                x2: steering angle of front wheels
+                x3: velocity in x direction
+                x4: yaw angle
+                x5: yaw rate
+                x6: slip angle at vehicle center
             u (numpy.ndarray (2, )): control input vector (u1, u2)
-                u1: steering angle velocity of front wheels
-                u2: longitudinal acceleration
+                u0: steering angle velocity of front wheels
+                u1: longitudinal acceleration
 
         Returns:
             f (numpy.ndarray): right hand side of differential equations
@@ -186,35 +216,47 @@ def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v)
             accl (float): desired input acceleration
             sv (float): desired input steering velocity
     """
-    # steering
-    steer_diff = steer - current_steer
-    if np.fabs(steer_diff) > 1e-4:
-        sv = (steer_diff / np.fabs(steer_diff)) * max_sv
+    # version = 'simplified'
+    version = 'full'
+    if version == 'simplified':
+        vel_diff = speed - current_speed
+        accl = 4.755 * vel_diff
+        sv = steer/0.1
     else:
-        sv = 0.0
+        # steering - Modified from F1TENTH, the original version too jittery, see below
+        steer_diff = steer - current_steer
+        if np.fabs(steer_diff) > 1e-4:
+            sv = steer_diff / 0.1  # Try to make the steering within one timestep
+        else:
+            sv = 0.0
+    # Original PID for steering
+    #     if np.fabs(steer_diff) > 1e-4:
+    #         sv = (steer_diff / np.fabs(steer_diff)) * max_sv
+    #     else:
+    #         sv = 0.0
 
-    # accl
-    vel_diff = speed - current_speed
-    # currently forward
-    if current_speed > 0.:
-        if (vel_diff > 0):
-            # accelerate
-            kp = 10.0 * max_a / max_v
-            accl = kp * vel_diff
+        # acceleration - Exactly as original F1TENTH
+        vel_diff = speed - current_speed
+        # currently forward
+        if current_speed > 0.:
+            if (vel_diff > 0):
+                # accelerate
+                kp = 10.0 * max_a / max_v
+                accl = kp * vel_diff
+            else:
+                # braking
+                kp = 10.0 * max_a / (-min_v)
+                accl = kp * vel_diff
+        # currently backwards
         else:
-            # braking
-            kp = 10.0 * max_a / (-min_v)
-            accl = kp * vel_diff
-    # currently backwards
-    else:
-        if (vel_diff > 0):
-            # braking
-            kp = 2.0 * max_a / max_v
-            accl = kp * vel_diff
-        else:
-            # accelerating
-            kp = 2.0 * max_a / (-min_v)
-            accl = kp * vel_diff
+            if (vel_diff > 0):
+                # braking
+                kp = 2.0 * max_a / max_v
+                accl = kp * vel_diff
+            else:
+                # accelerating
+                kp = 2.0 * max_a / (-min_v)
+                accl = kp * vel_diff
 
     return accl, sv
 
