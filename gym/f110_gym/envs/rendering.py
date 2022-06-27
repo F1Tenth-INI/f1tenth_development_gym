@@ -349,3 +349,7 @@ class EnvRenderer(pyglet.window.Window):
         self.poses = poses
 
         self.score_label.text = '2Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
+
+    def close(self):
+        self.vertices = None
+        super().close()

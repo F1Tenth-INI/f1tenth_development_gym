@@ -424,3 +424,9 @@ class F110Env(gym.Env):
             time.sleep(0.005)
         elif mode == 'human_fast':
             pass
+
+    def close(self):
+        F110Env.renderer.close()
+        F110Env.render_callbacks = []
+        F110Env.renderer = None
+
