@@ -161,6 +161,8 @@ def main():
             laptime += step_reward
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+
+    env.close()
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
