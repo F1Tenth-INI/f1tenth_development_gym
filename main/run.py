@@ -29,40 +29,33 @@ from main.state_utilities import full_state_original_to_alphabetical
 def add_noise(x, noise_level=0.1):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
-# Config
-map_config_file = Settings.MAP_CONFIG_FILE
-
-
-# First planner settings
-planner1 = MPPI_F1TENTH()
-planner1.plot_lidar_data = False
-planner1.draw_lidar_data = True
-planner1.lidar_visualization_color = (255, 0, 255)
-
-# second planner
-# planner2 = PurePursuitPlanner(map_config_file = map_config_file)
-
-# Old MPPI Planner without TF
-# planner2 = MppiPlanner()
-
-##################### DEFINE DRIVERS HERE #####################    
-drivers = [planner1]
-###############################################################    
-
-
-number_of_drivers = len(drivers)
-print("initializing environment with", number_of_drivers, "drivers")
-
-
-"""
-Planner Helpers
-"""
 
 def main():
     """
     main entry point
     """
-    
+
+    # Config
+    map_config_file = Settings.MAP_CONFIG_FILE
+
+    # First planner settings
+    planner1 = MPPI_F1TENTH()
+    planner1.plot_lidar_data = False
+    planner1.draw_lidar_data = True
+    planner1.lidar_visualization_color = (255, 0, 255)
+
+    # second planner
+    # planner2 = PurePursuitPlanner(map_config_file = map_config_file)
+
+    # Old MPPI Planner without TF
+    # planner2 = MppiPlanner()
+
+    ##################### DEFINE DRIVERS HERE #####################
+    drivers = [planner1]
+    ###############################################################
+
+    number_of_drivers = len(drivers)
+    print("initializing environment with", number_of_drivers, "drivers")
 
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
