@@ -17,7 +17,7 @@ import numpy as np
 from argparse import Namespace
 
 from tqdm import trange
-from Settings import Settings
+from main.Settings import Settings
 
 from Recorder import Recorder
 
@@ -166,8 +166,21 @@ def main():
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
-if __name__ == '__main__':
-
+def run_experiments():
     for i in range(Settings.NUMBER_OF_EXPERIMENTS):
         print('Experiment nr.: {}'.format(i+1))
-        main()
+        if Settings.EXPERIMENTS_IN_SEPARATE_PROGRAMS:
+            import subprocess
+            import sys
+            program = '''
+from main.run import main
+main()
+'''
+            result = subprocess.run([sys.executable, "-c", program])
+        else:
+            main()
+
+
+if __name__ == '__main__':
+    run_experiments()
+
