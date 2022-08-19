@@ -3,6 +3,7 @@ import sys
 sys.path.insert(1, 'FollowtheGap')
 
 from pyglet.gl import GL_POINTS
+import pyglet.gl as gl
 from pyglet import shapes
 
 import numpy as np
@@ -168,6 +169,7 @@ class Render:
         self.target_point = target_point
 
     def render(self, e):
+        gl.glPointSize(3)
         if not self.draw_lidar_data: return
 
         if self.lidar_border_points is not None:
