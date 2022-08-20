@@ -26,9 +26,12 @@ from f110_gym.envs.dynamic_models import pid
 from main.state_utilities import full_state_original_to_alphabetical
 
 
-def add_noise(x, noise_level=0.1):
+def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
+
+noise_level_translational_control = 0.0  # 2.0
+noise_level_angular_control = 0.0  # 3.0
 
 def main():
     """
@@ -153,7 +156,8 @@ def main():
                     accl, sv = pid(driver.translational_control, driver.angular_control, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
-                    accl, sv = driver.translational_control, driver.angular_control
+                    accl, sv = add_noise(driver.translational_control, noise_level=noise_level_translational_control),\
+                               add_noise(driver.angular_control, noise_level=noise_level_angular_control)
 
                 controlls.append([sv, accl])
 
