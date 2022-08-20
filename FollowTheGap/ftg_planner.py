@@ -39,6 +39,9 @@ class FollowTheGapPlanner:
         self.lidar_visualization_color = (0, 0, 0)
         self.lidar_live_gaps = []
 
+        self.translational_control = None
+        self.angular_control = None
+
         self.vertex_list = pyglet.graphics.vertex_list(2,
         ('v2i', (10, 15, 30, 35)),
         ('c3B', (0, 0, 255, 0, 255, 0))
@@ -135,6 +138,9 @@ class FollowTheGapPlanner:
                                gaps, largest_gap_center)
 
         self.simulation_index += 1
+
+        self.translational_control = speed
+        self.angular_control = steering_angle
 
         return speed, steering_angle
 
