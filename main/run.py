@@ -143,7 +143,7 @@ def main():
 
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].save_data(control_inputs=(translational_control, angular_control),
-                                           odometry=odom, ranges=ranges, state=driver.car_state,
+                                           odometry=odom, ranges=ranges[index], state=driver.car_state,
                                            time=current_time_in_simulation)
 
         if Settings.RENDER_MODE is not None:
