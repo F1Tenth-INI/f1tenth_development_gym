@@ -25,7 +25,7 @@ class FollowTheGapPlanner:
    
  
 
-    def __init__(self, speed_fraction = 1):
+    def __init__(self, speed_fraction = 1.1):
     
         print("Controller initialized")
     
