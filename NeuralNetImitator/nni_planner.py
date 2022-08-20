@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from types import SimpleNamespace
 
-from SI_Toolkit.TF.TF_Functions.Normalising import normalize_tf, denormalize_tf
+from SI_Toolkit.TF.TF_Functions.Normalising import get_normalization_function_tf, get_denormalization_function_tf
 
 try:
     from SI_Toolkit_ASF_global.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
@@ -13,12 +13,21 @@ except ModuleNotFoundError:
 from SI_Toolkit.TF.TF_Functions.Initialization import get_net, get_norm_info_for_net
 from SI_Toolkit.TF.TF_Functions.Compile import Compile
 
-NET_NAME = 'Dense-68IN-32H1-32H2-2OUT-0'
-PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-1/Models/'
+NET_NAME = 'Dense-68IN-128H1-128H2-2OUT-0'
+PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 
 class NeuralNetImitatorPlanner:
 
-    def __init__(self, speed_fraction = 1, batch_size = 1):
+    def __init__(self, speed_fraction=1, batch_size=1):
+
+        print('Loading NeuralNetImitatorPlanner')
+
+        self.translational_control = None
+        self.angular_control = None
+
+        self.simulation_index = 0
+
+        self.car_state = None
 
         a = SimpleNamespace()
         self.batch_size = batch_size  # It makes sense only for testing (Brunton plot for Q) of not rnn networks to make bigger batch, this is not implemented
@@ -34,8 +43,8 @@ class NeuralNetImitatorPlanner:
 
         self.normalization_info = get_norm_info_for_net(self.net_info)
 
-        self.normalizing_inputs = tf.convert_to_tensor(self.normalization_info[self.net_info.inputs], dtype=tf.float32)
-        self.normalizing_outputs = tf.convert_to_tensor(self.normalization_info[self.net_info.outputs], dtype=tf.float32)
+        self.normalize_inputs = get_normalization_function_tf(self.normalization_info, self.net_info.inputs)
+        self.denormalize_outputs = get_denormalization_function_tf(self.normalization_info, self.net_info.outputs)
 
         self.net_input = None
         self.net_input_normed = tf.Variable(
@@ -47,6 +56,13 @@ class NeuralNetImitatorPlanner:
 
 
     def process_observation(self, ranges=None, ego_odom=None):
+
+        # Accelerate at the beginning (St model expoldes for small velocity)
+        if self.simulation_index < 20:
+            self.simulation_index += 1
+            self.translational_control = 10
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
 
         ranges = ranges[200:880]
         ranges = ranges[::10]
@@ -60,20 +76,24 @@ class NeuralNetImitatorPlanner:
         speed = float(net_output[0])
         steering_angle = float(net_output[1])
 
+        self.translational_control = speed
+        self.angular_control = steering_angle
+
+
         return speed, steering_angle
 
     @Compile
     def process_tf(self, net_input):
 
-        self.net_input_normed.assign(normalize_tf(
-            net_input, self.normalizing_inputs
+        self.net_input_normed.assign(self.normalize_inputs(
+            net_input
         ))
 
         net_input = (tf.reshape(net_input, [-1, 1, len(self.net_info.inputs)]))
 
         net_output = self.net(net_input)
 
-        net_output = denormalize_tf(net_output, self.normalizing_outputs)
+        net_output = self.denormalize_outputs(net_output)
 
         return tf.squeeze(net_output)
         
