@@ -1,6 +1,9 @@
 # Configuration for main
 class Settings:
 
+    SYSTEM = 'car'
+    QUAD_VIZ = True
+
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if default termination after two laps is off.
