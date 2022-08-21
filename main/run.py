@@ -5,6 +5,7 @@ from MPPI_Marcin.mppi_planner import MPPI_F1TENTH
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
 from examples.pure_pursuit_planner import PurePursuitPlanner
 from NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
+from FollowTheGap.ftg_planner import FollowTheGapPlanner
 # from MPPI.mppi_planner import MppiPlanner
 
 # Obstacle creation
@@ -44,6 +45,7 @@ def main():
 
     # First planner settings
     planner1 = MPPI_F1TENTH()
+    # planner1 = FollowTheGapPlanner()
     # planner1 = NeuralNetImitatorPlanner()
     planner1.plot_lidar_data = False
     planner1.draw_lidar_data = True
