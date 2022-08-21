@@ -426,7 +426,8 @@ class F110Env(gym.Env):
             pass
 
     def close(self):
-        F110Env.renderer.close()
+        if F110Env.renderer is not None:
+            F110Env.renderer.close()
         F110Env.render_callbacks = []
         F110Env.renderer = None
 
