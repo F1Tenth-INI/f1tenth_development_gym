@@ -32,8 +32,8 @@ def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 
-noise_level_translational_control = 0.0  # 2.0
-noise_level_angular_control = 0.0  # 3.0
+noise_level_translational_control = 0.0  # ftg: 0.5  # mppi: 2.0
+noise_level_angular_control = 0.0  # ftg: 0.05  # mppi: 3.0
 
 def main():
     """
@@ -156,12 +156,15 @@ def main():
             controlls = []
 
             for index, driver in enumerate(drivers):
+                translational_control_with_noise = add_noise(driver.translational_control, noise_level=noise_level_translational_control)
+                angular_control_with_noise = add_noise(driver.angular_control, noise_level=noise_level_angular_control)
                 if Settings.WITH_PID:
-                    accl, sv = pid(driver.translational_control, driver.angular_control, cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                    accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
+                                   cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
-                    accl, sv = add_noise(driver.translational_control, noise_level=noise_level_translational_control),\
-                               add_noise(driver.angular_control, noise_level=noise_level_angular_control)
+                    accl, sv = translational_control_with_noise, angular_control_with_noise
+
 
                 controlls.append([sv, accl])
 
