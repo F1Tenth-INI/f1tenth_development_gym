@@ -1,0 +1,43 @@
+controller:
+  general:
+    cost_function: 'racing'                 # from 'racing', 'following_target'
+  mppi:
+    SEED: "None"                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
+    dt: 0.025                                # sec
+    mpc_horizon: 0.5                       # sec
+    control_interpolation_steps: 2          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
+    # FIXME:  We want to interpolate trajectory instead
+    num_rollouts: 1000                      # Number of Monte Carlo samples
+    update_every: 1                       # Cost weighted update of inputs every ... steps
+    predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
+    NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
+    dd_weight: 0.0
+    cc_weight: 0.0
+    ccrc_weight: 0.0
+    cost_noise: 0.0                       # Noise on stage cost weights by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0 othewise
+    control_noise: 0.0                    # Noise on top of the calculated control input by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0.1 to test an not-ideal case
+    R: 1.0                                # How much to punish Q
+    LBD: 0.001                            # Cost parameter lambda
+    LBD_mc: 10.0
+    NU: 1000.0                            # Exploration variance
+    NU_mc: 20.0                              # Exploration variance for mathematical correct version
+    SQRTRHOINV: [ 0.8,0.8 ]                #Speed, steering
+    SQRTRHOINV_mc: [ 0.002 ]                      # Sampling variance
+    GAMMA: 1.00                           # Future cost discount
+    SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
+    INTERPOLATION_STEP: 2                 # Only matters if SAMPLING_TYPE: "interpolated"
+    LOGGING: False                        # Collect and show detailed insights into the controller's behavior
+    WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
+    CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric
+
+    # Added for car racing
+    acceleration_cost_weight: 0.0
+    max_acceleration: 9.2
+    steering_cost_weight: 0.0
+    terminal_speed_cost_weight: 1.0
+    desired_max_speed: 17.0               # desired max speed for the car [m/s]
+    distance_to_waypoints_cost_weight: 1.0
+    target_distance_cost_weight: 1.0
+
+gym:
+  cost_function: 'quadratic-boundary-grad' # from 'quadratic-boundary', 'quadratic-boundary-grad', 'quadratic-boundary-nonconvex', 'default'
