@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from types import SimpleNamespace
 
-from SI_Toolkit.TF.TF_Functions.Normalising import get_normalization_function_tf, get_denormalization_function_tf
+from SI_Toolkit.Functions.TF.Normalising import get_normalization_function_tf, get_denormalization_function_tf
 
 try:
     from SI_Toolkit_ASF.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
@@ -10,8 +10,8 @@ try:
 except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
 
-from SI_Toolkit.TF.TF_Functions.Initialization import get_net, get_norm_info_for_net
-from SI_Toolkit.TF.TF_Functions.Compile import Compile
+from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
+from SI_Toolkit.Functions.TF.Compile import Compile
 
 NET_NAME = 'Dense-68IN-128H1-128H2-2OUT-0'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
