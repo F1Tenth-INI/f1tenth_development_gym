@@ -55,6 +55,9 @@ ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 if not Settings.ONLY_ODOMETRY_AVAILABLE:
     SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
     STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
+else:
+    SLIP_ANGLE_IDX = None
+    STEERING_ANGLE_IDX = None
 
 
 def full_state_original_to_alphabetical(o):

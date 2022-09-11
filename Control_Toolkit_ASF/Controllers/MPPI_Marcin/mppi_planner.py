@@ -8,9 +8,16 @@ from pyglet import shapes
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from utilities.Settings import Settings
-from utilities.state_utilities import *
+from utilities.state_utilities import (
+    POSE_THETA_IDX,
+    POSE_X_IDX,
+    POSE_Y_IDX,
+    odometry_dict_to_state
+)
+from SI_Toolkit_ASF.f1t_model import f1t_model
 
 from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -23,7 +30,8 @@ else:
 
 NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 
-from Control_Toolkit_ASF.Controllers.MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
+# from Control_Toolkit_ASF.Controllers.MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
+from Control_Toolkit.Controllers.controller_mppi_tf import controller_mppi_tf
 
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.SpeedGenerator import SpeedGenerator
@@ -49,8 +57,9 @@ class MPPI_F1TENTH:
         self.lidar_points = None
         self.largest_gap_middle_point = None
 
-
-        self.mppi = controller_mppi_tf()
+        config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+        self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
+        self.mppi = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
 
         self.Render = Render()
         self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
@@ -113,12 +122,11 @@ class MPPI_F1TENTH:
         if (Settings.FOLLOW_RANDOM_TARGETS):
             target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
-        # The trarget constists of "target_point", "lidar_points", "waypoints" stacked on each other
-        target = np.vstack((target_point, self.lidar_points))
-        if self.wpts_opt is not None:
-            target = np.vstack((target, self.wpts_opt))
+        self.f1t_model.LIDAR = self.lidar_points
+        self.f1t_model.waypoints = self.wpts_opt
+        self.f1t_model.target_position = target_point
 
-        translational_control, angular_control = self.mppi.step(s, target=target)
+        translational_control, angular_control = self.mppi.step(s)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
@@ -223,4 +231,3 @@ class Render:
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
-
