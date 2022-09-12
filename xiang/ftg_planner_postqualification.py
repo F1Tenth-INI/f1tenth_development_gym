@@ -13,7 +13,6 @@ from xiang.wptutils import WptUtil
 """
     Adapted FTG with wpt guidence
     current lapse time is 53.6099
-
     authors: Florian and Xiang
 """
 ################################################################
@@ -56,6 +55,8 @@ class FollowTheGapPlanner:
         self.safe_mode = False
         self.safe_planner = FollowTheGapPlannerSafeMode()
 
+        self.translational_control = None
+        self.angular_control = None
 
         ######################################################
         self.refined_ranges=[];
@@ -80,13 +81,13 @@ class FollowTheGapPlanner:
         ############################################################
 
     ##############################################################################
-   
+
     def range2pos(self,pose_x,pose_y,pose_theta,scans):
         angles = []
         distances = []
         lidar_border_points=[]
         max_dist = 0
-        
+
 
         for i in range(200-100, 880+100,5): # Only front cone, not all 180 degree (use 0 to 108 for all lidar points)
             index = i # Only use every 10th lidar point
@@ -105,7 +106,7 @@ class FollowTheGapPlanner:
         distances = []
         lidar_border_points=[]
         max_dist = 0
-     
+
         for i in range(len(scans)):  
             index = i #  
             if not np.isnan(scans[index]) and scans[index]>0:
@@ -126,6 +127,8 @@ class FollowTheGapPlanner:
 
 
     def switch_to_safe_mode(self):
+        
+        return
         print ("There are obstacles on the track: switching to save mode.")
         self.safe_mode = True
         self.speed_fraction= self.safe_mode_speed_fraction
@@ -133,7 +136,7 @@ class FollowTheGapPlanner:
 
     def check_if_obstacles(self, ranges, gaps):
         if(not self.safe_mode):
-            
+
             # find number of peaks of raw lidar data for long range obstacle detection
             peaks = sp.find_peaks(ranges, prominence=1)
             peaks = peaks[1]['prominences']
@@ -169,7 +172,7 @@ class FollowTheGapPlanner:
              return
         ###########################################################################
         e.wpts=self.wpts #pass information to rendering
-        
+
         e.wpt_x=50*self.wpt_ref[0]
         e.wpt_y=50*self.wpt_ref[1]
         e.lidar_pts=self.lidar_border_points
@@ -191,7 +194,7 @@ class FollowTheGapPlanner:
             e.pose_x=50*self.pose_x
             e.pose_y=50*self.pose_y
         #####################################################################
-    
+
 
     def process_observation(self, ranges=None, ego_odom=None):
         """
@@ -207,7 +210,7 @@ class FollowTheGapPlanner:
             'angular_vel_z': float,
         }
         """
-        
+
         # @Xiang: I have to turn off your part of the controller for the safe mode. 
         # Apparently the obstacle avoidance already worked with the old controller with speed fraction 1.3 but it didnt after the modification
         # I just use the git commit from then as safemode controller
@@ -238,7 +241,7 @@ class FollowTheGapPlanner:
         max_dist,self.lidar_border_points,angles,distances=self.range2pos(self.pose_x,self.pose_y,self.pose_theta,scans)
         self.selected_angles=angles
 
- 
+
         ####################################################
         ###########################################################
 
@@ -307,7 +310,7 @@ class FollowTheGapPlanner:
                     gap_width = i - gap_starting_index                  
                     gap_closing_angle = angles[i]
                     gap_closing_index = i
-                    
+
                     # Get eucledian distance of gap (distance from opening point to cloding point)
                     gap_start_point = self.lidar_border_points[gap_starting_index]
                     gap_end_point = self.lidar_border_points[gap_closing_index] 
@@ -350,11 +353,11 @@ class FollowTheGapPlanner:
         steering_angle = largest_gap_center
         # You can comment out this line of code for testing #
 
-        
+
         steering_angle, max_distance=self.wptutil.suggestGap(gaps,largest_gap_index,distances, angles,steering_angle, max_distance, self.theta2wpt)
-         
+
         self.max_gap = [0,0,steering_angle,max_distance] #good_gap[2],good_gap[3]
- 
+
         #########################################
 
         # Speed Calculation
@@ -395,7 +398,8 @@ class FollowTheGapPlanner:
         # steering_angle= theta2wpt
 
         self.simulation_index += 1
-    
+        self.translational_control = speed
+        self.angular_control = steering_angle
         return speed, steering_angle
 
 
@@ -423,8 +427,9 @@ class FollowTheGapPlannerSafeMode:
 
         self.kickdown = False
         self.last_steering = [0, 0]
+        self.translational_control = None
+        self.angular_control = None
 
-   
 
     def process_observation(self, ranges=None, ego_odom=None):
         """
@@ -570,7 +575,7 @@ class FollowTheGapPlannerSafeMode:
         if(speed < 0.1):
             speed = 0.1  # Dont stand still
 
-        
+
 
         speed = speed - 8 * abs(largest_gap_center)
         # print("Speed", speed)
@@ -586,8 +591,10 @@ class FollowTheGapPlannerSafeMode:
                 speed = 0.0
                 print("Emergency Brake: Obstacle in front")
 
-       
+
         steering_angle = largest_gap_center
 
         self.simulation_index += 1
+        self.translational_control = speed
+        self.angular_control = steering_angle
         return speed, steering_angle

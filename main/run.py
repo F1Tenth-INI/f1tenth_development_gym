@@ -1,8 +1,7 @@
-
-
 # Import Planner Classes
 from MPPI_Marcin.mppi_planner import MPPI_F1TENTH
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
+from xiang.ftg_planner_postqualification import FollowTheGapPlanner as FollowTheGapPlannerXiang2
 from examples.pure_pursuit_planner import PurePursuitPlanner
 from NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
 from FollowTheGap.ftg_planner import FollowTheGapPlanner
@@ -45,6 +44,8 @@ def main():
 
     # First planner settings
     planner1 = MPPI_F1TENTH()
+    # planner1 = FollowTheGapPlannerXiang2()
+    # planner1 = FollowTheGapPlannerIcra()
     # planner1 = FollowTheGapPlanner()
     # planner1 = NeuralNetImitatorPlanner()
     planner1.plot_lidar_data = False
@@ -63,7 +64,6 @@ def main():
 
     number_of_drivers = len(drivers)
     print("initializing environment with", number_of_drivers, "drivers")
-
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
@@ -97,7 +97,7 @@ def main():
             e.right = right + 800
             e.top = top + 800
             e.bottom = bottom - 800
-
+            
         for driver in drivers:
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)

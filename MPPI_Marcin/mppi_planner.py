@@ -58,13 +58,15 @@ class MPPI_F1TENTH:
         self.SpeedGenerator = SpeedGenerator()
 
         # Get waypoints
-        try:
-            path = Settings.MAP_WAYPOINT_FILE
-            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-            waypoints=waypoints[0:-1:1,1:3]
-            self.wpts_opt=waypoints
-        except AttributeError:
-            self.wpts_opt = None
+        self.wpts_opt = None
+        if True:
+            try:
+                path = Settings.MAP_WAYPOINT_FILE
+                waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+                waypoints=waypoints[0:-1:1,1:3]
+                self.wpts_opt=waypoints
+            except AttributeError:
+                self.wpts_opt = None
 
 
     def render(self, e):
@@ -127,6 +129,8 @@ class MPPI_F1TENTH:
 
         self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
             self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
+        self.Render.current_state = s
+        
         self.simulation_index += 1
 
         self.translational_control = translational_control
@@ -139,12 +143,14 @@ class Render:
     def __init__(self):
 
         self.draw_lidar_data = True
+        self.draw_position_history = True
 
         self.lidar_visualization_color = (0, 0, 0)
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
         self.optimal_trajectory_visualization_color = (255, 165, 0)
         self.target_point_visualization_color = (255, 204, 0)
+        self.position_history_color = (0, 204, 0)
 
         self.lidar_vertices = None
         self.gap_vertex = None
@@ -157,6 +163,7 @@ class Render:
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None
         self.target_point = None
+        self.current_state= None
 
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
                largest_gap_middle_point=None, target_point=None):
@@ -169,6 +176,15 @@ class Render:
         self.target_point = target_point
 
     def render(self, e):
+        
+        if self.draw_position_history and self.current_state is not None:
+            points = np.array([self.current_state[POSE_X_IDX], self.current_state[POSE_Y_IDX]])  
+            speed = self.current_state[LINEAR_VEL_X_IDX]
+            
+            scaled_points = 50.*points
+            e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
+                        ('c3B', (int(10 * speed), int(255- 10 * speed), 0)))
+        
         gl.glPointSize(3)
         if not self.draw_lidar_data: return
 
@@ -223,4 +239,3 @@ class Render:
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
-

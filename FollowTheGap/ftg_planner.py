@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(1, 'FollowtheGap')
 
+from main.state_utilities import *
 
 from pyglet.gl import GL_POINTS
 import pyglet
@@ -38,9 +39,11 @@ class FollowTheGapPlanner:
         self.draw_lidar_data = False
         self.lidar_visualization_color = (0, 0, 0)
         self.lidar_live_gaps = []
-
+        self.current_position = None
         self.translational_control = None
         self.angular_control = None
+        
+        self.draw_position_history = True
 
         self.vertex_list = pyglet.graphics.vertex_list(2,
         ('v2i', (10, 15, 30, 35)),
@@ -51,7 +54,14 @@ class FollowTheGapPlanner:
 
     def render(self, e):
 
-
+        if self.draw_position_history and self.current_position is not None:
+            points = np.array([self.current_position[0], self.current_position[1]])  
+            speed = self.current_position[2]
+            
+            scaled_points = 50.*points
+            e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
+                        ('c3B', (int(20 * speed), int(255- 20 * speed), 0)))
+            
         if not self.draw_lidar_data: return
 
         self.vertex_list.delete()
@@ -61,7 +71,7 @@ class FollowTheGapPlanner:
         scaled_points_flat = scaled_points.flatten()
 
         self.vertex_list = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat), ('c3B', self.lidar_visualization_color * howmany ))
-
+        
 
 
 
@@ -83,6 +93,8 @@ class FollowTheGapPlanner:
         pose_x = ego_odom['pose_x']
         pose_y = ego_odom['pose_y']
         pose_theta = ego_odom['pose_theta']
+        
+        self.current_position = [pose_x, pose_y, ego_odom['linear_vel_x']]
 
         scans = np.array(ranges)
         # Take into account size of car

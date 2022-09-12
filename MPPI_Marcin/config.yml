@@ -8,8 +8,8 @@ controller:
     mpc_horizon: 0.5                       # sec
     control_interpolation_steps: 2          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
     # FIXME:  We want to interpolate trajectory instead
-    num_rollouts: 1000                      # Number of Monte Carlo samples
-    update_every: 1                       # Cost weighted update of inputs every ... steps
+    num_rollouts: 2000                      # Number of Monte Carlo samples
+    update_every: 1                         # Cost weighted update of inputs every ... steps
     predictor_type: "EulerTF"               # One of ["Euler", "NeuralNet"]
     NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
     dd_weight: 0.0
@@ -22,7 +22,7 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [0.8,0.8]                #Speed, steering
+    SQRTRHOINV: [0.5,0.5]                #Speed, steering
     SQRTRHOINV_mc: [0.002]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
@@ -36,9 +36,9 @@ controller:
     max_acceleration: 9.2
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
-    desired_max_speed: 17.0               # desired max speed for the car [m/s]
+    desired_max_speed: 18.5               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 1.0
+    target_distance_cost_weight: 0.0
 
 data_generator:
   SEED: 1  # If "None" random seed based on datetime is used
