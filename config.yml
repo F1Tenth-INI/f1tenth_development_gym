@@ -13,12 +13,12 @@ controller:
     predictor_intermediate_steps: 10
     NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
     dd_weight: 0.0
-    cc_weight: 100.0
+    cc_weight: 0.0
     ccrc_weight: 0.0
     cost_noise: 0.0                       # Noise on stage cost weights by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0 othewise
     control_noise: 0.0                    # Noise on top of the calculated control input by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0.1 to test an not-ideal case
     R: 1.0                                # How much to punish Q
-    LBD: 1.0e+6                            # Cost parameter lambda
+    LBD: 0.001                          # Cost parameter lambda
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
