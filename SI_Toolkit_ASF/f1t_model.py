@@ -61,10 +61,10 @@ class f1t_model(EnvironmentBatched):
 
         clip_control_input = kwargs['CLIP_CONTROL_INPUT']
         if isinstance(clip_control_input[0], list):
-            clip_control_input_low = tf.constant(clip_control_input[0], dtype=tf.float32)
-            clip_control_input_high = tf.constant(clip_control_input[1], dtype=tf.float32)
+            clip_control_input_low = self.lib.constant(clip_control_input[0], self.lib.float32)
+            clip_control_input_high = self.lib.constant(clip_control_input[1], self.lib.float32)
         else:
-            clip_control_input_high = tf.constant(clip_control_input, dtype=tf.float32)
+            clip_control_input_high = self.lib.constant(clip_control_input, self.lib.float32)
             clip_control_input_low = -clip_control_input_high
 
         self.action_space = spaces.Box(
