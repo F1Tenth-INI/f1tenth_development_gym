@@ -43,10 +43,10 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    planner1 = MPPI_F1TENTH()
+    planner1 = FollowTheGapPlanner()
+    # planner1 = MPPI_F1TENTH()
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
-    # planner1 = FollowTheGapPlanner()
     # planner1 = NeuralNetImitatorPlanner()
     planner1.plot_lidar_data = False
     planner1.draw_lidar_data = True
