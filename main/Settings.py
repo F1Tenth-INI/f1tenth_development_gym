@@ -16,6 +16,7 @@ class Settings:
     # MAP_CONFIG_FILE =  "maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "maps_files/config_Oschersleben.yaml"
     MAP_WAYPOINT_FILE = 'maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
+    # MAP_WAYPOINT_FILE =  'none'
     # MAP_CONFIG_FILE =  "maps_files/config_empty_map.yaml"
     
     
@@ -23,16 +24,17 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
 
 
     # Automatically follow the first car on the map
-    CAMERA_AUTO_FOLLOW = True
+    CAMERA_AUTO_FOLLOW = False
+    DRAW_POSITION_HISTORY = True
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
     # RENDER_MODE = None
-    RENDER_MODE = "human_fast"
-    # RENDER_MODE = "human"
+    # RENDER_MODE = "human_fast"
+    RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
@@ -42,7 +44,7 @@ class Settings:
     # Or bypass it.
     # Warning: Even if set to True, the PID algorithm is modified
     # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
-    WITH_PID = False
+    WITH_PID = True
 
     # Decide if available state consists of full car state or only of odometry
     ONLY_ODOMETRY_AVAILABLE = False

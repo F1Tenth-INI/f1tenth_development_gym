@@ -8,6 +8,8 @@ import pyglet
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import pyglet.gl as gl
+
 
 LOOK_FORWARD_ONLY =True
 
@@ -57,6 +59,9 @@ class FollowTheGapPlanner:
         if self.draw_position_history and self.current_position is not None:
             points = np.array([self.current_position[0], self.current_position[1]])  
             speed = self.current_position[2]
+            
+            gl.glPointSize(3)
+
             
             scaled_points = 50.*points
             e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
