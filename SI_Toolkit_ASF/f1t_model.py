@@ -471,10 +471,10 @@ class f1t_model(EnvironmentBatched):
                                      steering_angle)
 
     def steering_constraints(self, steering_angle, steering_velocity):
-        s_min = self.lib.constant([-0.4189])
-        s_max = self.lib.constant([0.4189])
-        sv_min = self.lib.constant([-3.2])
-        sv_max = self.lib.constant([3.2])
+        s_min = self.lib.constant([-0.4189], self.lib.float32)
+        s_max = self.lib.constant([0.4189], self.lib.float32)
+        sv_min = self.lib.constant([-3.2], self.lib.float32)
+        sv_max = self.lib.constant([3.2], self.lib.float32)
 
         # Steering angle constraings
         steering_angle_not_too_low_indices = self.lib.greater(steering_angle, s_min)
@@ -493,10 +493,10 @@ class f1t_model(EnvironmentBatched):
         return steering_velocity
 
     def accl_constraints(self, vel, accl):
-        v_switch = self.lib.constant([7.319])
-        a_max = self.lib.constant([9.51])
-        v_min = self.lib.constant([-5.0])
-        v_max = self.lib.constant([20.0])
+        v_switch = self.lib.constant([7.319], self.lib.float32)
+        a_max = self.lib.constant([9.51], self.lib.float32)
+        v_min = self.lib.constant([-5.0], self.lib.float32)
+        v_max = self.lib.constant([20.0], self.lib.float32)
 
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, v_switch)
