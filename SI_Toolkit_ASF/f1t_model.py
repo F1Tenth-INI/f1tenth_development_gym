@@ -520,7 +520,7 @@ class f1t_model(EnvironmentBatched):
         accl = velocity_not_over_max_indices * accl
         accl = velocity_not_under_min_indices * accl
 
-        accl = self.lib.clip(accl, a_max, pos_limit)
+        accl = self.lib.clip(accl, -a_max, pos_limit)
 
         return accl
 
