@@ -21,7 +21,7 @@ class Settings:
     
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
-    PLACE_RANDOM_OBSTACLES = False
+    PLACE_RANDOM_OBSTACLES = True
     
     FOLLOW_RANDOM_TARGETS = False
     SAVE_RECORDINGS = True
@@ -33,8 +33,8 @@ class Settings:
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
     # RENDER_MODE = None
-    # RENDER_MODE = "human_fast"
-    RENDER_MODE = "human"
+    RENDER_MODE = "human_fast"
+    # RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
@@ -44,7 +44,7 @@ class Settings:
     # Or bypass it.
     # Warning: Even if set to True, the PID algorithm is modified
     # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
-    WITH_PID = True
+    WITH_PID = False
 
     # Decide if available state consists of full car state or only of odometry
     ONLY_ODOMETRY_AVAILABLE = False

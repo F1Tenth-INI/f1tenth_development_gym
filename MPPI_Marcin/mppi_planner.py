@@ -145,7 +145,7 @@ class Render:
         self.draw_lidar_data = True
         self.draw_position_history = True
 
-        self.lidar_visualization_color = (0, 0, 0)
+        self.lidar_visualization_color = (255, 0, 255)
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
         self.optimal_trajectory_visualization_color = (255, 165, 0)
