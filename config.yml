@@ -32,10 +32,43 @@ controller:
 
     # Added for car racing
     acceleration_cost_weight: 0.0
-    max_acceleration: 9.2
+    max_acceleration: 7.2
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
-    desired_max_speed: 17.0               # desired max speed for the car [m/s]
+    desired_max_speed: 14.0               # desired max speed for the car [m/s]
+    distance_to_waypoints_cost_weight: 1.0
+    target_distance_cost_weight: 1.0
+
+
+  dist-adam-resamp2:
+    NET_NAME: GRU-6IN-32H1-32H2-5OUT-0
+    SAMPLING_TYPE: interpolated
+    interpolation_step: 2
+    cem_LR: 0.05
+    adam_beta_1: 0.9
+    adam_beta_2: 0.999
+    adam_epsilon: 1.0e-08
+    gradmax_clip: 5
+    rtol: 1.0e-3
+    num_rollouts: 320
+    opt_keep_k: 8
+    outer_its: 2
+    predictor_intermediate_steps: 1
+    predictor_name: predictor_ODE_tf
+    resamp_per: 10
+    sample_stdev: 0.8
+    warmup: false
+    warmup_iterations: 250
+    seed: 12345
+    dt: 0.025
+    mpc_horizon: 20
+
+    # Added for car racing
+    acceleration_cost_weight: 0.0
+    max_acceleration: 7.2
+    steering_cost_weight: 0.0
+    terminal_speed_cost_weight: 1.0
+    desired_max_speed: 14.0               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
     target_distance_cost_weight: 1.0
 
