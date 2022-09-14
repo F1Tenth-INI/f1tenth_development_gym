@@ -60,8 +60,14 @@ class MPC_F1TENTH:
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
         self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
-        # self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
-        self.mpc = controller_dist_adam_resamp2_tf(self.f1t_model, **{**config['controller']['dist-adam-resamp2'], **{"num_control_inputs": config["num_control_inputs"]}})
+        mpc_type = config["controller"]['general']['mpc_type']
+
+        if mpc_type == 'MPPI':
+            self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
+        elif mpc_type == 'RPGD':
+            self.mpc = controller_dist_adam_resamp2_tf(self.f1t_model, **{**config['controller']['dist-adam-resamp2'], **{"num_control_inputs": config["num_control_inputs"]}})
+        else:
+            raise NotImplementedError
 
         self.Render = Render()
         self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]

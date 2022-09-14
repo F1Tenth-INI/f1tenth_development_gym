@@ -13,18 +13,28 @@ distance_normalization = 6.0
 # load constants from config file
 config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
 
-R = config["controller"]["mppi-tf"]["R"]
+mpc_type = config["controller"]['general']['mpc_type']
 
-max_acceleration = config["controller"]["mppi-tf"]["max_acceleration"]
-desired_max_speed = config["controller"]["mppi-tf"]["desired_max_speed"]
+if mpc_type == 'MPPI':
+    mpc_type = 'mppi-tf'
+elif mpc_type == 'RPGD':
+    mpc_type = 'dist-adam-resamp2'
+else:
+    raise NotImplementedError
 
-cc_weight = tf.convert_to_tensor(config["controller"]["mppi-tf"]["cc_weight"])
-ccrc_weight = config["controller"]["mppi-tf"]["ccrc_weight"]
-distance_to_waypoints_cost_weight = config["controller"]["mppi-tf"]["distance_to_waypoints_cost_weight"]
-acceleration_cost_weight = config["controller"]["mppi-tf"]["acceleration_cost_weight"]
-steering_cost_weight = config["controller"]["mppi-tf"]["steering_cost_weight"]
-terminal_speed_cost_weight = config["controller"]["mppi-tf"]["terminal_speed_cost_weight"]
-target_distance_cost_weight = config["controller"]["mppi-tf"]["target_distance_cost_weight"]
+
+R = config["controller"][mpc_type]["R"]
+
+max_acceleration = config["controller"][mpc_type]["max_acceleration"]
+desired_max_speed = config["controller"][mpc_type]["desired_max_speed"]
+
+cc_weight = tf.convert_to_tensor(config["controller"][mpc_type]["cc_weight"])
+ccrc_weight = config["controller"][mpc_type]["ccrc_weight"]
+distance_to_waypoints_cost_weight = config["controller"][mpc_type]["distance_to_waypoints_cost_weight"]
+acceleration_cost_weight = config["controller"][mpc_type]["acceleration_cost_weight"]
+steering_cost_weight = config["controller"][mpc_type]["steering_cost_weight"]
+terminal_speed_cost_weight = config["controller"][mpc_type]["terminal_speed_cost_weight"]
+target_distance_cost_weight = config["controller"][mpc_type]["target_distance_cost_weight"]
 
 
 class f1t_cost_function:

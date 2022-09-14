@@ -1,7 +1,9 @@
 controller:
   general:
+    mpc_type: 'RPGD'                        # RPGD, MPPI
     cost_function: 'racing'                 # from 'racing', 'following_target'
   mppi-tf:
+    # TODO: Clearer destiction between params which are part of controller and these which are part of cost function
     seed: null                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
     dt: 0.025                                # sec
     mpc_horizon: 20                        #
@@ -50,7 +52,7 @@ controller:
     adam_epsilon: 1.0e-08
     gradmax_clip: 5
     rtol: 1.0e-3
-    num_rollouts: 320
+    num_rollouts: 32
     opt_keep_k: 8
     outer_its: 2
     predictor_intermediate_steps: 1
@@ -71,6 +73,10 @@ controller:
     desired_max_speed: 14.0               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
     target_distance_cost_weight: 1.0
+
+    cc_weight: 0.0
+    ccrc_weight: 0.0
+    R: 1.0                                # How much to punish Q
 
 gym:
   cost_function: 'quadratic-boundary-grad' # from 'quadratic-boundary', 'quadratic-boundary-grad', 'quadratic-boundary-nonconvex', 'default'
