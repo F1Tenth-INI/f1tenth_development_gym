@@ -32,11 +32,12 @@ NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 
 # from Control_Toolkit_ASF.Controllers.MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
 from Control_Toolkit.Controllers.controller_mppi_tf import controller_mppi_tf
+from Control_Toolkit.Controllers.controller_dist_adam_resamp2_tf import controller_dist_adam_resamp2_tf
 
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.SpeedGenerator import SpeedGenerator
 
-class MPPI_F1TENTH:
+class MPC_F1TENTH:
     """
     Example Planner
     """
@@ -59,7 +60,8 @@ class MPPI_F1TENTH:
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
         self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
-        self.mppi = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
+        # self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
+        self.mpc = controller_dist_adam_resamp2_tf(self.f1t_model, **{**config['controller']['dist-adam-resamp2'], **{"num_control_inputs": config["num_control_inputs"]}})
 
         self.Render = Render()
         self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
@@ -126,15 +128,15 @@ class MPPI_F1TENTH:
         self.f1t_model.waypoints = self.wpts_opt
         self.f1t_model.target_position = target_point
 
-        translational_control, angular_control = self.mppi.step(s)
+        translational_control, angular_control = self.mpc.step(s)
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
-        self.Render.update(self.lidar_points, self.mppi.rollout_trajectory, self.mppi.traj_cost,
-            self.mppi.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
+        self.Render.update(self.lidar_points, self.mpc.rollout_trajectory, self.mpc.traj_cost,
+            self.mpc.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.simulation_index += 1
 
         self.translational_control = translational_control
