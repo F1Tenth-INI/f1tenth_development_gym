@@ -30,7 +30,7 @@ class racing(f1t_cost_function):
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
 
-        crash_cost = self.get_crash_cost(trajectories, self.LIDAR)
+        crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.LIDAR))
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
 
