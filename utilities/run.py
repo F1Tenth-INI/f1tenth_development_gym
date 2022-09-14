@@ -1,7 +1,7 @@
 
 
 # Import Planner Classes
-from Control_Toolkit_ASF.Controllers.MPPI_Marcin.mppi_planner import MPPI_F1TENTH
+from Control_Toolkit_ASF.Controllers.MPPI_Marcin.mppi_planner import MPC_F1TENTH
 from others.examples.pure_pursuit_planner import PurePursuitPlanner
 from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
 from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
@@ -43,7 +43,7 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    planner1 = MPPI_F1TENTH()
+    planner1 = MPC_F1TENTH()
     # planner1 = FollowTheGapPlanner()
     # planner1 = NeuralNetImitatorPlanner()
     planner1.plot_lidar_data = False
