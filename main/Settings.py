@@ -21,7 +21,7 @@ class Settings:
     
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
-    PLACE_RANDOM_OBSTACLES = True
+    PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
     SAVE_RECORDINGS = True
