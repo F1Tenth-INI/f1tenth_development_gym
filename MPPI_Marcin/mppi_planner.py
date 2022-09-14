@@ -177,6 +177,8 @@ class Render:
 
     def render(self, e):
         
+        gl.glPointSize(3)
+        
         if self.draw_position_history and self.current_state is not None:
             points = np.array([self.current_state[POSE_X_IDX], self.current_state[POSE_Y_IDX]])  
             speed = self.current_state[LINEAR_VEL_X_IDX]
@@ -185,7 +187,7 @@ class Render:
             e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
                         ('c3B', (int(10 * speed), int(255- 10 * speed), 0)))
         
-        gl.glPointSize(3)
+        
         if not self.draw_lidar_data: return
 
         if self.lidar_border_points is not None:
