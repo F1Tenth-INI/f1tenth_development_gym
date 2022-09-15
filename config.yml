@@ -78,9 +78,6 @@ controller:
     ccrc_weight: 0.0
     R: 1.0                                # How much to punish Q
 
-gym:
-  cost_function: 'quadratic-boundary-grad' # from 'quadratic-boundary', 'quadratic-boundary-grad', 'quadratic-boundary-nonconvex', 'default'
-
 
 num_control_inputs: 2
 
