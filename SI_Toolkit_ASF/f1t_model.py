@@ -99,7 +99,10 @@ class f1t_model(EnvironmentBatched):
         elif self.model_of_car_dynamics == 'ODE:ks':
             self._step_dynamics = self._step_dynamics_ks
         elif self.model_of_car_dynamics == 'ODE:st':
-            self.step_dynamics = self._step_dynamics_st
+            if Settings.WITH_PID:
+                self.step_dynamics = self._step_st_with_servo_and_motor_pid
+            else:
+                self.step_dynamics = self._step_dynamics_st
         elif self.model_of_car_dynamics == 'Neural Network':
             raise NotImplementedError('Neural network model for F1TENTH is not implemented yet')
 
@@ -523,6 +526,86 @@ class f1t_model(EnvironmentBatched):
         accl = self.lib.clip(accl, -a_max, pos_limit)
 
         return accl
+
+    '''
+    Extend the ST model with the simplified proportional Servo function (the physical car needs a desired angle as input)
+    We need to consider the servo function as part of the car model
+
+    The proportional servo function is adapted from the Gym simulator and defined as
+    steering velocity = steer_diff / 0.1  if steer_diff > 0.0001 , otherwise 0
+
+    @param desired_steering_angle: (batch_size) desired steering angle for the car
+    @param current_steering_angle: (1) current steering angle for the car
+    returns steering_velocity: steering velocity applied on the wheels
+    '''
+
+    def servo_proportional(self, desired_steering_angle, current_steering_angle):
+
+        steering_angle_difference = desired_steering_angle - current_steering_angle
+
+        steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), 0.01)
+        steering_angle_difference_not_too_low_indices = tf.cast(steering_angle_difference_not_too_low_indices,
+                                                                tf.float32)
+
+        steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference / 0.1)
+
+        return steering_velocity
+
+    def motor_controller_pid(self, desired_speed, current_speed):
+
+        a_max = tf.constant([9.51])
+        v_min = tf.constant([-5.0])
+        v_max = tf.constant([20.0])
+
+        speed_difference = desired_speed - current_speed
+
+        forward_indices = tf.cast(tf.math.greater(tf.math.abs(current_speed), 0.0), tf.float32)
+        backward_indices = tf.cast(tf.math.less(tf.math.abs(current_speed), 0.0), tf.float32)
+
+        forward_accelerating_indices = forward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+                                                                 tf.float32)
+        forward_breaking_indices = forward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+                                                             tf.float32)
+
+        backward_accelerating_indices = backward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+                                                                   tf.float32)
+        backward_breaking_indices = backward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+                                                               tf.float32)
+
+        # fwd accl
+        kp = 10.0 * a_max / v_max
+        forward_acceleration = kp * forward_accelerating_indices * speed_difference
+
+        # fwd break
+        kp = 10.0 * a_max / (-v_min)
+        forward_breaking = kp * forward_breaking_indices * speed_difference
+
+        # bkw accl
+        kp = 2.0 * a_max / (-v_min)
+        backward_acceleration = kp * backward_accelerating_indices * speed_difference
+
+        # bkw break
+        kp = 2.0 * a_max / v_max
+        backward_breaking = kp * backward_breaking_indices * speed_difference
+
+        total_acceleration = forward_acceleration + forward_breaking + backward_acceleration + backward_breaking
+
+        return total_acceleration
+
+    def _step_st_with_servo_and_motor_pid(self, s, Q, params):
+        # Control Input (desired speed, desired steering angle)
+        desired_speed = Q[:, 0]  # longitudinal acceleration
+        desired_angle = Q[:, 1]  # steering angle velocity of front wheels
+
+        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+        vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
+
+        delta_dot = self.servo_proportional(desired_angle, delta)
+        vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+
+        Q_pid = tf.transpose(tf.stack([vel_x_dot, delta_dot]))
+
+        return self._step_dynamics_st(s, Q_pid, params)
 
     # endregion
 
