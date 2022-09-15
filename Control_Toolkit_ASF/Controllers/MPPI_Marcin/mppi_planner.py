@@ -276,8 +276,6 @@ def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, loo
         nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts) + 1  # + 1 comes from the fact that we load additional waypoint behind
 
     nearest_waypoints = []
-    previous_waypoint = all_wpts[(nearest_waypoint_index - 1) % len(all_wpts)]
-    nearest_waypoints.append(previous_waypoint)
     for j in range(look_ahead):
         next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
         nearest_waypoints.append(next_waypoint)
