@@ -58,9 +58,22 @@ class MPC_F1TENTH:
         self.lidar_points = None
         self.largest_gap_middle_point = None
 
+        self.nearest_waypoint_index = None
+
+        # Get waypoints
+        try:
+            path = Settings.MAP_WAYPOINT_FILE
+            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+            waypoints=waypoints[0:-1:1,1:3]
+            self.wpts_opt=waypoints
+        except AttributeError:
+            self.wpts_opt = None
+
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
+        self.f1t_model = f1t_model(waypoints_init=self.wpts_opt, **{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
         mpc_type = config["controller"]['general']['mpc_type']
+
+        self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
 
         if mpc_type == 'MPPI':
             self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
@@ -74,14 +87,6 @@ class MPC_F1TENTH:
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
-        # Get waypoints
-        try:
-            path = Settings.MAP_WAYPOINT_FILE
-            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-            waypoints=waypoints[0:-1:1,1:3]
-            self.wpts_opt=waypoints
-        except AttributeError:
-            self.wpts_opt = None
 
 
     def render(self, e):
@@ -131,8 +136,13 @@ class MPC_F1TENTH:
             target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
         self.f1t_model.LIDAR = self.lidar_points
-        self.f1t_model.waypoints = self.wpts_opt
         self.f1t_model.target_position = target_point
+
+        self.f1t_model.waypoints, self.nearest_waypoint_index = get_nearest_waypoints(s,
+                                                                                      self.wpts_opt,
+                                                                                      self.f1t_model.waypoints,
+                                                                                      self.nearest_waypoint_index,
+                                                                                      look_ahead=self.look_ahead_waypoints)
 
         translational_control, angular_control = self.mpc.step(s)
 
@@ -239,3 +249,37 @@ class Render:
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+
+def get_nearest_waypoint_index(s, wpts):
+
+    min_dist = 10000
+    min_dist_index = 0
+    position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
+
+    def squared_distance(p1, p2):
+        squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
+        return squared_distance
+
+    for i in range(len(wpts)):
+
+        dist = squared_distance(wpts[i], position)
+        if (dist) < min_dist:
+            min_dist = dist
+            min_dist_index = i
+
+    return min_dist_index
+
+def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead=15):
+    if current_wpts is None:
+        nearest_waypoint_index = get_nearest_waypoint_index(s, all_wpts)  # Run initial search of starting waypoint
+    else:
+        nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts) + 1  # + 1 comes from the fact that we load additional waypoint behind
+
+    nearest_waypoints = []
+    previous_waypoint = all_wpts[(nearest_waypoint_index - 1) % len(all_wpts)]
+    nearest_waypoints.append(previous_waypoint)
+    for j in range(look_ahead):
+        next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
+        nearest_waypoints.append(next_waypoint)
+        
+    return nearest_waypoints, nearest_waypoint_index
