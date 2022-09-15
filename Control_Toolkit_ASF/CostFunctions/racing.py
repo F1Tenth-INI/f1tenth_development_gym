@@ -30,8 +30,8 @@ class racing(f1t_cost_function):
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
 
-        crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.LIDAR))
-        acceleration_cost = self.get_acceleration_cost(u)
+        # crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.LIDAR))
+        # acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
 
         if self.waypoints.shape[0]:
@@ -40,7 +40,7 @@ class racing(f1t_cost_function):
         else:
             distance_to_waypoints_cost = tf.zeros_like(steering_cost)
 
-        stage_cost = cc + ccrc + distance_to_waypoints_cost + crash_cost + steering_cost + acceleration_cost
+        stage_cost = cc + ccrc + distance_to_waypoints_cost +  steering_cost #+ acceleration_cost + # distance_to_border_cost#+ crash_cost
 
         # Read out values for cost weight callibration: Uncomment for debugging
 
