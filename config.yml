@@ -67,9 +67,9 @@ controller:
     mpc_horizon: 20
 
     # Added for car racing
-    acceleration_cost_weight: 0.0
-    max_acceleration: 9.2
-    steering_cost_weight: 0.3
+    acceleration_cost_weight: 0.3
+    max_acceleration: 0.0
+    steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
     desired_max_speed: 10.5               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
