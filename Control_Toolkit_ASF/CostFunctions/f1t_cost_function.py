@@ -42,6 +42,8 @@ class f1t_cost_function:
         self.env_mock = environment
         self.lib = self.env_mock.lib
 
+        self._P1 = None
+        self._P2 = None
 
         if self.env_mock.lib == TensorFlowLibrary:
             self.LIDAR_attribute = "LIDAR_tf"
@@ -70,6 +72,41 @@ class f1t_cost_function:
     @property
     def target_position(self) -> Union[float, tf.Variable]:
         return getattr(self.env_mock, self.target_position_attribute)
+
+    # endregion
+
+    # region updating P1 & P2
+    @property
+    def P1(self):
+        return self._P1
+
+    @property
+    def P1_tf(self):
+        return self._P1_tf
+
+    @P1.setter
+    def P1(self, P1):
+        self._P1 = P1
+        if not hasattr(self, "_P1_tf"):
+            self._P1_tf = tf.Variable(P1, dtype=tf.float32)
+        else:
+            self._P1_tf.assign(P1)
+
+    @property
+    def P2(self):
+        return self._P2
+
+    @property
+    def P2_tf(self):
+        return self._P2_tf
+
+    @P2.setter
+    def P2(self, P2):
+        self._P2 = P2
+        if not hasattr(self, "_P2_tf"):
+            self._P2_tf = tf.Variable(P2, dtype=tf.float32)
+        else:
+            self._P2_tf.assign(P2)
 
     # endregion
 
@@ -113,7 +150,7 @@ class f1t_cost_function:
 
         return steering_cost
 
-    def get_distances_from_trajectory_points_to_closest_target_point(self, trajectory_points, target_points):
+    def get_distance_to_waypoints_per_rollout(self, trajectory_points, target_points):
         trajectories_shape = tf.shape(trajectory_points)
         number_of_rollouts = trajectories_shape[0]
         number_of_steps = trajectories_shape[1]
@@ -123,9 +160,17 @@ class f1t_cost_function:
         distance_to_waypoints = self.distances_from_list_to_list_of_points(positions_of_trajectories, target_points)
         distance_to_waypoints_per_rollout = tf.reshape(distance_to_waypoints,
                                                        (number_of_rollouts, number_of_steps, number_of_target_points))
-        min_distance_to_waypoints_per_rollout = tf.reduce_min(distance_to_waypoints_per_rollout, axis=2)
+        return distance_to_waypoints_per_rollout
 
+    def get_distances_from_trajectory_points_to_closest_target_point(self, trajectory_points, target_points):
+        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, target_points)
+        min_distance_to_waypoints_per_rollout = tf.reduce_min(distance_to_waypoints_per_rollout, axis=2)
         return min_distance_to_waypoints_per_rollout
+
+    def get_nearest_waypoints_indices(self, trajectory_points, target_points):
+        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, target_points)
+        indices_nearest_waypoints = tf.argmin(distance_to_waypoints_per_rollout, axis=2)
+        return indices_nearest_waypoints
 
     def distances_to_list_of_points(self, point, points2):
         length = tf.shape(points2)[0]
@@ -173,8 +218,10 @@ class f1t_cost_function:
         return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
     def get_distance_to_waypoints_cost(self, trajectories, waypoints):
-        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories,
-                                                                            waypoints) * distance_to_waypoints_cost_weight
+        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories, self.waypoints) * distance_to_waypoints_cost_weight
+
+    def get_distance_to_nearest_segment_cost(self, trajectories, waypoints):
+        return self.get_distance_to_nearest_segment(self.P1[:, :-1, :], self.P2[:, :-1, :], trajectories) * distance_to_waypoints_cost_weight
 
 
     def distances_from_list_to_list_of_points(self, points1, points2):
@@ -195,3 +242,51 @@ class f1t_cost_function:
         squared_dist = tf.reshape(squared_dist, [length1, length2])
 
         return squared_dist
+
+    def get_P1_and_P2(self, trajectory_points, target_points):
+        nearest_waypoints_indices = self.get_nearest_waypoints_indices(trajectory_points, target_points[1:-1])+1
+        indices_before = nearest_waypoints_indices - 1
+        indices_after = nearest_waypoints_indices + 1
+        P1 = tf.gather(self.waypoints, indices_before)
+        P2 = tf.gather(self.waypoints, indices_after)
+        return P1, P2
+
+    def get_distance_to_nearest_segment(self,
+                                        p1,
+                                        p2,
+                                        trajectory_points):
+        """
+        Returns the distance to the "nearest segment" of the road from the point of reference (usually the car).
+        Def: nearest segment
+           is a line segment connecting the next waypoint before and the next waypoint after the nearest waypoint
+        Supply the x,y coordinates of the point of reference
+
+        :param x_car: x-coordinate of point of reference (usually the car position)
+        :param y_car: y-coordinate of point of reference (usually the car position)
+        :param nearest_waypoint_idx: Index of the nearest waypoint. You mast ensure that it's index is not 0 and not -1
+        - there exist an waypoint before and after! (we suggest otherwise set it to 1 and -2 respectively, or consider using more waypoints)
+        :return:distance from the nearest segment
+        """
+
+        p_shape = tf.shape(p1)
+
+        P = tf.concat([(p2 - p1), tf.zeros([p_shape[0], p_shape[1], 1], dtype=tf.float32)], -1)
+        P_diff = tf.concat([(p1 - trajectory_points), tf.zeros([p_shape[0], p_shape[1], 1], dtype=tf.float32)], -1)
+        d = self.lib.norm(self.lib.cross(P, P_diff), -1) / self.lib.norm(p2 - p1, -1)
+
+        return d
+
+    def get_distance_along_nearest_segment(self,
+                                        x_car=None,
+                                        y_car=None,
+                                        nearest_waypoint_idx=None):
+
+        p_car = self.lib.to_tensor((x_car, y_car), self.lib.float32)
+
+        p1 = self.lib.to_tensor(self.waypoints[nearest_waypoint_idx - 1], self.lib.float32)
+
+        p2 = self.lib.to_tensor(self.waypoints[nearest_waypoint_idx + 1], self.lib.float32)
+
+        d = self.lib.dot(p2-p1, p_car-p1)/self.lib.norm(p2-p1, -1)
+
+        return d
