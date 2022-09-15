@@ -90,3 +90,4 @@ f1t_car_model:
   CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric
 planner:
   LOOK_AHEAD_WAYPOINTS: 15
+  INTERPOLATE_WAYPOINTS: 4
