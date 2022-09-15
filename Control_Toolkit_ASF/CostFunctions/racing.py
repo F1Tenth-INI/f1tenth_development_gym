@@ -36,6 +36,7 @@ class racing(f1t_cost_function):
 
         if self.waypoints.shape[0]:
             distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(trajectories, self.waypoints)
+            # distance_to_waypoints_cost = self.get_distance_to_nearest_segment_cost(trajectories, self.waypoints)
         else:
             distance_to_waypoints_cost = tf.zeros_like(steering_cost)
 
@@ -54,7 +55,14 @@ class racing(f1t_cost_function):
         return stage_cost
 
     def get_trajectory_cost(self, s_hor, u, u_prev=None):
+        # self.update_waypoints(s_hor)
         return (
-                self.env_mock.lib.sum(self.get_stage_cost(s_hor[:, :-1, :], u, u_prev), 1)
+                self.lib.sum(self.get_stage_cost(s_hor[:, :-1, :], u, u_prev), 1)
                 + self.get_terminal_cost(s_hor)
         )
+
+    def update_waypoints(self, s_hor):
+        self.P1, self.P2 = self.get_P1_and_P2(s_hor[:, :, POSE_X_IDX:POSE_Y_IDX + 1], self.waypoints)
+        # Get the list of nearest waypoints -1 till 15, checke that variable is assigned
+        # Get the arrrays  P = P2-P1 and P1, these should be assigned
+
