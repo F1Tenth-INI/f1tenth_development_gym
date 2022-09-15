@@ -46,6 +46,7 @@ class f1t_cost_function:
         if self.env_mock.lib == TensorFlowLibrary:
             self.LIDAR_attribute = "LIDAR_tf"
             self.waypoints_attribute = "waypoints_tf"
+            self.nearest_waypoint_index_attribute = "nearest_waypoint_index_tf"
             self.target_position_attribute = "target_position_tf"
         elif self.env_mock.lib == NumpyLibrary:
             self.LIDAR_attribute = "LIDAR"
