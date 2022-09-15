@@ -35,12 +35,12 @@ controller:
 
     # Added for car racing
     acceleration_cost_weight: 0.0
-    max_acceleration: 7.2
+    max_acceleration: 9.2
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
-    desired_max_speed: 14.0               # desired max speed for the car [m/s]
+    desired_max_speed: 16.0               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 1.0
+    target_distance_cost_weight: 0.0
 
 
   dist-adam-resamp2:
@@ -58,8 +58,8 @@ controller:
     outer_its: 2
     predictor_intermediate_steps: 1
     predictor_name: predictor_ODE_tf
-    resamp_per: 10
-    sample_stdev: 0.8
+    resamp_per: 5
+    sample_stdev: 0.2
     warmup: false
     warmup_iterations: 250
     seed: 12345
@@ -68,12 +68,12 @@ controller:
 
     # Added for car racing
     acceleration_cost_weight: 0.0
-    max_acceleration: 7.2
-    steering_cost_weight: 0.0
+    max_acceleration: 9.2
+    steering_cost_weight: 0.3
     terminal_speed_cost_weight: 1.0
-    desired_max_speed: 14.0               # desired max speed for the car [m/s]
+    desired_max_speed: 10.5               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 1.0
+    target_distance_cost_weight: 0.0
 
     cc_weight: 0.0
     ccrc_weight: 0.0
@@ -87,6 +87,6 @@ f1t_car_model:
   model_of_car_dynamics: 'ODE:st'
   intermediate_steps: 10
   dt: 0.025
-  CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric
+  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric
 planner:
   LOOK_AHEAD_WAYPOINTS: 15
