@@ -40,6 +40,7 @@ target_distance_cost_weight = config["controller"][mpc_type]["target_distance_co
 class f1t_cost_function:
     def __init__(self, environment) -> None:
         self.env_mock = environment
+        self.lib = self.env_mock.lib
 
 
         if self.env_mock.lib == TensorFlowLibrary:
