@@ -74,6 +74,7 @@ class MPC_F1TENTH:
         mpc_type = config["controller"]['general']['mpc_type']
 
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
+        self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
 
         if mpc_type == 'MPPI':
             self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
@@ -269,7 +270,7 @@ def get_nearest_waypoint_index(s, wpts):
 
     return min_dist_index
 
-def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead=15):
+def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead=15, interpolate_waypoints=4):
     if current_wpts is None:
         nearest_waypoint_index = get_nearest_waypoint_index(s, all_wpts)  # Run initial search of starting waypoint
     else:
@@ -280,7 +281,7 @@ def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, loo
         next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
         nearest_waypoints.append(next_waypoint)
 
-        interpolations = 4
+        interpolations = interpolate_waypoints
         over_next_waypoints = all_wpts[(nearest_waypoint_index + j + 1) % len(all_wpts)]
         for i in range(interpolations + 1):
             interpolated_waypoint = (i * over_next_waypoints + next_waypoint * (interpolations - i)) / (interpolations)
