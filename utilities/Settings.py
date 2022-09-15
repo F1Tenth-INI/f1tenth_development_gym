@@ -43,7 +43,7 @@ class Settings:
     # Or bypass it.
     # Warning: Even if set to True, the PID algorithm is modified
     # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
-    WITH_PID = False
+    WITH_PID = True
 
     # Decide if available state consists of full car state or only of odometry
     ONLY_ODOMETRY_AVAILABLE = False
