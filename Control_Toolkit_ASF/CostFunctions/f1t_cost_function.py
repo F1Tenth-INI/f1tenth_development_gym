@@ -244,10 +244,9 @@ class f1t_cost_function:
         return squared_dist
 
     def get_P1_and_P2(self, trajectory_points, target_points):
-        nearest_waypoints_indices = self.get_nearest_waypoints_indices(trajectory_points, target_points[1:-1])+1
-        indices_before = nearest_waypoints_indices - 1
+        nearest_waypoints_indices = self.get_nearest_waypoints_indices(trajectory_points, target_points[:-1])  # Can't take last so that I can build a segment with next waypoint
         indices_after = nearest_waypoints_indices + 1
-        P1 = tf.gather(self.waypoints, indices_before)
+        P1 = tf.gather(self.waypoints, nearest_waypoints_indices)
         P2 = tf.gather(self.waypoints, indices_after)
         return P1, P2
 
