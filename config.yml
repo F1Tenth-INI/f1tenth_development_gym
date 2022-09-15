@@ -87,3 +87,5 @@ f1t_car_model:
   intermediate_steps: 10
   dt: 0.025
   CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric
+planner:
+  LOOK_AHEAD_WAYPOINTS: 15
