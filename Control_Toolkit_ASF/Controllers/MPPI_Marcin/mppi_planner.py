@@ -70,7 +70,7 @@ class MPC_F1TENTH:
             self.wpts_opt = None
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        self.f1t_model = f1t_model(waypoints_init=self.wpts_opt, **{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
+        self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
         mpc_type = config["controller"]['general']['mpc_type']
 
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
