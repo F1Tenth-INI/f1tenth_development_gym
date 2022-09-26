@@ -327,6 +327,7 @@ class next_state_predictor_ODE_tf():
 
         accl = tf.clip_by_value(accl, clip_value_min=-a_max, clip_value_max=10000)
         accl = tf.clip_by_value(accl, clip_value_min=-100000, clip_value_max=pos_limit)
+
         return accl
 
 

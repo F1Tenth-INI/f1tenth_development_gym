@@ -16,7 +16,7 @@ class Settings:
     # MAP_CONFIG_FILE =  "maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "maps_files/config_Oschersleben.yaml"
     MAP_WAYPOINT_FILE = 'maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    # MAP_WAYPOINT_FILE =  'none'
+    # MAP_WAYPOINT_FILE =  None
     # MAP_CONFIG_FILE =  "maps_files/config_empty_map.yaml"
     
     
@@ -24,11 +24,11 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
 
 
     # Automatically follow the first car on the map
-    CAMERA_AUTO_FOLLOW = False
+    CAMERA_AUTO_FOLLOW = True
     DRAW_POSITION_HISTORY = True
     
     # We can chose between slow rendering (human) and fast rendering (human_fast)
