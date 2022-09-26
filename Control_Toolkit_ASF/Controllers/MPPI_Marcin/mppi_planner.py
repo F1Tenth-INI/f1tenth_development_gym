@@ -63,13 +63,10 @@ class MPC_F1TENTH:
         # Get waypoints
         self.wpts_opt = None
         if Settings.MAP_WAYPOINT_FILE is not None:
-            try:
-                path = Settings.MAP_WAYPOINT_FILE
-                waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-                waypoints=waypoints[0:-1:1,1:3]
-                self.wpts_opt=waypoints
-            except AttributeError:
-                self.wpts_opt = None
+            path = Settings.MAP_WAYPOINT_FILE
+            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
+            waypoints=waypoints[0:-1:1,1:3]
+            self.wpts_opt=waypoints
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
         self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
