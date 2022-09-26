@@ -38,7 +38,7 @@ controller:
     max_acceleration: 9.2
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 1.0
-    desired_max_speed: 16.0               # desired max speed for the car [m/s]
+    desired_max_speed: 18.5               # desired max speed for the car [m/s]
     distance_to_waypoints_cost_weight: 1.0
     target_distance_cost_weight: 0.0
 
@@ -88,7 +88,7 @@ f1t_car_model:
   intermediate_steps: 10
   dt: 0.025
 #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
-  CLIP_CONTROL_INPUT: [ 7.5, 3.5 ]            # How to clip control input, symmetric: use without PID
+  CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
 planner:
   LOOK_AHEAD_WAYPOINTS: 15
   INTERPOLATE_WAYPOINTS: 4
