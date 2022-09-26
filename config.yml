@@ -8,9 +8,9 @@ controller:
     seed: null                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
     dt: 0.025                                # sec
     mpc_horizon: 20                        #
-    control_interpolation_steps: 2          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
+    control_interpolation_steps: 1          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
     # FIXME:  We want to interpolate trajectory instead
-    num_rollouts: 1000                      # Number of Monte Carlo samples
+    num_rollouts: 2000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_name: "predictor_ODE_tf"    # One of ["predictor_ODE", "predictor_ODE_tf", "predictor_autoregressive_tf", "predictor_autoregressive_GP"]
     predictor_intermediate_steps: 10
@@ -25,7 +25,7 @@ controller:
     LBD_mc: 10.0
     NU: 1000.0                            # Exploration variance
     NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [ 0.8,0.8 ]                #Speed, steering
+    SQRTRHOINV: [ 0.5, 0.5 ]                #Speed, steering
     SQRTRHOINV_mc: [ 0.002 ]                      # Sampling variance
     GAMMA: 1.00                           # Future cost discount
     SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
@@ -87,7 +87,8 @@ f1t_car_model:
   model_of_car_dynamics: 'ODE:st'
   intermediate_steps: 10
   dt: 0.025
-  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric
+#  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
+  CLIP_CONTROL_INPUT: [ 7.5, 3.5 ]            # How to clip control input, symmetric: use without PID
 planner:
   LOOK_AHEAD_WAYPOINTS: 15
   INTERPOLATE_WAYPOINTS: 4
