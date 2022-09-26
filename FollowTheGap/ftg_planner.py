@@ -1,7 +1,6 @@
 import sys
 sys.path.insert(1, 'FollowtheGap')
 
-from main.state_utilities import *
 
 from pyglet.gl import GL_POINTS
 import pyglet
@@ -9,7 +8,6 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 import pyglet.gl as gl
-
 
 LOOK_FORWARD_ONLY =True
 
@@ -76,7 +74,7 @@ class FollowTheGapPlanner:
         scaled_points_flat = scaled_points.flatten()
 
         self.vertex_list = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat), ('c3B', self.lidar_visualization_color * howmany ))
-        
+
 
 
 

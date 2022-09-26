@@ -13,6 +13,7 @@ from xiang.wptutils import WptUtil
 """
     Adapted FTG with wpt guidence
     current lapse time is 53.6099
+
     authors: Florian and Xiang
 """
 ################################################################
@@ -429,6 +430,7 @@ class FollowTheGapPlannerSafeMode:
         self.last_steering = [0, 0]
         self.translational_control = None
         self.angular_control = None
+
 
 
     def process_observation(self, ranges=None, ego_odom=None):

@@ -1,3 +1,5 @@
+
+
 # Import Planner Classes
 from MPPI_Marcin.mppi_planner import MPPI_F1TENTH
 from xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
@@ -43,8 +45,8 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    # planner1 = FollowTheGapPlanner()
     planner1 = MPPI_F1TENTH()
+    # planner1 = FollowTheGapPlanner()
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
     # planner1 = NeuralNetImitatorPlanner()
@@ -97,7 +99,7 @@ def main():
             e.right = right + 800
             e.top = top + 800
             e.bottom = bottom - 800
-            
+
         for driver in drivers:
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)

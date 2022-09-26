@@ -59,7 +59,7 @@ class MPPI_F1TENTH:
 
         # Get waypoints
         self.wpts_opt = None
-        if True:
+        if Settings.MAP_WAYPOINT_FILE is not None:
             try:
                 path = Settings.MAP_WAYPOINT_FILE
                 waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
@@ -163,7 +163,7 @@ class Render:
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None
         self.target_point = None
-        self.current_state= None
+        self.current_state = None
 
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
                largest_gap_middle_point=None, target_point=None):
@@ -176,7 +176,6 @@ class Render:
         self.target_point = target_point
 
     def render(self, e):
-        
         gl.glPointSize(3)
         
         if self.draw_position_history and self.current_state is not None:
@@ -241,3 +240,4 @@ class Render:
             scaled_target_point = 50.0*np.array(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+
