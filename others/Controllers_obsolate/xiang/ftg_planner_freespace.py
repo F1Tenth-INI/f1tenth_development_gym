@@ -38,6 +38,8 @@ class FollowTheGapPlanner:
         self.last_steering = [0, 0]
 
 
+        self.translational_control = None
+        self.angular_control = None
 
         ######################################################
         self.refined_ranges=[];
@@ -286,7 +288,7 @@ class FollowTheGapPlanner:
             speed = 0.1  # Dont stand still 
 
 
-        speed = speed - 8* abs(largest_gap_center)
+        speed = speed - 8 * abs(largest_gap_center)
         # print("Speed", speed)
         # Emergency Brake
         if(not gap_found):
@@ -311,5 +313,6 @@ class FollowTheGapPlanner:
 
         self.simulation_index += 1
         
-
+        self.translational_control = speed
+        self.angular_control = steering_angle
         return speed, steering_angle
