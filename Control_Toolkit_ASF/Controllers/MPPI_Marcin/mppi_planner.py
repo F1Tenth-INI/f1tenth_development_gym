@@ -15,6 +15,7 @@ from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
+    LINEAR_VEL_X_IDX,
     odometry_dict_to_state
 )
 from SI_Toolkit_ASF.f1t_model import f1t_model
