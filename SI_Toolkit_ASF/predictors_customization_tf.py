@@ -11,13 +11,13 @@ class next_state_predictor_ODE_tf:
 
         self.env = planning_environment
 
-        self.intermediate_steps = tf.convert_to_tensor(
-            intermediate_steps, dtype=tf.int32
-        )
-        self.t_step = tf.convert_to_tensor(
-            dt / float(self.intermediate_steps), dtype=tf.float32
-        )
-        self.env.dt = self.t_step
+        # self.intermediate_steps = tf.convert_to_tensor(
+        #     intermediate_steps, dtype=tf.int32
+        # )
+        # self.t_step = tf.convert_to_tensor(
+        #     dt / float(self.intermediate_steps), dtype=tf.float32
+        # )
+        # self.env.dt = self.t_step
 
     def step(self, s, Q, params):
         next_state = self.env.step_dynamics(s, Q, params)
