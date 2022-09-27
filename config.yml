@@ -13,7 +13,7 @@ controller:
     num_rollouts: 2000                      # Number of Monte Carlo samples
     update_every: 1                       # Cost weighted update of inputs every ... steps
     predictor_name: "predictor_ODE_tf"    # One of ["predictor_ODE", "predictor_ODE_tf", "predictor_autoregressive_tf", "predictor_autoregressive_GP"]
-    predictor_intermediate_steps: 10
+    predictor_intermediate_steps: 10      # FIXME: Taken from environment, necessary still here to prevent crash
     NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
     dd_weight: 0.0
     cc_weight: 0.0
@@ -56,7 +56,7 @@ controller:
     num_rollouts: 32
     opt_keep_k: 8
     outer_its: 2
-    predictor_intermediate_steps: 1
+    predictor_intermediate_steps: 1  # FIXME: Taken from environment, necessary still here to prevent crash
     predictor_name: predictor_ODE_tf
     resamp_per: 5
     sample_stdev: 0.2
@@ -85,7 +85,7 @@ num_control_inputs: 2
 f1t_car_model:
   seed: 1
   model_of_car_dynamics: 'ODE:st'
-  intermediate_steps: 10
+  intermediate_steps: 1
   dt: 0.025
 #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
   CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
