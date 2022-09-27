@@ -292,14 +292,14 @@ def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, loo
         nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts)
 
     nearest_waypoints = []
-    for j in range(look_ahead):
+    for j in range(look_ahead+1):
         next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
         nearest_waypoints.append(next_waypoint)
 
-        interpolations = interpolate_waypoints
-        over_next_waypoints = all_wpts[(nearest_waypoint_index + j + 1) % len(all_wpts)]
-        for i in range(interpolations + 1):
-            interpolated_waypoint = (i * over_next_waypoints + next_waypoint * (interpolations - i)) / (interpolations)
-            nearest_waypoints.append(interpolated_waypoint)
+    nearest_waypoints_interpolated = []
+    for j in range(look_ahead):
+        for i in range(interpolate_waypoints):
+            interpolated_waypoint = nearest_waypoints[j] + (float(i)/interpolate_waypoints)*(nearest_waypoints[j+1]-nearest_waypoints[j])
+            nearest_waypoints_interpolated.append(interpolated_waypoint)
 
-    return nearest_waypoints, nearest_waypoint_index
+    return nearest_waypoints_interpolated, nearest_waypoint_index
