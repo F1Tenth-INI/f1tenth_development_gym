@@ -62,6 +62,8 @@ class racing(f1t_cost_function):
         return stage_cost
 
     def get_trajectory_cost(self, s_hor, u, u_prev=None):
+        """ This is the top level cost function that is called by all the MPC optimizers.
+        """
         # self.update_waypoints(s_hor)
         return (
                 self.lib.sum(self.get_stage_cost(s_hor[:, :-1, :], u, u_prev), 1)

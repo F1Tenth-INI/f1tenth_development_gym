@@ -51,7 +51,7 @@ Have a look at the MultiAgent's settings file: [Settings.py](https://github.com/
  Please work on your own branches and do pull requests to the main branch. 
  If possible, seperate your code into your own folders.
 
- Every driver class must have the function process_ovservation, whith the following arguments:
+ Every driver class must have the function process_observation, with the following arguments:
 ```python
 def process_observation(self, ranges=None, ego_odom=None):
       """
@@ -74,6 +74,13 @@ def process_observation(self, ranges=None, ego_odom=None):
 
 ```
 The function should return the desired speed and the desired angle
+
+## Controllers
+### Cost functions
+The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/CostFunctions).
+The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/CostFunctions/f1t_cost_function.py), lines 63-72.
+
+On the controller side, these structure are at [SI_Toolkit_ASF/f1t_model.py](SI_Toolkit_ASF/f1t_model.py), lines 113-190.
 
 
 <!-- For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle. -->
