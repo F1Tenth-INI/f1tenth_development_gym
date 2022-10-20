@@ -25,7 +25,7 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
 
 
     # Automatically follow the first car on the map

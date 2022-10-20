@@ -9,10 +9,11 @@ paths:
 training_default:
   # For training closed loop dynamics model:
   state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
-  control_inputs: ['speed', 'steering']
+  control_inputs: ['translational_control', 'angular_control']
   setpoint_inputs: []
   outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
-  translation_invariant_variables: ['pose_x', 'pose_y']
+#  translation_invariant_variables: ['pose_x', 'pose_y']
+  translation_invariant_variables: []
   # For training open loop dynamics model:
   # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
   # outputs = inputs_list

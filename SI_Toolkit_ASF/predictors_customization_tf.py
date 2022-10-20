@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from SI_Toolkit.Functions.TF.Compile import Compile
+from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from utilities.state_utilities import *
 
@@ -30,7 +30,7 @@ class next_state_predictor_ODE_tf:
 
 
 class predictor_output_augmentation_tf:
-    def __init__(self, net_info, disable_individual_compilation=False):
+    def __init__(self, net_info, disable_individual_compilation=False, differential_network=False):
         self.net_output_indices = {key: value for value, key in enumerate(net_info.outputs)}
         indices_augmentation = []
         features_augmentation = []
@@ -40,7 +40,7 @@ class predictor_output_augmentation_tf:
         if 'linear_vel_x' not in net_info.outputs:
             indices_augmentation.append(STATE_INDICES['linear_vel_x'])
             features_augmentation.append('linear_vel_x')
-        if 'linear_vel_y' not in net_info.outputs:
+        if 'linear_vel_y' not in net_info.outputs and 'linear_vel_y' in STATE_INDICES.keys():  # Quadruped only
             indices_augmentation.append(STATE_INDICES['linear_vel_y'])
             features_augmentation.append('linear_vel_y')
 
@@ -68,7 +68,7 @@ class predictor_output_augmentation_tf:
         if disable_individual_compilation:
             self.augment = self._augment
         else:
-            self.augment = Compile(self._augment)
+            self.augment = CompileTF(self._augment)
 
     def get_indices_augmentation(self):
         return self.indices_augmentation
