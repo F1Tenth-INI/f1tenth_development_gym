@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from types import SimpleNamespace
 
-from SI_Toolkit.Functions.TF.Normalising import get_normalization_function_tf, get_denormalization_function_tf
+from SI_Toolkit.Functions.General.Normalising import get_normalization_function, get_denormalization_function
 
 try:
     from SI_Toolkit_ASF.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
@@ -11,7 +11,9 @@ except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
 
 from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
-from SI_Toolkit.Functions.TF.Compile import Compile
+from SI_Toolkit.Functions.TF.Compile import CompileTF
+
+from Control_Toolkit.others.environment import TensorFlowLibrary
 
 NET_NAME = 'Dense-68IN-128H1-128H2-2OUT-0'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
@@ -19,6 +21,8 @@ PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 class NeuralNetImitatorPlanner:
 
     def __init__(self, speed_fraction=1, batch_size=1):
+
+        self.lib = TensorFlowLibrary
 
         print('Loading NeuralNetImitatorPlanner')
 
@@ -43,8 +47,8 @@ class NeuralNetImitatorPlanner:
 
         self.normalization_info = get_norm_info_for_net(self.net_info)
 
-        self.normalize_inputs = get_normalization_function_tf(self.normalization_info, self.net_info.inputs)
-        self.denormalize_outputs = get_denormalization_function_tf(self.normalization_info, self.net_info.outputs)
+        self.normalize_inputs = get_normalization_function(self.normalization_info, self.net_info.inputs, self.lib)
+        self.denormalize_outputs = get_denormalization_function(self.normalization_info, self.net_info.outputs, self.lib)
 
         self.net_input = None
         self.net_input_normed = tf.Variable(
@@ -82,7 +86,7 @@ class NeuralNetImitatorPlanner:
 
         return speed, steering_angle
 
-    @Compile
+    @CompileTF
     def process_tf(self, net_input):
 
         self.net_input_normed.assign(self.normalize_inputs(
