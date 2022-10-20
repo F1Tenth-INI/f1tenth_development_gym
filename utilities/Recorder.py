@@ -84,8 +84,8 @@ class Recorder:
             self.keys_time = self.time_dict.keys()
 
     def get_control_inputs(self, control_inputs):
-        speed, steering = control_inputs
-        self.control_inputs_dict = {'speed': speed, 'steering': steering}
+        translational_control, angular_control = control_inputs
+        self.control_inputs_dict = {'translational_control': translational_control, 'angular_control': angular_control}
         if self.keys_control_inputs is None:
             self.keys_control_inputs = self.control_inputs_dict.keys()
 
