@@ -54,6 +54,13 @@ class predictor_output_augmentation_tf:
             indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
             features_augmentation.append('pose_theta_sin')
 
+        if 'slip_angle' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['slip_angle'])
+            features_augmentation.append('slip_angle')
+        if 'steering_angle' not in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['steering_angle'])
+            features_augmentation.append('steering_angle')
+
         self.indices_augmentation = indices_augmentation
         self.features_augmentation = features_augmentation
         self.augmentation_len = len(self.indices_augmentation)
@@ -105,5 +112,14 @@ class predictor_output_augmentation_tf:
             pose_theta_cos = \
                 tf.cos(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
             output = tf.concat([output, pose_theta_cos], axis=-1)
+
+        if 'slip_angle' in self.features_augmentation:
+            slip_angle = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, slip_angle], axis=-1)
+
+        if 'steering_angle' in self.features_augmentation:
+            steering_angle = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, steering_angle], axis=-1)
+
 
         return output
