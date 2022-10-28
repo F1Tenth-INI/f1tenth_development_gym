@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from utilities.state_utilities import *
 
-from Control_Toolkit_ASF.CostFunctions.Car.f1t_cost_function import f1t_cost_function
+from Control_Toolkit_ASF.Cost_Functions.Car.f1t_cost_function import f1t_cost_function
 
 
 class racing(f1t_cost_function):
@@ -15,10 +15,6 @@ class racing(f1t_cost_function):
 
     def get_stage_cost(self, s, u, u_prev):
 
-        # target_position = target[0]
-        # lidar_scans = target[1:217]
-        # waypoints = target[218:]
-
         trajectories = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
 
         # It is not used while writing...
@@ -29,9 +25,9 @@ class racing(f1t_cost_function):
         acceleration_cost = self.get_acceleration_cost(u)
         # steering_cost = self.get_steering_cost(u)
 
-        if self.waypoints.shape[0]:
-            distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(trajectories, self.waypoints)
-            # distance_to_waypoints_cost = self.get_distance_to_nearest_segment_cost(trajectories, self.waypoints)
+        if self.controller.next_waypoints.shape[0]:
+            distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(trajectories, self.controller.next_waypoints)
+            # distance_to_waypoints_cost = self.get_distance_to_nearest_segment_cost(trajectories, self.controller.next_waypoints)
         else:
             distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
 
@@ -56,17 +52,9 @@ class racing(f1t_cost_function):
 
         return stage_cost
 
-    def get_trajectory_cost(self, s_hor, u, u_prev=None):
-        """ This is the top level cost function that is called by all the MPC optimizers.
-        """
-        # self.update_waypoints(s_hor)
-        return (
-                self.lib.sum(self.get_stage_cost(s_hor[:, :-1, :], u, u_prev), 1)
-                + self.get_terminal_cost(s_hor)
-        )
 
     def update_waypoints(self, s_hor):
-        self.P1, self.P2 = self.get_P1_and_P2(s_hor[:, :, POSE_X_IDX:POSE_Y_IDX + 1], self.waypoints)
+        self.P1, self.P2 = self.get_P1_and_P2(s_hor[:, :, POSE_X_IDX:POSE_Y_IDX + 1], self.controller.next_waypoints)
         # Get the list of nearest waypoints -1 till 15, checke that variable is assigned
         # Get the arrrays  P = P2-P1 and P1, these should be assigned
 

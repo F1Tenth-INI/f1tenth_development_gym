@@ -17,22 +17,16 @@ Car:
     target_distance_cost_weight: 0.0
 
     # Different optimizers works the best with different cost functions parameters
-    # MPPI
+    mppi-tf:
 
-    acceleration_cost_weight: 0.0
-    max_acceleration: 9.2
-    desired_max_speed: 18.5               # desired max speed for the car [m/s]
+      acceleration_cost_weight: 0.0
+      max_acceleration: 9.2
+      desired_max_speed: 18.5               # desired max speed for the car [m/s]
 
-#    # RPGD
-#    acceleration_cost_weight: 0.3
-#    max_acceleration: 0.0
-#    desired_max_speed: 10.5               # desired max speed for the car [m/s]
+    rpgd-tf:
+      acceleration_cost_weight: 0.3
+      max_acceleration: 0.0
+      desired_max_speed: 10.5               # desired max speed for the car [m/s]
 
   following_target:
     # TODO: The parameters not set yet, same as for racing
-    dd_weight: 600.0
-    ep_weight: 20000.0
-    ekp_weight: 80.0
-    cc_weight: 1.0
-    ccrc_weight: 1.0
-    R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!

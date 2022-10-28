@@ -1,5 +1,5 @@
 import yaml
-
+import os
 import tensorflow as tf
 
 from Control_Toolkit.Cost_Functions import cost_function_base
@@ -10,31 +10,25 @@ from utilities.state_utilities import LINEAR_VEL_X_IDX, TRANSLATIONAL_CONTROL_ID
 
 distance_normalization = 6.0
 
-# load constants from config file
-config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+# TODO: Config should be loaded at specific functions
+# load constants from config file config_controllers
+config = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
+config_controllers = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
 
-mpc_type = config["controller"]['general']['mpc_type']
+mpc_type = config_controllers["mpc"]['optimizer']
 
-if mpc_type == 'MPPI':
-    mpc_type = 'mppi-tf'
-elif mpc_type == 'RPGD':
-    mpc_type = 'dist-adam-resamp2'
-else:
-    raise NotImplementedError
+R = config["Car"]["racing"]["R"]
 
+cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
+ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
+steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
+terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
+target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
 
-R = config["controller"][mpc_type]["R"]
-
-max_acceleration = config["controller"][mpc_type]["max_acceleration"]
-desired_max_speed = config["controller"][mpc_type]["desired_max_speed"]
-
-cc_weight = tf.convert_to_tensor(config["controller"][mpc_type]["cc_weight"])
-ccrc_weight = config["controller"][mpc_type]["ccrc_weight"]
-distance_to_waypoints_cost_weight = config["controller"][mpc_type]["distance_to_waypoints_cost_weight"]
-acceleration_cost_weight = config["controller"][mpc_type]["acceleration_cost_weight"]
-steering_cost_weight = config["controller"][mpc_type]["steering_cost_weight"]
-terminal_speed_cost_weight = config["controller"][mpc_type]["terminal_speed_cost_weight"]
-target_distance_cost_weight = config["controller"][mpc_type]["target_distance_cost_weight"]
+acceleration_cost_weight = config["Car"]["racing"][mpc_type]["acceleration_cost_weight"]
+max_acceleration = config["Car"]["racing"][mpc_type]["max_acceleration"]
+desired_max_speed = config["Car"]["racing"][mpc_type]["desired_max_speed"]
 
 
 class f1t_cost_function(cost_function_base):
@@ -187,10 +181,10 @@ class f1t_cost_function(cost_function_base):
     def get_target_distance_cost(self, trajectories, target_points):
         return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
-    def get_distance_to_waypoints_cost(self, trajectories, waypoints):
-        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories, self.waypoints) * distance_to_waypoints_cost_weight
+    def get_distance_to_waypoints_cost(self, trajectories, next_waypoints):
+        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories, self.controller.next_waypoints) * distance_to_waypoints_cost_weight
 
-    def get_distance_to_nearest_segment_cost(self, trajectories, waypoints):
+    def get_distance_to_nearest_segment_cost(self, trajectories, next_waypoints):
         return self.get_distance_to_nearest_segment(self.P1[:, :-1, :], self.P2[:, :-1, :], trajectories) * distance_to_waypoints_cost_weight
 
 
@@ -216,8 +210,8 @@ class f1t_cost_function(cost_function_base):
     def get_P1_and_P2(self, trajectory_points, target_points):
         nearest_waypoints_indices = self.get_nearest_waypoints_indices(trajectory_points, target_points[:-1])  # Can't take last so that I can build a segment with next waypoint
         indices_after = nearest_waypoints_indices + 1
-        P1 = tf.gather(self.waypoints, nearest_waypoints_indices)
-        P2 = tf.gather(self.waypoints, indices_after)
+        P1 = tf.gather(self.controller.next_waypoints, nearest_waypoints_indices)
+        P2 = tf.gather(self.controller.next_waypoints, indices_after)
         return P1, P2
 
     def get_distance_to_nearest_segment(self,
@@ -252,9 +246,9 @@ class f1t_cost_function(cost_function_base):
 
         p_car = self.lib.to_tensor((x_car, y_car), self.lib.float32)
 
-        p1 = self.lib.to_tensor(self.waypoints[nearest_waypoint_idx - 1], self.lib.float32)
+        p1 = self.lib.to_tensor(self.controller.next_waypoints[nearest_waypoint_idx - 1], self.lib.float32)
 
-        p2 = self.lib.to_tensor(self.waypoints[nearest_waypoint_idx + 1], self.lib.float32)
+        p2 = self.lib.to_tensor(self.controller.next_waypoints[nearest_waypoint_idx + 1], self.lib.float32)
 
         d = self.lib.dot(p2-p1, p_car-p1)/self.lib.norm(p2-p1, -1)
 

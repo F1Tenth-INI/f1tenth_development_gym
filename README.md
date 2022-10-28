@@ -77,8 +77,8 @@ The function should return the desired speed and the desired angle
 
 ## Controllers
 ### Cost functions
-The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/CostFunctions).
-The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/CostFunctions/f1t_cost_function.py), lines 63-72.
+The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/Cost_Functions).
+The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/Cost_Functions/f1t_cost_function.py), lines 63-72.
 
 On the controller side, these structure are at [SI_Toolkit_ASF/f1t_model.py](SI_Toolkit_ASF/f1t_model.py), lines 113-190.
 

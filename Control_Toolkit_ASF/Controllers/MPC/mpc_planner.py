@@ -21,6 +21,7 @@ from utilities.state_utilities import (
 
 from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
+
 if Settings.LOOK_FORWARD_ONLY:
     lidar_range_min = 200
     lidar_range_max = 880
@@ -55,11 +56,9 @@ class mpc_planner:
         self.largest_gap_middle_point = None
         self.largest_gap_middle_point = None
 
-        self.lidar_points = None
-        self.waypoints = None
-        self.target_point = np.array([0, 0])
-
         self.nearest_waypoint_index = None
+
+        self.time = 0.0
 
         # Get waypoints
         self.wpts_opt = None
@@ -72,6 +71,10 @@ class mpc_planner:
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
         self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
+
+        self.lidar_points = np.zeros((216, 2), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_waypoints*self.interpolate_waypoints, 2), dtype=np.float32)
+        self.target_point = np.array([0, 0], dtype=np.float32)
 
         if Settings.ENVIRONMENT_NAME == 'Car':
             num_states = 9
@@ -90,7 +93,7 @@ class mpc_planner:
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
-                    "waypoints": self.waypoints,
+                    "next_waypoints": self.next_waypoints,
                     "target_point": self.target_point
 
                 },
@@ -101,8 +104,10 @@ class mpc_planner:
         else:
             raise NotImplementedError
 
+        self.mpc.configure()
+
         self.Render = Render()
-        self.car_state = [ 0 ,0, 0, 0, 0, 0, 0]
+        self.car_state = [0, 0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
@@ -154,24 +159,29 @@ class mpc_planner:
         if (Settings.FOLLOW_RANDOM_TARGETS):
             target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
-        self.f1t_model.LIDAR = self.lidar_points
-        self.f1t_model.target_position = target_point
-
-        self.f1t_model.waypoints, self.nearest_waypoint_index = get_nearest_waypoints(s,
+        self.next_waypoints, self.nearest_waypoint_index = get_nearest_waypoints(s,
                                                                                       self.wpts_opt,
-                                                                                      self.f1t_model.waypoints,
+                                                                                      self.next_waypoints,
                                                                                       self.nearest_waypoint_index,
                                                                                       look_ahead=self.look_ahead_waypoints)
 
-        translational_control, angular_control = self.mpc.step(s)
+        translational_control, angular_control = self.mpc.step(s,
+                                                               self.time,
+                                                               {
+                                                                   "lidar_points": self.lidar_points,
+                                                                   "next_waypoints": self.next_waypoints,
+                                                                   "target_point": self.target_point,
+
+                                                               })
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
-        self.Render.update(self.lidar_points, self.mpc.rollout_trajectory, self.mpc.traj_cost,
-            self.mpc.optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
+        optimal_trajectory = None
+        self.Render.update(self.lidar_points, self.mpc.logs['rollout_trajectories_logged'][-1], self.mpc.logs['J_logged'][-1],
+            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
         self.Render.current_state = s
 
         self.simulation_index += 1
@@ -304,7 +314,7 @@ def get_nearest_waypoint_index(s, wpts):
     return min_dist_index
 
 def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead=15, interpolate_waypoints=4):
-    if current_wpts is None:
+    if nearest_waypoint_index is None:
         nearest_waypoint_index = get_nearest_waypoint_index(s, all_wpts)  # Run initial search of starting waypoint
     else:
         nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts)
