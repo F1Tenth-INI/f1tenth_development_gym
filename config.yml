@@ -4,23 +4,8 @@ controller:
     mpc_type: 'RPGD'                        # RPGD, MPPI
     cost_function: 'racing'                 # from 'racing', 'following_target'
   mppi-tf:
-
-    R: 1.0
-
-    dd_weight: 0.0
-    cc_weight: 0.0
-    ccrc_weight: 0.0
-    cost_noise: 0.0                       # Noise on stage cost weights by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0 othewise
-    control_noise: 0.0                    # Noise on top of the calculated control input by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0.1 to test an not-ideal case
-
     # Added for car racing
-    acceleration_cost_weight: 0.0
-    max_acceleration: 9.2
-    steering_cost_weight: 0.0
-    terminal_speed_cost_weight: 1.0
-    desired_max_speed: 18.5               # desired max speed for the car [m/s]
-    distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 0.0
+
 
 
   dist-adam-resamp2:
@@ -29,23 +14,13 @@ controller:
     dt: 0.025
 
     # Added for car racing
-    acceleration_cost_weight: 0.3
-    max_acceleration: 0.0
-    steering_cost_weight: 0.0
-    terminal_speed_cost_weight: 1.0
-    desired_max_speed: 10.5               # desired max speed for the car [m/s]
-    distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 0.0
-
-    cc_weight: 0.0
-    ccrc_weight: 0.0
-    R: 1.0                                # How much to punish Q
 
 
 num_control_inputs: 2
 
 f1t_car_model:
   seed: 1
+
   model_of_car_dynamics: 'ODE:st'
 #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
   CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID

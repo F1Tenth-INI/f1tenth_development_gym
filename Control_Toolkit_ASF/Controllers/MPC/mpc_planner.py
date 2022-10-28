@@ -32,10 +32,10 @@ NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 
-from Control_Toolkit_ASF.Controllers.MPPI_Marcin.TargetGenerator import TargetGenerator
-from Control_Toolkit_ASF.Controllers.MPPI_Marcin.SpeedGenerator import SpeedGenerator
+from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
+from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
-class MPC_F1TENTH:
+class mpc_planner:
     """
     Example Planner
     """
@@ -53,8 +53,11 @@ class MPC_F1TENTH:
         self.plot_lidar_data = False
 
         self.largest_gap_middle_point = None
-        self.lidar_points = None
         self.largest_gap_middle_point = None
+
+        self.lidar_points = None
+        self.waypoints = None
+        self.target_point = np.array([0, 0])
 
         self.nearest_waypoint_index = None
 
@@ -70,8 +73,31 @@ class MPC_F1TENTH:
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
         self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
 
+        if Settings.ENVIRONMENT_NAME == 'Car':
+            num_states = 9
+            num_control_inputs = 2
+            if Settings.WITH_PID:  # MPC return velocity and steering angle
+                control_limits_low = np.array([-22, -1.2])  # Possible negative velocity, mostly to force PID to stronger reaction
+                control_limits_high = np.array([22, 1.2])
+            else:  # MPC returns acceleration and steering velocity
+                control_limits_low = np.array([-7, -3.5])  # Possible negative velocity, mostly to force PID to stronger reaction
+                control_limits_high = np.array([7, 3.5])
+        else:
+            raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
+
         if Settings.CONTROLLER:
-            self.mpc = controller_mpc()
+            self.mpc = controller_mpc(
+                environment_name="Car",
+                initial_environment_attributes={
+                    "lidar_points": self.lidar_points,
+                    "waypoints": self.waypoints,
+                    "target_point": self.target_point
+
+                },
+                num_states=num_states,
+                num_control_inputs=num_control_inputs,
+                control_limits=(control_limits_low, control_limits_high),
+            )
         else:
             raise NotImplementedError
 
@@ -114,7 +140,7 @@ class MPC_F1TENTH:
 
         scans = np.array(ranges)
 
-        distances = scans[lidar_range_min:lidar_range_max:5] # Only use every 5th lidar point
+        distances = scans[lidar_range_min:lidar_range_max:5]  # Only use every 5th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
         p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])

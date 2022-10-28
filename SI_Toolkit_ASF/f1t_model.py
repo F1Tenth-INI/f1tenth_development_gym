@@ -3,7 +3,6 @@ import tensorflow as tf
 import torch
 
 from typing import Optional, Tuple, Union
-from gym import spaces
 
 from utilities.Settings import Settings
 from Control_Toolkit.others.environment import EnvironmentBatched
@@ -19,8 +18,6 @@ from utilities.state_utilities import (
     ANGULAR_CONTROL_IDX,
     TRANSLATIONAL_CONTROL_IDX,
 )
-
-from Control_Toolkit_ASF.CostFunctions.racing import racing
 
 class f1t_model(EnvironmentBatched):
 
@@ -55,37 +52,19 @@ class f1t_model(EnvironmentBatched):
 
         self.set_computation_library(computation_lib)
         self._set_up_rng(kwargs["seed"])
-        self.cost_functions = racing(self)
 
         # Added for F1TENTH
 
         self.model_of_car_dynamics = kwargs["model_of_car_dynamics"]
 
-        clip_control_input = kwargs['CLIP_CONTROL_INPUT']
-        if isinstance(clip_control_input[0], list):
-            clip_control_input_low = self.lib.constant(clip_control_input[0], self.lib.float32)
-            clip_control_input_high = self.lib.constant(clip_control_input[1], self.lib.float32)
-        else:
-            clip_control_input_high = self.lib.constant(clip_control_input, self.lib.float32)
-            clip_control_input_low = -clip_control_input_high
+        # clip_control_input = kwargs['CLIP_CONTROL_INPUT']
+        # if isinstance(clip_control_input[0], list):
+        #     clip_control_input_low = self.lib.constant(clip_control_input[0], self.lib.float32)
+        #     clip_control_input_high = self.lib.constant(clip_control_input[1], self.lib.float32)
+        # else:
+        #     clip_control_input_high = self.lib.constant(clip_control_input, self.lib.float32)
+        #     clip_control_input_low = -clip_control_input_high
 
-        self.action_space = spaces.Box(
-            np.array([clip_control_input_low]),
-            np.array([clip_control_input_high]),
-            dtype=np.float32,
-        )  # Action space for [throttle, steer]
-
-        # low = np.array([-1.0, -1.0, -4.0, -0.5])  # low range of observation space
-        # high = np.array([1.0, 1.0, 4.0, 0.5])  # high range of observation space
-        # self.observation_space = spaces.Box(
-        #     low, high, dtype=np.float32
-        # )  # Observation space for [x, y, theta]
-
-        self._LIDAR = None  # here just a placeholder, change line below
-
-        self._waypoints = None  # here just a placeholder, change line below
-
-        self._target_position = None  # here just a placeholder, change line below
 
         if Settings.ONLY_ODOMETRY_AVAILABLE:
             self.next_step_output = self.next_state_output_odom
@@ -107,89 +86,6 @@ class f1t_model(EnvironmentBatched):
                 self.step_dynamics = self._step_dynamics_st
         elif self.model_of_car_dynamics == 'Neural Network':
             raise NotImplementedError('Neural network model for F1TENTH is not implemented yet')
-
-    # region Updating variables
-
-    # region Updating state
-
-    @property
-    def state(self):
-        return self._state
-
-    @property
-    def state_tf(self):
-        return self._state_tf
-
-    @state.setter
-    def state(self, state):
-        self._state = state
-        if state is None:
-            pass
-        elif not hasattr(self, "_state_tf"):
-            self._state_tf = tf.Variable(state, dtype=tf.float32)
-        else:
-            self._state_tf.assign(state)
-
-    # endregion
-
-    # region Updating LIDAR
-    
-    @property
-    def LIDAR(self):
-        return self._LIDAR
-
-    @property
-    def LIDAR_tf(self):
-        return self._LIDAR_tf
-
-    @LIDAR.setter
-    def LIDAR(self, LIDAR):
-        self._LIDAR = LIDAR
-        if not hasattr(self, "_LIDAR_tf"):
-            self._LIDAR_tf = tf.Variable(LIDAR, dtype=tf.float32)
-        else:
-            self._LIDAR_tf.assign(LIDAR)
-    
-    # endregion
-
-    # region Updating waypoints
-
-    @property
-    def waypoints(self):
-        return self._waypoints
-
-    @property
-    def waypoints_tf(self):
-        return self._waypoints_tf
-
-    @waypoints.setter
-    def waypoints(self, waypoints):
-        self._waypoints = waypoints
-        if not hasattr(self, "_waypoints_tf"):
-            self._waypoints_tf = tf.Variable(waypoints, dtype=tf.float32)
-        else:
-            self._waypoints_tf.assign(waypoints)
-
-    # endregion
-
-    # region Updating target position
-    @property
-    def target_position(self):
-        return self._target_position
-
-    @property
-    def target_position_tf(self):  # FIXME: What with torch?
-        return self._target_position_tf
-
-    @target_position.setter
-    def target_position(self, target_position):
-        self._target_position = target_position
-        if not hasattr(self, "_target_position_tf"):
-            self._target_position_tf = tf.Variable(target_position, dtype=tf.float32)  # FIXME: This kind of variable is not "declared" , neither in cartpole
-        else:
-            self._target_position_tf.assign(target_position)
-            
-    # endregion
 
     # endregion
 

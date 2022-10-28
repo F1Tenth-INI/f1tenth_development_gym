@@ -4,7 +4,7 @@ class Settings:
 
     CONTROLLER = 'mpc'
 
-    SYSTEM = 'car'
+    ENVIRONMENT_NAME = 'Car'
     QUAD_VIZ = True
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment

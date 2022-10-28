@@ -1,18 +1,13 @@
-import yaml
-
 import tensorflow as tf
 
 from utilities.state_utilities import *
 
-from Control_Toolkit_ASF.CostFunctions.f1t_cost_function import f1t_cost_function
+from Control_Toolkit_ASF.CostFunctions.Car.f1t_cost_function import f1t_cost_function
 
 
 class racing(f1t_cost_function):
-    def __init__(self, env):
-        super().__init__(env)
 
-    def get_terminal_cost(self, s_hor):
-        terminal_state = s_hor[:, -1, :]
+    def get_terminal_cost(self, terminal_state):
         terminal_speed_cost = self.get_terminal_speed_cost(terminal_state)
         terminal_cost = terminal_speed_cost
 
