@@ -1,9 +1,10 @@
-
 import yaml
-from typing import Union
-import tensorflow as tf
-from Control_Toolkit.Cost_Functions import cost_function_base
 
+import tensorflow as tf
+
+from Control_Toolkit.Cost_Functions import cost_function_base
+from Control_Toolkit.Controllers import template_controller
+from SI_Toolkit.computation_library import ComputationLibrary
 
 from utilities.state_utilities import LINEAR_VEL_X_IDX, TRANSLATIONAL_CONTROL_IDX, ANGULAR_CONTROL_IDX
 
@@ -37,8 +38,8 @@ target_distance_cost_weight = config["controller"][mpc_type]["target_distance_co
 
 
 class f1t_cost_function(cost_function_base):
-    def __init__(self, environment) -> None:
-
+    def __init__(self, controller: template_controller, ComputationLib: "type[ComputationLibrary]") -> None:
+        super(f1t_cost_function, self).__init__(controller, ComputationLib)
         self._P1 = None
         self._P2 = None
 

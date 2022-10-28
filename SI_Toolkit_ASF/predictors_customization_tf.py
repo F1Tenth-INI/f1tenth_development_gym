@@ -17,12 +17,12 @@ class next_state_predictor_ODE_tf():
         self.t_step = dt / float(self.intermediate_steps)
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        if Settings.SYSTEM == 'car':
+        if Settings.ENVIRONMENT_NAME == 'Car':
             from SI_Toolkit_ASF.f1t_model import f1t_model
             self.env = f1t_model(dt=dt, intermediate_steps=intermediate_steps, **{**config['f1t_car_model'], **{
                 "num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
         else:
-            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.SYSTEM))
+            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
         if disable_individual_compilation:
             self.step = self._step
