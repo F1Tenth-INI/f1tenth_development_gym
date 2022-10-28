@@ -8,7 +8,7 @@ mppi-tf:
   NU: 1000.0                            # Exploration variance
   SQRTRHOINV: [ 0.5, 0.5 ]              # Sampling variance
   GAMMA: 1.00                           # Future cost discount
-  period_interpolation_inducing_points: 10                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
+  period_interpolation_inducing_points: 1                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
   predictor_specification: "ODE_TF"     # Can be "ODE", "ODE_TF", network/GP name (possibly with path) e.g. 'GRU-6IN-32H1-32H2-5OUT-0'/'SGP_30' or a name of a custom predictor. For more info see config_predictors in SI_Toolkit_ASF
 
   # Double check that the two values below are the same as in the cost function config!!!
