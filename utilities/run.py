@@ -41,8 +41,23 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    # planner1 = mpc_planner()
-    planner1 = FollowTheGapPlanner()
+
+    if Settings.CONTROLLER == 'mpc':
+        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
+        planner1 = mpc_planner()
+    elif Settings.CONTROLLER == 'ftg':
+        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
+        planner1 = FollowTheGapPlanner()
+    elif Settings.CONTROLLER == 'neural':
+        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
+        planner1 = NeuralNetImitatorPlanner()
+    elif Settings.CONTROLLER == 'pp':
+        # FIXME: Out of order
+        from others.examples.pure_pursuit_planner import PurePursuitPlanner
+        planner1 = PurePursuitPlanner(Settings.MAP_CONFIG_FILE)
+    else:
+        NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
+
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
     planner1.plot_lidar_data = False
