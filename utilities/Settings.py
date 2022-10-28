@@ -12,11 +12,13 @@ class Settings:
     # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
     WITH_PID = False
 
+    DISABLE_AUTOMATIC_TIMEOUT = True
+
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if default termination after two laps is off.
+    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
     

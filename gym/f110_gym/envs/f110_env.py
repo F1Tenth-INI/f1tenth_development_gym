@@ -24,6 +24,8 @@
 Author: Hongrui Zheng
 '''
 
+from utilities.Settings import Settings
+
 # gym imports
 import gym
 from gym import error, spaces, utils
@@ -235,7 +237,7 @@ class F110Env(gym.Env):
 
         dist2 = delta_pt[0, :]**2 + temp_y**2
         closes = dist2 <= 0.1
-        #### Comment the for loop below for to make uninterrupted long recording (not clear, what exactly it disables) ####
+
         for i in range(self.num_agents):
             if closes[i] and not self.near_starts[i]:
                 self.near_starts[i] = True
@@ -246,8 +248,11 @@ class F110Env(gym.Env):
             self.lap_counts[i] = self.toggle_list[i] // 2
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
-        
-        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
+
+        if Settings.DISABLE_AUTOMATIC_TIMEOUT:
+            done = (self.collisions[self.ego_idx])
+        else:
+            done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
         
         return done, self.toggle_list >= 4
 
