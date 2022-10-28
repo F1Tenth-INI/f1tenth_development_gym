@@ -60,6 +60,29 @@ else:
     STEERING_ANGLE_IDX = None
 
 
+def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
+    """
+    Constructor of car state from named arguments. The order of variables is fixed in STATE_VARIABLES.
+
+    Input parameters are passed as a dict with the following possible keys. Other keys are ignored.
+    Unset key-value pairs are initialized to 0.
+    """
+    state["pose_theta_cos"] = (
+        np.cos(state["pose_theta"]) if "pose_theta" in state.keys() else np.cos(0.0)
+    )
+    state["pose_theta_sin"] = (
+        np.sin(state["pose_theta"]) if "pose_theta" in state.keys() else np.sin(0.0)
+    )
+
+    if dtype is None:
+        dtype = np.float32
+
+    s = np.zeros_like(STATE_VARIABLES, dtype=np.float32)
+    for i, v in enumerate(STATE_VARIABLES):
+        s[i] = state.get(v) if v in state.keys() else s[i]
+    return s
+
+
 def full_state_original_to_alphabetical(o):
     alphabetical = np.array([o[5], o[3], o[4], np.cos(o[4]), np.sin(o[4]), o[0], o[1], o[6], o[2]])
     return alphabetical

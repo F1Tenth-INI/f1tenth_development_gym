@@ -6,7 +6,8 @@ from typing import Optional, Tuple, Union
 from gym import spaces
 
 from utilities.Settings import Settings
-from Control_Toolkit.others.environment import EnvironmentBatched, TensorFlowLibrary
+from Control_Toolkit.others.environment import EnvironmentBatched
+from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
@@ -34,6 +35,8 @@ class f1t_model(EnvironmentBatched):
 
     def __init__(
             self,
+            dt=0.025,
+            intermediate_steps=1,
             batch_size=1,
             computation_lib=TensorFlowLibrary,
             **kwargs
@@ -46,8 +49,7 @@ class f1t_model(EnvironmentBatched):
         self._state = None  # here just a placeholder, change line below
         self.state = None
 
-        self.dt = kwargs["dt"]
-        intermediate_steps = kwargs["intermediate_steps"]
+        self.dt = dt
 
         self._batch_size = batch_size
 

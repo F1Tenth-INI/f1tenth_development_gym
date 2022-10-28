@@ -18,7 +18,6 @@ from utilities.state_utilities import (
     LINEAR_VEL_X_IDX,
     odometry_dict_to_state
 )
-from SI_Toolkit_ASF.f1t_model import f1t_model
 
 from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import find_largest_gap_middle_point
 
@@ -31,9 +30,7 @@ else:
 
 NUM_TRAJECTORIES_TO_PLOT = Settings.NUM_TRAJECTORIES_TO_PLOT
 
-# from Control_Toolkit_ASF.Controllers.MPPI_Marcin.controller_mppi_tf import controller_mppi_tf
-from Control_Toolkit.Controllers.controller_mppi_tf import controller_mppi_tf
-from Control_Toolkit.Controllers.controller_dist_adam_resamp2_tf import controller_dist_adam_resamp2_tf
+from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPPI_Marcin.SpeedGenerator import SpeedGenerator
@@ -70,16 +67,11 @@ class MPC_F1TENTH:
             self.wpts_opt=waypoints
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        self.f1t_model = f1t_model(**{**config['f1t_car_model'], **{"num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
-        mpc_type = config["controller"]['general']['mpc_type']
-
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
         self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
 
-        if mpc_type == 'MPPI':
-            self.mpc = controller_mppi_tf(self.f1t_model, **{**config['controller']['mppi-tf'], **{"num_control_inputs": config["num_control_inputs"]}})
-        elif mpc_type == 'RPGD':
-            self.mpc = controller_dist_adam_resamp2_tf(self.f1t_model, **{**config['controller']['dist-adam-resamp2'], **{"num_control_inputs": config["num_control_inputs"]}})
+        if Settings.CONTROLLER:
+            self.mpc = controller_mpc()
         else:
             raise NotImplementedError
 

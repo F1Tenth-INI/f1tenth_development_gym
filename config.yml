@@ -4,34 +4,14 @@ controller:
     mpc_type: 'RPGD'                        # RPGD, MPPI
     cost_function: 'racing'                 # from 'racing', 'following_target'
   mppi-tf:
-    # TODO: Clearer destiction between params which are part of controller and these which are part of cost function
-    seed: null                            # Seed for rng, for MPPI only, put "None" to set random seed (do it when you generate data for training!)
-    dt: 0.025                                # sec
-    mpc_horizon: 20                        #
-    control_interpolation_steps: 1          # Increase resolution for control inputs for smoother trajectories and higher resolution for future positions
-    # FIXME:  We want to interpolate trajectory instead
-    num_rollouts: 2000                      # Number of Monte Carlo samples
-    update_every: 1                       # Cost weighted update of inputs every ... steps
-    predictor_name: "predictor_ODE_tf"    # One of ["predictor_ODE", "predictor_ODE_tf", "predictor_autoregressive_tf", "predictor_autoregressive_GP"]
-    predictor_intermediate_steps: 10      # FIXME: Taken from environment, necessary still here to prevent crash
-    NET_NAME: 'Dense-5IN-64H1-64H2-3OUT-0'  # Applies only if predictor_type is NeuralNet
+
+    R: 1.0
+
     dd_weight: 0.0
     cc_weight: 0.0
     ccrc_weight: 0.0
     cost_noise: 0.0                       # Noise on stage cost weights by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0 othewise
     control_noise: 0.0                    # Noise on top of the calculated control input by +/- this value, we usually set 0.5 to explore various controllers while collecting data for training, 0.1 to test an not-ideal case
-    R: 1.0                                # How much to punish Q
-    LBD: 0.001                          # Cost parameter lambda
-    LBD_mc: 10.0
-    NU: 1000.0                            # Exploration variance
-    NU_mc: 20.0                              # Exploration variance for mathematical correct version
-    SQRTRHOINV: [ 0.5, 0.5 ]                #Speed, steering
-    SQRTRHOINV_mc: [ 0.002 ]                      # Sampling variance
-    GAMMA: 1.00                           # Future cost discount
-    SAMPLING_TYPE: "interpolated"         # One of ["iid", "random_walk", "uniform", "repeated", "interpolated"]
-    INTERPOLATION_STEP: 2                 # Only matters if SAMPLING_TYPE: "interpolated"
-    LOGGING: False                        # Collect and show detailed insights into the controller's behavior
-    WASH_OUT_LEN: 100                     # Only matters if RNN used as predictor; For how long MPPI should be desactivated (replaced either with LQR or random input) to give memory units time to settle
 
     # Added for car racing
     acceleration_cost_weight: 0.0
@@ -44,27 +24,9 @@ controller:
 
 
   dist-adam-resamp2:
-    NET_NAME: GRU-6IN-32H1-32H2-5OUT-0
-    SAMPLING_TYPE: interpolated
-    interpolation_step: 2
-    cem_LR: 0.05
-    adam_beta_1: 0.9
-    adam_beta_2: 0.999
-    adam_epsilon: 1.0e-08
-    gradmax_clip: 5
-    rtol: 1.0e-3
-    num_rollouts: 32
-    opt_keep_k: 8
-    outer_its: 2
-    predictor_intermediate_steps: 1  # FIXME: Taken from environment, necessary still here to prevent crash
-    predictor_name: predictor_ODE_tf
-    resamp_per: 5
-    sample_stdev: 0.2
-    warmup: false
-    warmup_iterations: 250
+
     seed: 12345
     dt: 0.025
-    mpc_horizon: 20
 
     # Added for car racing
     acceleration_cost_weight: 0.3
@@ -85,8 +47,6 @@ num_control_inputs: 2
 f1t_car_model:
   seed: 1
   model_of_car_dynamics: 'ODE:st'
-  intermediate_steps: 1
-  dt: 0.025
 #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
   CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
 planner:
