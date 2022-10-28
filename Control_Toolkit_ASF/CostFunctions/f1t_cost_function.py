@@ -2,9 +2,8 @@
 import yaml
 from typing import Union
 import tensorflow as tf
+from Control_Toolkit.Cost_Functions import cost_function_base
 
-
-from Control_Toolkit.others.environment import NumpyLibrary, TensorFlowLibrary
 
 from utilities.state_utilities import LINEAR_VEL_X_IDX, TRANSLATIONAL_CONTROL_IDX, ANGULAR_CONTROL_IDX
 
@@ -37,42 +36,13 @@ terminal_speed_cost_weight = config["controller"][mpc_type]["terminal_speed_cost
 target_distance_cost_weight = config["controller"][mpc_type]["target_distance_cost_weight"]
 
 
-class f1t_cost_function:
+class f1t_cost_function(cost_function_base):
     def __init__(self, environment) -> None:
-        self.env_mock = environment
-        self.lib = self.env_mock.lib
 
         self._P1 = None
         self._P2 = None
 
-        if self.env_mock.lib == TensorFlowLibrary:
-            self.LIDAR_attribute = "LIDAR_tf"
-            self.waypoints_attribute = "waypoints_tf"
-            self.target_position_attribute = "target_position_tf"
-        elif self.env_mock.lib == NumpyLibrary:
-            self.LIDAR_attribute = "LIDAR"
-            self.waypoints_attribute = "waypoints"
-            self.target_position_attribute = "target_position"
-        else:
-            raise ValueError(
-                "Currently, this cost function only supports environment written in TensorFlow or NumPy (not PyTorch etc.)"
-            )
 
-    # region Getting changing variables of the cost function
-
-    @property
-    def LIDAR(self) -> Union[float, tf.Variable]:
-        return getattr(self.env_mock, self.LIDAR_attribute)
-
-    @property
-    def waypoints(self) -> Union[float, tf.Variable]:
-        return getattr(self.env_mock, self.waypoints_attribute)
-
-    @property
-    def target_position(self) -> Union[float, tf.Variable]:
-        return getattr(self.env_mock, self.target_position_attribute)
-
-    # endregion
 
     # region updating P1 & P2
     @property

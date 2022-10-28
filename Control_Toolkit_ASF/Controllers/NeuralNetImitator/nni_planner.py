@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
 from SI_Toolkit.Functions.TF.Compile import CompileTF
 
-from Control_Toolkit.others.environment import TensorFlowLibrary
+from SI_Toolkit.computation_library import TensorFlowLibrary
 
 NET_NAME = 'Dense-68IN-128H1-128H2-2OUT-0'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'

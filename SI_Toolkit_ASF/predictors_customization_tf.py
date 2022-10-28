@@ -1,31 +1,38 @@
+import yaml
 import tensorflow as tf
 
 from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from utilities.state_utilities import *
 
-
-class next_state_predictor_ODE_tf:
-    def __init__(self, dt: float, intermediate_steps: int, batch_size: int, planning_environment, **kwargs):
-        self.s = None
-
-        self.env = planning_environment
-
-        # self.intermediate_steps = tf.convert_to_tensor(
-        #     intermediate_steps, dtype=tf.int32
-        # )
-        # self.t_step = tf.convert_to_tensor(
-        #     dt / float(self.intermediate_steps), dtype=tf.float32
-        # )
-        # self.env.dt = self.t_step
-
-    def step(self, s, Q, params):
-        next_state = self.env.step_dynamics(s, Q, params)
-        return next_state
+from utilities.Settings import Settings
 
 
+class next_state_predictor_ODE_tf():
 
+    def __init__(self, dt, intermediate_steps, batch_size=1, disable_individual_compilation=False, planning_environment=None):
+        self.s = tf.convert_to_tensor(create_car_state())
 
+        self.intermediate_steps = intermediate_steps
+        self.t_step = dt / float(self.intermediate_steps)
+
+        config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+        if Settings.SYSTEM == 'car':
+            from SI_Toolkit_ASF.f1t_model import f1t_model
+            self.env = f1t_model(dt=dt, intermediate_steps=intermediate_steps, **{**config['f1t_car_model'], **{
+                "num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
+        else:
+            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.SYSTEM))
+
+        if disable_individual_compilation:
+            self.step = self._step
+        else:
+            self.step = CompileTF(self._step)
+
+    def _step(self, s, Q, params):
+
+        s_next = self.env.step_dynamics(s, Q, params)
+        return s_next
 
 
 
