@@ -80,7 +80,7 @@ The function should return the desired speed and the desired angle
 The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/Cost_Functions).
 The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/Cost_Functions/f1t_cost_function.py), lines 63-72.
 
-On the controller side, these structure are at [SI_Toolkit_ASF/f1t_model.py](SI_Toolkit_ASF/f1t_model.py), lines 113-190.
+On the controller side, these structure are at [SI_Toolkit_ASF/car_model.py](SI_Toolkit_ASF/car_model.py), lines 113-190.
 
 
 <!-- For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle. -->

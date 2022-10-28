@@ -1,7 +1,3 @@
-import sys
-
-sys.path.insert(1, 'FollowtheGap')
-
 from pyglet.gl import GL_POINTS
 import pyglet.gl as gl
 from pyglet import shapes
@@ -18,9 +14,6 @@ from utilities.state_utilities import (
     LINEAR_VEL_X_IDX,
     odometry_dict_to_state
 )
-
-from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import find_largest_gap_middle_point
-
 
 if Settings.LOOK_FORWARD_ONLY:
     lidar_range_min = 200
@@ -60,13 +53,7 @@ class mpc_planner:
 
         self.time = 0.0
 
-        # Get waypoints
-        self.wpts_opt = None
-        if Settings.MAP_WAYPOINT_FILE is not None:
-            path = Settings.MAP_WAYPOINT_FILE
-            waypoints = pd.read_csv(path+'.csv', header=None).to_numpy()
-            waypoints=waypoints[0:-1:1,1:3]
-            self.wpts_opt=waypoints
+        self.wpts_opt = load_waypoints(Settings.MAP_WAYPOINT_FILE)
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
         self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
@@ -79,12 +66,10 @@ class mpc_planner:
         if Settings.ENVIRONMENT_NAME == 'Car':
             num_states = 9
             num_control_inputs = 2
-            if Settings.WITH_PID:  # MPC return velocity and steering angle
-                control_limits_low = np.array([-22, -1.2])  # Possible negative velocity, mostly to force PID to stronger reaction
-                control_limits_high = np.array([22, 1.2])
+            if not Settings.WITH_PID:  # MPC return velocity and steering angle
+                control_limits_low, control_limits_high =  get_control_limits([22, 1.2])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low = np.array([-7, -3.5])  # Possible negative velocity, mostly to force PID to stronger reaction
-                control_limits_high = np.array([7, 3.5])
+                control_limits_low, control_limits_high =  get_control_limits([7, 3.5])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
@@ -331,3 +316,24 @@ def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, loo
             nearest_waypoints_interpolated.append(interpolated_waypoint)
 
     return nearest_waypoints_interpolated, nearest_waypoint_index
+
+
+def get_control_limits(clip_control_input):
+    if isinstance(clip_control_input[0], list):
+        clip_control_input_low = np.array(clip_control_input[0])
+        clip_control_input_high = np.array(clip_control_input[1])
+    else:
+        clip_control_input_high = np.array(clip_control_input)
+        clip_control_input_low = -np.array(clip_control_input_high)
+
+    return clip_control_input_low, clip_control_input_high
+
+
+def load_waypoints(map_waypoint_file):
+    if map_waypoint_file is not None:
+        path = Settings.MAP_WAYPOINT_FILE
+        waypoints = pd.read_csv(path + '.csv', header=None).to_numpy()
+        waypoints = waypoints[0:-1:1, 1:3]
+        return waypoints
+    else:
+        return None

@@ -1,4 +1,3 @@
-import yaml
 import tensorflow as tf
 
 from SI_Toolkit.Functions.TF.Compile import CompileTF
@@ -7,20 +6,26 @@ from utilities.state_utilities import *
 
 from utilities.Settings import Settings
 
+environment_name = Settings.ENVIRONMENT_NAME
+model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
+with_pid = Settings.WITH_PID
 
 class next_state_predictor_ODE_tf():
 
-    def __init__(self, dt, intermediate_steps, batch_size=1, disable_individual_compilation=False, planning_environment=None):
+    def __init__(self, dt, intermediate_steps, batch_size=1, disable_individual_compilation=False):
         self.s = tf.convert_to_tensor(create_car_state())
 
         self.intermediate_steps = intermediate_steps
         self.t_step = dt / float(self.intermediate_steps)
 
-        config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        if Settings.ENVIRONMENT_NAME == 'Car':
-            from SI_Toolkit_ASF.f1t_model import f1t_model
-            self.env = f1t_model(dt=dt, intermediate_steps=intermediate_steps, **{**config['f1t_car_model'], **{
-                "num_control_inputs": config["num_control_inputs"]}})  # Environment model, keeping car ODEs
+        if environment_name == 'Car':
+            from SI_Toolkit_ASF.car_model import car_model
+            self.env = car_model(
+                model_of_car_dynamics=model_of_car_dynamics,
+                with_pid=with_pid,
+                dt=dt,
+                intermediate_steps=intermediate_steps,
+                                 )  # Environment model, keeping car ODEs
         else:
             raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
