@@ -1,8 +1,5 @@
 controller:
-  general:
-#    mpc_type: 'MPPI'                        # RPGD, MPPI
-    mpc_type: 'RPGD'                        # RPGD, MPPI
-    cost_function: 'racing'                 # from 'racing', 'following_target'
+
   mppi-tf:
     # Added for car racing
 
