@@ -45,8 +45,8 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    planner1 = mpc_planner()
-    # planner1 = FollowTheGapPlanner()
+    # planner1 = mpc_planner()
+    planner1 = FollowTheGapPlanner()
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
     # planner1 = NeuralNetImitatorPlanner()
