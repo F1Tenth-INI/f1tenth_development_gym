@@ -1,10 +1,6 @@
 
 
 # Import Planner Classes
-from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-from others.examples.pure_pursuit_planner import PurePursuitPlanner
-from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
 # from others.Controllers_obsolate.MPPI.mppi_planner import MppiPlanner
 # from others.Controllers_obsolate.xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
 # from others.Controllers_obsolate.xiang.ftg_planner_postqualification import FollowTheGapPlanner as FollowTheGapPlannerXiang2
@@ -49,7 +45,6 @@ def main():
     planner1 = FollowTheGapPlanner()
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
-    # planner1 = NeuralNetImitatorPlanner()
     planner1.plot_lidar_data = False
     planner1.draw_lidar_data = True
     planner1.lidar_visualization_color = (255, 0, 255)

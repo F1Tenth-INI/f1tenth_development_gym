@@ -2,7 +2,7 @@ class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    CONTROLLER = 'mpc'
+    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
