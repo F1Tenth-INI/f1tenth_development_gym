@@ -67,9 +67,9 @@ class mpc_planner:
             num_states = 9
             num_control_inputs = 2
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
-                control_limits_low, control_limits_high =  get_control_limits([22, 1.2])
+                control_limits_low, control_limits_high = get_control_limits([7, 3.5])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high =  get_control_limits([7, 3.5])
+                control_limits_low, control_limits_high = get_control_limits([22, 1.2])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
