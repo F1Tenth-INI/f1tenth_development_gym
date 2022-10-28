@@ -1,11 +1,5 @@
-import numpy as np
 import tensorflow as tf
-import torch
 
-from typing import Optional, Tuple, Union
-
-from utilities.Settings import Settings
-from Control_Toolkit.others.environment import EnvironmentBatched
 from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -19,157 +13,54 @@ from utilities.state_utilities import (
     TRANSLATIONAL_CONTROL_IDX,
 )
 
-class f1t_model(EnvironmentBatched):
-
-    """Accepts batches of data to environment
-
-        :param Continuous_MountainCarEnv: _description_
-        :type Continuous_MountainCarEnv: _type_
-        """
+class car_model:
 
     num_actions = 2
-    num_states = ...  # FIXME: Car model can have a various number of states, depending on how precise you model it...
+    num_states = 9
 
     def __init__(
             self,
-            dt=0.025,
+            model_of_car_dynamics: str,
+            with_pid: bool,
+            dt: float = 0.025,
             intermediate_steps=1,
-            batch_size=1,
             computation_lib=TensorFlowLibrary,
             **kwargs
     ):
 
-        self.config = {
-            **kwargs,
-        }
+        self.lib = computation_lib
 
-        self._state = None  # here just a placeholder, change line below
-        self.state = None
+        self.model_of_car_dynamics = model_of_car_dynamics
+        self.with_pid = with_pid
+        self.step_dynamics = None
+        self.set_model_of_car_dynamics(model_of_car_dynamics)
+
+        self.next_step_output = self.next_state_output_full_state
 
         self.dt = dt
-
-        self._batch_size = batch_size
-
-        self.set_computation_library(computation_lib)
-        self._set_up_rng(kwargs["seed"])
-
-        # Added for F1TENTH
-
-        self.model_of_car_dynamics = kwargs["model_of_car_dynamics"]
-
-        # clip_control_input = kwargs['CLIP_CONTROL_INPUT']
-        # if isinstance(clip_control_input[0], list):
-        #     clip_control_input_low = self.lib.constant(clip_control_input[0], self.lib.float32)
-        #     clip_control_input_high = self.lib.constant(clip_control_input[1], self.lib.float32)
-        # else:
-        #     clip_control_input_high = self.lib.constant(clip_control_input, self.lib.float32)
-        #     clip_control_input_low = -clip_control_input_high
-
-
-        if Settings.ONLY_ODOMETRY_AVAILABLE:
-            self.next_step_output = self.next_state_output_odom
-        else:
-            self.next_step_output = self.next_state_output_full_state
-
         self.intermediate_steps = self.lib.to_tensor(intermediate_steps, self.lib.int32)
         self.intermediate_steps_float = self.lib.to_tensor(intermediate_steps, self.lib.float32)
         self.t_step = self.lib.to_tensor(self.dt / float(self.intermediate_steps), self.lib.float32)
 
-        if self.model_of_car_dynamics == 'ODE:simple':
-            self._step_dynamics = self._step_dynamics_simple
-        elif self.model_of_car_dynamics == 'ODE:ks':
-            self._step_dynamics = self._step_dynamics_ks
-        elif self.model_of_car_dynamics == 'ODE:st':
-            if Settings.WITH_PID:
+    # region Various dynamical models for a car
+
+    def set_model_of_car_dynamics(self, model_of_car_dynamics):
+        if model_of_car_dynamics == 'ODE:simple':
+            self.step_dynamics = self._step_dynamics_simple
+        elif model_of_car_dynamics == 'ODE:ks':
+            self.step_dynamics = self._step_dynamics_ks
+        elif model_of_car_dynamics == 'ODE:st':
+            if self.with_pid:
                 self.step_dynamics = self._step_st_with_servo_and_motor_pid
             else:
                 self.step_dynamics = self._step_dynamics_st
-        elif self.model_of_car_dynamics == 'Neural Network':
-            raise NotImplementedError('Neural network model for F1TENTH is not implemented yet')
-
-    # endregion
-
-    def step_dynamics(
-            self,
-            state: Union[np.ndarray, tf.Tensor, torch.Tensor],
-            action: Union[np.ndarray, tf.Tensor, torch.Tensor]
-    ) -> Union[np.ndarray, tf.Tensor, torch.Tensor]:
-
-        state, action = self._expand_arrays(state, action)
-
-        state = self._step_dynamics(state, action)
-
-        return state
-
-    def step(
-        self, action: Union[np.ndarray, tf.Tensor, torch.Tensor]
-    ) -> Tuple[
-        Union[np.ndarray, tf.Tensor, torch.Tensor],
-        Union[np.ndarray, float],
-        Union[np.ndarray, bool],
-        dict,
-    ]:
-        self.state, action = self._expand_arrays(self.state, action)
-
-        # Perturb action if not in planning mode
-        # TODO: Set explicitly whether in planning or simulation mode, not infer from batch size
-        if self._batch_size == 1:
-            action = self._apply_actuator_noise(action)
-
-        self.state = self._step_dynamics(self.state, action)
-
-        done = self.is_done(self.state)
-        reward = self.get_reward(self.state, action)
-
-        if self._batch_size == 1:
-            self.renderer.render_step()
-            return (
-                self.lib.to_numpy(self.lib.squeeze(self.state)),
-                float(reward),
-                bool(done),
-                {},
-            )
-
-        return self.state, reward, done, {}
-
-    def reset(
-            self,
-            state: np.ndarray,
-            seed: Optional[int] = None,
-            return_info: bool = False,
-            options: Optional[dict] = None,
-    ) -> Tuple[np.ndarray, Optional[dict]]:
-        if seed is not None:
-            self._set_up_rng(seed)
-
-
-        if self.lib.ndim(state) < 2:
-            state = self.lib.unsqueeze(
-                self.lib.to_tensor(state, self.lib.float32), 0
-            )
-        if self.lib.shape(state)[0] == 1:
-            self.state = self.lib.tile(state, (self._batch_size, 1))
         else:
-            self.state = state
+            raise NotImplementedError(
+                '{} not recognized as a valid name for a model of car dynamics'.format(model_of_car_dynamics))
 
-        return self._get_reset_return_val()
+        self.model_of_car_dynamics = model_of_car_dynamics
 
-    def render(self, mode="human"):
-        pass
 
-    def is_done(self, state):
-        return False
-
-    def get_reward(self, state, action):
-        """
-        This is a single step (stage cost) reward.
-        Not used currently in F1TENTH.
-        Instead, see the corresponding cost_functions_wrapper
-        """
-        reward = None
-        return reward  # reward = - cost
-
-    # region Various dynamical models for a car
 
     def _step_dynamics_simple(self, s, Q, params):
         '''

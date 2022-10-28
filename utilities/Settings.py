@@ -1,11 +1,18 @@
-# Configuration for main
-# TODO: This all should end up in the main config
 class Settings:
 
-    CONTROLLER = 'mpc'
+    ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    ENVIRONMENT_NAME = 'Car'
-    QUAD_VIZ = True
+    CONTROLLER = 'mpc'
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
+    # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
+
+    # Decide if to use PID as in the original F1TENTH implementation
+    # Or bypass it.
+    # Warning: Even if set to True, the PID algorithm is modified
+    # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
+    WITH_PID = False
+
+    QUAD_VIZ = True  # Visualization, only for Quadruped
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
@@ -42,12 +49,6 @@ class Settings:
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
     LOOK_FORWARD_ONLY = False
-
-    # Decide if to use PID as in the original F1TENTH implementation
-    # Or bypass it.
-    # Warning: Even if set to True, the PID algorithm is modified
-    # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
-    WITH_PID = True
 
     # Decide if available state consists of full car state or only of odometry
     ONLY_ODOMETRY_AVAILABLE = False

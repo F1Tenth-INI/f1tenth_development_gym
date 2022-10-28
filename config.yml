@@ -1,26 +1,5 @@
-controller:
-
-  mppi-tf:
-    # Added for car racing
-
-
-
-  dist-adam-resamp2:
-
-    seed: 12345
-    dt: 0.025
-
-    # Added for car racing
-
-
-num_control_inputs: 2
-
-f1t_car_model:
-  seed: 1
-
-  model_of_car_dynamics: 'ODE:st'
-#  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
-  CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
 planner:
+  #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
+  CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
   LOOK_AHEAD_WAYPOINTS: 15
   INTERPOLATE_WAYPOINTS: 4
