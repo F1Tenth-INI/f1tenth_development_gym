@@ -4,8 +4,6 @@ mppi-tf:
   seed: null                            # Seed for rng, for MPPI only, put null to set random seed (do it when you generate data for training!)
   mpc_horizon: 20                       # steps
   num_rollouts: 2000                    # Number of Monte Carlo samples
-  cc_weight: 1.0
-  R: 1.0                                # How much to punish Q
   LBD: 0.001                            # Cost parameter lambda
   NU: 1000.0                            # Exploration variance
   SQRTRHOINV: [ 0.5, 0.5 ]              # Sampling variance
