@@ -75,6 +75,7 @@ class mpc_planner:
 
         if Settings.CONTROLLER:
             self.mpc = controller_mpc(
+                dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
