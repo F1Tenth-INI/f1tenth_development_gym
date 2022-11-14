@@ -93,6 +93,7 @@ class mpc_planner:
         self.mpc.configure()
 
         self.Render = Render()
+        self.Render.wpts_opt = self.wpts_opt
         self.car_state = [0, 0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
@@ -167,7 +168,7 @@ class mpc_planner:
 
         optimal_trajectory = None
         self.Render.update(self.lidar_points, self.mpc.logs['rollout_trajectories_logged'][-1], self.mpc.logs['J_logged'][-1],
-            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point)
+            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point,  next_waypoints = self.next_waypoints)
         self.Render.current_state = s
 
         self.simulation_index += 1
@@ -183,7 +184,11 @@ class Render:
 
         self.draw_lidar_data = True
         self.draw_position_history = True
+        self.draw_waypoints = True
+        self.draw_next_waypoints = True
 
+        self.waypoint_visualization_color = (180, 180, 180)
+        self.waypoint_visualization_color = (180, 180, 180)
         self.lidar_visualization_color = (255, 0, 255)
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
@@ -191,12 +196,16 @@ class Render:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
 
+        self.waypoint_vertices = None
+        self.next_waypoint_vertices = None
         self.lidar_vertices = None
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
 
+        self.wpts_opt = None
+        self.next_waypoints = None
         self.lidar_border_points = None
         self.rollout_trajectory, self.traj_cost = None, None
         self.optimal_trajectory = None
@@ -205,7 +214,7 @@ class Render:
         self.current_state = None
 
     def update(self, lidar_points=None, rollout_trajectory=None, traj_cost=None, optimal_trajectory=None,
-               largest_gap_middle_point=None, target_point=None):
+               largest_gap_middle_point=None, target_point=None, next_waypoints=None):
         self.lidar_border_points = lidar_points
         if rollout_trajectory is not None:
             self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
@@ -213,10 +222,31 @@ class Render:
             self.optimal_trajectory = optimal_trajectory
         self.largest_gap_middle_point = largest_gap_middle_point
         self.target_point = target_point
+        self.next_waypoints = next_waypoints
 
     def render(self, e):
+        gl.glPointSize(1)
+        if self.draw_waypoints:        
+            scaled_points = 50.*np.array(self.wpts_opt)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            if self.waypoint_vertices is None:
+                self.waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                               ('c3B', self.waypoint_visualization_color * howmany))
+            else:
+                self.waypoint_vertices.vertices = scaled_points_flat
+                
+        if self.draw_next_waypoints and self.next_waypoints:
+            scaled_points = 50.*np.array(self.next_waypoints)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            if self.next_waypoint_vertices is None:
+                self.next_waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                               ('c3B', self.lidar_visualization_color * howmany))
+            else:
+                self.next_waypoint_vertices.vertices = scaled_points_flat
+            
         gl.glPointSize(3)
-
         if self.draw_position_history and self.current_state is not None:
             points = np.array([self.current_state[POSE_X_IDX], self.current_state[POSE_Y_IDX]])
             speed = self.current_state[LINEAR_VEL_X_IDX]
