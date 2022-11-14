@@ -1,6 +1,6 @@
 # TESTED:
 
-mppi-tf:
+mppi:
   seed: null                            # Seed for rng, for MPPI only, put null to set random seed (do it when you generate data for training!)
   mpc_horizon: 20                       # steps
   num_rollouts: 2000                    # Number of Monte Carlo samples

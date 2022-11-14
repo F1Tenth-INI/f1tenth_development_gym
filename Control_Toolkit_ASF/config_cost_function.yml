@@ -17,7 +17,7 @@ Car:
     target_distance_cost_weight: 0.0
 
     # Different optimizers works the best with different cost functions parameters
-    mppi-tf:
+    mppi:
 
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
