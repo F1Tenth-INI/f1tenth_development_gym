@@ -9,6 +9,8 @@ gym/f110_gym/unittest/centerline/
 docs/_build/
 *.mypy_cache/
 flycheck_*
+dev.py
+
 
 # Experiment data
 main/maps/WithRandomObstacles/*
