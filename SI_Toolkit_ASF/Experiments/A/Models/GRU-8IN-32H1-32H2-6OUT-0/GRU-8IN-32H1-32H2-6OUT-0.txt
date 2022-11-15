@@ -1,0 +1,44 @@
+CREATED:
+2022-11-02 at time 07:39:47
+
+WITH GIT REVISION:
+unknown
+
+LIBRARY:
+TF
+
+NET NAME:
+GRU-32H1-32H2
+
+NET FULL NAME:
+GRU-8IN-32H1-32H2-6OUT-0
+
+INPUTS:
+angular_control, translational_control, angular_vel_z, linear_vel_x, pose_theta_cos, pose_theta_sin, pose_x, pose_y
+
+OUTPUTS:
+angular_vel_z, linear_vel_x, pose_theta_cos, pose_theta_sin, pose_x, pose_y
+
+TYPE:
+GRU
+
+NORMALIZATION:
+./SI_Toolkit_ASF/Experiments/A/Models/GRU-8IN-32H1-32H2-6OUT-0/NI_2022-11-02_07-37-41.csv
+
+PARENT NET:
+Network trained from scratch
+
+WASH OUT LENGTH:
+1
+
+CONSTRUCT NETWORK:
+with cells
+
+TRAINING_FILES:
+./SI_Toolkit_ASF/Experiments/A//Recordings/Train/
+
+VALIDATION_FILES:
+./SI_Toolkit_ASF/Experiments/A//Recordings/Validate/
+
+TEST_FILES:
+./SI_Toolkit_ASF/Experiments/A//Recordings/Test/
