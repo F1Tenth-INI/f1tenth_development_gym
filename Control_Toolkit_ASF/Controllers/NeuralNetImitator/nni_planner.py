@@ -15,7 +15,7 @@ from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
-NET_NAME = 'Dense-68IN-128H1-128H2-2OUT-0'
+NET_NAME = 'GRU-68IN-32H1-32H2-2OUT-6'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 
 class NeuralNetImitatorPlanner:
@@ -61,7 +61,7 @@ class NeuralNetImitatorPlanner:
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        # Accelerate at the beginning (St model expoldes for small velocity)
+        # Accelerate at the beginning (St model explodes for small velocity)
         if self.simulation_index < 20:
             self.simulation_index += 1
             self.translational_control = 10
@@ -70,6 +70,7 @@ class NeuralNetImitatorPlanner:
 
         ranges = ranges[200:880]
         ranges = ranges[::10]
+        #ranges = ranges[::85] #Janged Neural if reduction of Lidar scans necessary
 
         net_input = tf.convert_to_tensor(ranges, tf.float32)
 

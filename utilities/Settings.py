@@ -2,7 +2,7 @@ class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'neural'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
@@ -16,20 +16,20 @@ class Settings:
 
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
-    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 3  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 3600  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
-    # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
+    MAP_CONFIG_FILE = "utilities/maps_files/config_Oschersleben.yaml"
+    #MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
     MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    # MAP_CONFIG_FILE =  "utilities/maps_files/config_empty_map.yaml"
-    # MAP_WAYPOINT_FILE =  None
+    #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
+    #MAP_WAYPOINT_FILE =  None
     
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
@@ -45,8 +45,8 @@ class Settings:
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
     # RENDER_MODE = None
-    RENDER_MODE = "human_fast"
-    # RENDER_MODE = "human"
+    #RENDER_MODE = "human_fast"
+    RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
