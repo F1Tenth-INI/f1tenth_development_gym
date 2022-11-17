@@ -8,20 +8,10 @@ from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
-    LINEAR_VEL_X_IDX,
     odometry_dict_to_state
 )
 
-if Settings.LOOK_FORWARD_ONLY:
-    lidar_range_min = 200
-    lidar_range_max = 880
-else:
-    lidar_range_min = 0
-    lidar_range_max = -1
-
-
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
-
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
@@ -122,8 +112,14 @@ class mpc_planner:
         else:
             s = self.car_state
 
+        if Settings.LOOK_FORWARD_ONLY:
+            lidar_range_min = 200
+            lidar_range_max = 880
+        else:
+            lidar_range_min = 0
+            lidar_range_max = -1
+            
         scans = np.array(ranges)
-
         distances = scans[lidar_range_min:lidar_range_max:5]  # Only use every 5th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 

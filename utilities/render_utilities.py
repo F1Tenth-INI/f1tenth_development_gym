@@ -14,7 +14,7 @@ class RenderUtils:
         self.draw_next_waypoints = True
 
         self.waypoint_visualization_color = (180, 180, 180)
-        self.waypoint_visualization_color = (180, 180, 180)
+        self.next_waypoint_visualization_color = (0, 127, 0)
         self.lidar_visualization_color = (255, 0, 255)
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
@@ -76,7 +76,7 @@ class RenderUtils:
             scaled_points_flat = scaled_points.flatten()
             if self.next_waypoint_vertices is None:
                 self.next_waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
-                                               ('c3B', self.lidar_visualization_color * howmany))
+                                               ('c3B', self.next_waypoint_visualization_color * howmany))
             else:
                 self.next_waypoint_vertices.vertices = scaled_points_flat
             
