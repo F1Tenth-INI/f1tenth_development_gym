@@ -53,14 +53,16 @@ class mpc_planner:
 
         self.time = 0.0
 
-        self.wpts_opt = load_waypoints(Settings.MAP_WAYPOINT_FILE)
 
         config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        self.look_ahead_waypoints = config['planner']['LOOK_AHEAD_WAYPOINTS']
         self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
+        self.look_ahead_waypoints = self.interpolate_waypoints * config['planner']['LOOK_AHEAD_WAYPOINTS']
+        
+        self.wpts_opt = load_waypoints(Settings.MAP_WAYPOINT_FILE)
+        self.wpts_opt = get_interpolated_waypoints(self.wpts_opt, self.interpolate_waypoints)
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
-        self.next_waypoints = np.zeros((self.look_ahead_waypoints*self.interpolate_waypoints, 2), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_waypoints, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
 
         if Settings.ENVIRONMENT_NAME == 'Car':
@@ -329,24 +331,30 @@ def get_nearest_waypoint_index(s, wpts):
 
     return min_dist_index
 
-def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead=15, interpolate_waypoints=4):
+def get_interpolated_waypoints(waypoints, interpolation_steps):
+    assert(interpolation_steps >= 1)
+    waypoints_interpolated = []
+    for j in range(len(waypoints) - 1):
+        for i in range(interpolation_steps):
+            interpolated_waypoint = waypoints[j] + (float(i)/interpolation_steps)*(waypoints[j+1]-waypoints[j])
+            waypoints_interpolated.append(interpolated_waypoint)
+    waypoints_interpolated.append(waypoints[-1])
+    return waypoints_interpolated
+
+
+def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead):
+    
     if nearest_waypoint_index is None:
         nearest_waypoint_index = get_nearest_waypoint_index(s, all_wpts)  # Run initial search of starting waypoint
     else:
         nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts)
 
     nearest_waypoints = []
-    for j in range(look_ahead+1):
+    for j in range(look_ahead):
         next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
         nearest_waypoints.append(next_waypoint)
-
-    nearest_waypoints_interpolated = []
-    for j in range(look_ahead):
-        for i in range(interpolate_waypoints):
-            interpolated_waypoint = nearest_waypoints[j] + (float(i)/interpolate_waypoints)*(nearest_waypoints[j+1]-nearest_waypoints[j])
-            nearest_waypoints_interpolated.append(interpolated_waypoint)
-
-    return nearest_waypoints_interpolated, nearest_waypoint_index
+        
+    return nearest_waypoints, nearest_waypoint_index
 
 
 def get_control_limits(clip_control_input):
