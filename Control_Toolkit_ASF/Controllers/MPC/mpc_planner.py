@@ -29,6 +29,8 @@ from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
+from utilities.waypoint_utils import WaypointUtils
+
 class mpc_planner:
     """
     Example Planner
@@ -52,17 +54,9 @@ class mpc_planner:
         self.nearest_waypoint_index = None
 
         self.time = 0.0
-
-
-        config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
-        self.interpolate_waypoints = config['planner']['INTERPOLATE_WAYPOINTS']
-        self.look_ahead_waypoints = self.interpolate_waypoints * config['planner']['LOOK_AHEAD_WAYPOINTS']
-        
-        self.wpts_opt = load_waypoints(Settings.MAP_WAYPOINT_FILE)
-        self.wpts_opt = get_interpolated_waypoints(self.wpts_opt, self.interpolate_waypoints)
+        self.waypoint_utils = WaypointUtils()
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
-        self.next_waypoints = np.zeros((self.look_ahead_waypoints, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
 
         if Settings.ENVIRONMENT_NAME == 'Car':
@@ -81,7 +75,7 @@ class mpc_planner:
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
-                    "next_waypoints": self.next_waypoints,
+                    "next_waypoints": self.waypoint_utils.next_waypoints,
                     "target_point": self.target_point
 
                 },
@@ -95,7 +89,7 @@ class mpc_planner:
         self.mpc.configure()
 
         self.Render = Render()
-        self.Render.wpts_opt = self.wpts_opt
+        self.Render.wpts_opt = self.waypoint_utils.waypoints
         self.car_state = [0, 0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
@@ -148,17 +142,13 @@ class mpc_planner:
         if (Settings.FOLLOW_RANDOM_TARGETS):
             target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
-        self.next_waypoints, self.nearest_waypoint_index = get_nearest_waypoints(s,
-                                                                                      self.wpts_opt,
-                                                                                      self.next_waypoints,
-                                                                                      self.nearest_waypoint_index,
-                                                                                      look_ahead=self.look_ahead_waypoints)
+        self.waypoint_utils.update_next_waypoints(s)
 
         translational_control, angular_control = self.mpc.step(s,
                                                                self.time,
                                                                {
                                                                    "lidar_points": self.lidar_points,
-                                                                   "next_waypoints": self.next_waypoints,
+                                                                   "next_waypoints": self.waypoint_utils.next_waypoints,
                                                                    "target_point": self.target_point,
 
                                                                })
@@ -170,7 +160,7 @@ class mpc_planner:
 
         optimal_trajectory = None
         self.Render.update(self.lidar_points, self.mpc.logs['rollout_trajectories_logged'][-1], self.mpc.logs['J_logged'][-1],
-            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point,  next_waypoints = self.next_waypoints)
+            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point,  next_waypoints = self.waypoint_utils.next_waypoints)
         self.Render.current_state = s
 
         self.simulation_index += 1
@@ -312,49 +302,7 @@ class Render:
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
 
-def get_nearest_waypoint_index(s, wpts):
 
-    min_dist = 10000
-    min_dist_index = 0
-    position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-
-    def squared_distance(p1, p2):
-        squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
-        return squared_distance
-
-    for i in range(len(wpts)):
-
-        dist = squared_distance(wpts[i], position)
-        if (dist) < min_dist:
-            min_dist = dist
-            min_dist_index = i
-
-    return min_dist_index
-
-def get_interpolated_waypoints(waypoints, interpolation_steps):
-    assert(interpolation_steps >= 1)
-    waypoints_interpolated = []
-    for j in range(len(waypoints) - 1):
-        for i in range(interpolation_steps):
-            interpolated_waypoint = waypoints[j] + (float(i)/interpolation_steps)*(waypoints[j+1]-waypoints[j])
-            waypoints_interpolated.append(interpolated_waypoint)
-    waypoints_interpolated.append(waypoints[-1])
-    return waypoints_interpolated
-
-
-def get_nearest_waypoints(s, all_wpts, current_wpts, nearest_waypoint_index, look_ahead):
-    
-    if nearest_waypoint_index is None:
-        nearest_waypoint_index = get_nearest_waypoint_index(s, all_wpts)  # Run initial search of starting waypoint
-    else:
-        nearest_waypoint_index += get_nearest_waypoint_index(s, current_wpts)
-
-    nearest_waypoints = []
-    for j in range(look_ahead):
-        next_waypoint = all_wpts[(nearest_waypoint_index + j) % len(all_wpts)]
-        nearest_waypoints.append(next_waypoint)
-        
-    return nearest_waypoints, nearest_waypoint_index
 
 
 def get_control_limits(clip_control_input):
@@ -367,12 +315,3 @@ def get_control_limits(clip_control_input):
 
     return clip_control_input_low, clip_control_input_high
 
-
-def load_waypoints(map_waypoint_file):
-    if map_waypoint_file is not None:
-        path = Settings.MAP_WAYPOINT_FILE
-        waypoints = pd.read_csv(path + '.csv', header=None).to_numpy()
-        waypoints = waypoints[0:-1:1, 1:3]
-        return waypoints
-    else:
-        return None
