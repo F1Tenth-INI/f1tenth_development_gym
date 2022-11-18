@@ -31,7 +31,6 @@ class mpc_planner:
         self.lidar_live_points = []
         self.lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
         self.simulation_index = 0
-        self.plot_lidar_data = False
 
         self.largest_gap_middle_point = None
         self.largest_gap_middle_point = None
@@ -60,7 +59,7 @@ class mpc_planner:
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
-                    "next_waypoints": self.waypoint_utils.next_waypoints,
+                    "next_waypoints": self.waypoint_utils.next_waypoint_positions,
                     "target_point": self.target_point
 
                 },
@@ -74,13 +73,11 @@ class mpc_planner:
         self.mpc.configure()
 
         self.Render = RenderUtils()
-        self.Render.waypoints = self.waypoint_utils.waypoints
+        self.Render.waypoints = self.waypoint_utils.waypoint_positions
         
         self.car_state = [0, 0, 0, 0, 0, 0, 0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
-
-
 
     def render(self, e):
         self.Render.render(e)
@@ -127,20 +124,20 @@ class mpc_planner:
         p2 = s[POSE_Y_IDX] + distances * np.sin(angles + s[POSE_THETA_IDX])
         self.lidar_points = np.stack((p1, p2), axis=1)
 
-        # self.largest_gap_middle_point, largest_gap_middle_point_distance, largest_gap_center = find_largest_gap_middle_point(pose_x, pose_y, pose_theta, distances, angles)
-        # target_point = self.largest_gap_middle_point
-        target_point = [0, 0]  # dont need the target point for racing anymore
+
+        self.target_point = [0, 0]  # dont need the target point for racing anymore
 
         if (Settings.FOLLOW_RANDOM_TARGETS):
-            target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
+            self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
-        self.waypoint_utils.update_next_waypoints(s)
+        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
+        self.waypoint_utils.update_next_waypoints(car_position)
 
         translational_control, angular_control = self.mpc.step(s,
                                                                self.time,
                                                                {
                                                                    "lidar_points": self.lidar_points,
-                                                                   "next_waypoints": self.waypoint_utils.next_waypoints,
+                                                                   "next_waypoints": self.waypoint_utils.next_waypoint_positions,
                                                                    "target_point": self.target_point,
 
                                                                })
@@ -150,15 +147,20 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
-        optimal_trajectory = None
-        self.Render.update(self.lidar_points, self.mpc.logs['rollout_trajectories_logged'][-1], self.mpc.logs['J_logged'][-1],
-            optimal_trajectory, self.largest_gap_middle_point, target_point=target_point,  next_waypoints = self.waypoint_utils.next_waypoints)
-        self.Render.current_state = s
+        # TODO: pass optimal trajectory
+        self.Render.update(
+            lidar_points=self.lidar_points,
+            rollout_trajectory=self.mpc.logs['rollout_trajectories_logged'][-1],
+            traj_cost=self.mpc.logs['J_logged'][-1],
+            next_waypoints= self.waypoint_utils.next_waypoint_positions,
+            car_state = s
+        )
+        
 
-        self.simulation_index += 1
 
         self.translational_control = translational_control
         self.angular_control = angular_control
+        self.simulation_index += 1
 
         return translational_control, angular_control
 
