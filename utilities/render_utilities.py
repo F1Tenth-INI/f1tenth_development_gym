@@ -5,6 +5,33 @@ import numpy as np
 from utilities.state_utilities import *
 
 
+'''
+HOW TO USE:
+
+1. Use render utilities to render data from your planner class:
+
+# Import 
+from utilities.waypoint_utils import WaypointUtils
+
+#Initialize
+self.Render = RenderUtils()
+
+# If there are waypoints to be rendered initially, pass them after initialization
+self.Render.waypoints = self.waypoint_utils.waypoint_positions 
+
+# Implement the render function inside your planner class (it will be called from the Gym at every step)
+def render(self, e):
+    self.Render.render(e)
+
+# At every step update the data to be rendered
+self.Render.update(
+    lidar_points=self.lidar_points,
+    next_waypoints= self.waypoint_utils.next_waypoint_positions,
+    car_state = s
+    [... more arguments to be implemented ...]
+)
+
+'''
 class RenderUtils:
     def __init__(self):
 
@@ -37,7 +64,7 @@ class RenderUtils:
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None
         self.target_point = None
-        self.current_state = None
+        self.car_state = None
 
     # Pass all data that is updated during simulation
     def update(self, 
@@ -47,7 +74,8 @@ class RenderUtils:
                optimal_trajectory=None,
                largest_gap_middle_point=None, 
                target_point=None, 
-               next_waypoints=None):
+               next_waypoints=None,
+               car_state = None,):
         
         
         self.lidar_border_points = lidar_points
@@ -56,6 +84,7 @@ class RenderUtils:
         self.largest_gap_middle_point = largest_gap_middle_point
         self.target_point = target_point
         self.next_waypoints = next_waypoints
+        self.car_state = car_state
 
     def render(self, e):
         
@@ -70,7 +99,7 @@ class RenderUtils:
                                                ('c3B', self.waypoint_visualization_color * howmany))
    
                 
-        if self.draw_next_waypoints and self.next_waypoints:
+        if self.draw_next_waypoints and self.next_waypoints is not None:
             scaled_points = RenderUtils.get_scaled_points(self.next_waypoints)
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
@@ -81,9 +110,9 @@ class RenderUtils:
                 self.next_waypoint_vertices.vertices = scaled_points_flat
             
         gl.glPointSize(3)
-        if self.draw_position_history and self.current_state is not None:
-            points = np.array([self.current_state[POSE_X_IDX], self.current_state[POSE_Y_IDX]])
-            speed = self.current_state[LINEAR_VEL_X_IDX]
+        if self.draw_position_history and self.car_state is not None:
+            points = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
+            speed = self.car_state[LINEAR_VEL_X_IDX]
             scaled_points = RenderUtils.get_scaled_points(points)
             
             e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
