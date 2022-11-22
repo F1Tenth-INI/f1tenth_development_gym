@@ -24,9 +24,9 @@ Car:
       desired_max_speed: 18.5               # desired max speed for the car [m/s]
 
     rpgd-tf:
-      acceleration_cost_weight: 0.3
+      acceleration_cost_weight: 0.0
       max_acceleration: 0.0
-      desired_max_speed: 10.5               # desired max speed for the car [m/s]
+      desired_max_speed: 16.0               # desired max speed for the car [m/s]
 
   following_target:
     # TODO: The parameters not set yet, same as for racing
