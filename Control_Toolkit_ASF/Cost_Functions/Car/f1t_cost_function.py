@@ -85,8 +85,7 @@ class f1t_cost_function(cost_function_base):
         ''' Compute penality for deviation from desired max speed'''
         terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
 
-        desired_speed = tf.fill(tf.shape(terminal_speed), desired_max_speed)
-        speed_diff = tf.abs(terminal_speed - desired_speed)
+        speed_diff = tf.abs(terminal_speed - desired_max_speed)
         terminal_speed_cost = terminal_speed_cost_weight * speed_diff
 
         return terminal_speed_cost
@@ -182,9 +181,9 @@ class f1t_cost_function(cost_function_base):
     def get_target_distance_cost(self, trajectories, target_points):
         return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
-    def get_distance_to_waypoints_cost(self, trajectories, next_waypoints):
-        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories, self.controller.next_waypoints) * distance_to_waypoints_cost_weight
-
+    def get_distance_to_waypoints_cost(self, s, next_waypoints):
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        return self.get_distances_from_trajectory_points_to_closest_target_point(car_positions, self.controller.next_waypoints) * distance_to_waypoints_cost_weight
 
     def distances_from_list_to_list_of_points(self, points1, points2):
 

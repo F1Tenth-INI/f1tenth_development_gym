@@ -299,6 +299,7 @@ class F110Env(gym.Env):
             'poses_x': obs['poses_x'],
             'poses_y': obs['poses_y'],
             'poses_theta': obs['poses_theta'],
+            'linear_vels_x': obs['linear_vels_x'],
             'lap_times': obs['lap_times'],
             'lap_counts': obs['lap_counts']
             }
@@ -355,6 +356,7 @@ class F110Env(gym.Env):
             'poses_x': obs['poses_x'],
             'poses_y': obs['poses_y'],
             'poses_theta': obs['poses_theta'],
+            'linear_vels_x': obs['linear_vels_x'],
             'lap_times': obs['lap_times'],
             'lap_counts': obs['lap_counts']
             }
