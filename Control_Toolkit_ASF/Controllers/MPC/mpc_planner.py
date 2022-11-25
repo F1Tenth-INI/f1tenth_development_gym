@@ -1,6 +1,6 @@
 
 import numpy as np
-
+import math
 from utilities.Settings import Settings
 from utilities.waypoint_utils import WaypointUtils
 from utilities.render_utilities import RenderUtils
@@ -59,7 +59,7 @@ class mpc_planner:
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
-                    "next_waypoints": self.waypoint_utils.next_waypoint_positions,
+                    "next_waypoints": self.waypoint_utils.next_waypoints,
                     "target_point": self.target_point
 
                 },
@@ -98,7 +98,8 @@ class mpc_planner:
         """
 
         # Accelerate at the beginning (St model expoldes for small velocity)
-        if self.simulation_index < 20:
+        # Give it a little "Schupf"
+        if self.simulation_index < 1:
             self.simulation_index += 1
             self.translational_control = 10
             self.angular_control = 0
@@ -137,7 +138,7 @@ class mpc_planner:
                                                                self.time,
                                                                {
                                                                    "lidar_points": self.lidar_points,
-                                                                   "next_waypoints": self.waypoint_utils.next_waypoint_positions,
+                                                                   "next_waypoints": self.waypoint_utils.next_waypoints,
                                                                    "target_point": self.target_point,
 
                                                                })
@@ -156,10 +157,12 @@ class mpc_planner:
             car_state = s
         )
         
-
-
         self.translational_control = translational_control
         self.angular_control = angular_control
+        
+        # print("translational_control", translational_control)
+        # print("angular_control", angular_control)
+        
         self.simulation_index += 1
 
         return translational_control, angular_control

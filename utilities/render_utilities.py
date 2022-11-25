@@ -114,9 +114,14 @@ class RenderUtils:
             points = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
             speed = self.car_state[LINEAR_VEL_X_IDX]
             scaled_points = RenderUtils.get_scaled_points(points)
-            
+            # Color [r,g,b] values (int) between 0 and 255
+            color = [
+                min(int(10 * speed),255) ,
+                min(max(int(255- 10 * speed), 0), 255), 
+                0
+            ]
             e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
-                        ('c3B', (int(10 * speed), int(255- 10 * speed), 0)))
+                        ('c3B',color))
 
 
         if self.draw_lidar_data: 
