@@ -21,7 +21,7 @@ Car:
 
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
-      desired_max_speed: 18.5               # desired max speed for the car [m/s] #Janged 5.5
+      desired_max_speed: 5.5 #18.5               # desired max speed for the car [m/s]
 
     rpgd-tf:
       acceleration_cost_weight: 0.3
