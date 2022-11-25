@@ -11,6 +11,8 @@ docs/_build/
 flycheck_*
 dev.py
 
+# Pycharm
+.idea
 
 # Experiment data
 main/maps/WithRandomObstacles/*
