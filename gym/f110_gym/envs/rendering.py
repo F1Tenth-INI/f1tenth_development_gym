@@ -95,29 +95,18 @@ class EnvRenderer(pyglet.window.Window):
 
         # current score label
         self.score_label = pyglet.text.Label(
-                '1Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(
+                'Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(
                     laptime=0.0, count=0.0),
                 font_size=36,
                 x=0,
                 y=-800,
                 anchor_x='center',
                 anchor_y='center',
-                # width=0.01,
+                width=1200,
+                align='center',
                 # height=0.01,
                 color=(255, 255, 255, 255),
-                batch=self.batch)
-
-        self.state_label = pyglet.text.Label(
-                'State Label: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(
-                    laptime=0.0, count=0.0),
-                font_size=36,
-                x=0,
-                y=-600,
-                anchor_x='center',
-                anchor_y='center',
-                # width=0.01,
-                # height=0.01,
-                color=(255, 255, 255, 255),
+                multiline=True,
                 batch=self.batch)
 
         self.fps_display = pyglet.window.FPSDisplay(self)
@@ -325,7 +314,7 @@ class EnvRenderer(pyglet.window.Window):
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
         poses_theta = obs['poses_theta']
-
+        
         num_agents = len(poses_x)
         if self.poses is None:
             self.cars = []
@@ -348,8 +337,12 @@ class EnvRenderer(pyglet.window.Window):
             self.cars[j].vertices = vertices
         self.poses = poses
 
-        self.score_label.text = '2Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
+    
+        state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
+        self.score_label.text = '2-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
+        self.score_label.text +=  "\n" + state_text
 
+        
     def close(self):
         self.vertices = None
         super().close()

@@ -12,21 +12,23 @@ Car:
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
 
     steering_cost_weight: 0.0
-    terminal_speed_cost_weight: 1.0
+    terminal_speed_cost_weight: 0.0
+    velocity_diff_to_waypoints_cost_weight: 1.0
     distance_to_waypoints_cost_weight: 1.0
     target_distance_cost_weight: 0.0
 
     # Different optimizers works the best with different cost functions parameters
-    mppi-tf:
+    mppi:
 
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
-      desired_max_speed: 5.5 #18.5               # desired max speed for the car [m/s]
+      desired_max_speed: 5.0             # desired max speed for the car [m/s]
+      waypoint_velocity_factor : 2.2
 
     rpgd-tf:
-      acceleration_cost_weight: 0.3
+      acceleration_cost_weight: 0.0
       max_acceleration: 0.0
-      desired_max_speed: 10.5               # desired max speed for the car [m/s]
+      desired_max_speed: 16.0               # desired max speed for the car [m/s]
 
   following_target:
     # TODO: The parameters not set yet, same as for racing
