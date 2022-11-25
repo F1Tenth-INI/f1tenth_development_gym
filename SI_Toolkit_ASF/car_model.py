@@ -126,8 +126,10 @@ class car_model:
         theta = s[:, LINEAR_VEL_X_IDX]  # Speed
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
 
-        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        theta_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        delta_dot = Q[:, 1]  # steering angle velocity of front wheels
+        theta_dot = Q[:, 0]  # longitudinal acceleration
+        # delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        # theta_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # Constaints
         theta_dot = self.accl_constraints(theta, theta_dot)
@@ -199,28 +201,36 @@ class car_model:
         # Control Input
         delta_dot = Q[:, 1]  # steering angle velocity of front wheels
         theta_dot = Q[:, 0]  # longitudinal acceleration
+        
+        # theta = tf.clip_by_value(theta, 0.11, 1000)
+        min_vel_x = tf.reduce_min(theta)
+        if(tf.less(min_vel_x, 0.5)):
+            return self._step_dynamics_ks(s,Q, params)
 
         # Constaints
         theta_dot = self.accl_constraints(theta, theta_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
 
-        # switch to kinematic model for small velocities
-        min_speed_st = 0.1
-        speed_too_low_for_st_indices = self.lib.less(theta, min_speed_st)
-        speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
-
-        speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
-        speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
-
         # TODO: Use ks model for slow speed
+        # switch to kinematic model for small velocities
+        # min_speed_st = 0.1
+        # speed_too_low_for_st_indices = self.lib.less(theta, min_speed_st)
+        # speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
+
+        # speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
+        # speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
+
 
         for _ in range(self.intermediate_steps):
+            
+            # In case speed dropy to < 0.2 during rollout
+            # ST model needs a lin_vel_x of > 0.1 to work
+            theta = tf.clip_by_value(theta, 0.2, 1000) 
+            
             s_x_dot = theta * self.lib.cos(psi + beta)
             s_y_dot = theta * self.lib.sin(psi + beta)
-
             # delta_dot = delta_dot
             # theta_dot = theta_dot
-            # psi_dot = psi_dot
 
             psi_dot_dot = -mu * m / (theta * I * (lr + lf)) * (
                     lf ** 2 * C_Sf * (g * lr - theta_dot * h) + lr ** 2 * C_Sr * (g * lf + theta_dot * h)) * psi_dot \

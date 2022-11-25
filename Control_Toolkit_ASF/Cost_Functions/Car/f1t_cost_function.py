@@ -6,7 +6,8 @@ from Control_Toolkit.Cost_Functions import cost_function_base
 from Control_Toolkit.Controllers import template_controller
 from SI_Toolkit.computation_library import ComputationLibrary
 
-from utilities.state_utilities import LINEAR_VEL_X_IDX, TRANSLATIONAL_CONTROL_IDX, ANGULAR_CONTROL_IDX
+from utilities.state_utilities import *
+
 
 distance_normalization = 6.0
 
@@ -22,6 +23,7 @@ R = config["Car"]["racing"]["R"]
 cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
+velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
@@ -29,6 +31,7 @@ target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weig
 acceleration_cost_weight = config["Car"]["racing"][mpc_type]["acceleration_cost_weight"]
 max_acceleration = config["Car"]["racing"][mpc_type]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"][mpc_type]["desired_max_speed"]
+waypoint_velocity_factor = config["Car"]["racing"][mpc_type]["waypoint_velocity_factor"]
 
 
 class f1t_cost_function(cost_function_base):
@@ -84,8 +87,7 @@ class f1t_cost_function(cost_function_base):
         ''' Compute penality for deviation from desired max speed'''
         terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
 
-        desired_speed = tf.fill(tf.shape(terminal_speed), desired_max_speed)
-        speed_diff = tf.abs(terminal_speed - desired_speed)
+        speed_diff = tf.abs(terminal_speed - desired_max_speed)
         terminal_speed_cost = terminal_speed_cost_weight * speed_diff
 
         return terminal_speed_cost
@@ -114,25 +116,25 @@ class f1t_cost_function(cost_function_base):
 
         return steering_cost
 
-    def get_distance_to_waypoints_per_rollout(self, trajectory_points, target_points):
+    def get_distance_to_waypoints_per_rollout(self, trajectory_points, waypoints):
         trajectories_shape = tf.shape(trajectory_points)
         number_of_rollouts = trajectories_shape[0]
         number_of_steps = trajectories_shape[1]
-        number_of_target_points = tf.shape(target_points)[0]
+        number_of_waypoints = tf.shape(waypoints)[0]
 
         positions_of_trajectories = tf.reshape(trajectory_points, [trajectories_shape[0] * trajectories_shape[1], 2])
-        distance_to_waypoints = self.distances_from_list_to_list_of_points(positions_of_trajectories, target_points)
+        distance_to_waypoints = self.distances_from_list_to_list_of_points(positions_of_trajectories, waypoints)
         distance_to_waypoints_per_rollout = tf.reshape(distance_to_waypoints,
-                                                       (number_of_rollouts, number_of_steps, number_of_target_points))
+                                                       (number_of_rollouts, number_of_steps, number_of_waypoints))
         return distance_to_waypoints_per_rollout
 
-    def get_distances_from_trajectory_points_to_closest_target_point(self, trajectory_points, target_points):
-        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, target_points)
+    def get_distances_from_trajectory_points_to_closest_target_point(self, trajectory_points, waypoints):
+        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, waypoints)
         min_distance_to_waypoints_per_rollout = tf.reduce_min(distance_to_waypoints_per_rollout, axis=2)
         return min_distance_to_waypoints_per_rollout
 
-    def get_nearest_waypoints_indices(self, trajectory_points, target_points):
-        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, target_points)
+    def get_nearest_waypoints_indices(self, trajectory_points, waypoints):
+        distance_to_waypoints_per_rollout = self.get_distance_to_waypoints_per_rollout(trajectory_points, waypoints)
         indices_nearest_waypoints = tf.argmin(distance_to_waypoints_per_rollout, axis=2)
         return indices_nearest_waypoints
 
@@ -181,12 +183,9 @@ class f1t_cost_function(cost_function_base):
     def get_target_distance_cost(self, trajectories, target_points):
         return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
-    def get_distance_to_waypoints_cost(self, trajectories, next_waypoints):
-        return self.get_distances_from_trajectory_points_to_closest_target_point(trajectories, self.controller.next_waypoints) * distance_to_waypoints_cost_weight
-
-    def get_distance_to_nearest_segment_cost(self, trajectories, next_waypoints):
-        return self.get_distance_to_nearest_segment(self.P1[:, :-1, :], self.P2[:, :-1, :], trajectories) * distance_to_waypoints_cost_weight
-
+    def get_distance_to_waypoints_cost(self, s, waypoint_positions):
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        return self.get_distances_from_trajectory_points_to_closest_target_point(car_positions, waypoint_positions) * distance_to_waypoints_cost_weight
 
     def distances_from_list_to_list_of_points(self, points1, points2):
 
@@ -207,49 +206,59 @@ class f1t_cost_function(cost_function_base):
 
         return squared_dist
 
-    def get_P1_and_P2(self, trajectory_points, target_points):
-        nearest_waypoints_indices = self.get_nearest_waypoints_indices(trajectory_points, target_points[:-1])  # Can't take last so that I can build a segment with next waypoint
-        indices_after = nearest_waypoints_indices + 1
-        P1 = tf.gather(self.controller.next_waypoints, nearest_waypoints_indices)
-        P2 = tf.gather(self.controller.next_waypoints, indices_after)
-        return P1, P2
+    def get_distance_to_wp_segments_cost(self, s, waypoints):
+        return self.get_squared_distances_to_nearest_wp_segment(s,waypoints)
+    
+    def get_squared_distances_to_nearest_wp_segment(self, s, waypoints):
+        
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        waypoint_positions = waypoints[:,1:3]
+                        
+        # Get nearest and the nearest_next waypoint for every position on the car's rollout
+        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1]) 
+        nearest_waypoints = tf.gather(waypoint_positions, nearest_waypoint_indices) 
+        nearest_waypoints_next = tf.gather(waypoint_positions, nearest_waypoint_indices + 1)
+        
+        # Get next waypoint segment vector for every position on the car's rollout
+        wp_segment_vectors = nearest_waypoints_next - nearest_waypoints
+        wp_segment_vector_norms = tf.norm(wp_segment_vectors)
+        
+        # Get the vector from the next waypoint to the car position
+        vector_car_pos_to_nearest_wp = tf.subtract(car_positions,nearest_waypoints)
+        vector_car_pos_to_nearest_wp_norm = tf.norm(vector_car_pos_to_nearest_wp, axis=2)
+        vector_car_pos_to_nearest_wp_norm_square = tf.multiply(vector_car_pos_to_nearest_wp_norm, vector_car_pos_to_nearest_wp_norm)
+        
+        # Get projection of car_pos_to_nearest_wp on nearest wp_segment
+        car_pos_to_nearest_wp_dot_wp_segment =  tf.reduce_sum(vector_car_pos_to_nearest_wp * wp_segment_vectors, axis=2)
+        projection_car_pos_to_wp_on_wp_segment = car_pos_to_nearest_wp_dot_wp_segment / wp_segment_vector_norms
+        projection_square = tf.multiply(projection_car_pos_to_wp_on_wp_segment, projection_car_pos_to_wp_on_wp_segment)
+        
+        # Pytagoras
+        distance_to_segment_square = vector_car_pos_to_nearest_wp_norm_square - projection_square
+        distance_to_wp_segments_cost = distance_to_segment_square
+        return distance_to_wp_segments_cost
+    
+    def get_velocity_difference_to_wp_cost(self, s, waypoints):
+        velocity_difference_to_wp = self.get_velocity_difference_to_wp(s, waypoints)
+        horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
+        velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
+        return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
+        
+    def get_velocity_difference_to_wp(self, s, waypoints):
+        # Get nearest and the nearest_next waypoint for every position on the car's rollout
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        car_vel_x = s[:,:,LINEAR_VEL_X_IDX]
+        
+        waypoint_positions = waypoints[:,1:3] 
 
-    def get_distance_to_nearest_segment(self,
-                                        p1,
-                                        p2,
-                                        trajectory_points):
-        """
-        Returns the distance to the "nearest segment" of the road from the point of reference (usually the car).
-        Def: nearest segment
-           is a line segment connecting the next waypoint before and the next waypoint after the nearest waypoint
-        Supply the x,y coordinates of the point of reference
-
-        :param x_car: x-coordinate of point of reference (usually the car position)
-        :param y_car: y-coordinate of point of reference (usually the car position)
-        :param nearest_waypoint_idx: Index of the nearest waypoint. You mast ensure that it's index is not 0 and not -1
-        - there exist an waypoint before and after! (we suggest otherwise set it to 1 and -2 respectively, or consider using more waypoints)
-        :return:distance from the nearest segment
-        """
-
-        p_shape = tf.shape(p1)
-
-        P = tf.concat([(p2 - p1), tf.zeros([p_shape[0], p_shape[1], 1], dtype=tf.float32)], -1)
-        P_diff = tf.concat([(p1 - trajectory_points), tf.zeros([p_shape[0], p_shape[1], 1], dtype=tf.float32)], -1)
-        d = self.lib.norm(self.lib.cross(P, P_diff), -1) / self.lib.norm(p2 - p1, -1)
-
-        return d
-
-    def get_distance_along_nearest_segment(self,
-                                        x_car=None,
-                                        y_car=None,
-                                        nearest_waypoint_idx=None):
-
-        p_car = self.lib.to_tensor((x_car, y_car), self.lib.float32)
-
-        p1 = self.lib.to_tensor(self.controller.next_waypoints[nearest_waypoint_idx - 1], self.lib.float32)
-
-        p2 = self.lib.to_tensor(self.controller.next_waypoints[nearest_waypoint_idx + 1], self.lib.float32)
-
-        d = self.lib.dot(p2-p1, p_car-p1)/self.lib.norm(p2-p1, -1)
-
-        return d
+        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1]) 
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices) 
+        
+        nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:,:,5]
+        
+        vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel_x)
+        return vel_difference
+        
+        
+        
+        
