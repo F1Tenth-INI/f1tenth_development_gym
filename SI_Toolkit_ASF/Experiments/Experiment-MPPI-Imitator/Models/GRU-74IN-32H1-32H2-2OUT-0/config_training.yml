@@ -1,0 +1,41 @@
+library: 'TF'  # TF or Pytorch
+modeling:
+  NET_NAME: 'GRU-32H1-32H2'
+paths:
+  # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
+  path_to_experiment: 'Experiment-MPPI-Imitator/'
+  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/'  # Path where the experiments data is stored
+
+training_default:
+  ### For training closed loop dynamics model:
+  #state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
+  #control_inputs: ['translational_control', 'angular_control']
+  #setpoint_inputs: []
+  #outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
+  #translation_invariant_variables: ['pose_x', 'pose_y']
+  translation_invariant_variables: []
+  ### For training open loop dynamics model:
+  # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
+  # outputs = inputs_list
+  ### For training of RNN imitating MPC:
+  control_inputs: []
+  state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z', 'LIDAR_0', 'LIDAR_1', 'LIDAR_2', 'LIDAR_3', 'LIDAR_4', 'LIDAR_5', 'LIDAR_6', 'LIDAR_7', 'LIDAR_8', 'LIDAR_9', 'LIDAR_10', 'LIDAR_11', 'LIDAR_12', 'LIDAR_13', 'LIDAR_14', 'LIDAR_15', 'LIDAR_16', 'LIDAR_17', 'LIDAR_18', 'LIDAR_19', 'LIDAR_20', 'LIDAR_21', 'LIDAR_22', 'LIDAR_23', 'LIDAR_24', 'LIDAR_25', 'LIDAR_26', 'LIDAR_27', 'LIDAR_28', 'LIDAR_29', 'LIDAR_30', 'LIDAR_31', 'LIDAR_32', 'LIDAR_33', 'LIDAR_34', 'LIDAR_35', 'LIDAR_36', 'LIDAR_37', 'LIDAR_38', 'LIDAR_39', 'LIDAR_40', 'LIDAR_41', 'LIDAR_42', 'LIDAR_43', 'LIDAR_44', 'LIDAR_45', 'LIDAR_46', 'LIDAR_47', 'LIDAR_48', 'LIDAR_49', 'LIDAR_50', 'LIDAR_51', 'LIDAR_52', 'LIDAR_53', 'LIDAR_54', 'LIDAR_55', 'LIDAR_56', 'LIDAR_57', 'LIDAR_58', 'LIDAR_59', 'LIDAR_60', 'LIDAR_61', 'LIDAR_62', 'LIDAR_63', 'LIDAR_64', 'LIDAR_65', 'LIDAR_66', 'LIDAR_67']
+  setpoint_inputs: []
+  outputs: ['translational_control', 'angular_control']
+
+  EPOCHS: 15
+  BATCH_SIZE: 16
+  SEED: 1873
+  LR: 1.0e-2
+  WASH_OUT_LEN: 10
+  POST_WASH_OUT_LEN: 1
+  ON_FLY_DATA_GENERATION: False
+  NORMALIZE: True
+  SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
+  USE_NNI: False  # Decide if you want to use NNI package
+  CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
+
+  ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
+  # Depending on number of Lidar points listed in state input, an even distribution of input scans between the two bounds is selected and fed to the network.
+  upper_bound: 880
+  lower_bound: 200
