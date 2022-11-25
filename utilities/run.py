@@ -148,7 +148,7 @@ def main():
         if done:
             break
         ranges = obs['scans']
-        next_waypoints = planner1.next_waypoints    #load waypoints
+        next_waypoints = planner1.waypoint_utils.next_waypoint_positions    #load waypoints
 
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
