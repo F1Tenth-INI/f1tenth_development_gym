@@ -15,7 +15,6 @@ class racing(f1t_cost_function):
 
     def get_stage_cost(self, s, u, u_prev):
 
-
         # It is not used while writing...
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
@@ -29,13 +28,15 @@ class racing(f1t_cost_function):
 
         # Costs related to waypoints 
         if self.controller.next_waypoints.shape[0]:
-            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s)
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.controller.next_waypoints)
+            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.controller.next_waypoints)
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
+            velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
             
         ## Old waypoint cost function: only distance to nearest waypoint
         # if self.controller.next_waypoints.shape[0]:
-        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(trajectories, self.controller.next_waypoints)
+        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.controller.next_waypoints)
         # else:
         #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
             
@@ -46,6 +47,7 @@ class racing(f1t_cost_function):
                 + distance_to_wp_segments_cost
                 + steering_cost
                 + acceleration_cost
+                + velocity_difference_to_wp_cost
                 # + crash_cost
                 # + distance_to_waypoints_cost
             )
