@@ -1,4 +1,8 @@
 import tensorflow as tf
+import yaml
+import os
+from utilities.state_utilities import *
+
 
 from types import SimpleNamespace
 
@@ -15,7 +19,7 @@ from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
-NET_NAME = 'GRU-68IN-32H1-32H2-2OUT-6'
+NET_NAME = 'GRU-74IN-32H1-32H2-2OUT-0'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 
 class NeuralNetImitatorPlanner:
@@ -68,10 +72,17 @@ class NeuralNetImitatorPlanner:
             self.angular_control = 0
             return self.translational_control, self.angular_control
 
+
+
+        #old code for Lidar bounds and data reduction
         ranges = ranges[200:880]
         ranges = ranges[::10]
-        #ranges = ranges[::85] #Janged Neural if reduction of Lidar scans necessary
 
+
+        print(self.car_state)
+
+        #ToDo append exactly what is listed as state inputs in config training and or CSV file automatically instead of appending it manually
+        ranges = np.append([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX], self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges)
         net_input = tf.convert_to_tensor(ranges, tf.float32)
 
         net_output = self.process_tf(net_input)

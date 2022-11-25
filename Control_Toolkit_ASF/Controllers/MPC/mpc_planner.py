@@ -36,7 +36,7 @@ class mpc_planner:
 
     def __init__(self):
 
-        print("Controller initialized")
+        print("MPC planner initialized")
 
         self.translational_control = None
         self.angular_control = None

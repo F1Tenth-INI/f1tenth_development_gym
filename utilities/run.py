@@ -29,8 +29,8 @@ def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 
-noise_level_translational_control = 0.0  # ftg: 0.5  # mppi: 2.0 #Janged 5.0
-noise_level_angular_control = 0.0  # ftg: 0.05  # mppi: 3.0 #Janged 1.0
+noise_level_translational_control = 0.5  # ftg: 0.5  # mppi: 2.0
+noise_level_angular_control = 0.5  # ftg: 0.05  # mppi: 3.0
 
 def main():
     """
@@ -148,6 +148,7 @@ def main():
         if done:
             break
         ranges = obs['scans']
+        next_waypoints = planner1.next_waypoints    #load waypoints
 
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
@@ -159,7 +160,7 @@ def main():
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].save_data(control_inputs=(translational_control, angular_control),
                                            odometry=odom, ranges=ranges[index], state=driver.car_state,
-                                           time=current_time_in_simulation)
+                                           time=current_time_in_simulation, next_waypoints=next_waypoints)
 
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
