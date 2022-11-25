@@ -1,5 +1,8 @@
 planner:
   #  CLIP_CONTROL_INPUT: [ 22, 1.2 ]            # How to clip control input, symmetric: use with PID
-  CLIP_CONTROL_INPUT: [ 7, 3.5 ]            # How to clip control input, symmetric: use without PID
-  LOOK_AHEAD_WAYPOINTS: 17                  # Number of original waypoints that are considered for cost
-  INTERPOLATE_WAYPOINTS: 4                  # >= 1 Interpolation steps to increase waypoint resolution 
+  CLIP_CONTROL_INPUT: [ 9.3, 3.5 ]            # How to clip control input, symmetric: use without PID
+
+waypoints:
+  LOOK_AHEAD_STEPS: 20                    # Number of original waypoints that are considered for cost
+  INTERPOLATION_STEPS: 2                  # >= 1 Interpolation steps to increase waypoint resolution 
+  IGNORE_STEPS: 2                        # Number of interpolated waypoints to ignore starting at the closest one
