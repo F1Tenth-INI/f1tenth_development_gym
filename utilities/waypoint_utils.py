@@ -136,7 +136,7 @@ class WaypointUtils:
     @staticmethod
     def get_waypoint_positions(waypoints):
         if waypoints is None: return None
-        return waypoints[:, 1:3]
+        return np.array(waypoints)[:, 1:3]
     
     def get_vectors_between_waypoint_positions(self):
         if self.waypoints is None: return None, None, None
