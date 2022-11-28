@@ -18,7 +18,7 @@ class Settings:
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 50  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
     
@@ -44,8 +44,8 @@ class Settings:
     DRAW_POSITION_HISTORY = True
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
-    # RENDER_MODE = None
-    RENDER_MODE = "human_fast"
+    RENDER_MODE = None
+    # RENDER_MODE = "human_fast"
     # RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
