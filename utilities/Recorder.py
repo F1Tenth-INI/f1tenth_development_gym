@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import csv
 import numpy as np
+import yaml
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -14,6 +15,9 @@ except:
     pass
 
 from utilities.state_utilities import FULL_STATE_VARIABLES
+config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
+
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
 ranges_forward_only = True # Only LIDAR scans in forward direction are saved
@@ -96,7 +100,7 @@ class Recorder:
 
 
     def get_next_waypoints(self, next_waypoints):
-        waypoints_to_save = np.array(next_waypoints[::4])
+        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
         waypoints_x_to_save = waypoints_to_save[:,1]
         waypoints_y_to_save = waypoints_to_save[:, 0]
 

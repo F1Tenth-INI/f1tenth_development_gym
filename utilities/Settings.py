@@ -45,7 +45,7 @@ class Settings:
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
     # RENDER_MODE = None
-    RENDER_MODE = "human_fast"  # "human" or "human_fast"
+    RENDER_MODE = "human"  # "human" or "human_fast"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone

@@ -2,6 +2,7 @@ import tensorflow as tf
 import yaml
 import os
 from utilities.state_utilities import *
+from utilities.waypoint_utils import WaypointUtils
 
 
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
-NET_NAME = 'GRU-74IN-32H1-32H2-2OUT-0'
+NET_NAME = 'GRU-104IN-32H1-32H2-2OUT-1'
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 
 class NeuralNetImitatorPlanner:
@@ -36,6 +37,7 @@ class NeuralNetImitatorPlanner:
         self.simulation_index = 0
 
         self.car_state = None
+        self.waypoint_utils = WaypointUtils()
 
         a = SimpleNamespace()
         self.batch_size = batch_size  # It makes sense only for testing (Brunton plot for Q) of not rnn networks to make bigger batch, this is not implemented
@@ -74,14 +76,15 @@ class NeuralNetImitatorPlanner:
 
 
 
-        #old code for Lidar bounds and data reduction
+        #code for Lidar bounds and Lidar data reduction
         ranges = ranges[200:880]
         ranges = ranges[::10]
 
+        #next n=15 waypoints divided in WYPT_X and WYPT_Y named in config_training of Model
 
         print(self.car_state)
 
-        #ToDo append exactly what is listed as state inputs in config training and or CSV file automatically instead of appending it manually
+        #ToDo append exactly what was listed as state inputs in config training and or CSV file of Model automatically instead of appending it manually
         ranges = np.append([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX], self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges)
         net_input = tf.convert_to_tensor(ranges, tf.float32)
 
