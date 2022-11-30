@@ -134,7 +134,7 @@ class Recorder:
             self.get_state(state=state)
         if ranges is not None:
             self.get_ranges(ranges=ranges)
-        if next_waypoints is not None:
+        if next_waypoints is not None and len(next_waypoints) > 0:
             self.get_next_waypoints(next_waypoints=next_waypoints)
         self.save_csv()
 
