@@ -20,7 +20,7 @@ class racing(f1t_cost_function):
         ccrc = self.get_control_change_rate_cost(u, u_prev)
 
         ## Crash cost: comment out for faster calculation...
-        # crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.controller.lidar_points))
+        #crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.controller.lidar_points))
 
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)

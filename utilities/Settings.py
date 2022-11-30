@@ -2,7 +2,7 @@ class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'neural'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
@@ -16,7 +16,7 @@ class Settings:
 
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
-    NUMBER_OF_EXPERIMENTS = 100  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 3  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 3600  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
