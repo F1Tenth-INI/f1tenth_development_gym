@@ -1,0 +1,20 @@
+# This is normalization information calculated 2022-11-29 at time 12-26-37
+# Done with git-revision: unknown
+# Data files used to calculate normalization information:
+#     ./SI_Toolkit_ASF/Experiments/Tutorial/Recordings/Train/Data_gen.csv
+#
+# Original (calculated from data) Normalization Information:
+#,         ,      ,         ,angular_control,         ,angular_vel_z,         ,linear_vel_x,         ,pose_theta,         ,pose_theta_cos,         ,pose_theta_sin,         ,pose_x,         ,pose_y,         ,slip_angle,         ,steering_angle,         ,translational_control,         
+#,           ,mean,           ,-0.00195,           ,0.46162,           ,20.23475,           ,0.18186,           ,-0.00989,           ,0.009,           ,-14.23823,           ,9.29848,           ,-0.0744,           ,0.02535,           ,-0.00061,           
+#,           ,std,           ,0.49906,           ,12.61866,           ,5.49792,           ,4.76636,           ,0.71897,           ,0.69492,           ,21.98441,           ,9.13752,           ,2.62574,           ,0.58737,           ,0.40017,           
+#,           ,max,           ,2.16625,           ,35.8061,           ,29.98304,           ,13.61571,           ,1.0,           ,1.0,           ,37.97294,           ,32.55209,           ,7.14172,           ,0.99876,           ,1.62364,           
+#,           ,min,           ,-1.9821,           ,-34.11716,           ,10.28246,           ,-14.52752,           ,-1.0,           ,-1.0,           ,-57.19645,           ,-17.55902,           ,-7.48305,           ,-0.99494,           ,-1.57134,           
+#
+# Does user modified normalization info calculated from data?: Yes
+#
+# Normalization Information:
+,angular_control,angular_vel_z,linear_vel_x,pose_theta,pose_theta_cos,pose_theta_sin,pose_x,pose_y,slip_angle,steering_angle,translational_control
+mean,-0.00195,0.46162,20.23475,0.18186,-0.00989,0.009,-14.23823,9.29848,-0.0744,0.02535,-0.00061
+std,0.49906,12.61866,5.49792,4.76636,0.71897,0.69492,21.98441,9.13752,2.62574,0.58737,0.40017
+max,2.16625,35.8061,29.98304,13.61571,1.0,1.0,37.97294,32.55209,7.14172,0.99876,1.62364
+min,-1.9821,-34.11716,-29.98304,-14.52752,-1.0,-1.0,-57.19645,-17.55902,-7.48305,-0.99494,-1.62364

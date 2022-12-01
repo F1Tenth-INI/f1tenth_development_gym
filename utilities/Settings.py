@@ -3,7 +3,7 @@ class Settings:
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
     CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
     # Decide if to use PID as in the original F1TENTH implementation
@@ -36,7 +36,8 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
+
 
 
     # Automatically follow the first car on the map
@@ -47,7 +48,7 @@ class Settings:
     # RENDER_MODE = None
     RENDER_MODE = "human_fast"
     # RENDER_MODE = "human"
-    NUM_TRAJECTORIES_TO_PLOT = 20
+    NUM_TRAJECTORIES_TO_PLOT = 10
 
     # If false the max range of LIDAR is considered, otherwise only forward cone
     LOOK_FORWARD_ONLY = False

@@ -8,10 +8,10 @@ paths:
 
 training_default:
   # For training closed loop dynamics model:
-  state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z','slip_angle','steering_angle']
+  state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
   control_inputs: ['translational_control', 'angular_control']
   setpoint_inputs: []
-  outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z', 'slip_angle','steering_angle']
+  outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
 #  translation_invariant_variables: ['pose_x', 'pose_y']
   translation_invariant_variables: []
   # For training open loop dynamics model:
@@ -23,7 +23,7 @@ training_default:
 #  setpoint_inputs: []
 #  outputs: ['speed', 'steering']
 
-  EPOCHS: 100
+  EPOCHS: 20
   BATCH_SIZE: 16
   SEED: 1873
   LR: 1.0e-2
@@ -34,3 +34,4 @@ training_default:
   SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
+

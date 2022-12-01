@@ -16,7 +16,7 @@ from utilities.state_utilities import (
 class car_model:
 
     num_actions = 2
-    num_states = 9
+    num_states  = 9
 
     def __init__(
             self,
@@ -27,7 +27,6 @@ class car_model:
             computation_lib=TensorFlowLibrary,
             **kwargs
     ):
-
         self.lib = computation_lib
 
         self.model_of_car_dynamics = model_of_car_dynamics
@@ -122,7 +121,7 @@ class car_model:
 
         s_x = s[:, POSE_X_IDX]  # Pose X
         s_y = s[:, POSE_Y_IDX]  # Pose Y
-        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
         theta = s[:, LINEAR_VEL_X_IDX]  # Speed
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
 
