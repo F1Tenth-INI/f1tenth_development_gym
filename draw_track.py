@@ -6,14 +6,14 @@ from utilities.waypoint_utils import *
 # from PIL import Image  
 from PIL import Image, ImageDraw
 
-map_name = "Sochi"
-# map_name = "BrandsHatch"
+from transform_track import *
 
+map_name = "Budapest"
 pixel_per_m = 10
-map_scale_factor = 0.2
-width_scale_factor = 1.0
 image_margin = 10
+track_width_sumand = 1.2 
 
+transform_track_data(map_name, 0.2, 2., image_margin)
 
 def get_normal_vector_normed(v):
     v_n = [0,0]
@@ -25,11 +25,10 @@ def get_normal_vector_normed(v):
     return v_n
 
 
-track_points = pd.read_csv("utilities/track_db/"+map_name+".csv").to_numpy()
+track_points = pd.read_csv("utilities/maps_files/tum_track_db/scaled/"+map_name+".csv").to_numpy()
 first_track_point = track_points
 track_points = np.vstack([track_points, track_points[0, :]])
 
-track_points = map_scale_factor * track_points
 
 track_vectors = []
 track_borders_left = []
@@ -41,12 +40,12 @@ for i in range(len(track_points) - 1 ):
     next_track_point_position = track_points[i+1][:2]
     track_vector = next_track_point_position - track_point_position
     track_vector_normal = get_normal_vector_normed(track_vector)
-    track_width_right = width_scale_factor * track_point[2] 
-    track_width_left = width_scale_factor * track_point[3] 
-    track_point_left = track_point_position - track_width_left * track_vector_normal
+    track_width_right = track_point[2] 
+    track_width_left = track_point[3] 
+    track_point_left = track_point_position - (track_width_left + track_width_sumand)  * track_vector_normal
     
     track_borders_left.append(track_point_left)
-    track_borders_right.append(track_point_position + track_width_right * track_vector_normal)
+    track_borders_right.append(track_point_position + (track_width_right + track_width_sumand) * track_vector_normal)
     
     track_vectors.append(track_vector)
 
@@ -60,8 +59,8 @@ track_borders_right = np.array(track_borders_right)
 
 
 
-offset_x = pixel_per_m * (abs(np.min(track_points[:, 0])) + image_margin)
-offset_y = pixel_per_m * (abs(np.min(track_points[:, 1])) + image_margin)
+offset_x = 0 # pixel_per_m * (abs(np.min(track_points[:, 0])) + image_margin)
+offset_y = 0 # pixel_per_m * (abs(np.min(track_points[:, 1])) + image_margin)
 offset = [offset_x, offset_y]
 
 width = int(pixel_per_m * (np.max(track_points[:, 0]) + image_margin) + offset[0])
@@ -92,6 +91,11 @@ print("Offset : ",offset )
 print("origin_x : ", origin_x )
 print("origin_y : ", origin_y )
 
+wp_offset_x = origin_x
+wp_offset_y = height/pixel_per_m + origin_y
+print("wp_offset_x : ", wp_offset_x )
+print("wp_offset_y : ", wp_offset_y )
+
 for i in range(len(track_points)):
     track_point = pixel_per_m *  track_points[i][:2] + offset
     track_point_left =  pixel_per_m *  track_borders_left[i] + offset
@@ -102,8 +106,8 @@ for i in range(len(track_points)):
     # print("Trackpoint", track_point)
     # draw.point(xy=[track_point_left[0], track_point_left[1]])
     # draw.point(xy=[track_point_right[0], track_point_right[1]])
-    draw.line((track_point_left[0], track_point_left[1], track_point_left_next[0], track_point_left_next[1]),  fill=0, width=5)
-    draw.line((track_point_right[0], track_point_right[1], track_point_right_next[0], track_point_right_next[1]),  fill=0, width=5)
+    draw.line((track_point_left[0], track_point_left[1], track_point_left_next[0], track_point_left_next[1]),  fill=0, width=2)
+    draw.line((track_point_right[0], track_point_right[1], track_point_right_next[0], track_point_right_next[1]),  fill=0, width=2)
 
 
 
