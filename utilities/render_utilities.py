@@ -65,6 +65,7 @@ class RenderUtils:
         self.largest_gap_middle_point = None
         self.target_point = None
         self.car_state = None
+        
 
     # Pass all data that is updated during simulation
     def update(self, 
@@ -85,6 +86,8 @@ class RenderUtils:
         self.target_point = target_point
         self.next_waypoints = next_waypoints
         self.car_state = car_state
+        
+        if(self.next_waypoints == []):self.next_waypoints = None
 
     def render(self, e):
         
@@ -178,4 +181,5 @@ class RenderUtils:
 
     @staticmethod
     def get_scaled_points(points):
+        if(points == [] or points is None): return np.array([])
         return 50.*np.array(points)
