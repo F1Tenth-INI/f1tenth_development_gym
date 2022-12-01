@@ -45,9 +45,7 @@ class WaypointUtils:
         self.original_waypoints = WaypointUtils.load_waypoints(waypoint_file)
         
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
-        self.waypoints = np.array(WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps))
-        
-        # Waypoint positions [x, y]
+        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps)
         self.waypoint_positions = WaypointUtils.get_waypoint_positions(self.waypoints)
         
         self.trajectory_vectors, self.trajectory_norms, self.directions = self.get_vectors_between_waypoint_positions()
@@ -60,9 +58,15 @@ class WaypointUtils:
         self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
         
+        if(self.waypoints is None):
+            self.current_waypoint_cache = np.array([])
+            self.next_waypoints = np.array([])
+            self.next_waypoint_positions = np.array([])
+        
         
         
     def update_next_waypoints(self, car_position):
+        if self.waypoints is None: return
         if self.nearest_waypoint_index is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)  
@@ -87,15 +91,19 @@ class WaypointUtils:
         path = Settings.MAP_WAYPOINT_FILE
         if map_waypoint_file is not None:
             path = map_waypoint_file
-
+        
+        if path is None:
+            return None
+            
         file_path = path + '.csv'
         assert os.path.isfile(file_path), "Waypoint file (" + path+  ") does not exist"
         
         waypoints = pd.read_csv(file_path, header=None).to_numpy()
-        return waypoints
-    
+        return np.array(waypoints)
+     
     @staticmethod
     def get_interpolated_waypoints(waypoints, interpolation_steps):
+        if waypoints is None: return None
         assert(interpolation_steps >= 1)
         waypoints_interpolated = []
         
@@ -127,14 +135,17 @@ class WaypointUtils:
     
     @staticmethod
     def get_waypoint_positions(waypoints):
-        return waypoints[:, 1:3]
+        if waypoints is None: return None
+        return np.array(waypoints)[:, 1:3]
     
     def get_vectors_between_waypoint_positions(self):
+        if self.waypoints is None: return None, None, None
+        waypoint_positions = self.get_waypoint_positions(self.waypoints)
         vectors = []
         norms = []
         directions = []
-        for i in range(len(self.waypoint_positions)-1):
-            vector = self.waypoint_positions[i + 1] - self.waypoint_positions[i]
+        for i in range(len(waypoint_positions)-1):
+            vector = waypoint_positions[i + 1] - waypoint_positions[i]
             vectors.append(vector)
             norm = np.linalg.norm(vector)
             norms.append(norm)
