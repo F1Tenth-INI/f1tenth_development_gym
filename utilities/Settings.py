@@ -2,7 +2,7 @@ class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    CONTROLLER = 'neural'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
@@ -25,19 +25,21 @@ class Settings:
     # The map config file contains all information about the map, including the map_path, starting positions
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
-    MAP_CONFIG_FILE = "utilities/maps_files/config_Oschersleben.yaml"
-    #MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
+    #MAP_CONFIG_FILE = "utilities/maps_files/config_Oschersleben.yaml"
+    MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
+    #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
+    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
     #MAP_WAYPOINT_FILE =  None
     
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
-    
     FOLLOW_RANDOM_TARGETS = False
     SAVE_RECORDINGS = True
 
+    #Set Noise Level
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0  # ftg: 0.05  # mppi: 3.0
 
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True

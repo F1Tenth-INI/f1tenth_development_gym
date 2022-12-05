@@ -1,6 +1,13 @@
 
 import numpy as np
 
+a = np.array(["ab", "bc", "cg"])
+b = np.array([12,32,43])
+d = np.array([142,325,434])
+
+c = np.concatenate((a, b, d), axis=0)
+print(c)
+"""
 
 number_scans = 68
 
@@ -34,7 +41,7 @@ print(elements_to_keep)
 #print(np.arange(lower_bound,upper_bound, 3))
 
 
-"""
+
 if number_scans <= 540:
     bound_correction = number_scans - (upper_bound - lower_bound) % number_scans                        #length of lidar options must fit the number of scans
     upper_bound = upper_bound + round(bound_correction/2)
