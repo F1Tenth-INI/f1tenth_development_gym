@@ -24,13 +24,11 @@ from f110_gym.envs.dynamic_models import pid
 
 from utilities.state_utilities import full_state_original_to_alphabetical
 
-
+#Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 
-noise_level_translational_control = 0.5  # ftg: 0.5  # mppi: 2.0
-noise_level_angular_control = 0.5  # ftg: 0.05  # mppi: 3.0
 
 def main():
     """
@@ -170,8 +168,8 @@ def main():
             controlls = []
 
             for index, driver in enumerate(drivers):
-                translational_control_with_noise = add_noise(driver.translational_control, noise_level=noise_level_translational_control)
-                angular_control_with_noise = add_noise(driver.angular_control, noise_level=noise_level_angular_control)
+                translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
+                angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
                 if Settings.WITH_PID:
                     accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
