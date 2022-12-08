@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: BrandsHatch.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -24.3592399
+- -12.802466749999997
+- 0.0
+resolution: 0.1

@@ -28,6 +28,11 @@ class Settings:
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
     MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
+    
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Custom.yaml"
+    # MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Budapest_wp'
+    # MAP_WAYPOINT_FILE =  None
+    
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_empty_map.yaml"
     # MAP_WAYPOINT_FILE =  None
     
@@ -41,6 +46,7 @@ class Settings:
 
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True
+    CAMERA_AUTO_FOLLOW = False
     DRAW_POSITION_HISTORY = True
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
