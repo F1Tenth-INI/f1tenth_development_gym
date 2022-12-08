@@ -77,8 +77,8 @@ class car_model:
         pose_y = s[:, POSE_Y_IDX]
         pose_theta = s[:, POSE_THETA_IDX]
 
-        speed = Q[:, TRANSLATIONAL_CONTROL_IDX]
         steering = Q[:, ANGULAR_CONTROL_IDX]
+        speed = Q[:, TRANSLATIONAL_CONTROL_IDX]
 
         for _ in range(self.intermediate_steps):
             pose_theta = pose_theta + 0.5 * (steering / self.intermediate_steps_float)
@@ -126,10 +126,8 @@ class car_model:
         v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
 
-        delta_dot = Q[:, 1]  # steering angle velocity of front wheels
-        v_x_dot = Q[:, 0]  # longitudinal acceleration
-        # delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        # v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # Constaints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -199,8 +197,8 @@ class car_model:
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Control Input
-        v_x_dot = Q[:, 0]  # longitudinal acceleration
-        delta_dot = Q[:, 1]  # steering angle velocity of front wheels
+        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
         
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
         min_vel_x = tf.reduce_min(v_x)
@@ -393,8 +391,8 @@ class car_model:
 
     def _step_st_with_servo_and_motor_pid(self, s, Q, params):
         # Control Input (desired speed, desired steering angle)
-        desired_speed = Q[:, 0]  # longitudinal acceleration
-        desired_angle = Q[:, 1]  # steering angle velocity of front wheels
+        desired_angle = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        desired_speed = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
         vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
