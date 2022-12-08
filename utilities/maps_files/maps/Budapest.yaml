@@ -3,7 +3,7 @@ image: Budapest.png
 negate: 0
 occupied_thresh: 0.45
 origin:
-- -24.180147550000004
+- -33.68014755000001
 - -63.6582523
 - 0.0
 resolution: 0.1
