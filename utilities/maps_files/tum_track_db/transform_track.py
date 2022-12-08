@@ -8,8 +8,8 @@ import numpy as np
     
 
 def transform_track_data(map_name,
-    map_scale_factor = 0.1,
-    width_scale_factor = 3.0,
+    map_scale_factor,
+    width_scale_factor = 2.0,
     image_margin = 10 ):
 
     track_points = pd.read_csv("utilities/maps_files/tum_track_db/original/"+map_name+".csv").to_numpy()
@@ -31,7 +31,7 @@ def transform_track_data(map_name,
         track_point[1] = track_point[1] + offset[1]
 
 
-    file = open("utilities/maps_files/tum_track_db/scaled/"+map_name+".csv", 'w')
+    file = open("utilities/maps_files/tum_track_db/widened/"+map_name+".csv", 'w')
     writer = csv.writer(file)
     writer.writerows(track_points)
     file.close()
