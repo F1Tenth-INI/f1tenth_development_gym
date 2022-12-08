@@ -123,34 +123,34 @@ class car_model:
         s_x = s[:, POSE_X_IDX]  # Pose X
         s_y = s[:, POSE_Y_IDX]  # Pose Y
         delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-        theta = s[:, LINEAR_VEL_X_IDX]  # Speed
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
 
         delta_dot = Q[:, 1]  # steering angle velocity of front wheels
-        theta_dot = Q[:, 0]  # longitudinal acceleration
+        v_x_dot = Q[:, 0]  # longitudinal acceleration
         # delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        # theta_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        # v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # Constaints
-        theta_dot = self.accl_constraints(theta, theta_dot)
+        v_x_dot = self.accl_constraints(v_x, v_x_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
 
         # Euler stepping
         for _ in range(self.intermediate_steps):
-            s_x_dot = theta * self.lib.cos(psi)
-            s_y_dot = theta * self.lib.sin(psi)
+            s_x_dot = v_x * self.lib.cos(psi)
+            s_y_dot = v_x * self.lib.sin(psi)
             # delta_dot = delta_dot
-            # theta_dot = theta_dot
-            psi_dot = (theta / lwb) * self.lib.tan(delta)
+            # v_x_dot = v_x_dot
+            psi_dot = (v_x / lwb) * self.lib.tan(delta)
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
             delta = delta + self.t_step * delta_dot
-            theta = theta + self.t_step * theta_dot
+            v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
 
         angular_vel_z = self.lib.zeros([number_of_rollouts])
-        linear_vel_x = theta
+        linear_vel_x = v_x
         pose_theta = psi
         pose_theta_cos = self.lib.cos(pose_theta)
         pose_theta_sin = self.lib.sin(pose_theta)
@@ -193,28 +193,28 @@ class car_model:
         s_x = s[:, POSE_X_IDX]  # Pose X
         s_y = s[:, POSE_Y_IDX]  # Pose Y
         delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-        theta = s[:, LINEAR_VEL_X_IDX]  # Speed
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
         psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Control Input
+        v_x_dot = Q[:, 0]  # longitudinal acceleration
         delta_dot = Q[:, 1]  # steering angle velocity of front wheels
-        theta_dot = Q[:, 0]  # longitudinal acceleration
         
-        # theta = tf.clip_by_value(theta, 0.11, 1000)
-        min_vel_x = tf.reduce_min(theta)
+        # v_x = tf.clip_by_value(v_x, 0.11, 1000)
+        min_vel_x = tf.reduce_min(v_x)
         if(tf.less(min_vel_x, 0.5)):
             return self._step_dynamics_ks(s,Q, params)
 
         # Constaints
-        theta_dot = self.accl_constraints(theta, theta_dot)
+        v_x_dot = self.accl_constraints(v_x, v_x_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
 
         # TODO: Use ks model for slow speed
         # switch to kinematic model for small velocities
         # min_speed_st = 0.1
-        # speed_too_low_for_st_indices = self.lib.less(theta, min_speed_st)
+        # speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
         # speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
 
         # speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
@@ -225,35 +225,35 @@ class car_model:
             
             # In case speed dropy to < 0.2 during rollout
             # ST model needs a lin_vel_x of > 0.1 to work
-            theta = tf.clip_by_value(theta, 0.2, 1000) 
+            v_x = tf.clip_by_value(v_x, 0.2, 1000) 
             
-            s_x_dot = theta * self.lib.cos(psi + beta)
-            s_y_dot = theta * self.lib.sin(psi + beta)
+            s_x_dot = v_x * self.lib.cos(psi + beta)
+            s_y_dot = v_x * self.lib.sin(psi + beta)
             # delta_dot = delta_dot
-            # theta_dot = theta_dot
+            # v_x_dot = v_x_dot
 
-            psi_dot_dot = -mu * m / (theta * I * (lr + lf)) * (
-                    lf ** 2 * C_Sf * (g * lr - theta_dot * h) + lr ** 2 * C_Sr * (g * lf + theta_dot * h)) * psi_dot \
-                          + mu * m / (I * (lr + lf)) * (lr * C_Sr * (g * lf + theta_dot * h) - lf * C_Sf * (
-                    g * lr - theta_dot * h)) * beta \
-                          + mu * m / (I * (lr + lf)) * lf * C_Sf * (g * lr - theta_dot * h) * delta
+            psi_dot_dot = -mu * m / (v_x * I * (lr + lf)) * (
+                    lf ** 2 * C_Sf * (g * lr - v_x_dot * h) + lr ** 2 * C_Sr * (g * lf + v_x_dot * h)) * psi_dot \
+                          + mu * m / (I * (lr + lf)) * (lr * C_Sr * (g * lf + v_x_dot * h) - lf * C_Sf * (
+                    g * lr - v_x_dot * h)) * beta \
+                          + mu * m / (I * (lr + lf)) * lf * C_Sf * (g * lr - v_x_dot * h) * delta
 
-            beta_dot = (mu / (theta ** 2 * (lr + lf)) * (
-                    C_Sr * (g * lf + theta_dot * h) * lr - C_Sf * (g * lr - theta_dot * h) * lf) - 1) * psi_dot \
-                       - mu / (theta * (lr + lf)) * (
-                               C_Sr * (g * lf + theta_dot * h) + C_Sf * (g * lr - theta_dot * h)) * beta \
-                       + mu / (theta * (lr + lf)) * (C_Sf * (g * lr - theta_dot * h)) * delta
+            beta_dot = (mu / (v_x ** 2 * (lr + lf)) * (
+                    C_Sr * (g * lf + v_x_dot * h) * lr - C_Sf * (g * lr - v_x_dot * h) * lf) - 1) * psi_dot \
+                       - mu / (v_x * (lr + lf)) * (
+                               C_Sr * (g * lf + v_x_dot * h) + C_Sf * (g * lr - v_x_dot * h)) * beta \
+                       + mu / (v_x * (lr + lf)) * (C_Sf * (g * lr - v_x_dot * h)) * delta
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
             delta = delta + self.t_step * delta_dot
-            theta = theta + self.t_step * theta_dot
+            v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
             psi_dot = psi_dot + self.t_step * psi_dot_dot
             beta = beta + self.t_step * beta_dot
 
         angular_vel_z = psi_dot
-        linear_vel_x = theta
+        linear_vel_x = v_x
         pose_theta = psi
         pose_theta_cos = self.lib.cos(pose_theta)
         pose_theta_sin = self.lib.sin(pose_theta)
