@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: Monza.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -10.3040419
+- -94.13273314999999
+- 0.0
+resolution: 0.1

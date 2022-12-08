@@ -3,7 +3,7 @@ image: Austin.png
 negate: 0
 occupied_thresh: 0.45
 origin:
-- -21.718678200000003
-- -77.3615164
+- -15.8593391
+- -43.6307582
 - 0.0
 resolution: 0.1
