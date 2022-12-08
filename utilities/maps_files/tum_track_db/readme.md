@@ -18,28 +18,26 @@ We use https://github.com/TUMFTM/global_racetrajectory_optimization for generati
 
 
 # Using new tracks/waypoints
-1. In Settings.py, select "config_Custom.yaml" as map config file. Also select the new waypoint file. 
-
-```python
-    ...
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_Custom.yaml"
-    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/[map_name]_wp'
-    ...
-```
-
-2. In config_Custom.yaml set the map_path to: 'utilities/maps_files/maps/[map_name]' You might want to change the initial yaw angle.
-config_Custom.yaml:
+1. Copy "config_Map.yaml" and rename it to "config_[map_name].yaml" as map config file.
+2. In config_[map_name].yaml set the map_path to: 'utilities/maps_files/maps/[map_name]' You might want to change the initial yaw angle.
 ```yaml
     ...
-    # map paths
+   # map paths
     map_path: 'utilities/maps_files/maps/[map_name]'
-    map_ext: '.png'
+    waypoint_path: 'utilities/maps_files/waypoints/[map_name]_wp'
 
     # starting pose for map
     starting_positions: 
-    - [0., 0., {initial_yaw}]
+    - [0., 0., {initial_yaw_angle}]
     ...
 ```
+3. In Settings.py, select "config_[map_name].yaml" as map config file.
+```python
+    ...
+    MAP_CONFIG_FILE =  "utilities/maps_files/config_[map_name].yaml"
+    ...
+```
+
 
 3. run.py
 
