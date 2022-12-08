@@ -6,8 +6,7 @@ waypoint_path: 'utilities/maps_files/waypoints/Oschersleben_wp'
 
 # starting pose for map
 starting_positions: 
- - [0.0702245, 0.3002981, 2.79787]
- - [0.9966514, -0.9306893, 2.79787]
- - [-1., 4., 1.37079632679]
- - [-1.5, 6., 1.37079632679]
+ - [0.0, 0.0, 2.79787]
   
+# TODO: Set map specific controller parameters here
+# TODO: Maybe also waypoint settings for interpolation
