@@ -93,6 +93,5 @@ def full_state_alphabetical_to_original(a):
     return original
 
 
-TRANSLATIONAL_CONTROL_IDX = CONTROL_INDICES['translational_control']
-ANGULAR_CONTROL_IDX = CONTROL_INDICES['angular_control']
-
+ANGULAR_CONTROL_IDX = CONTROL_INDICES['angular_control'] # 0
+TRANSLATIONAL_CONTROL_IDX = CONTROL_INDICES['translational_control'] # 1

@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: Budapest.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -33.68014755000001
+- -63.6582523
+- 0.0
+resolution: 0.1
