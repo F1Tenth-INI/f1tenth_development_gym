@@ -14,7 +14,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 obstacles_config_path = 'utilities/random_obstables.yaml'
-path_where_to_save_the_map = 'utilities/maps/WithRandomObstacles'
+path_where_to_save_the_map = 'utilities/maps_files/maps/WithRandomObstacles'
 
 def create_obstacles(map_arr, map_resolution, obstacles_config_path=obstacles_config_path, start_point=None):
 

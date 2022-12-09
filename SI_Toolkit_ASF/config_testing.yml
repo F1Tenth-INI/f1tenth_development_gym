@@ -8,9 +8,9 @@ predictors_specifications_testing: ['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Ex
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-0__2022-12-06_08-55-57.csv'
+test_file: 'F1TENTH_Blank-MPPI-0__2022-11-29_10-19-19.csv'
 
-path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Recordings/Test/'
+path_to_testfile: '/Users/mehdi/Downloads/f1tenth_development_gym/ExperimentRecordings'
 
 features_to_plot: [ 'pose_theta',   # Only to indicate what ought to be displayed in Brunton Test
     'pose_theta_sin',
@@ -22,7 +22,7 @@ features_to_plot: [ 'pose_theta',   # Only to indicate what ought to be displaye
   ]
 control_inputs: ['translational_control', 'angular_control']   # Indicates which inputs to network are control_input,
 
-test_len: 1000
+test_len: 'max'
 test_max_horizon: 50  # Indicates prediction horizon for testing
 test_start_idx: 0  # Indicates starting point from which data from test file should be taken
 

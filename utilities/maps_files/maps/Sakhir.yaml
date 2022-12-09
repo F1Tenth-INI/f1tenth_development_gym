@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: Sakhir.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -10.71450565
+- -46.52762475
+- 0.0
+resolution: 0.1
