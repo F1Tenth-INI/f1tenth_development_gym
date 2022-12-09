@@ -1,0 +1,2 @@
+import splitfolders
+splitfolders.ratio('/home/marcin/PycharmProjects/f1tenth_development_gym_Jago/ExperimentRecordings', output="/home/marcin/PycharmProjects/f1tenth_development_gym_Jago/Dev_Jago", seed=1337, ratio = (0.8,0.1,0.1))
