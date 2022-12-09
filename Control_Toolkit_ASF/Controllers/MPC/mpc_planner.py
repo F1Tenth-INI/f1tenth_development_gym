@@ -47,9 +47,9 @@ class mpc_planner:
             num_states = 9
             num_control_inputs = 2
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
-                control_limits_low, control_limits_high = get_control_limits([7, 3.5])
+                control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high = get_control_limits([22, 1.2])
+                control_limits_low, control_limits_high = get_control_limits([1.066, 20])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
@@ -134,7 +134,7 @@ class mpc_planner:
         car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
         self.waypoint_utils.update_next_waypoints(car_position)
 
-        translational_control, angular_control = self.mpc.step(s,
+        angular_control, translational_control  = self.mpc.step(s,
                                                                self.time,
                                                                {
                                                                    "lidar_points": self.lidar_points,

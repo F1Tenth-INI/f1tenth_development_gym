@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: SaoPaulo.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -13.14200295
+- -46.297725400000004
+- 0.0
+resolution: 0.1

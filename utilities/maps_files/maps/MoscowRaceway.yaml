@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: MoscowRaceway.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -67.89834435000002
+- -41.14895635
+- 0.0
+resolution: 0.1

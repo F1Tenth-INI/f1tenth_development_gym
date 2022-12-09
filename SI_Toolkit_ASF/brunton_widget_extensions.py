@@ -15,5 +15,4 @@ def get_feature_label(feature):
 
 
 def convert_units_inplace(ground_truth, predictions_list):
-    ground_truth_dataset, ground_truth_features = ground_truth
-
+    pass

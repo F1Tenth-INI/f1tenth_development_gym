@@ -1,0 +1,9 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps_files/maps/Sakhir'
+waypoint_path: 'utilities/maps_files/waypoints/Sakhir_wp'
+
+# starting pose for map
+starting_positions: 
+ - [0., 0., -1.4] 
