@@ -1,4 +1,4 @@
-predictors_specifications_testing: ['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
+predictors_specifications_testing: ['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -8,7 +8,7 @@ predictors_specifications_testing: ['./SI_Toolkit_ASF/Experiments/Experiment-MPP
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Oschers-MPPI-simple-3__2022-11-13_21-02-10.csv'
+test_file: 'F1TENTH_Blank-MPPI-0__2022-12-06_08-55-57.csv'
 
 path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Recordings/Test/'
 

@@ -22,8 +22,8 @@ from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
-#NET_NAME = 'GRU-104IN-32H1-32H2-2OUT-1'
-NET_NAME = 'GRU-74IN-32H1-32H2-2OUT-1'
+
+NET_NAME = Settings.NET_NAME
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
 
 class NeuralNetImitatorPlanner:
@@ -41,6 +41,7 @@ class NeuralNetImitatorPlanner:
 
         self.car_state = None
         self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
+                                               # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
 
 
         a = SimpleNamespace()
@@ -70,12 +71,6 @@ class NeuralNetImitatorPlanner:
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        # Accelerate at the beginning (St model explodes for small velocity)
-        if self.simulation_index < 20:
-            self.simulation_index += 1
-            self.translational_control = 10
-            self.angular_control = 0
-            return self.translational_control, self.angular_control
 
         if Settings.ONLY_ODOMETRY_AVAILABLE:
             s = odometry_dict_to_state(ego_odom)
@@ -106,6 +101,12 @@ class NeuralNetImitatorPlanner:
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
+        # Accelerate at the beginning (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
+        if self.simulation_index < 10:
+            self.simulation_index += 1
+            self.translational_control = 10
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
 
         #input_data = car_states + Lidar + next waypoints #ToDo append exactly what was listed as state inputs in config training and or CSV file of Model automatically instead of appending it manually
         input_data = np.concatenate(([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX], self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges, next_waypoints_x,next_waypoints_y), axis=0)
