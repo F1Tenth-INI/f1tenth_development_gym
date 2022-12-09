@@ -177,8 +177,8 @@ def main():
                 else:
                     accl, sv = translational_control_with_noise, angular_control_with_noise
 
-
-                controlls.append([sv, accl])
+                # print("sv, accl", sv, accl)
+                controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward

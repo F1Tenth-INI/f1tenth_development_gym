@@ -1,0 +1,12 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps_files/maps/Oschersleben'
+waypoint_path: 'utilities/maps_files/waypoints/Oschersleben_wp'
+
+# starting pose for map
+starting_positions: 
+ - [0.0, 0.0, 2.79787]
+  
+# TODO: Set map specific controller parameters here
+# TODO: Maybe also waypoint settings for interpolation

@@ -19,15 +19,15 @@ class racing(f1t_cost_function):
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
 
-        ## Crash cost: comment out for faster calculation...f
-        trajectories = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
-        crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.controller.lidar_points))
-
+        ## Crash cost: comment out for faster calculation...
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
+        # crash_cost = tf.stop_gradient(self.get_crash_cost(car_positions, self.controller.lidar_points))
+        
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
 
-        # Costs related to waypoints
+        # Costs related to waypoints 
         if self.controller.next_waypoints.shape[0]:
             distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.controller.next_waypoints)
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.controller.next_waypoints)
@@ -49,7 +49,7 @@ class racing(f1t_cost_function):
                 + steering_cost
                 + acceleration_cost
                 + velocity_difference_to_wp_cost
-                + crash_cost
+                # + crash_cost
                 # + distance_to_waypoints_cost
             )
 
