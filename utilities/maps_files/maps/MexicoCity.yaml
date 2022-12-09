@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: MexicoCity.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -31.6497957
+- -12.228218750000007
+- 0.0
+resolution: 0.1

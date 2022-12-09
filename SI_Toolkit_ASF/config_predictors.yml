@@ -13,7 +13,7 @@ predictors:
   GP_default:
     predictor_type: 'GP'
     model_name: 'SGP_10'
-    path_to_model: './SI_Toolkit_ASF/Experiments/ImitationMPPI/Models/'
+    path_to_model: './SI_Toolkit_ASF/Experiments/Tutorial/Models/'
   ODE_default:
     predictor_type: 'ODE'
     model_name:

@@ -8,10 +8,10 @@ paths:
 
 training_default:
   # For training closed loop dynamics model:
-  state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z']
+  state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z','slip_angle','steering_angle']
   control_inputs: ['translational_control', 'angular_control']
   setpoint_inputs: []
-  outputs: ['slip_angle', 'steering_angle']
+  outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z', 'slip_angle','steering_angle']
 #  translation_invariant_variables: ['pose_x', 'pose_y']
   translation_invariant_variables: []
   # For training open loop dynamics model:
@@ -31,7 +31,7 @@ training_default:
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
 
