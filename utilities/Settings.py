@@ -22,15 +22,13 @@ class Settings:
 
     TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
     
-    # The map config file contains all information about the map, including the map_path, starting positions
+    # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
     MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
-    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    # MAP_CONFIG_FILE =  "utilities/maps_files/config_empty_map.yaml"
-    # MAP_WAYPOINT_FILE =  None
-    
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
@@ -42,10 +40,11 @@ class Settings:
 
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True
+    CAMERA_AUTO_FOLLOW = False
     DRAW_POSITION_HISTORY = True
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
-    # RENDER_MODE = None
+    RENDER_MODE = None
     RENDER_MODE = "human_fast"
     # RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 10

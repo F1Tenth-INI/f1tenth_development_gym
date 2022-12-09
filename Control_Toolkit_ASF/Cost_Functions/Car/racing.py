@@ -15,30 +15,42 @@ class racing(f1t_cost_function):
 
     def get_stage_cost(self, s, u, u_prev):
 
-        trajectories = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
-
         # It is not used while writing...
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
 
-        # crash_cost = tf.stop_gradient(self.get_crash_cost(trajectories, self.controller.lidar_points))
+        ## Crash cost: comment out for faster calculation...
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
+        # crash_cost = tf.stop_gradient(self.get_crash_cost(car_positions, self.controller.lidar_points))
+        
+        # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
-        # steering_cost = self.get_steering_cost(u)
+        steering_cost = self.get_steering_cost(u)
 
+        # Costs related to waypoints 
         if self.controller.next_waypoints.shape[0]:
-            distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(trajectories, self.controller.next_waypoints)
-            # distance_to_waypoints_cost = self.get_distance_to_nearest_segment_cost(trajectories, self.controller.next_waypoints)
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.controller.next_waypoints)
+            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.controller.next_waypoints)
         else:
-            distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
-
+            distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
+            velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
+            
+        ## Old waypoint cost function: only distance to nearest waypoint
+        # if self.controller.next_waypoints.shape[0]:
+        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.controller.next_waypoints)
+        # else:
+        #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
+            
+        
         stage_cost = (
                 cc
                 + ccrc
-                + distance_to_waypoints_cost
-                # + steering_cost
+                + distance_to_wp_segments_cost
+                + steering_cost
                 + acceleration_cost
-                # + distance_to_border_cost#
+                + velocity_difference_to_wp_cost
                 # + crash_cost
+                # + distance_to_waypoints_cost
             )
 
         # Read out values for cost weight callibration: Uncomment for debugging
@@ -52,10 +64,3 @@ class racing(f1t_cost_function):
         # stage_cost_numpy= stage_cost.numpy()[:20]
 
         return stage_cost
-
-
-    def update_waypoints(self, s_hor):
-        self.P1, self.P2 = self.get_P1_and_P2(s_hor[:, :, POSE_X_IDX:POSE_Y_IDX + 1], self.controller.next_waypoints)
-        # Get the list of nearest waypoints -1 till 15, checke that variable is assigned
-        # Get the arrrays  P = P2-P1 and P1, these should be assigned
-
