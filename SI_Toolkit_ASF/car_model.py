@@ -16,18 +16,17 @@ from utilities.state_utilities import (
 class car_model:
 
     num_actions = 2
-    num_states = 9
+    num_states  = 9
 
     def __init__(
             self,
             model_of_car_dynamics: str,
             with_pid: bool,
-            dt: float = 0.025,
+            dt: float = 0.03,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary,
             **kwargs
     ):
-
         self.lib = computation_lib
 
         self.model_of_car_dynamics = model_of_car_dynamics
@@ -171,7 +170,7 @@ class car_model:
         '''
         Parallaley executes steps frim initial state s[i] with control input Q[i] for every i
         @param s: (batch_size, len(state)) all initial states for every step
-        @param s: (batch_size, len(control_input)) all control inputs for every step
+        @param Q: (batch_size, len(control_input)) all control inputs for every step
         @param params: TODO: Parameters of the car
         returns s_next: (batch_size, len(state)) all nexts states
         '''
@@ -196,10 +195,13 @@ class car_model:
         psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
+        # Variable utils, mbakka
+        batch_size = s.shape[0]
+        state_len = s.shape[1]
         # Control Input
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
-        
+
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
         min_vel_x = tf.reduce_min(v_x)
         if(tf.less(min_vel_x, 0.5)):
@@ -209,22 +211,22 @@ class car_model:
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
 
-        # TODO: Use ks model for slow speed
         # switch to kinematic model for small velocities
-        # min_speed_st = 0.1
-        # speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
-        # speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
+        min_speed_st = 0.5
+        speed_too_low_for_st_indices = self.lib.less(theta, min_speed_st)
+        speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
 
-        # speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
-        # speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
+        #speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
+        speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
 
+        # TODO: Use ks model for slow speed
 
         for _ in range(self.intermediate_steps):
-            
+
             # In case speed dropy to < 0.2 during rollout
             # ST model needs a lin_vel_x of > 0.1 to work
-            v_x = tf.clip_by_value(v_x, 0.2, 1000) 
-            
+            #v_x = tf.clip_by_value(v_x, 0.2, 1000)
+
             s_x_dot = v_x * self.lib.cos(psi + beta)
             s_y_dot = v_x * self.lib.sin(psi + beta)
             # delta_dot = delta_dot
@@ -260,15 +262,23 @@ class car_model:
         slip_angle = beta
         steering_angle = delta
 
-        return self.next_step_output(angular_vel_z,
-                                     linear_vel_x,
-                                     pose_theta,
-                                     pose_theta_cos,
-                                     pose_theta_sin,
-                                     pose_x,
-                                     pose_y,
-                                     slip_angle,
-                                     steering_angle)
+        s_next_ks = self._step_dynamics_ks(s, Q, None)
+        s_next_ts = self.next_step_output(angular_vel_z,
+                                          linear_vel_x,
+                                          pose_theta,
+                                          pose_theta_cos,
+                                          pose_theta_sin,
+                                          pose_x,
+                                          pose_y,
+                                          slip_angle,
+                                          steering_angle)
+
+        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(batch_size,1))
+        ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices,state_len,axis=1)
+        next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
+
+        return next_step
+
 
     def steering_constraints(self, steering_angle, steering_velocity):
         s_min = self.lib.constant([-0.4189], self.lib.float32)
@@ -301,24 +311,35 @@ class car_model:
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, v_switch)
         velocity_not_too_high_indices = self.lib.logical_not(velocity_too_high_indices)
-        velocity_too_high_indices = self.lib.cast(velocity_too_high_indices, self.lib.float32)
+        #mbakka commented
+        #velocity_too_high_indices = self.lib.cast(velocity_too_high_indices, self.lib.float32)
         velocity_not_too_high_indices = self.lib.cast(velocity_not_too_high_indices, self.lib.float32)
 
+        # mbakka
+        pos_limit = self.lib.where(velocity_too_high_indices, (a_max * v_switch) / vel, a_max)
+
+        # mbakka commented the following paragraph
+        """
         pos_limit_velocity_too_high = (a_max * v_switch) / vel
         pos_limit_velocity_not_too_high = a_max
-
+        
         pos_limit = (velocity_too_high_indices * pos_limit_velocity_too_high) + (
-                velocity_not_too_high_indices * pos_limit_velocity_not_too_high)
+               velocity_not_too_high_indices * pos_limit_velocity_not_too_high)
+        """
 
         # accl limit reached?
-        velocity_not_over_max_indices = self.lib.less(vel, v_max)
-        velocity_not_over_max_indices = self.lib.cast(velocity_not_over_max_indices, self.lib.float32)
 
-        velocity_not_under_min_indices = self.lib.greater(vel, v_min)
-        velocity_not_under_min_indices = self.lib.cast(velocity_not_under_min_indices, self.lib.float32)
+        v_less_vmin = self.lib.less(vel,v_min)
+        accl_negative = self.lib.less(accl,0)
+        v_less_vmin_and_accl_negative = self.lib.logical_and(v_less_vmin,accl_negative)
 
-        accl = velocity_not_over_max_indices * accl
-        accl = velocity_not_under_min_indices * accl
+        v_greater_vmax = self.lib.greater(vel, v_max)
+        accl_positive = self.lib.greater(accl, 0)
+        v_greater_vmax_and_accl_positive = self.lib.logical_and(v_greater_vmax, accl_positive)
+
+        condition = self.lib.logical_or(v_less_vmin_and_accl_negative,v_greater_vmax_and_accl_positive)
+
+        accl = self.lib.where(condition, 0., accl)
 
         accl = self.lib.clip(accl, -a_max, pos_limit)
 
@@ -337,7 +358,6 @@ class car_model:
     '''
 
     def servo_proportional(self, desired_steering_angle, current_steering_angle):
-
         steering_angle_difference = desired_steering_angle - current_steering_angle
 
         steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), 0.01)
@@ -404,9 +424,9 @@ class car_model:
 
         return self._step_dynamics_st(s, Q_pid, params)
 
-    # endregion
+# endregion
 
-    # region Formatting output of the step function
+# region Formatting output of the step function
 
     def next_state_output_odom(self,
                                angular_vel_z,
@@ -418,6 +438,7 @@ class car_model:
                                pose_y,
                                slip_angle,
                                steering_angle):
+
         return self.lib.stack([
             angular_vel_z,
             linear_vel_x,
@@ -450,5 +471,4 @@ class car_model:
             steering_angle
         ], axis=1)
 
-    # endregion
-
+# endregion
