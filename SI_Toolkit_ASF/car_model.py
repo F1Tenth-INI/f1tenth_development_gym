@@ -213,7 +213,7 @@ class car_model:
 
         # switch to kinematic model for small velocities
         min_speed_st = 0.5
-        speed_too_low_for_st_indices = self.lib.less(theta, min_speed_st)
+        speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
         speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
 
         #speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
