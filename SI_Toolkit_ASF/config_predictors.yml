@@ -21,13 +21,13 @@ predictors:
   ODE_TF_default:
     predictor_type: 'ODE_TF'
     model_name:
-    intermediate_steps: 1
+    intermediate_steps: 3 #Janged before 1 (Meeting Mehdi and Marcin)
 
   # ADD YOUR PREDICTORS BELOW
 
   I_love_control:
     predictor_type: 'neural'  # Possible options are: 'neural', 'GP', 'ODE, 'ODE_TF'
-    model_name: 'GRU-6IN-32H1-32H2-5OUT-0'
+    model_name: #Janged
     path_to_model: './SI_Toolkit_ASF/Experiments/Pretrained-RNN-1/Models/'
     update_before_predicting: True
 

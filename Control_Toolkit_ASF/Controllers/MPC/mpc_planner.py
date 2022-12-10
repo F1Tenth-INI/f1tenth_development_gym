@@ -23,7 +23,7 @@ class mpc_planner:
 
     def __init__(self):
 
-        print("Controller initialized")
+        print("MPC planner initialized")
 
         self.translational_control = None
         self.angular_control = None
@@ -97,18 +97,25 @@ class mpc_planner:
         }
         """
 
-        # Accelerate at the beginning (St model expoldes for small velocity)
-        # Give it a little "Schupf"
-        if self.simulation_index < 1:
-            self.simulation_index += 1
-            self.translational_control = 10
-            self.angular_control = 0
-            return self.translational_control, self.angular_control
+
+
+
 
         if Settings.ONLY_ODOMETRY_AVAILABLE:
             s = odometry_dict_to_state(ego_odom)
         else:
             s = self.car_state
+
+        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
+        self.waypoint_utils.update_next_waypoints(car_position)
+
+        # Accelerate at the beginning (St model expoldes for small velocity)
+        # Give it a little "Schupf"
+        if self.simulation_index < 3:
+            self.simulation_index += 1
+            self.translational_control = 10
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
 
         if Settings.LOOK_FORWARD_ONLY:
             lidar_range_min = 200
@@ -131,8 +138,7 @@ class mpc_planner:
         if (Settings.FOLLOW_RANDOM_TARGETS):
             self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
-        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        self.waypoint_utils.update_next_waypoints(car_position)
+
 
         angular_control, translational_control  = self.mpc.step(s,
                                                                self.time,

@@ -1,5 +1,5 @@
-predictors_specifications_testing: ['GRU-6IN-64H1-64H2-2OUT-1', 'GRU-6IN-64H1-64H2-2OUT-2', 'GRU-8IN-64H1-64H2-2OUT-0']
-#predictors_specifications_testing: ['Dense-6IN-128H1-128H2-2OUT-0', 'Dense-8IN-128H1-128H2-2OUT-0', 'Dense-8IN-128H1-128H2-2OUT-1']
+predictors_specifications_testing: ['ODE_TF']
+
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
 # For multiple network they must be in the same folder specified in predictors:neural_default:path_to_model
@@ -8,12 +8,13 @@ predictors_specifications_testing: ['GRU-6IN-64H1-64H2-2OUT-1', 'GRU-6IN-64H1-64
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-0__2022-11-28_06-50-32.csv'
+test_file: 'xxx.csv'
 
-path_to_testfile: './SI_Toolkit_ASF/Experiments/ImitationMPPI/Recordings/Test/'
 
-test_len: 500
-test_max_horizon: 1  # Indicates prediction horizon for testing
+path_to_testfile: './ExperimentRecordings/'
+
+test_len: 'max'
+test_max_horizon: 50  # Indicates prediction horizon for testing
 test_start_idx: 0  # Indicates starting point from which data from test file should be taken
 
 decimation: 1  # If your dataset has sampling frequency being multiple of your network's sampling frequency
