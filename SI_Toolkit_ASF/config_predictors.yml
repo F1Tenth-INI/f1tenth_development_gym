@@ -7,8 +7,7 @@ predictors:
   ### THESE ARE DEFAULT PREDICTORS! DON'T CHANGE THEM, RATHER ADD YOUR PREDICTOR BELOW
   neural_default:
     predictor_type: 'neural'
-    model_name: 'Dense-8IN-128H1-128H2-6OUT-45'
-    # Change to path when needed 16.Nov.22 Mehdi
+    model_name: 'GRU-6IN-32H1-32H2-5OUT-0'
     path_to_model: './SI_Toolkit_ASF/Experiments/Tutorial/Models/'
     update_before_predicting: True
   GP_default:

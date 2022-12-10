@@ -3,11 +3,11 @@ modeling:
   NET_NAME: 'Dense-128H1-128H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
-  path_to_experiment: 'Experiment-2/'
+  path_to_experiment: 'Tutorial/'
   PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/'  # Path where the experiments data is stored
 
 training_default:
-  ### For training closed loop dynamics model:
+  # For training closed loop dynamics model:
   state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z','slip_angle','steering_angle']
   control_inputs: ['translational_control', 'angular_control']
   setpoint_inputs: []
@@ -15,7 +15,7 @@ training_default:
   # translation_invariant_variables: ['pose_x', 'pose_y']
   translation_invariant_variables: []
 
-  ### For training open loop dynamics model:
+  # For training open loop dynamics model:
   # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
   # outputs = inputs_list
 
@@ -32,18 +32,17 @@ training_default:
   #setpoint_inputs: []
   #outputs: ['translational_control', 'angular_control']
 
-  EPOCHS: 100
+  EPOCHS: 20
   BATCH_SIZE: 16
   SEED: 1873
   LR: 1.0e-2
-  WASH_OUT_LEN: 1
+  WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
   SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
-
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
   # Depending on number of Lidar points listed in state input, an even distribution of input scans between the two bounds is selected and fed to the network.

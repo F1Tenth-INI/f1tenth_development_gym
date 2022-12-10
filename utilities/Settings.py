@@ -36,7 +36,7 @@ class Settings:
     MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
     #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
     #MAP_WAYPOINT_FILE =  None
-    
+
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
