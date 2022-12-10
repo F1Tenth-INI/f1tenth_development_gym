@@ -24,7 +24,7 @@ from f110_gym.envs.dynamic_models import pid
 
 from utilities.state_utilities import full_state_original_to_alphabetical
 
-#Noise Level can now be set in Settings.py
+# Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
