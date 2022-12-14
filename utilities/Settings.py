@@ -8,7 +8,7 @@ class Settings:
 
 
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    NET_NAME = 'LSTM-94IN-32H1-32H2-2OUT-0'
+    NET_NAME = 'GRU-94IN-32H1-32H2-2OUT-0'
 
 
     # Decide if to use PID as in the original F1TENTH implementation
@@ -30,12 +30,10 @@ class Settings:
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
+    #MAP_CONFIG_FILE = "utilities/maps_files/config_Hockenheim.yaml"
     MAP_CONFIG_FILE = "utilities/maps_files/config_Oschersleben.yaml"
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
     #MAP_CONFIG_FILE = "utilities/maps_files/config_empty_map.yaml"
-    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
-    #MAP_WAYPOINT_FILE =  None
 
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
