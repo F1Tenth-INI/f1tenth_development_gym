@@ -6,7 +6,7 @@ cost_function_name_default: racing
 Car:
   racing:
 
-    cc_weight: 0.0
+    cc_weight: 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
     ccrc_weight: 0.0
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
@@ -15,7 +15,8 @@ Car:
     terminal_speed_cost_weight: 0.0
     velocity_diff_to_waypoints_cost_weight: 1.0
     distance_to_waypoints_cost_weight: 1.0
-    target_distance_cost_weight: 0.0
+    target_distance_cost_weight: 0.0            #only if you want to follow a target on an empty map
+
 
     # Different optimizers works the best with different cost functions parameters
     mppi:
@@ -29,6 +30,8 @@ Car:
       acceleration_cost_weight: 0.0
       max_acceleration: 0.0
       desired_max_speed: 16.0               # desired max speed for the car [m/s]
+      waypoint_velocity_factor : 1.0
+
 
   following_target:
     # TODO: The parameters not set yet, same as for racing

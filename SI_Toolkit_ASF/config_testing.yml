@@ -1,4 +1,4 @@
-predictors_specifications_testing: ['Dense-8IN-128H1-128H2-6OUT-5']
+predictors_specifications_testing: ['ODE_TF']
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -8,19 +8,10 @@ predictors_specifications_testing: ['Dense-8IN-128H1-128H2-6OUT-5']
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-0__2022-10-20_16-14-03.csv'
+test_file: 'xxx.csv'
+
 
 path_to_testfile: './ExperimentRecordings/'
-
-features_to_plot: [ 'pose_theta',   # Only to indicate what odd to be displayed in Brunton Test
-    'pose_theta_sin',
-    'pose_theta_cos',
-    'pose_x',
-    'pose_y',
-    'linear_vel_x',
-    'angular_vel_z'
-  ]
-control_inputs: ['translational_control', 'angular_control']   # Indicates which inputs to network are control_input,
 
 test_len: 'max'
 test_max_horizon: 50  # Indicates prediction horizon for testing

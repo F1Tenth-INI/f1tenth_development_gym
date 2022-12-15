@@ -56,15 +56,15 @@ class predictor_output_augmentation_tf:
             indices_augmentation.append(STATE_INDICES['linear_vel_y'])
             features_augmentation.append('linear_vel_y')
 
-        if 'pose_theta' not in net_info.outputs:
+        if 'pose_theta' not in net_info.outputs and 'pose_theta_sin' in net_info.outputs and 'pose_theta_cos' in net_info.outputs:
             indices_augmentation.append(STATE_INDICES['pose_theta'])
             features_augmentation.append('pose_theta')
-        if 'pose_theta_cos' not in net_info.outputs:
-            indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
-            features_augmentation.append('pose_theta_cos')
-        if 'pose_theta_sin' not in net_info.outputs:
+        if 'pose_theta_sin' not in net_info.outputs and 'pose_theta' in net_info.outputs:
             indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
             features_augmentation.append('pose_theta_sin')
+        if 'pose_theta_cos' not in net_info.outputs and 'pose_theta' in net_info.outputs:
+            indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
+            features_augmentation.append('pose_theta_cos')
 
         if 'slip_angle' not in net_info.outputs:
             indices_augmentation.append(STATE_INDICES['slip_angle'])
@@ -115,12 +115,12 @@ class predictor_output_augmentation_tf:
                          tf.newaxis]  # tf.math.atan2 removes the features (last) dimension, so it is added back with [:, :, tf.newaxis]
             output = tf.concat([output, pose_theta], axis=-1)
 
-        if 'angle_sin' in self.features_augmentation:
+        if 'pose_theta_sin' in self.features_augmentation:
             pose_theta_sin = \
                 tf.sin(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
             output = tf.concat([output, pose_theta_sin], axis=-1)
 
-        if 'angle_cos' in self.features_augmentation:
+        if 'pose_theta_cos' in self.features_augmentation:
             pose_theta_cos = \
                 tf.cos(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
             output = tf.concat([output, pose_theta_cos], axis=-1)

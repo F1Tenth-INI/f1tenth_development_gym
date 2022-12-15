@@ -11,11 +11,15 @@ docs/_build/
 flycheck_*
 dev.py
 
+# Pycharm
+.idea
 
 # Experiment data
 main/maps/WithRandomObstacles/*
 Experimentrecordings/*
-
+ExperimentRecordings/*
 # Submodule specific config files
 SI_Toolkit/src/SI_Tooklit/SI_Toolkit.egg-info/*
 SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*
+/utilites/LaunchConfigsPycharm/*
+.idea

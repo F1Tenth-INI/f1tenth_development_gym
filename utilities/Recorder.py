@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import csv
 import numpy as np
+import yaml
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -14,6 +15,9 @@ except:
     pass
 
 from utilities.state_utilities import FULL_STATE_VARIABLES
+config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
+
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
 ranges_forward_only = True # Only LIDAR scans in forward direction are saved
@@ -45,6 +49,8 @@ class Recorder:
         self.keys_odometry = None
         self.keys_state = None
         self.keys_control_inputs = None
+        self.keys_next_x_waypoints = None
+        self.keys_next_y_waypoints = None
 
         self.csv_filepath = None
 
@@ -54,10 +60,13 @@ class Recorder:
         self.state_dict = {}
         self.control_inputs_dict = {}
         self.dict_to_save = {}
+        self.next_waypoints_dict = {}
 
         if create_header:
             self.create_csv_header()
 
+
+#ToDo safe upper/lower bound of ranges and filter in config.yml
     def get_ranges(self, ranges):
 
         ranges_to_save = ranges
@@ -89,6 +98,23 @@ class Recorder:
         if self.keys_control_inputs is None:
             self.keys_control_inputs = self.control_inputs_dict.keys()
 
+
+    def get_next_waypoints(self, next_waypoints):
+        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
+        waypoints_x_to_save = waypoints_to_save[:,1]
+        waypoints_y_to_save = waypoints_to_save[:, 0]
+
+        if self.keys_next_x_waypoints is None:
+            # Initialise
+            self.keys_next_x_waypoints = ['WYPT_X_' + str(i) for i in range(len(waypoints_x_to_save))]
+
+        if self.keys_next_y_waypoints is None:
+            # Initialise
+            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i) for i in range(len(waypoints_y_to_save))]
+
+        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+
     def get_state(self, state):
 
         state_to_save = state
@@ -98,7 +124,7 @@ class Recorder:
 
         self.state_dict = dict(zip(self.keys_state, state_to_save))
 
-    def save_data(self, control_inputs=None, odometry=None, ranges=None, time=None, state=None):
+    def save_data(self, control_inputs=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
         self.get_time(time)
         if control_inputs is not None:
             self.get_control_inputs(control_inputs=control_inputs)
@@ -108,6 +134,8 @@ class Recorder:
             self.get_state(state=state)
         if ranges is not None:
             self.get_ranges(ranges=ranges)
+        if next_waypoints is not None and len(next_waypoints) > 0:
+            self.get_next_waypoints(next_waypoints=next_waypoints)
         self.save_csv()
 
     def save_csv(self):
@@ -117,6 +145,9 @@ class Recorder:
         self.dict_to_save.update(self.odometry_dict)
         self.dict_to_save.update(self.state_dict)
         self.dict_to_save.update(self.ranges_dict)
+        self.dict_to_save.update(self.next_waypoints_dict)
+
+
 
         # Save this dict
         with open(self.csv_filepath, "a") as outfile:
@@ -200,6 +231,6 @@ class Recorder:
         self.ranges_dict = None
         self.odometry_dict = None
         self.control_inputs_dict = None
+        self.next_waypoints_dict = None
         self.dict_to_save = {}
-
 

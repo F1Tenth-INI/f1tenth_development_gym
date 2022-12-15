@@ -34,14 +34,14 @@ class racing(f1t_cost_function):
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
-            
+
         ## Old waypoint cost function: only distance to nearest waypoint
         # if self.controller.next_waypoints.shape[0]:
         #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.controller.next_waypoints)
         # else:
         #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
-            
-        
+
+
         stage_cost = (
                 cc
                 + ccrc

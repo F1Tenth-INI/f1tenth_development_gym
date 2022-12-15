@@ -39,7 +39,7 @@ class WaypointUtils:
         
         self.interpolation_steps = config['waypoints']['INTERPOLATION_STEPS']
         self.decrease_resolution_factor = config['waypoints']['DECREASE_RESOLUTION_FACTOR']
-        
+
         self.look_ahead_steps = self.interpolation_steps * config['waypoints']['LOOK_AHEAD_STEPS']
         self.ignore_steps = config['waypoints']['IGNORE_STEPS']
         
@@ -49,7 +49,7 @@ class WaypointUtils:
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
         self.waypoints = WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps) #increased resolution
         self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor) # decreased resolution
-        
+
         # Waypoint positions [x, y]
         self.waypoint_positions = WaypointUtils.get_waypoint_positions(self.waypoints)
         
@@ -96,15 +96,15 @@ class WaypointUtils:
         map_config_file_path = Settings.MAP_CONFIG_FILE
         map_config = yaml.load(open(map_config_file_path, "r"), Loader=yaml.FullLoader)
         
-        # Setting the waypoints in the mapfile is optional   
+        # Setting the waypoints in the mapfile is optional
         if("waypoint_path" not in map_config):
             # No waypoints at all
             print("No waypoints set.")
             return None
-        
+
         path = map_config["waypoint_path"]
         file_path = path + '.csv'
-    
+
         try: # Check if waypoint file exists
             assert os.path.isfile(file_path), "Waypoint file (" + path+  ") does not exist"
         except AssertionError:
