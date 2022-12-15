@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run Race" type="PythonConfigurationType" factoryName="Python">
-    <module name="f1tenth_development_gym" />
+    <module name="f1tenth_development_gym_Jago" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
