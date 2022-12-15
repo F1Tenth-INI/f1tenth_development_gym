@@ -177,7 +177,7 @@ def main():
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
                     accl, sv = translational_control_with_noise, angular_control_with_noise
-
+                    # accl, sv = 0, 0
                 # print("sv, accl", sv, accl)
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
