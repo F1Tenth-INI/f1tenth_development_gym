@@ -25,8 +25,9 @@ class Settings:
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
+    MAP_CONFIG_FILE =  "utilities/maps_files/config_Map.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
