@@ -109,13 +109,14 @@ class mpc_planner:
         car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
         self.waypoint_utils.update_next_waypoints(car_position)
 
+        # Deprecated, meybe use for racing again?
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
-        if self.simulation_index < 3:
-            self.simulation_index += 1
-            self.translational_control = 10
-            self.angular_control = 0
-            return self.translational_control, self.angular_control
+        # if self.simulation_index < 0:
+        #     self.simulation_index += 1
+        #     self.translational_control = 10
+        #     self.angular_control = 0
+        #     return self.translational_control, self.angular_control
 
         if Settings.LOOK_FORWARD_ONLY:
             lidar_range_min = 200
