@@ -111,9 +111,9 @@ class mpc_planner:
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
-        if self.simulation_index < 3:
+        if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
-            self.translational_control = 10
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
             return self.translational_control, self.angular_control
 

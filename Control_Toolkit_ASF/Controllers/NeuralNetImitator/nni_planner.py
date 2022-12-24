@@ -101,15 +101,28 @@ class NeuralNetImitatorPlanner:
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
-        # Accelerate at the beginning (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
-        if self.simulation_index < 10:
+        # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
+        if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
-            self.translational_control = 10
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
             return self.translational_control, self.angular_control
 
-        #input_data = car_states + Lidar + next waypoints #ToDo append exactly what was listed as state inputs in config training and or CSV file of Model automatically instead of appending it manually
-        input_data = np.concatenate(([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX], self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges, next_waypoints_x,next_waypoints_y), axis=0)
+
+
+        #input_data = np.concatenate(([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
+        #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX],
+        #                              self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges,
+        #                              next_waypoints_x,next_waypoints_y), axis=0)
+
+        input_data_full = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
+                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
+                                      self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
+                                      self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
+
+        input_data_full2 = np.concatenate((ranges, next_waypoints_x, next_waypoints_y), axis=0)
+
+        input_data = ranges
         net_input = tf.convert_to_tensor(input_data, tf.float32)
 
         net_output = self.process_tf(net_input)
