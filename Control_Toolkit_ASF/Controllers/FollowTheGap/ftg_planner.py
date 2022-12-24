@@ -9,6 +9,8 @@ import math
 import matplotlib.pyplot as plt
 import pyglet.gl as gl
 
+from utilities.Settings import Settings #Janged
+
 LOOK_FORWARD_ONLY =True
 
 if LOOK_FORWARD_ONLY:
@@ -105,6 +107,13 @@ class FollowTheGapPlanner:
 
         distances = scans[lidar_range_min:lidar_range_max:10] # Only use every 10th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:10]
+
+        # Accelerate at the beginning "Schupf" (St model explodes for small velocity) #Janged
+        if self.simulation_index < Settings.ACCELERATION_TIME:
+            self.simulation_index += 1
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
+            self.angular_control = 0
+            return self.translational_control, self.angular_control
 
         p1 = pose_x + distances * np.cos(angles + pose_theta)
         p2 = pose_y + distances * np.sin(angles + pose_theta)
