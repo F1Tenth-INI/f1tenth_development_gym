@@ -1,4 +1,4 @@
-predictors_specifications_testing: ['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
+predictors_specifications_testing: ['S:./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-94IN-32H1-32H2-2OUT-3'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -8,9 +8,9 @@ predictors_specifications_testing: ['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Ex
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-0__2022-12-12_11-54-41.csv'
+test_file: 'F1TENTH_Blank-MPPI-0__2022-12-22_11-10-22.csv'
 
-path_to_testfile: '/home/marcin/PycharmProjects/f1tenth_development_gym_Jago/ExperimentRecordings/'
+path_to_testfile: '//home/marcin/PycharmProjects/f1tenth_development_gym_Jago/Dev_Jago/test/Oschers_Curve_Manual/'
 
 features_to_plot: [ 'pose_theta',   # Only to indicate what ought to be displayed in Brunton Test
     'pose_theta_sin',
