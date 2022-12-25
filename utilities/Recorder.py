@@ -79,7 +79,8 @@ class Recorder:
         if self.keys_ranges is None:
             #Initialise
             self.keys_ranges = ['LIDAR_'+str(i) for i in range(len(ranges_to_save))]
-
+            for i in range(10):
+                self.keys_ranges[i]='LIDAR_0'+str(i)
         self.ranges_dict = dict(zip(self.keys_ranges, ranges_to_save))
 
     def get_odometry(self, odometry_dict):
@@ -107,10 +108,14 @@ class Recorder:
         if self.keys_next_x_waypoints is None:
             # Initialise
             self.keys_next_x_waypoints = ['WYPT_X_' + str(i) for i in range(len(waypoints_x_to_save))]
+            for i in range(10):
+                self.keys_next_x_waypoints[i]='WYPT_X_0'+str(i)
 
         if self.keys_next_y_waypoints is None:
             # Initialise
             self.keys_next_y_waypoints = ['WYPT_Y_' + str(i) for i in range(len(waypoints_y_to_save))]
+            for i in range(10):
+                self.keys_next_y_waypoints[i]='WYPT_Y_0'+str(i)
 
         self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
         self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
