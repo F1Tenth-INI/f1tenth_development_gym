@@ -48,7 +48,8 @@ class Recorder:
         self.keys_ranges = None
         self.keys_odometry = None
         self.keys_state = None
-        self.keys_control_inputs = None
+        self.keys_control_inputs_applied = None
+        self.keys_control_inputs_calculated = None
         self.keys_next_x_waypoints = None
         self.keys_next_y_waypoints = None
 
@@ -58,7 +59,8 @@ class Recorder:
         self.ranges_dict = {}
         self.odometry_dict = {}
         self.state_dict = {}
-        self.control_inputs_dict = {}
+        self.control_inputs_applied_dict = {}
+        self.control_inputs_calculated_dict = {}
         self.dict_to_save = {}
         self.next_waypoints_dict = {}
 
@@ -78,9 +80,8 @@ class Recorder:
 
         if self.keys_ranges is None:
             #Initialise
-            self.keys_ranges = ['LIDAR_'+str(i) for i in range(len(ranges_to_save))]
-            for i in range(10):
-                self.keys_ranges[i]='LIDAR_0'+str(i)
+            self.keys_ranges = ['LIDAR_'+str(i).zfill(2) for i in range(len(ranges_to_save))]
+
         self.ranges_dict = dict(zip(self.keys_ranges, ranges_to_save))
 
     def get_odometry(self, odometry_dict):
@@ -93,11 +94,17 @@ class Recorder:
         if self.keys_time is None:
             self.keys_time = self.time_dict.keys()
 
-    def get_control_inputs(self, control_inputs):
+    def get_control_inputs_applied(self, control_inputs):
         translational_control, angular_control = control_inputs
-        self.control_inputs_dict = {'translational_control': translational_control, 'angular_control': angular_control}
-        if self.keys_control_inputs is None:
-            self.keys_control_inputs = self.control_inputs_dict.keys()
+        self.control_inputs_applied_dict = {'translational_control_applied': translational_control, 'angular_control_applied': angular_control}
+        if self.keys_control_inputs_applied is None:
+            self.keys_control_inputs_applied = self.control_inputs_applied_dict.keys()
+
+    def get_control_inputs_calculated(self, control_inputs):
+        translational_control, angular_control = control_inputs
+        self.control_inputs_calculated_dict = {'translational_control_calculated': translational_control, 'angular_control_calculated': angular_control}
+        if self.keys_control_inputs_calculated is None:
+            self.keys_control_inputs_calculated = self.control_inputs_calculated_dict.keys()
 
 
     def get_next_waypoints(self, next_waypoints):
@@ -107,15 +114,11 @@ class Recorder:
 
         if self.keys_next_x_waypoints is None:
             # Initialise
-            self.keys_next_x_waypoints = ['WYPT_X_' + str(i) for i in range(len(waypoints_x_to_save))]
-            for i in range(10):
-                self.keys_next_x_waypoints[i]='WYPT_X_0'+str(i)
+            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
 
         if self.keys_next_y_waypoints is None:
             # Initialise
-            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i) for i in range(len(waypoints_y_to_save))]
-            for i in range(10):
-                self.keys_next_y_waypoints[i]='WYPT_Y_0'+str(i)
+            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
 
         self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
         self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
@@ -129,10 +132,13 @@ class Recorder:
 
         self.state_dict = dict(zip(self.keys_state, state_to_save))
 
-    def save_data(self, control_inputs=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
-        self.get_time(time)
-        if control_inputs is not None:
-            self.get_control_inputs(control_inputs=control_inputs)
+    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
+        if time is not None:
+            self.get_time(time)
+        if control_inputs_applied is not None:
+            self.get_control_inputs_applied(control_inputs=control_inputs_applied)
+        if control_inputs_calculated is not None:
+            self.get_control_inputs_calculated(control_inputs=control_inputs_calculated)
         if odometry is not None:
             self.get_odometry(odometry_dict=odometry)
         if state is not None:
@@ -141,12 +147,16 @@ class Recorder:
             self.get_ranges(ranges=ranges)
         if next_waypoints is not None and len(next_waypoints) > 0:
             self.get_next_waypoints(next_waypoints=next_waypoints)
+
+    def save_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
+        self.get_data(control_inputs_applied, control_inputs_calculated, odometry, ranges, time, state, next_waypoints)
         self.save_csv()
 
     def save_csv(self):
 
         self.dict_to_save.update(self.time_dict)
-        self.dict_to_save.update(self.control_inputs_dict)
+        self.dict_to_save.update(self.control_inputs_applied_dict)
+        self.dict_to_save.update(self.control_inputs_calculated_dict)
         self.dict_to_save.update(self.odometry_dict)
         self.dict_to_save.update(self.state_dict)
         self.dict_to_save.update(self.ranges_dict)
@@ -230,12 +240,14 @@ class Recorder:
         self.keys_time = None
         self.keys_ranges = None
         self.keys_odometry = None
-        self.keys_control_inputs = None
+        self.keys_control_inputs_applied = None
+        self.keys_control_inputs_calculated = None
         self.csv_filepath = None
         self.time_dict = None
         self.ranges_dict = None
         self.odometry_dict = None
-        self.control_inputs_dict = None
+        self.control_inputs_applied_dict = None
+        self.control_inputs_calculated_dict = None
         self.next_waypoints_dict = None
         self.dict_to_save = {}
 
