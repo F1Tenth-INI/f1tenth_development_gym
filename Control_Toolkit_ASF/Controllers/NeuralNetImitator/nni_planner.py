@@ -101,6 +101,22 @@ class NeuralNetImitatorPlanner:
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
+        #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
+        #input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
+        #                              [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
+        #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
+        #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
+
+        input_data = ranges
+        net_input = tf.convert_to_tensor(input_data, tf.float32)
+
+        net_output = self.process_tf(net_input)
+        net_output = net_output.numpy()
+
+        angular_control = float(net_output[0])
+        translational_control = float(net_output[1])
+
+
         # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
         if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
@@ -109,33 +125,11 @@ class NeuralNetImitatorPlanner:
             return self.translational_control, self.angular_control
 
 
-
-        #input_data = np.concatenate(([self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
-        #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX],
-        #                              self.car_state[LINEAR_VEL_X_IDX], self.car_state[ANGULAR_VEL_Z_IDX]], ranges,
-        #                              next_waypoints_x,next_waypoints_y), axis=0)
-
-        input_data_full = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
-                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
-                                      self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
-                                      self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
-
-        input_data_full2 = np.concatenate((ranges, next_waypoints_x, next_waypoints_y), axis=0)
-
-        input_data = ranges
-        net_input = tf.convert_to_tensor(input_data, tf.float32)
-
-        net_output = self.process_tf(net_input)
-        net_output = net_output.numpy()
-
-        speed = float(net_output[0])
-        steering_angle = float(net_output[1])
-
-        self.translational_control = speed
-        self.angular_control = steering_angle
+        self.translational_control = translational_control
+        self.angular_control = angular_control
 
 
-        return speed, steering_angle
+        return translational_control, angular_control
 
     @CompileTF
     def process_tf(self, net_input):
@@ -144,7 +138,7 @@ class NeuralNetImitatorPlanner:
             net_input
         ))
 
-        net_input = (tf.reshape(net_input, [-1, 1, len(self.net_info.inputs)]))
+        net_input = (tf.reshape(self.net_input_normed, [-1, 1, len(self.net_info.inputs)]))
 
         net_output = self.net(net_input)
 
