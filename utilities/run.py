@@ -146,11 +146,11 @@ def main():
         if done:
             break
         ranges = obs['scans']
+
         if Settings.CONTROLLER != 'ftg':
-            next_waypoints = planner1.waypoint_utils.next_waypoint_positions    #load waypoints
+            next_waypoints = planner1.waypoint_utils.next_waypoint_positions  # load waypoints
         else:
             next_waypoints = None
-
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
@@ -159,7 +159,7 @@ def main():
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
             if (Settings.SAVE_RECORDINGS):
-                recorders[index].save_data(control_inputs=(translational_control, angular_control),
+                recorders[index].get_data(control_inputs_calculated=(translational_control, angular_control),
                                            odometry=odom, ranges=ranges[index], state=driver.car_state,
                                            time=current_time_in_simulation, next_waypoints=next_waypoints)
 
@@ -167,12 +167,22 @@ def main():
             env.render(mode=Settings.RENDER_MODE)
             render_index += 1
 
+        # Get noisy control for each driver:
+        noisy_control = []
+        for index, driver in enumerate(drivers):
+            translational_control_with_noise = add_noise(driver.translational_control,
+                                                         noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
+            angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
+            noisy_control.append([translational_control_with_noise, angular_control_with_noise])
+            if (Settings.SAVE_RECORDINGS):
+                recorders[index].get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
+
+
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
 
             for index, driver in enumerate(drivers):
-                translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
-                angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
+                translational_control_with_noise, angular_control_with_noise = noisy_control[index]
                 if Settings.WITH_PID:
                     accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
@@ -185,6 +195,10 @@ def main():
 
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward
+
+        if (Settings.SAVE_RECORDINGS):
+            for index, driver in enumerate(drivers):
+                recorders[index].save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
 
