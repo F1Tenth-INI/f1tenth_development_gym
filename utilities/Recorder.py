@@ -80,7 +80,7 @@ class Recorder:
 
         if self.keys_ranges is None:
             #Initialise
-            self.keys_ranges = ['LIDAR_'+str(i).zfill(2) for i in range(len(ranges_to_save))]
+            self.keys_ranges = ['LIDAR_'+str(i).zfill(4) for i in range(len(ranges_to_save))]
 
         self.ranges_dict = dict(zip(self.keys_ranges, ranges_to_save))
 
@@ -109,8 +109,8 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:,1]
-        waypoints_y_to_save = waypoints_to_save[:, 0]
+        waypoints_x_to_save = waypoints_to_save[:,1] #- self.state_dict['pose_x']
+        waypoints_y_to_save = waypoints_to_save[:, 0] #- self.state_dict['pose_y']
 
         if self.keys_next_x_waypoints is None:
             # Initialise
