@@ -49,6 +49,7 @@ class WaypointUtils:
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
         self.waypoints = WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps) #increased resolution
         self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor) # decreased resolution
+        self.waypoints = WaypointUtils.remove_doublicates(self.waypoints)
 
         # Waypoint positions [x, y]
         self.waypoint_positions = WaypointUtils.get_waypoint_positions(self.waypoints)
@@ -169,3 +170,16 @@ class WaypointUtils:
             norms.append(norm)
             directions.append(vector/norm)
         return vectors, norms, directions
+    
+    @staticmethod
+    def remove_doublicates(waypoints):
+        # Remove dublicate waypoints ( with same positions )
+        if waypoints is None: return None
+        
+        wawypoint_positions = waypoints[:,1:3]
+        unique_positions, unique_indices = np.unique(wawypoint_positions, axis=0, return_index=True)
+        unique_indices = np.sort(unique_indices)
+    
+        unique_waypoints = waypoints[unique_indices, :]
+        return np.array(unique_waypoints)
+         
