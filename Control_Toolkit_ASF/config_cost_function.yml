@@ -24,12 +24,12 @@ Car:
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
       desired_max_speed: 12.0             # desired max speed for the car [m/s]
-      waypoint_velocity_factor : 2.2
+      waypoint_velocity_factor : 1.8
 
     rpgd-tf:
       acceleration_cost_weight: 0.0
       max_acceleration: 0.0
-      desired_max_speed: 16.0               # desired max speed for the car [m/s]
+      desired_max_speed: 10.0               # desired max speed for the car [m/s]
       waypoint_velocity_factor : 1.0
 
 

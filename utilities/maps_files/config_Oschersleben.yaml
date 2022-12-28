@@ -5,9 +5,11 @@ map_path: 'utilities/maps_files/maps/Oschersleben'
 waypoint_path: 'utilities/maps_files/waypoints/Oschersleben_wp'
 
 # starting pose for map
-starting_positions: 
+starting_positions:
  - [0.0702245, 0.3002981, 2.79787]
  - [0.9966514, -0.9306893, 2.79787]
  - [-1., 4., 1.37079632679]
  - [-1.5, 6., 1.37079632679]
+  # - [20.0702245, -5.9, 2.85] Start for long straight section
+  # - [0.0702245, -0.06, 2.85]
   
