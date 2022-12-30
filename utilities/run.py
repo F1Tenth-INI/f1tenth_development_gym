@@ -9,8 +9,8 @@
 from utilities.random_obstacle_creator import RandomObstacleCreator
 
 import time
-
 import yaml
+from pynput import keyboard
 import gym
 import numpy as np
 from argparse import Namespace
@@ -137,6 +137,13 @@ def main():
     if Settings.RENDER_MODE is not None:
         env.render()
 
+    # Add Keyboard event listener
+    def on_press(key):
+        if key == keyboard.Key.space:
+            Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()  # start to listen on a separate thread
+    
     laptime = 0.0
     start = time.time()
 
@@ -189,8 +196,7 @@ def main():
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
                     accl, sv = translational_control_with_noise, angular_control_with_noise
-                    # accl, sv = 0, 0
-                # print("sv, accl", sv, accl)
+                
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))
