@@ -36,6 +36,10 @@ class Settings:
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
+    # Car parameters
+    MPC_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"
+    # MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
+    
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False
     

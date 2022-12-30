@@ -1,0 +1,29 @@
+# Physical Car parameters
+mu: 1.0489    # friction coefficient  [-]
+C_Sf: 4.718   # cornering stiffness front [1/rad]
+C_Sr: 5.4562  # cornering stiffness rear [1/rad]
+lf: 0.15875   # distance from venter of gracity to front axle [m]
+lr: 0.17145   # distance from venter of gracity to rear axle [m]
+h: 0.074      # center of gravity height of toal mass [m]
+m: 3.74       # Total Mass of car [kg]
+I: 0.04712    # Moment of inertia for entire mass about z axis  [kgm^2]
+g: 9.81       # Gravitation Constant [m/s^2]
+
+# Steering Constraints
+s_min: -0.4189
+s_max: 0.4189
+sv_min: -3.2
+sv_max: 3.2
+
+# Acceleration Constraints
+a_max: 9.51
+v_min: -5.0
+v_max: 20
+v_switch: 7.319
+
+# Servo
+servo_p: 10             # proportional factor of servo PID
+steering_diff_low: 0.1  # [rad] Steering angle difference below is considered as 0
+
+# Other
+min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
