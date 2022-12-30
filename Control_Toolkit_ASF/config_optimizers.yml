@@ -4,7 +4,7 @@ mppi:
   seed: null # Seed for rng, for MPPI only, put null to set random seed (do it when you generate data for training!)
   mpc_horizon: 20                       # steps
   num_rollouts: 2000                    # Number of Monte Carlo samples
-  LBD: 0.001                            # Cost parameter lambda
+  LBD: 0.05                            # Cost parameter lambda
   NU: 1000.0                            # Exploration variance
   SQRTRHOINV: [ 0.5, 0.5 ]              # Sampling variance
   GAMMA: 1.00                           # Future cost discount
