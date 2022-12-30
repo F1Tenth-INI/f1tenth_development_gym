@@ -37,7 +37,8 @@ class Settings:
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
     # Car parameters
-    MPC_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"
+    ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car    
+    MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml" # Car parameters for MPC model prediction
     # MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml

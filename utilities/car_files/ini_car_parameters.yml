@@ -8,6 +8,8 @@ h: 0.074      # center of gravity height of toal mass [m]
 m: 3.74       # Total Mass of car [kg]
 I: 0.04712    # Moment of inertia for entire mass about z axis  [kgm^2]
 g: 9.81       # Gravitation Constant [m/s^2]
+width: 0.31   # Width of the car [m]
+length: 0.58  # Length of the car [m]
 
 # Steering Constraints
 s_min: -0.4189
