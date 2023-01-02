@@ -1,187 +1,158 @@
 import sys
-sys.path.append('/Users/mehdi/Downloads/f1tenth_development_gym/SI_Toolkit/src')
 
-from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
-from SI_Toolkit.computation_library import TensorFlowLibrary
 import tensorflow as tf
 import csv
 import numpy as np
 import pandas as pd
 
-from math import pi
 from tqdm import trange
 
+import yaml
+
+from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
+from SI_Toolkit.computation_library import TensorFlowLibrary
+
+from DataGen.Utilities import get_initial_states
+from utilities.Recorder import create_csv_header
+
+try:
+    # Use gitpython to get a current revision number and use it in description of experimental data
+    from git import Repo
+except:
+    pass
+
+# TODO: Get rid of for loop
+# TODO: Save file as in Cartpole -> with split for train test, validate
+# TODO: State initialisation - what not loaded, randomly initialized as in CP
+# TODO: Interpolator
+
+config = yaml.load(open('DataGen/config_data_gen.yml', "r"), Loader=yaml.FullLoader)
+
 predictor = PredictorWrapper()
-num_rollouts = 200 # 200  - 1
-mpc_horizon = 20 # 20   - 500
-number_of_trajectories = 20 # 20  -1
-dt = 0.03
+number_of_initial_states = config['number_of_initial_states']
+trajectory_length = config['trajectory_length']
+number_of_trajectories_per_initial_state = config['number_of_trajectories_per_initial_state']
+dt = config['dt']  # Saving & Control Update
+
+strategy = config['control_inputs']['strategy']
+
+path_save_to = config['path_save_to']
+file_to_save = 'Data_gen.csv'
+
+load_initial_states_from_file = config['initial_states']['from_file']['load_from_file']
+if load_initial_states_from_file:
+    initial_states_from_file_features = config['initial_states']['from_file']['features']
+    file_with_initial_states = config['initial_states']['from_file']['file_with_initial_states']
+else:
+    initial_states_from_file_features = None
+    file_with_initial_states = None
+
+np.random.seed(config['seed'])
+
+data = None
+
 predictor.configure(
-    batch_size=num_rollouts, # Number of initial states
-    horizon=mpc_horizon, # Number of Steps per Trajectory
-    dt = dt,
+    batch_size=number_of_initial_states,  # Number of initial states
+    horizon=trajectory_length-1,  # Number of Steps per Trajectory: the trajectory length include also initial state
+    dt=dt,
     computation_library=TensorFlowLibrary,
-    predictor_specification= "ODE_TF_default"
+    predictor_specification="ODE_TF_default"
 )
-np.random.seed(0)
-def load_pose_x_y(file_path,num_rollouts):
-    df = pd.read_csv(file_path, sep=',',skiprows=8,usecols = ['pose_x','pose_y'])
-    position = df.to_numpy()
-    if position.shape[0]>=num_rollouts:
-        position = position[np.random.randint(position.shape[0], size=num_rollouts), :]
+
+states, number_of_initial_states = get_initial_states(number_of_initial_states, file_with_initial_states, initial_states_from_file_features)
+number_of_experiments = number_of_initial_states * number_of_trajectories_per_initial_state
+
+# ----> Angular control
+mu_ac, sigma_ac = 0, 0.9  # mean and standard deviation
+# ----> Translational control
+# mu_tc, sigma_tc = 0, 0.5  # mean and standard deviation
+min_tc, max_tc = -10.0, 10.0
+
+for i in trange(number_of_trajectories_per_initial_state):
+
+    if strategy == 'constant input':
+        # ---------------Constant input control for each trajectory-------------------------
+        u0_dist = np.random.normal(mu_ac, sigma_ac, number_of_initial_states)
+        # u1_dist = np.random.normal(mu_tc, sigma_tc, number_of_initial_states)
+        u1_dist = np.random.uniform(min_tc, max_tc, number_of_initial_states)
+        # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
+        controls = np.column_stack((u0_dist, u1_dist)) # dim = [initial_states, 2]
+
+        # In the following 2 line, we duplicate each control input (in rows direction, axis=0)
+        control = np.repeat(controls, trajectory_length, axis=0)
+
+    elif strategy == 'random input':
+        # ----------------Random input control for each trajectory-------------------------
+
+        # ----> Angular control
+        u0_dist = np.random.normal(mu_ac, sigma_ac, number_of_initial_states*trajectory_length)
+
+        # ----> Translational control
+        u1_dist = np.random.uniform(min_tc, max_tc, number_of_initial_states*trajectory_length)
+
+        # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
+        controls = np.column_stack((u0_dist, u1_dist)) # dim = [initial_states, 2]
     else:
-        raise Exception('The file is not long Enough to get position. Should be at least %s rows long',num_rollouts)
+        raise Exception('{} is not a valid strategy for generating control inputs'.format(strategy))
 
-    return position
-# Position => invariant since we are only interested in delta
+    control = controls.reshape(number_of_initial_states, trajectory_length, 2) # dim = [initial_states,trajectory_length,2]
 
-file_path = "../f1tenth_development_gym/ExperimentRecordings/F1TENTH_Blank-MPPI-0__2022-11-29_10-19-19.csv"
-pose_x_y = load_pose_x_y(file_path,num_rollouts)
-x_dist = pose_x_y[:,0]
-y_dist = pose_x_y[:,1]
-"""
-x_dist = np.random.uniform(-0, 0, num_rollouts)
-y_dist = np.random.uniform(-0, 0, num_rollouts)
-"""
-
-# Steering of front wheels
-delta_dist = np.random.uniform(-1, 1, num_rollouts)
-
-# velocity in face direction
-v_dist = np.random.uniform(10, 20, num_rollouts)
-
-# Yaw Angle
-yaw_dist = np.random.uniform(-pi, pi, num_rollouts)
-
-# Yaw Angle cos and sin
-yaw_cos = np.cos(yaw_dist)
-yaw_sin = np.sin(yaw_dist)
-
-# Yaw rate
-yaw_rate_dist = np.random.uniform(-0, 0, num_rollouts)
-
-# Slip angle
-slip_angle_dist = np.random.uniform(-0, 0, num_rollouts)
-
-# Collect states in a table
-"""
-    'angular_vel_z',  # x5: yaw rate
-    'linear_vel_x',   # x3: velocity in x direction
-    'pose_theta',  # x4: yaw angle
-    'pose_theta_cos',
-    'pose_theta_sin',
-    'pose_x',  # x0: x position in global coordinates
-    'pose_y',  # x1: y position in global coordinates
-    'slip_angle',  # x6: slip angle at vehicle center
-    'steering_angle' 
-"""
-# Order to follow for the network
-#states = np.column_stack((x_dist,y_dist,yaw_dist,v_dist,yaw_rate_dist,yaw_cos, yaw_sin, slip_angle_dist, delta_dist))
-# Order the predictor needs
-states = np.column_stack((yaw_rate_dist,v_dist,yaw_dist, yaw_cos, yaw_sin, x_dist, y_dist, slip_angle_dist, delta_dist))
-
-def order_data_for_nn(a):
-    nn_required_order = np.column_stack((a[:,0],a[:,1],a[:,7], a[:,8], a[:,4], a[:,3], a[:,2], a[:,5], a[:,6], a[:,9], a[:,10]))
-    return nn_required_order
-
-# Initialize the data array with a zeros raw (just for convenience, will be removed later)
-data = np.array([0,0,1,2,3,4,5,6,7,8,9])
-
-#---------------Constant input control for each trajectory-------------------------
-"""
-for i in trange(number_of_trajectories):
-
-    mu, sigma = 0, 0.4  # mean and standard deviation
-    u0_dist = np.random.normal(mu, sigma, num_rollouts)
-    mu, sigma = 0, 0.5  # mean and standard deviation
-    u1_dist = np.random.normal(mu, sigma, num_rollouts)
-    # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
-    controls = np.column_stack((u0_dist, u1_dist)) # dim = [initial_states, 2]
-
-    # In the following 2 line, we duplicate each control input (in rows direction, axis=0)
-    control = np.repeat(controls,mpc_horizon,axis=0)
-    control = control.reshape(num_rollouts,mpc_horizon,2) # dim = [initial_states,mpc_horizon,2]
-
-    s = tf.convert_to_tensor(states.reshape([num_rollouts, -1]), dtype=tf.float32)
-    Q = tf.convert_to_tensor(control.reshape(num_rollouts, mpc_horizon, 2), dtype=tf.float32)
-    predictions = np.array(predictor.predict_tf(s, Q)) # dim = [initial_states, mpc_horizon+1, 9]
-
-    # control_augmented is same as control but we repeat the last raw of the 2 dimension
-    # only done for coding convenience, to be able to add the control next to the last state in the data file
-    control_augmented = np.repeat(control, [1] * (control.shape[1] - 1) + [2], axis=1)
-    control_augmented = control_augmented.reshape(num_rollouts*(mpc_horizon+1),2)
-
-    # Convert prediction to one big nd array and add control input next to each state transition
-    predictions =predictions.reshape(num_rollouts*(mpc_horizon+1),9)
-    control_with_predictions = np.column_stack((control_augmented,predictions))
-
-    # Stack control_with_predictions into the data file
-    data = np.row_stack((data,control_with_predictions))
-"""
-
-# ----------------Random input control for each trajectory-------------------------
-
-for i in trange(number_of_trajectories):
-
-    # ----> Angular control
-    mu, sigma = 0, 0.4  # mean and standard deviation
-    u0_dist = np.random.normal(mu, sigma, num_rollouts*mpc_horizon)
-
-    # ----> Translational control
-    mu, sigma = 0, 0.5  # mean and standard deviation
-    u1_dist = np.random.normal(mu, sigma, num_rollouts*mpc_horizon)
-
-    # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
-    controls = np.column_stack((u0_dist, u1_dist)) # dim = [initial_states, 2]
-
-    # In the following 2 line, we duplicate each control input (in rows direction, axis=0)
-    control = controls.reshape(num_rollouts,mpc_horizon,2) # dim = [initial_states,mpc_horizon,2]
-
-    s = tf.convert_to_tensor(states.reshape([num_rollouts, -1]), dtype=tf.float32)
-    Q = tf.convert_to_tensor(control.reshape(num_rollouts, mpc_horizon, 2), dtype=tf.float32)
-    predictions = np.array(predictor.predict_tf(s, Q)) # dim = [initial_states, mpc_horizon+1, 9]
+    s = tf.convert_to_tensor(states.reshape([number_of_initial_states, -1]), dtype=tf.float32)
+    Q = tf.convert_to_tensor(control.reshape(number_of_initial_states, trajectory_length, 2), dtype=tf.float32)[:, :-1, :] # We don't need last control inputs, they will not be applied
+    predictions = np.array(predictor.predict_tf(s, Q))  # dim = [initial_states, trajectory_length, 9]
     # !!!!!!!! Check if the prediction are ordered well in raw, ie each row is the prediction of the previous
 
-    # control_augmented is same as control but we repeat the last raw of the 2 dimension
-    # only done for coding convenience, to be able to add the control next to the last state in the data file
-    control_augmented = np.repeat(control, [1] * (control.shape[1] - 1) + [2], axis=1)
-    control_augmented = control_augmented.reshape(num_rollouts*(mpc_horizon+1),2)
-
     # Convert prediction to one big nd array and add control input next to each state transition
-    predictions = predictions.reshape(num_rollouts*(mpc_horizon+1),9)
-    control_with_predictions = np.column_stack((control_augmented,predictions))
+    predictions = predictions.reshape(number_of_initial_states*trajectory_length, 9)
+    control = control.reshape(number_of_initial_states*trajectory_length, 2)
+    control_with_predictions = np.column_stack((control, predictions))
 
     # Stack control_with_predictions into the data file
-    data = np.row_stack((data,control_with_predictions))
+    if data is None:
+        data = control_with_predictions
+    else:
+        data = np.row_stack((data, control_with_predictions))
 
 
+time_axis = (np.arange(data.shape[0])*dt).reshape(-1, 1)
 
-# Eliminate the first all zeros raw
-data = data[1:,:]
+experiment_index = np.repeat(np.arange(number_of_experiments, dtype=np.int32), trajectory_length)
 
-#Reorder data columns
-#data = order_data_for_nn(data)
+data = np.column_stack((time_axis, data))
 
-time_axis = (np.arange(data.shape[0])*0.03).reshape(-1,1)
+column_names = ['time',
+                'angular_control',
+                'translational_control',
+                'angular_vel_z',
+                'linear_vel_x',
+                'pose_theta',
+                'pose_theta_cos',
+                'pose_theta_sin',
+                'pose_x',
+                'pose_y',
+                'slip_angle',
+                'steering_angle',
+                ]
 
-data = np.column_stack((time_axis,data))
+df = pd.DataFrame(data, columns=column_names)
+df['experiment_index'] = experiment_index
+
+# Sort out experiments with anomalous angular velocity
+
+idx = df.index[df['angular_vel_z'].abs() > 25]
+problematic_experiments = df.loc[idx]['experiment_index'].unique()
+df = df[~(df.experiment_index.isin(problematic_experiments))].reset_index(drop=True)
+
+experiment_index = np.repeat(np.arange(df.shape[0]/trajectory_length, dtype=np.int32), trajectory_length)
+df['experiment_index'] = experiment_index
+pass
+
 # Compute the number of nan in the data
 print('Number of nan element in the generated Data:', np.count_nonzero(np.isnan(data)))
 
-# Save data into a csv file
-np.savetxt('SI_Toolkit_ASF/Experiments/Tutorial/Recordings/Train/Data_gen.csv', data, delimiter=",")
+csv_path = create_csv_header(path_save_to, controller_name='Random input', dt=dt)
+df.to_csv(csv_path, index=False, mode='a')
 
-# Add state names as a first raw
-# order the network needs
-#row_names = 'time,translational_control,angular_control,pose_x,pose_y,pose_theta,linear_vel_x,angular_vel_z,pose_theta_cos,pose_theta_sin,slip_angle,steering_angle'
-# Order the predictor needs
-row_names = 'time,angular_control,translational_control,angular_vel_z,linear_vel_x,pose_theta,pose_theta_cos,pose_theta_sin,pose_x,pose_y,slip_angle,steering_angle'
-
-with open('SI_Toolkit_ASF/Experiments/Tutorial/Recordings/Train/Data_gen.csv','r+') as file:
-    file_data = file.read()
-    file.seek(0,0)
-    file.write(row_names + '\n' + file_data)
-
-print('Yes')
+print('Finished data generation')
 
 
