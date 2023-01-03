@@ -1,4 +1,4 @@
-path_save_to: './SI_Toolkit_ASF/Experiments/DG1/Recordings/Train/'  # Where to save experiment recording per default
+path_save_to: './xxx/'  # Where to save experiment recording per default
 #path_save_to: './Experiment_Recordings/'
 seed:    # If not assign random seed based on datetime is used
 split: [0.8, 0.1]  # Train/Val/(Test) split - only matters if you run it in ML Pipeline mode
