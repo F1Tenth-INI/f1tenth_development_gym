@@ -43,7 +43,7 @@ class next_state_predictor_ODE_tf():
 
 class predictor_output_augmentation_tf:
     def __init__(self, net_info, disable_individual_compilation=False, differential_network=False):
-        outputs_after_integration = [x[2:] if x[:2] == 'D_' else x for x in net_info.outputs]
+        outputs_after_integration = [(x[2:] if x[:2] == 'D_' else x) for x in net_info.outputs]
         self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
         indices_augmentation = []
         features_augmentation = []
