@@ -84,9 +84,9 @@ class NeuralNetImitatorPlanner:
 
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
         config_training_NN = yaml.load(open(os.path.join(PATH_TO_MODELS, NET_NAME, "config_training.yml")), Loader=yaml.FullLoader)
-        state_inputs = config_training_NN["training_default"]["state_inputs"]
+        config_inputs = np.append(config_training_NN["training_default"]["state_inputs"], config_training_NN["training_default"]["control_inputs"])
         number_of_next_waypoints = 0
-        for element in state_inputs:
+        for element in config_inputs:
             if "WYPT_X" in element:
                 number_of_next_waypoints += 1
 
@@ -94,7 +94,10 @@ class NeuralNetImitatorPlanner:
         #Loading next n wypts using waypoint_utils.py
         self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
         car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        self.waypoint_utils.update_next_waypoints(car_position)
+        car_sin_theta = s[POSE_THETA_SIN_IDX]
+        car_cos_theta = s[POSE_THETA_COS_IDX]
+
+        self.waypoint_utils.update_next_waypoints(car_position, car_sin_theta, car_cos_theta)
         next_waypoints = self.waypoint_utils.next_waypoint_positions
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
@@ -107,7 +110,11 @@ class NeuralNetImitatorPlanner:
         #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
 
-        input_data = ranges
+        #input_data = ranges
+        input_data = np.concatenate((next_waypoints_x, next_waypoints_y,
+                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
+
+
         net_input = tf.convert_to_tensor(input_data, tf.float32)
 
         net_output = self.process_tf(net_input)
