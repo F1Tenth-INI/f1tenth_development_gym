@@ -213,7 +213,7 @@ def run_experiments():
             import subprocess
             import sys
             program = '''
-from main.run import main
+from utilities.run import main
 main()
 '''
             result = subprocess.run([sys.executable, "-c", program])
