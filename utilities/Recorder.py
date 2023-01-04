@@ -109,8 +109,9 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:,1] #- self.state_dict['pose_x']
-        waypoints_y_to_save = waypoints_to_save[:, 0] #- self.state_dict['pose_y']
+        waypoints_x_to_save = waypoints_to_save[:, 0]
+        waypoints_y_to_save = waypoints_to_save[:, 1]
+
 
         if self.keys_next_x_waypoints is None:
             # Initialise
