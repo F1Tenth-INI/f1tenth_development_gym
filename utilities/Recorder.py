@@ -26,6 +26,68 @@ rounding_decimals = 5
 
 path_to_experiment_recordings = 'ExperimentRecordings/'
 
+
+def create_csv_header(path_to_recordings,
+                      controller_name,
+                      dt,
+                      csv_name=None):
+
+    # Make folder to save data (if not yet existing)
+    try:
+        os.makedirs(path_to_recordings[:-1])
+    except FileExistsError:
+        pass
+
+    # Set path where to save the data
+    if csv_name is None or csv_name == '':
+        csv_filepath = path_to_recordings + 'F1TENTH_' + controller_name + '_' + str(
+            datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '.csv'
+    else:
+        csv_filepath = csv_name
+        if csv_name[-4:] != '.csv':
+            csv_filepath += '.csv'
+
+        # If such file exists, append index to the end (do not overwrite)
+        net_index = 1
+        logpath_new = csv_filepath
+        while True:
+            if os.path.isfile(logpath_new):
+                logpath_new = csv_filepath[:-4]
+            else:
+                csv_filepath = logpath_new
+                break
+            logpath_new = logpath_new + '-' + str(net_index) + '.csv'
+            net_index += 1
+
+    # Write the header of .csv file
+    with open(csv_filepath, "a") as outfile:
+        writer = csv.writer(outfile)
+
+        writer.writerow(['# ' + 'This is F1TENTH simulation from {} at time {}'
+                        .format(datetime.now().strftime('%d.%m.%Y'), datetime.now().strftime('%H:%M:%S'))])
+        try:
+            repo = Repo('../')
+            git_revision = repo.head.object.hexsha
+        except:
+            git_revision = 'unknown'
+        writer.writerow(['# ' + 'Done with git-revision: {}'
+                        .format(git_revision)])
+
+        writer.writerow(['#'])
+
+        writer.writerow(['# Saving: {} s'.format(dt)])
+
+        writer.writerow(['#'])
+
+        writer.writerow(['# Controller: {}'.format(controller_name)])
+
+        writer.writerow(['#'])
+
+        writer.writerow(['# Data:'])
+
+    return csv_filepath
+
+
 class Recorder:
     def __init__(self, controller_name=None, create_header=True, dt=None):
 
@@ -65,7 +127,11 @@ class Recorder:
         self.next_waypoints_dict = {}
 
         if create_header:
-            self.create_csv_header()
+            self.csv_filepath = create_csv_header(
+                self.path_to_experiment_recordings,
+                self.controller_name,
+                self.dt,
+            )
 
 
 #ToDo safe upper/lower bound of ranges and filter in config.yml
@@ -180,61 +246,6 @@ class Recorder:
                                      for key, value in self.dict_to_save.items()}
 
             writer.writerow([float(x) for x in self.dict_to_save.values()])
-
-    def create_csv_header(self, csv_name=None):
-
-        # Make folder to save data (if not yet existing)
-        try:
-            os.makedirs(self.path_to_experiment_recordings[:-1])
-        except FileExistsError:
-            pass
-
-        # Set path where to save the data
-        if csv_name is None or csv_name == '':
-            self.csv_filepath = self.path_to_experiment_recordings + 'F1TENTH_' + self.controller_name + '_' + str(
-                datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '.csv'
-        else:
-            self.csv_filepath = csv_name
-            if csv_name[-4:] != '.csv':
-                self.csv_filepath += '.csv'
-
-            # If such file exists, append index to the end (do not overwrite)
-            net_index = 1
-            logpath_new = self.csv_filepath
-            while True:
-                if os.path.isfile(logpath_new):
-                    logpath_new = self.csv_filepath[:-4]
-                else:
-                    self.csv_filepath = logpath_new
-                    break
-                logpath_new = logpath_new + '-' + str(net_index) + '.csv'
-                net_index += 1
-
-        # Write the header of .csv file
-        with open(self.csv_filepath, "a") as outfile:
-            writer = csv.writer(outfile)
-
-            writer.writerow(['# ' + 'This is F1TENTH simulation from {} at time {}'
-                            .format(datetime.now().strftime('%d.%m.%Y'), datetime.now().strftime('%H:%M:%S'))])
-            try:
-                repo = Repo('../')
-                git_revision = repo.head.object.hexsha
-            except:
-                git_revision = 'unknown'
-            writer.writerow(['# ' + 'Done with git-revision: {}'
-                            .format(git_revision)])
-
-            writer.writerow(['#'])
-
-            writer.writerow(['# Saving: {} s'.format(self.dt)])
-
-            writer.writerow(['#'])
-
-            writer.writerow(['# Controller: {}'.format(self.controller_name)])
-
-            writer.writerow(['#'])
-
-            writer.writerow(['# Data:'])
 
     def reset(self):
         self.headers_already_saved = False
