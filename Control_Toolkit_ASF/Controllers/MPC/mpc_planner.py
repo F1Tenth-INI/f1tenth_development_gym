@@ -107,7 +107,9 @@ class mpc_planner:
             s = self.car_state
 
         car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        self.waypoint_utils.update_next_waypoints(car_position)
+        car_sin_theta = ego_odom['pose_theta_sin']
+        car_cos_theta = ego_odom['pose_theta_cos']
+        self.waypoint_utils.update_next_waypoints(car_position,car_sin_theta, car_cos_theta)
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
