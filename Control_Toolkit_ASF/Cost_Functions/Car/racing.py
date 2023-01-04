@@ -49,7 +49,7 @@ class racing(f1t_cost_function):
                 + steering_cost
                 + acceleration_cost
                 + velocity_difference_to_wp_cost
-                + crash_cost
+                #+ crash_cost
                 # + distance_to_waypoints_cost
             )
 
