@@ -56,6 +56,17 @@ def main():
     else:
         NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
 
+
+    if Settings.USE_WAYPOINTS == 'relative':
+        print('initialized with relative waypoints')
+    elif Settings.USE_WAYPOINTS == 'absolute':
+        print('initialized with absolute waypoints')
+    elif Settings.USE_WAYPOINTS == False:
+        print('initialized with no waypoints')
+    else:
+        print('no waypoints specified, using "absolute" waypoints by default')
+
+
     # planner1 = FollowTheGapPlannerXiang2()
     # planner1 = FollowTheGapPlannerIcra()
     planner1.plot_lidar_data = False
@@ -142,15 +153,23 @@ def main():
 
     render_index = 0
 
+
     for _ in trange(Settings.EXPERIMENT_LENGTH):
         if done:
             break
+
         ranges = obs['scans']
 
-        if Settings.CONTROLLER != 'ftg':
-            next_waypoints = planner1.waypoint_utils.next_waypoint_positions  # load waypoints
-        else:
+        #Waypoint settings
+        if Settings.USE_WAYPOINTS != False and Settings.CONTROLLER != 'ftg':         #for MPPI and neural mppi imitator
+            next_waypoints = planner1.waypoint_utils.next_waypoint_positions         #load waypoints
+        elif Settings.USE_WAYPOINTS == False and Settings.CONTROLLER == 'neural':    #for neural FTG imitator
             next_waypoints = None
+            planner1.waypoint_utils.waypoints = None
+        else:                                                                       #for FTG
+            next_waypoints = None
+
+
         for index, driver in enumerate(drivers):
             odom = get_odom(obs, index)
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
