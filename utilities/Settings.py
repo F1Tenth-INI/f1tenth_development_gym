@@ -10,7 +10,7 @@ class Settings:
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     NET_NAME = 'Dense-44IN-64H1-64H2-2OUT-2'
     USE_WAYPOINTS = 'relative'                  #CHECK either: False (ftg), 'relative' or 'absolute'
-    ACCELERATION_TIME = 10              #nni 50, mpc 10
+    ACCELERATION_TIME = 20              #nni 50, mpc 10
     ACCELERATION_AMPLITUDE = 10         #nni 2, mpc 10
 
 
@@ -24,7 +24,7 @@ class Settings:
 
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
-    NUMBER_OF_EXPERIMENTS = 3  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 200  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 3000 #36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
@@ -47,8 +47,8 @@ class Settings:
     SAVE_RECORDINGS = True
 
     #Set Noise Level
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 2.0 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 2.0  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.5 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 1.0  # ftg: 0.05  # mppi: 3.0
 
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = True

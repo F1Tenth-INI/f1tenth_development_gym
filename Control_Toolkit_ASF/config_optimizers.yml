@@ -7,7 +7,6 @@ mppi:
   LBD: 0.05                            # Cost parameter lambda (original LBD: 0.001)
   NU: 1000.0                            # Exploration variance
   SQRTRHOINV: [ 0.1, 0.1]              # Sampling variance (original SQRTRHOINV: [ 0.5, 0.5] )
-  GAMMA: 1.00                           # Future cost discount
   period_interpolation_inducing_points: 5                #interpolation stepsize when sampling, (original iip=1), a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated: example horizon=20 and iip=5, first, 5th, 10th, 15th and 20th step random sampling and 4 points between sampled points linearly interpolated
 
   # Double check that the two values below are the same as in the cost function config!!!
