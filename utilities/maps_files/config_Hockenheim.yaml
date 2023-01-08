@@ -6,4 +6,5 @@ waypoint_path: 'utilities/maps_files/waypoints/Hockenheim_wp'
 
 # starting pose for map
 starting_positions: 
- - [0., 0., -2.4] 
+ - [0., 0., -2.15]
+ - [0., 0., -2.4]
