@@ -8,7 +8,7 @@ class Settings:
 
 
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    NET_NAME = 'Dense-44IN-64H1-64H2-2OUT-3_MPPI_wypts_oschers_speed7_noisydata'
+    NET_NAME = 'Dense-44IN-64H1-64H2-2OUT-3'
     USE_WAYPOINTS = 'relative'                  #CHECK either: False (ftg), 'relative' or 'absolute'
     ACCELERATION_TIME = 30              #nni 50, mpc 10
     ACCELERATION_AMPLITUDE = 10         #nni 2, mpc 10
