@@ -55,9 +55,9 @@ training_default:
                     #'angular_vel_z', 'linear_vel_x', 'slip_angle', 'steering_angle' ]
 
   setpoint_inputs: []
-  outputs: ['translational_control_calculated', 'angular_control']
+  outputs: ['translational_control_calculated', 'angular_control_calculated']
 
-  EPOCHS: 100
+  EPOCHS: 10
   BATCH_SIZE: 20
   SEED: 1873
   LR: 1.0e-2
