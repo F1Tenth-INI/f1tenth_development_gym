@@ -45,33 +45,34 @@ class next_state_predictor_ODE_tf():
 
 class predictor_output_augmentation_tf:
     def __init__(self, net_info, disable_individual_compilation=False, differential_network=False):
-        self.net_output_indices = {key: value for value, key in enumerate(net_info.outputs)}
+        outputs_after_integration = [(x[2:] if x[:2] == 'D_' else x) for x in net_info.outputs]
+        self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
         indices_augmentation = []
         features_augmentation = []
-        if 'angular_vel_z' not in net_info.outputs:
+        if 'angular_vel_z' not in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['angular_vel_z'])
             features_augmentation.append('angular_vel_z')
-        if 'linear_vel_x' not in net_info.outputs:
+        if 'linear_vel_x' not in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['linear_vel_x'])
             features_augmentation.append('linear_vel_x')
-        if 'linear_vel_y' not in net_info.outputs and 'linear_vel_y' in STATE_INDICES.keys():  # Quadruped only
+        if 'linear_vel_y' not in outputs_after_integration and 'linear_vel_y' in STATE_INDICES.keys():  # Quadruped only
             indices_augmentation.append(STATE_INDICES['linear_vel_y'])
             features_augmentation.append('linear_vel_y')
 
-        if 'pose_theta' not in net_info.outputs and 'pose_theta_sin' in net_info.outputs and 'pose_theta_cos' in net_info.outputs:
+        if 'pose_theta' not in outputs_after_integration and 'pose_theta_sin' in outputs_after_integration and 'pose_theta_cos' in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['pose_theta'])
             features_augmentation.append('pose_theta')
-        if 'pose_theta_sin' not in net_info.outputs and 'pose_theta' in net_info.outputs:
+        if 'pose_theta_sin' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
             features_augmentation.append('pose_theta_sin')
-        if 'pose_theta_cos' not in net_info.outputs and 'pose_theta' in net_info.outputs:
+        if 'pose_theta_cos' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
             features_augmentation.append('pose_theta_cos')
 
-        if 'slip_angle' not in net_info.outputs:
+        if 'slip_angle' not in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['slip_angle'])
             features_augmentation.append('slip_angle')
-        if 'steering_angle' not in net_info.outputs:
+        if 'steering_angle' not in outputs_after_integration:
             indices_augmentation.append(STATE_INDICES['steering_angle'])
             features_augmentation.append('steering_angle')
 
@@ -79,12 +80,12 @@ class predictor_output_augmentation_tf:
         self.features_augmentation = features_augmentation
         self.augmentation_len = len(self.indices_augmentation)
 
-        if 'pose_theta' in net_info.outputs:
-            self.index_pose_theta = tf.convert_to_tensor(self.net_output_indices['pose_theta'])
-        if 'pose_theta_sin' in net_info.outputs:
-            self.index_pose_theta_sin = tf.convert_to_tensor(self.net_output_indices['pose_theta_sin'])
-        if 'pose_theta_cos' in net_info.outputs:
-            self.index_pose_theta_cos = tf.convert_to_tensor(self.net_output_indices['pose_theta_cos'])
+        if 'pose_theta' in outputs_after_integration:
+            self.index_pose_theta = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta'])
+        if 'pose_theta_sin' in outputs_after_integration:
+            self.index_pose_theta_sin = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta_sin'])
+        if 'pose_theta_cos' in outputs_after_integration:
+            self.index_pose_theta_cos = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta_cos'])
 
         if disable_individual_compilation:
             self.augment = self._augment
