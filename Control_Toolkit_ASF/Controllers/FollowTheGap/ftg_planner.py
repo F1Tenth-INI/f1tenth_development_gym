@@ -2,12 +2,9 @@ import sys
 sys.path.insert(1, 'FollowtheGap')
 
 
-from pyglet.gl import GL_POINTS
-import pyglet
 import numpy as np
 import math
 import matplotlib.pyplot as plt
-import pyglet.gl as gl
 
 LOOK_FORWARD_ONLY =True
 
@@ -45,35 +42,13 @@ class FollowTheGapPlanner:
         
         self.draw_position_history = True
 
-        self.vertex_list = pyglet.graphics.vertex_list(2,
-        ('v2i', (10, 15, 30, 35)),
-        ('c3B', (0, 0, 255, 0, 255, 0))
-    )
 
 
+    def render(self, e):    
+        return
+        # Draw points only with render utilities
+        # Pyglet doesnt work with ros
 
-    def render(self, e):
-
-        if self.draw_position_history and self.current_position is not None:
-            points = np.array([self.current_position[0], self.current_position[1]])  
-            speed = self.current_position[2]
-            
-            gl.glPointSize(3)
-
-            
-            scaled_points = 50.*points
-            e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
-                        ('c3B', (int(20 * speed), int(255- 20 * speed), 0)))
-            
-        if not self.draw_lidar_data: return
-
-        self.vertex_list.delete()
-        
-        scaled_points = np.array(self.lidar_border_points)
-        howmany = scaled_points.shape[0]
-        scaled_points_flat = scaled_points.flatten()
-
-        self.vertex_list = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat), ('c3B', self.lidar_visualization_color * howmany ))
 
 
 
@@ -157,7 +132,7 @@ class FollowTheGapPlanner:
         self.translational_control = speed
         self.angular_control = steering_angle
 
-        return speed, steering_angle
+        return steering_angle, speed 
 
     def plot_lidar_data_f(self,
                           angles,
