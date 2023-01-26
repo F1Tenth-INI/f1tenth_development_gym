@@ -378,9 +378,9 @@ class car_model:
 
     def motor_controller_pid(self, desired_speed, current_speed):
         
-        a_max = tf.constant([self.car_parameters['a_max']])
-        v_min = tf.constant([self.car_parameters['v_min']])
-        v_max = tf.constant([self.car_parameters['v_max']])
+        a_max = tf.constant([self.car_parameters['a_max']], dtype=tf.float32)
+        v_min = tf.constant([self.car_parameters['v_min']], dtype=tf.float32)
+        v_max = tf.constant([self.car_parameters['v_max']], dtype=tf.float32)
 
         speed_difference = desired_speed - current_speed
 

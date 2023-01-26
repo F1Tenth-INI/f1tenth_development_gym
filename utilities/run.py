@@ -50,9 +50,8 @@ def main():
         from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
         planner1 = NeuralNetImitatorPlanner()
     elif Settings.CONTROLLER == 'pp':
-        # FIXME: Out of order
-        from others.examples.pure_pursuit_planner import PurePursuitPlanner
-        planner1 = PurePursuitPlanner(Settings.MAP_CONFIG_FILE)
+        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
+        planner1 = PurePursuitPlanner()
     else:
         NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
 
