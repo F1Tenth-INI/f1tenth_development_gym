@@ -4,16 +4,12 @@ sys.path.insert(1, 'FollowtheGap')
 
 import numpy as np
 import math
-import matplotlib.pyplot as plt
-import pyglet.gl as gl
 
-from utilities.waypoint_utils import WaypointUtils
-from utilities.render_utilities import RenderUtils
-
-from numba import njit
+from utilities.waypoint_utils_ros import WaypointUtils
+from utilities.render_utilities_ros import RenderUtils
 
 
-@njit(fastmath=False, cache=True)
+
 def nearest_point_on_trajectory(point, trajectory):
     """
     Return the nearest point along the given piecewise linear trajectory.
@@ -48,7 +44,6 @@ def nearest_point_on_trajectory(point, trajectory):
     return projections[min_dist_segment], dists[min_dist_segment], t[min_dist_segment], min_dist_segment
 
 
-@njit(fastmath=False, cache=True)
 def first_point_on_trajectory_intersecting_circle(point, radius, trajectory, t=0.0, wrap=False):
     """
     starts at beginning of trajectory, and find the first point one radius away from the given point along the trajectory.
@@ -132,7 +127,6 @@ def first_point_on_trajectory_intersecting_circle(point, radius, trajectory, t=0
 
     return first_p, first_i, first_t
 
-@njit(fastmath=False, cache=True)
 def get_actuation(pose_theta, lookahead_point, position, lookahead_distance, wheelbase):
     """
     Returns actuation

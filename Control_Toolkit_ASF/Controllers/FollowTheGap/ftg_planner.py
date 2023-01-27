@@ -23,7 +23,7 @@ class FollowTheGapPlanner:
    
  
 
-    def __init__(self, speed_fraction=1.5):
+    def __init__(self, speed_fraction=1.0):
     
         print("Controller initialized")
     
@@ -104,7 +104,7 @@ class FollowTheGapPlanner:
         # print("max_distance", max_distance)
 
 
-        speed = speed - 8 * abs(largest_gap_center)
+        speed = speed  #- 8 * abs(largest_gap_center)
 
         # Emergency Brake
         if(not gap_found):
