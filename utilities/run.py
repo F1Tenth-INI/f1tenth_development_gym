@@ -9,8 +9,8 @@
 from utilities.random_obstacle_creator import RandomObstacleCreator
 
 import time
-
 import yaml
+from pynput import keyboard
 import gym
 import numpy as np
 from argparse import Namespace
@@ -50,9 +50,8 @@ def main():
         from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
         planner1 = NeuralNetImitatorPlanner()
     elif Settings.CONTROLLER == 'pp':
-        # FIXME: Out of order
-        from others.examples.pure_pursuit_planner import PurePursuitPlanner
-        planner1 = PurePursuitPlanner(Settings.MAP_CONFIG_FILE)
+        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
+        planner1 = PurePursuitPlanner()
     else:
         NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
 
@@ -137,6 +136,13 @@ def main():
     if Settings.RENDER_MODE is not None:
         env.render()
 
+    # Add Keyboard event listener
+    def on_press(key):
+        if key == keyboard.Key.space:
+            Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()  # start to listen on a separate thread
+    
     laptime = 0.0
     start = time.time()
 
@@ -189,8 +195,7 @@ def main():
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
                     accl, sv = translational_control_with_noise, angular_control_with_noise
-
-                # print("sv, accl", sv, accl)
+                
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))

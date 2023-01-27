@@ -1,4 +1,5 @@
 import tensorflow as tf
+import yaml
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
@@ -22,6 +23,7 @@ class car_model:
             self,
             model_of_car_dynamics: str,
             with_pid: bool,
+            car_parameter_file: str, # file containing the car parameters
             dt: float = 0.03,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary,
@@ -29,6 +31,7 @@ class car_model:
     ):
         self.lib = computation_lib
 
+        self.car_parameters = yaml.load(open(car_parameter_file, "r"), Loader=yaml.FullLoader)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
@@ -112,8 +115,8 @@ class car_model:
         @param params: TODO: Parameters of the car
         returns s_next: (batch_size, len(state)) all nexts states
         '''
-        lf = 0.15875
-        lr = 0.17145
+        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
         lwb = lf + lr
 
         # Dimensions
@@ -176,15 +179,15 @@ class car_model:
         '''
 
         # params
-        mu = 1.0489  # friction coefficient  [-]
-        C_Sf = 4.718  # cornering stiffness front [1/rad]
-        C_Sr = 5.4562  # cornering stiffness rear [1/rad]
-        lf = 0.15875  # distance from venter of gracity to front axle [m]
-        lr = 0.17145  # distance from venter of gracity to rear axle [m]
-        h = 0.074  # center of gravity height of toal mass [m]
-        m = 3.74  # Total Mass of car [kg]
-        I = 0.04712  # Moment of inertia for entire mass about z axis  [kgm^2]
-        g = 9.81
+        mu = self.car_parameters['mu']  # friction coefficient  [-]
+        C_Sf = self.car_parameters['C_Sf']  # cornering stiffness front [1/rad]
+        C_Sr = self.car_parameters['C_Sr']  # cornering stiffness rear [1/rad]
+        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
+        h = self.car_parameters['h']  # center of gravity height of toal mass [m]
+        m = self.car_parameters['m']  # Total Mass of car [kg]
+        I = self.car_parameters['I']  # Moment of inertia for entire mass about z axis  [kgm^2]
+        g = self.car_parameters['g']
 
         # State
         s_x = s[:, POSE_X_IDX]  # Pose X
@@ -212,7 +215,7 @@ class car_model:
         delta_dot = self.steering_constraints(delta, delta_dot)
 
         # switch to kinematic model for small velocities
-        min_speed_st = 0.5
+        min_speed_st = self.car_parameters['min_speed_st']
         speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
         speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
 
@@ -281,10 +284,10 @@ class car_model:
 
 
     def steering_constraints(self, steering_angle, steering_velocity):
-        s_min = self.lib.constant([-0.4189], self.lib.float32)
-        s_max = self.lib.constant([0.4189], self.lib.float32)
-        sv_min = self.lib.constant([-3.2], self.lib.float32)
-        sv_max = self.lib.constant([3.2], self.lib.float32)
+        s_min = self.lib.constant([self.car_parameters['s_min']], self.lib.float32)
+        s_max = self.lib.constant([self.car_parameters['s_max']], self.lib.float32)
+        sv_min = self.lib.constant([self.car_parameters['sv_min']], self.lib.float32)
+        sv_max = self.lib.constant([self.car_parameters['sv_max']], self.lib.float32)
 
         # Steering angle constraings
         steering_angle_not_too_low_indices = self.lib.greater(steering_angle, s_min)
@@ -303,10 +306,11 @@ class car_model:
         return steering_velocity
 
     def accl_constraints(self, vel, accl):
-        v_switch = self.lib.constant([7.319], self.lib.float32)
-        a_max = self.lib.constant([9.51], self.lib.float32)
-        v_min = self.lib.constant([-5.0], self.lib.float32)
-        v_max = self.lib.constant([20.0], self.lib.float32)
+        v_switch = self.lib.constant([self.car_parameters['v_switch']], self.lib.float32)
+        a_max = self.lib.constant([self.car_parameters['a_max']], self.lib.float32)
+        v_min = self.lib.constant([self.car_parameters['v_min']], self.lib.float32)
+        v_max = self.lib.constant([self.car_parameters['v_max']], self.lib.float32)
+      
 
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, v_switch)
@@ -358,21 +362,25 @@ class car_model:
     '''
 
     def servo_proportional(self, desired_steering_angle, current_steering_angle):
+        
+        steering_diff_low = self.car_parameters['steering_diff_low']
+        servo_p = self.car_parameters['servo_p']
+        
         steering_angle_difference = desired_steering_angle - current_steering_angle
 
-        steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), 0.01)
+        steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), steering_diff_low)
         steering_angle_difference_not_too_low_indices = tf.cast(steering_angle_difference_not_too_low_indices,
                                                                 tf.float32)
 
-        steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference / 0.1)
+        steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference * servo_p)
 
         return steering_velocity
 
     def motor_controller_pid(self, desired_speed, current_speed):
-
-        a_max = tf.constant([9.51])
-        v_min = tf.constant([-5.0])
-        v_max = tf.constant([20.0])
+        
+        a_max = tf.constant([self.car_parameters['a_max']], dtype=tf.float32)
+        v_min = tf.constant([self.car_parameters['v_min']], dtype=tf.float32)
+        v_max = tf.constant([self.car_parameters['v_max']], dtype=tf.float32)
 
         speed_difference = desired_speed - current_speed
 

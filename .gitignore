@@ -11,6 +11,9 @@ docs/_build/
 flycheck_*
 dev.py
 
+# NN Models
+SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
+
 # Pycharm
 .idea
 
