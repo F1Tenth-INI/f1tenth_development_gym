@@ -1,6 +1,7 @@
 class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
+    ROS_BRIDGE = True
 
     CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen

@@ -1,5 +1,7 @@
 import tensorflow as tf
 import yaml
+from utilities.path_helper_ros import *
+
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
@@ -31,7 +33,9 @@ class car_model:
     ):
         self.lib = computation_lib
 
-        self.car_parameters = yaml.load(open(car_parameter_file, "r"), Loader=yaml.FullLoader)
+        gym_path = get_gym_path()
+        # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
+        self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
