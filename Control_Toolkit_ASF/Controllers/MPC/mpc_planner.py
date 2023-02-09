@@ -2,8 +2,13 @@
 import numpy as np
 import math
 from utilities.Settings import Settings
-from utilities.waypoint_utils import WaypointUtils
-from utilities.render_utilities import RenderUtils
+if(Settings.ROS_BRIDGE):
+    from utilities.waypoint_utils_ros import WaypointUtils
+    from utilities.render_utilities_ros import RenderUtils
+else:
+    from utilities.waypoint_utils import WaypointUtils
+    from utilities.render_utilities import RenderUtils
+
 from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
@@ -97,7 +102,7 @@ class mpc_planner:
         }
         """
 
-
+      
 
 
 
