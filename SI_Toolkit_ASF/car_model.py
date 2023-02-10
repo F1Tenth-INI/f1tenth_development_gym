@@ -422,6 +422,7 @@ class car_model:
         return total_acceleration
 
     def _step_st_with_servo_and_motor_pid(self, s, Q, params):
+        
         # Control Input (desired speed, desired steering angle)
         desired_angle = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         desired_speed = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
@@ -431,8 +432,15 @@ class car_model:
 
         delta_dot = self.servo_proportional(desired_angle, delta)
         vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+        
+        # # Debugging
+        # if hasattr(desired_angle, 'numpy'):
+        #     desired_angle_np = desired_angle.numpy()
+        #     desired_speed_np = desired_speed.numpy()
+        #     delta_dot_np = delta_dot.numpy()
+        #     vel_x_dot_np = vel_x_dot.numpy()
 
-        Q_pid = tf.transpose(tf.stack([vel_x_dot, delta_dot]))
+        Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot ]))
 
         return self._step_dynamics_st(s, Q_pid, params)
 
