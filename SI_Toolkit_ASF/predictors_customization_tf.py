@@ -9,6 +9,7 @@ from utilities.Settings import Settings
 environment_name = Settings.ENVIRONMENT_NAME
 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
 with_pid = Settings.WITH_PID
+car_parameter_file = Settings.MPC_CAR_PARAMETER_FILE
 
 class next_state_predictor_ODE_tf():
 
@@ -23,6 +24,7 @@ class next_state_predictor_ODE_tf():
             self.env = car_model(
                 model_of_car_dynamics=model_of_car_dynamics,
                 with_pid=with_pid,
+                car_parameter_file=car_parameter_file,
                 dt=dt,
                 intermediate_steps=intermediate_steps,
                                  )  # Environment model, keeping car ODEs

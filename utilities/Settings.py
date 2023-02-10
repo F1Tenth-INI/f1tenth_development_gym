@@ -30,13 +30,16 @@ class Settings:
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
     # If you want to create a new file, orientate on existing ones.
-    MAP_CONFIG_FILE = "utilities/maps_files/config_Oschersleben.yaml"
-    #MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    #MAP_CONFIG_FILE = "utilities/maps_files/config_empty_map.yaml"
-    MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/Oschersleben_map_wpts_dense800_190'
-    #MAP_WAYPOINT_FILE = 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
-    #MAP_WAYPOINT_FILE =  None
-
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Map.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
+    MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
+    
+    # Car parameters
+    ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car    
+    MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml" # Car parameters for MPC model prediction
+    # MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
     
     # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     PLACE_RANDOM_OBSTACLES = False

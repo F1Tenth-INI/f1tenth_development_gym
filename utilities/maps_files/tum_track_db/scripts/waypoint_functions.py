@@ -8,7 +8,7 @@ import numpy as np
 def transform_waypoints(file_name, scaling):
     
     offset_x =  0
-    offset_y =   0
+    offset_y =   257.999999999999
     
     waypoints = pd.read_csv("utilities/maps_files/tum_track_db/wp_original/"+file_name+".csv", header=2, sep=";").to_numpy()
 
