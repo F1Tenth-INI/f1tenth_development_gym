@@ -32,6 +32,11 @@ Car:
       desired_max_speed: 16.0               # desired max speed for the car [m/s]
       waypoint_velocity_factor : 1.0
 
+    nlp-forces:
+      acceleration_cost_weight: 0.0
+      max_acceleration: 9.2
+      desired_max_speed: 16.0             # desired max speed for the car [m/s]
+      waypoint_velocity_factor: 2.2
 
   following_target:
     # TODO: The parameters not set yet, same as for racing
