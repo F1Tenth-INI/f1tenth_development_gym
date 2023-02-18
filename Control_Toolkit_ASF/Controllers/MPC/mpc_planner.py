@@ -49,7 +49,7 @@ class mpc_planner:
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high = get_control_limits([1.066, 20])
+                control_limits_low, control_limits_high = get_control_limits([[-1.066, -10.], [1.066, 20.]])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
@@ -157,20 +157,22 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
+        rollout_trajectories = None
+        optimal_trajecotry = None
+        traj_cost = None
+
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
-        else:
-            rollout_trajectories = None
-
+            optimal_trajecotry = self.mpc.optimizer.optimal_trajectory
+            
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
-        else:
-            traj_cost = None
 
         # TODO: pass optimal trajectory
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
+            optimal_trajectory=optimal_trajecotry,
             traj_cost=traj_cost,
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
