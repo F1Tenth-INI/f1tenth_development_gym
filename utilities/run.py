@@ -10,7 +10,6 @@ from utilities.random_obstacle_creator import RandomObstacleCreator
 
 import time
 import yaml
-from pynput import keyboard
 import gym
 import numpy as np
 from argparse import Namespace
@@ -146,12 +145,16 @@ def main():
         env.render()
 
     # Add Keyboard event listener
-    def on_press(key):
-        if key == keyboard.Key.space:
-            Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()  # start to listen on a separate thread
-    
+
+    if Settings.KEYBOARD_INPUT_ENABLE:
+        # Run it from pycharm terminal first to receive a prompt to allow for keyboard input
+        from pynput import keyboard
+        def on_press(key):
+            if key == keyboard.Key.space:
+                Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()  # start to listen on a separate thread
+
     laptime = 0.0
     start = time.time()
 
