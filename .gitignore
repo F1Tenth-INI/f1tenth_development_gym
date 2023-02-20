@@ -24,5 +24,6 @@ ExperimentRecordings/*
 # Submodule specific config files
 SI_Toolkit/src/SI_Tooklit/SI_Toolkit.egg-info/*
 SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*
+SI_Toolkit_ASF/Experiments/*
 /utilites/LaunchConfigsPycharm/*
 .idea
