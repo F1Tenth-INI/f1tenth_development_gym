@@ -75,3 +75,5 @@ class Settings:
 
     # Decide if available state consists of full car state or only of odometry
     ONLY_ODOMETRY_AVAILABLE = False
+
+    KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
