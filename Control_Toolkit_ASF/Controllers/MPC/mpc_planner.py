@@ -163,8 +163,8 @@ class mpc_planner:
 
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
+        if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajecotry = self.mpc.optimizer.optimal_trajectory
-            
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
