@@ -3,7 +3,7 @@ import tensorflow as tf
 from utilities.state_utilities import *
 
 from Control_Toolkit_ASF.Cost_Functions.Car.f1t_cost_function_forces import f1t_cost_function_forces
-
+import casadi
 
 class racing_forces(f1t_cost_function_forces):
 
@@ -13,8 +13,10 @@ class racing_forces(f1t_cost_function_forces):
 
         return terminal_cost
 
-    def get_stage_cost(self, s, u, u_prev):
-
+    def get_stage_cost(self, s, u, p):
+        u_prev = p[:2]
+        # next_waypoints = p[2:].reshape((20, 7))
+        next_waypoints = p[2:].reshape((7, 20)).T
         # It is not used while writing...
         # cc = self.get_actuation_cost(u)
         # ccrc = self.get_control_change_rate_cost(u, u_prev)
@@ -28,9 +30,9 @@ class racing_forces(f1t_cost_function_forces):
         # steering_cost = self.get_steering_cost(u)
 
         # Costs related to waypoints 
-        if self.controller.next_waypoints.shape[0]:
-            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.controller.next_waypoints)
-            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.controller.next_waypoints)
+        if next_waypoints.shape[0]:
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s.T, next_waypoints)
+            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s.T, next_waypoints)
         # else:
         #     distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
         #     velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
