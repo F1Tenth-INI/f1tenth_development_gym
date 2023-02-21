@@ -8,9 +8,9 @@ class Settings:
 
 
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    NET_NAME = 'Dense-44IN-64H1-64H2-2OUT-3'
-    USE_WAYPOINTS = 'relative'                  #CHECK either: False (ftg), 'relative' or 'absolute'
-    ACCELERATION_TIME = 30              #nni 50, mpc 10
+    NET_NAME = 'Dense-92IN-64H1-64H2-2OUT-6'
+    USE_WAYPOINTS = 'relative'          #CHECK either: False (ftg), 'relative' or 'absolute'
+    ACCELERATION_TIME = 30              #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10         #nni 2, mpc 10
 
 
