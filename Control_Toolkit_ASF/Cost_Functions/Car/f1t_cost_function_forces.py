@@ -212,7 +212,7 @@ class f1t_cost_function_forces(cost_function_base):
 
     def get_distance_to_wp_segments_cost(self, s, waypoints):
         car_positions = s[:,
-                        POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+                        0:2]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:, 1:3]
 
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
@@ -255,10 +255,10 @@ class f1t_cost_function_forces(cost_function_base):
     def get_velocity_difference_to_wp_cost(self, s, waypoints):
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
         car_positions = s[:,
-                        POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+                        0:2]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:, 1:3]
         nearest_waypoint_mask = self.get_nearest_waypoints_mask(car_positions, waypoint_positions[:-1, :])
-        car_vel_x = s[:, LINEAR_VEL_X_IDX]
+        car_vel_x = s[:, 3]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_mask)
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp
 
