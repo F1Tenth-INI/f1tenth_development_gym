@@ -39,7 +39,8 @@ class Settings:
     # If you want to create a new file, orientate on existing ones.
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Map.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
+    MAP_CONFIG_FILE =  "utilities/maps_files/config_INI.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
@@ -59,7 +60,7 @@ class Settings:
     NOISE_LEVEL_ANGULAR_CONTROL = 0  # ftg: 0.05  # mppi: 3.0
 
     # Automatically follow the first car on the map
-    CAMERA_AUTO_FOLLOW = True
+    CAMERA_AUTO_FOLLOW = False
     DRAW_POSITION_HISTORY = True
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
