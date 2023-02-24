@@ -42,7 +42,7 @@ class WaypointUtils:
         # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
         self.waypoint_positions = np.array([])
         self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
-        self.next_waypoint_positions = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+        self.next_waypoint_positions = None
         
        
         
