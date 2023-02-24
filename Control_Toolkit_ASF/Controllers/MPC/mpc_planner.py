@@ -162,20 +162,24 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
+      
+        rollout_trajectories = None
+        optimal_trajectory = None
+        traj_cost = None
+
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
-        else:
-            rollout_trajectories = None
-
+        if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
+            optimal_trajectory = self.mpc.optimizer.optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
-        else:
-            traj_cost = None
-
+            
         # TODO: pass optimal trajectory
+        self.rollout_trajectories = rollout_trajectories
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
+            optimal_trajectory=optimal_trajectory,
             traj_cost=traj_cost,
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
