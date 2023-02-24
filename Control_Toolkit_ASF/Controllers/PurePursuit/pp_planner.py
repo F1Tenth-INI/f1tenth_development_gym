@@ -36,7 +36,7 @@ class PurePursuitPlanner:
         self.waypoint_velocity_factor = 1.2
         self.lookahead_distance = 1.82461887897713965
         self.wheelbase = 0.6
-        self.vgain = 0.80338203837889 # velocity factor applied to the output
+        self.vgain = 0.85 # velocity factor applied to the output
         self.max_reacquire = 20.
         
         self.simulation_index = 0
@@ -105,7 +105,7 @@ class PurePursuitPlanner:
         position = np.array([pose_x, pose_y])
         
         self.waypoint_utils.update_next_waypoints([pose_x, pose_y])
-        lookahead_point = self.waypoint_utils.next_waypoints[15]
+        lookahead_point = self.waypoint_utils.next_waypoints[10]
         lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
         # lookahead_point = self._get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
         # print ("lookaheadpoints", lookahead_point)

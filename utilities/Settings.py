@@ -6,13 +6,14 @@ class Settings:
     ### for slip steer estimatoin -> change path to net in nn_loader_race.py
     SLIP_STEER_PREDICTION = False
     NET_NAME_SLIP = 'GRU-15IN-64H1-64H2-1OUT-0'
-    NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-1'
+    NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-0'
     
     CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
 
+    
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     NET_NAME = 'LSTM-94IN-32H1-32H2-2OUT-0'
 
@@ -21,7 +22,7 @@ class Settings:
     # Or bypass it.
     # Warning: Even if set to True, the PID algorithm is modified
     # with respect to F1TENTH implementation! Check gym/f110_gym/envs/dynamics_models.py for more details
-    WITH_PID = False
+    WITH_PID = True
 
     DISABLE_AUTOMATIC_TIMEOUT = True
 
@@ -51,7 +52,7 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
 
     #Set Noise Level
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0 # ftg: 0.5  # mppi: 2.0
