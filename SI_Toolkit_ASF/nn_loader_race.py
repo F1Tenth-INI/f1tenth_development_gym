@@ -26,14 +26,10 @@ from utilities.state_utilities import (
     odometry_dict_to_state
 )
 
-from f110_gym.envs.laser_models import ScanSimulator2D
 
 PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Ultra_multimap/Models/' ###default model length
 
 LEN_INPUTS_POSE = 12 ##currently not used for slip steer only some pose predictors
-
-scanner = ScanSimulator2D(1080, 4.7) ###not sure if i should use 1080 or not...
-scanner.set_map('utilities/maps_files/maps/Oschersleben.yaml', '.png') ###how do i automate this
 
 
 class NeuralNetImitatorPlannerNV:
@@ -143,17 +139,6 @@ class NeuralNetImitatorPlannerNV:
         return lidar_downsampled
 
 
-    def scan_from_particle(self, prediction): ###this should probably somehow use the relative scan instead of the single scan from each particle but im confused right now
-        prediction_scan = self.downsample_lidar(scanner.scan(prediction, rng=None))#i dont think this is correct with the matrix values
-        return prediction_scan
-
-    def scan_test_angles(self, pos1, pos2):
-        one = self.downsample_lidar(scanner.scan(pos1, rng=None))
-        print("one is:")
-        print(one)
-        two = self.downsample_lidar(scanner.scan(pos2, rng=None))
-        print("two is:")
-        print(two)
 
     def show_slip_steer_results(self, x, real_slip_vec, est_slip_vec, real_steer_vec, est_steer_vec):
         # fig.suptitle(NET_NAME + ' Oschersleben')
