@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: INI.png
+negate: 0
+occupied_thresh: 0.65
+origin:
+- -2.2
+- -4.2
+- 0.
+resolution: 0.05000000074505806
