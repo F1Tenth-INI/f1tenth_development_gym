@@ -9,7 +9,7 @@ import math
 import matplotlib.pyplot as plt
 import pyglet.gl as gl
 
-from utilities.Settings import Settings #Janged
+from utilities.Settings import Settings
 
 LOOK_FORWARD_ONLY =True
 
@@ -108,7 +108,8 @@ class FollowTheGapPlanner:
         distances = scans[lidar_range_min:lidar_range_max:10] # Only use every 10th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:10]
 
-        # Accelerate at the beginning "Schupf" (St model explodes for small velocity) #Janged
+        # Accelerate at the beginning "Schupf" (St model explodes for small velocity)
+        
         if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
