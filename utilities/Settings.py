@@ -33,7 +33,7 @@ class Settings:
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
-    TIMESTEP_CONTROL = 0.03    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.10    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
