@@ -28,7 +28,10 @@ rpgd-tf:
   opt_keep_k_ratio: 0.25
   outer_its: 2
   resamp_per: 5
-  sample_stdev: 0.2
+#  sample_stdev: 0.2
+#  sample_mean: 0.0
+  sample_stdev: [ 0.3, 0.3 ] # With PID: [desired steering, desired speed]
+  sample_mean: [0.0, 2.5] # With PID: [desired steering, desired speed]
   warmup: false
   warmup_iterations: 250
 
