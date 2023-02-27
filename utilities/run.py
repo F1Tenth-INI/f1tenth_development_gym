@@ -21,9 +21,11 @@ from utilities.Recorder import Recorder
 
 from f110_gym.envs.dynamic_models import pid
 
-from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original
+from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
 
 from time import sleep
+
+import pandas as pd
 
 # Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
@@ -36,7 +38,9 @@ def main():
     main entry point
     """
     if Settings.FROM_RECORDING:
-        state_recording = np.genfromtxt('state.csv', delimiter=',')
+        state_recording = pd.read_csv('Sim-KS-very-short.csv', delimiter=',', comment='#')
+        time_axis = state_recording['time'].to_numpy()
+        state_recording = state_recording[FULL_STATE_VARIABLES].to_numpy()
     else:
         state_recording = None
 
