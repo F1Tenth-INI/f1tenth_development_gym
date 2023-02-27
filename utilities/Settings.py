@@ -2,6 +2,7 @@ class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ROS_BRIDGE = True
+    FROM_RECORDING = True
 
     ### for slip steer estimatoin -> change path to net in nn_loader_race.py
     SLIP_STEER_PREDICTION = False

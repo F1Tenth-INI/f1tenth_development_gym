@@ -34,6 +34,10 @@ def main():
     """
     main entry point
     """
+    if Settings.FROM_RECORDING:
+        state_recording = np.genfromtxt('states.csv', delimiter=',')
+    else:
+        state_recording = None
 
     # Config
     map_config_file = Settings.MAP_CONFIG_FILE
@@ -163,8 +167,12 @@ def main():
     est_slip_vec = []
     est_steer_vec = []
 
+    if Settings.FROM_RECORDING:
+        experiment_length = len(state_recording)
+    else:
+        experiment_length = Settings.EXPERIMENT_LENGTH
 
-    for _ in trange(Settings.EXPERIMENT_LENGTH):
+    for simulation_index in trange(experiment_length):
         if done:
             break
         ranges = obs['scans']
@@ -191,6 +199,8 @@ def main():
                 est_slip_vec.append(driver.car_state[7])
                 est_steer_vec.append(driver.car_state[8])
 
+            if Settings.FROM_RECORDING:
+                driver.car_state = state_recording[simulation_index]
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
