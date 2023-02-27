@@ -2,11 +2,11 @@
 
 mppi:
   seed: null # Seed for rng, for MPPI only, put null to set random seed (do it when you generate data for training!)
-  mpc_horizon: 20                       # steps
+  mpc_horizon: 10                       # steps
   num_rollouts: 1000                    # Number of Monte Carlo samples
-  LBD: 0.01                            # Cost parameter lambda
+  LBD: 0.001                            # Cost parameter lambda
   NU: 1000.0                            # Exploration variance
-  SQRTRHOINV: [ 0.1, 0.1 ]              # Sampling variance
+  SQRTRHOINV: [ 0.3, 0.0 ]              # Sampling variance
   period_interpolation_inducing_points: 1                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
 
   # Double check that the two values below are the same as in the cost function config!!!
