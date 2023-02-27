@@ -34,7 +34,7 @@ def main():
     main entry point
     """
     if Settings.FROM_RECORDING:
-        state_recording = np.genfromtxt('states.csv', delimiter=',')
+        state_recording = np.genfromtxt('state.csv', delimiter=',')
     else:
         state_recording = None
 
