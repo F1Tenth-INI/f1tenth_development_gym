@@ -11,7 +11,7 @@ v_perpendicular_weight = 1.0
 class racing_v2(f1t_cost_function):
 
     def get_terminal_cost(self, terminal_state):
-        terminal_cost = 0.0
+        terminal_cost = 0.0*terminal_state[:, 0]
 
         return terminal_cost
 
