@@ -8,7 +8,7 @@ class RenderUtils:
     def __init__(self):
         
         rospy.init_node('gym_bridge_driver', anonymous=True)
-        self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=10)
+        self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
 
 
         self.draw_lidar_data = True
