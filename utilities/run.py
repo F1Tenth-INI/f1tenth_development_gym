@@ -21,7 +21,9 @@ from utilities.Recorder import Recorder
 
 from f110_gym.envs.dynamic_models import pid
 
-from utilities.state_utilities import full_state_original_to_alphabetical
+from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original
+
+from time import sleep
 
 # Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
@@ -185,10 +187,16 @@ def main():
         else:
             next_waypoints = None
         for index, driver in enumerate(drivers):
-            odom = get_odom(obs, index)
-            odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
-            odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-            driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+            if Settings.FROM_RECORDING:
+                sleep(0.05)
+                driver.car_state = state_recording[simulation_index]
+                odom = {} # FIXME: MPC uses just the car state
+                env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
+            else:
+                odom = get_odom(obs, index)
+                odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
+                odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
+                driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
 
             real_slip_vec.append(driver.car_state[7])
             real_steer_vec.append(driver.car_state[8])
