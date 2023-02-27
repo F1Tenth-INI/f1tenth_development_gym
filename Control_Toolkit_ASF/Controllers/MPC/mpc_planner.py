@@ -47,7 +47,12 @@ class mpc_planner:
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
-
+        
+        self.optimal_trajectory = np.zeros((1, 21, 9))
+        # self.look_ahead_steps = 20
+        # self.next_waypoints = np.zeros((self.look_ahead_steps,7), dtype=np.float32)
+        # self.next_waypoint_positions = None
+        
         if Settings.ENVIRONMENT_NAME == 'Car':
             num_states = 9
             num_control_inputs = 2
@@ -59,6 +64,7 @@ class mpc_planner:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
         if Settings.CONTROLLER:
+            # print("next_waypoints",self.next_waypoints)
             self.mpc = controller_mpc(
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
@@ -119,11 +125,11 @@ class mpc_planner:
         # Deprecated, meybe use for racing again?
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
-        if self.simulation_index < 4:
-            self.simulation_index += 1
-            self.translational_control = 10
-            self.angular_control = 0
-            return self.translational_control, self.angular_control
+        # if self.simulation_index < 4:
+        #     self.simulation_index += 1
+        #     self.translational_control = 10
+        #     self.angular_control = 0
+        #     return self.translational_control, self.angular_control
 
         if Settings.LOOK_FORWARD_ONLY:
             lidar_range_min = 200
@@ -145,7 +151,6 @@ class mpc_planner:
 
         if (Settings.FOLLOW_RANDOM_TARGETS):
             self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
-
 
 
         angular_control, translational_control  = self.mpc.step(s,
@@ -171,6 +176,7 @@ class mpc_planner:
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
+            self.optimal_trajectory = optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
             
