@@ -89,7 +89,7 @@ def full_state_original_to_alphabetical(o):
 
 
 def full_state_alphabetical_to_original(a):
-    original = np.array(a[5], a[6], a[8], a[1], a[2], a[0], a[7])
+    original = np.array([a[5], a[6], a[8], a[1], a[2], a[0], a[7]])
     return original
 
 
