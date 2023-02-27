@@ -210,8 +210,6 @@ def main():
                 est_slip_vec.append(driver.car_state[7])
                 est_steer_vec.append(driver.car_state[8])
 
-            if Settings.FROM_RECORDING:
-                driver.car_state = state_recording[simulation_index]
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
