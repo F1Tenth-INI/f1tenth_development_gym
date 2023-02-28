@@ -16,7 +16,6 @@ from argparse import Namespace
 
 from tqdm import trange
 from utilities.Settings import Settings
-
 from utilities.Recorder import Recorder
 
 from f110_gym.envs.dynamic_models import pid
@@ -25,7 +24,7 @@ from utilities.state_utilities import full_state_original_to_alphabetical, full_
 
 from time import sleep
 
-import pandas as pd
+Settings.ROS_BRIDGE = False # No ros bridge if this script is running
 
 # Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
@@ -215,8 +214,10 @@ def main():
                 est_steer_vec.append(driver.car_state[8])
 
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
+            start = time.time()
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
-
+            end = time.time()-start
+            print("time for 1 step:", end)
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].get_data(control_inputs_calculated=(translational_control, angular_control),
                                            odometry=odom, ranges=ranges[index], state=driver.car_state,
@@ -236,6 +237,7 @@ def main():
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
 
+        print("speed, steer ", noisy_control[0])
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []

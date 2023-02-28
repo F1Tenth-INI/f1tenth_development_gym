@@ -4,9 +4,13 @@ sys.path.insert(1, 'FollowtheGap')
 
 import numpy as np
 import math
-
-from utilities.waypoint_utils_ros import WaypointUtils
-from utilities.render_utilities_ros import RenderUtils
+from utilities.Settings import Settings
+if(Settings.ROS_BRIDGE):
+    from utilities.waypoint_utils_ros import WaypointUtils
+    from utilities.render_utilities_ros import RenderUtils
+else:
+    from utilities.waypoint_utils import WaypointUtils
+    from utilities.render_utilities import RenderUtils
 
 
 

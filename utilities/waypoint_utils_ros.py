@@ -98,7 +98,7 @@ class WaypointUtils:
         # Setting the waypoints in the mapfile is optional
         
 
-        path = "/home/racecar/catkin_ws/src/autonomous_driving/f1tenth_development_gym/utilities/maps_files/waypoints/INI_wp"
+        path = "/home/florian/catkin_ws/src/autonomous_driving/f1tenth_development_gym/utilities/maps_files/waypoints/INI_wp"
         file_path = path + '.csv'
 
         try: # Check if waypoint file exists
