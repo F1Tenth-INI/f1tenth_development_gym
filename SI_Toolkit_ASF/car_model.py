@@ -207,7 +207,7 @@ class car_model:
 
         """
         if(tf.less(min_vel_x, 0.5)):
-            return self._step_dynamics_ks(s,Q, params)  #Janged
+            return self._step_dynamics_ks(s,Q, params)
         """
 
         # Constaints
