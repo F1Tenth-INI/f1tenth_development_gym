@@ -105,12 +105,13 @@ class NeuralNetImitatorPlanner:
         next_waypoints_y = next_waypoints[:,1]
 
         #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
+        #Example of all possible inputs in correct order:
         #input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
         #                              [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
         #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
-
-        #input_data = ranges
+        
+        #Current Input:
         input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
