@@ -9,7 +9,7 @@ import math
 import matplotlib.pyplot as plt
 import pyglet.gl as gl
 
-from utilities.Settings import Settings #Janged
+from utilities.Settings import Settings
 
 LOOK_FORWARD_ONLY =True
 
