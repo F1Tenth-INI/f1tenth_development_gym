@@ -16,7 +16,7 @@ except:
 
 from utilities.state_utilities import FULL_STATE_VARIABLES
 
-from utilities.path_helper_ros import *
+from utilities.path_helper_ros import get_gym_path
 gym_path = get_gym_path()
 
 config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
