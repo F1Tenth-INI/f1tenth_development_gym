@@ -42,18 +42,6 @@ training_default:
                     'WYPT_Y_00', 'WYPT_Y_01', 'WYPT_Y_02', 'WYPT_Y_03', 'WYPT_Y_04', 'WYPT_Y_05', 'WYPT_Y_06', 'WYPT_Y_07', 'WYPT_Y_08', 'WYPT_Y_09', 'WYPT_Y_10', 'WYPT_Y_11', 'WYPT_Y_12', 'WYPT_Y_13', 'WYPT_Y_14', 'WYPT_Y_15', 'WYPT_Y_16', 'WYPT_Y_17', 'WYPT_Y_18', 'WYPT_Y_19',
                     'angular_vel_z', 'linear_vel_x', 'slip_angle', 'steering_angle' ]
 
-                    #'LIDAR_0000', 'LIDAR_0001', 'LIDAR_0002', 'LIDAR_0003', 'LIDAR_0004', 'LIDAR_0005', 'LIDAR_0006', 'LIDAR_0007', 'LIDAR_0008',
-                    #'LIDAR_0009', 'LIDAR_0010', 'LIDAR_0011', 'LIDAR_0012', 'LIDAR_0013', 'LIDAR_0014', 'LIDAR_0015', 'LIDAR_0016', 'LIDAR_0017',
-                    #'LIDAR_0018', 'LIDAR_0019', 'LIDAR_0020', 'LIDAR_0021', 'LIDAR_0022', 'LIDAR_0023', 'LIDAR_0024', 'LIDAR_0025', 'LIDAR_0026',
-                    #'LIDAR_0027', 'LIDAR_0028', 'LIDAR_0029', 'LIDAR_0030', 'LIDAR_0031', 'LIDAR_0032', 'LIDAR_0033', 'LIDAR_0034', 'LIDAR_0035',
-                    #'LIDAR_0036', 'LIDAR_0037', 'LIDAR_0038', 'LIDAR_0039', 'LIDAR_0040', 'LIDAR_0041', 'LIDAR_0042', 'LIDAR_0043', 'LIDAR_0044',
-                    #'LIDAR_0045', 'LIDAR_0046', 'LIDAR_0047', 'LIDAR_0048', 'LIDAR_0049', 'LIDAR_0050', 'LIDAR_0051', 'LIDAR_0052', 'LIDAR_0053',
-                    #'LIDAR_0054', 'LIDAR_0055', 'LIDAR_0056', 'LIDAR_0057', 'LIDAR_0058', 'LIDAR_0059', 'LIDAR_0060', 'LIDAR_0061', 'LIDAR_0062',
-                    #'LIDAR_0063', 'LIDAR_0064', 'LIDAR_0065', 'LIDAR_0066', 'LIDAR_0067'] #,
-                    #'WYPT_X_00', 'WYPT_X_01', 'WYPT_X_02', 'WYPT_X_03', 'WYPT_X_04', 'WYPT_X_05', 'WYPT_X_06', 'WYPT_X_07', 'WYPT_X_08', 'WYPT_X_09',
-                    #'WYPT_Y_00', 'WYPT_Y_01', 'WYPT_Y_02', 'WYPT_Y_03', 'WYPT_Y_04', 'WYPT_Y_05', 'WYPT_Y_06', 'WYPT_Y_07', 'WYPT_Y_08', 'WYPT_Y_09',
-                    #'angular_vel_z', 'linear_vel_x', 'slip_angle', 'steering_angle' ]
-
   setpoint_inputs: []
   outputs: ['translational_control_calculated', 'angular_control_calculated']
 
