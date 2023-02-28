@@ -1,7 +1,7 @@
+
 class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
-    ROS_BRIDGE = False
     FROM_RECORDING = False
 
     ### for slip steer estimatoin -> change path to net in nn_loader_race.py
@@ -33,7 +33,7 @@ class Settings:
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
-    TIMESTEP_CONTROL = 0.10    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.08    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
@@ -77,3 +77,5 @@ class Settings:
     ONLY_ODOMETRY_AVAILABLE = False
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
+
+    ROS_BRIDGE = None # Automatically determined on program start
