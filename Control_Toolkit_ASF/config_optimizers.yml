@@ -4,9 +4,9 @@ mppi:
   seed: null # Seed for rng, for MPPI only, put null to set random seed (do it when you generate data for training!)
   mpc_horizon: 10                       # steps
   num_rollouts: 1000                    # Number of Monte Carlo samples
-  LBD: 0.001                            # Cost parameter lambda
+  LBD: 0.05                            # Cost parameter lambda
   NU: 1000.0                            # Exploration variance
-  SQRTRHOINV: [ 0.3, 0.0 ]              # Sampling variance
+  SQRTRHOINV: [ 0.15, 0.3 ]              # Sampling variance
   period_interpolation_inducing_points: 1                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
 
   # Double check that the two values below are the same as in the cost function config!!!
@@ -15,8 +15,8 @@ mppi:
 
 rpgd-tf:
   seed: null                            # If null, random seed based on datetime is used
-  mpc_horizon: 15                       # steps
-  SAMPLING_DISTRIBUTION: normal  # "normal" or "uniform"
+  mpc_horizon: 10                       # steps
+  SAMPLING_DISTRIBUTION: uniform  # "normal" or "uniform"
   period_interpolation_inducing_points: 2                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
   learning_rate: 0.05
   adam_beta_1: 0.9
@@ -26,15 +26,15 @@ rpgd-tf:
   rtol: 1.0e-3
   num_rollouts: 32
   opt_keep_k_ratio: 0.25
-  outer_its: 2
+  outer_its: 4
   resamp_per: 5
 #  sample_stdev: 0.2
 #  sample_mean: 0.0
   sample_stdev: [ 0.3, 0.3 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
-  sample_mean: [0.0, 2.5] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
+  sample_mean: [0.0, 3.8] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
   sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
-  uniform_dist_max: [ 0.4, 2.8 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  uniform_dist_min: [ -0.4, 2.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  uniform_dist_max: [ 0.4, 4.0 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  uniform_dist_min: [ -0.4, 3.7 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   warmup: false
   warmup_iterations: 250
 
