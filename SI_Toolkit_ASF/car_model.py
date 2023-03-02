@@ -433,7 +433,7 @@ class car_model:
         delta_dot = self.servo_proportional(desired_angle, delta)
         vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
 
-        Q_pid = tf.transpose(tf.stack([delta_dot,vel_x_dot]))
+        Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot]))
 
         return self._step_dynamics_st(s, Q_pid, params)
 

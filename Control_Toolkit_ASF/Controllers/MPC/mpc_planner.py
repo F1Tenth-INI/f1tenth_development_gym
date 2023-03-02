@@ -59,7 +59,6 @@ class mpc_planner:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
         if Settings.CONTROLLER:
-            # print("next_waypoints",self.next_waypoints)
             self.mpc = controller_mpc(
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
@@ -103,7 +102,7 @@ class mpc_planner:
         }
         """
 
-      
+
 
 
 
@@ -148,6 +147,7 @@ class mpc_planner:
             self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
 
 
+
         angular_control, translational_control  = self.mpc.step(s,
                                                                self.time,
                                                                {
@@ -162,7 +162,7 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
-      
+
         rollout_trajectories = None
         optimal_trajectory = None
         traj_cost = None
@@ -173,7 +173,7 @@ class mpc_planner:
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
-            
+
         # TODO: pass optimal trajectory
         self.rollout_trajectories = rollout_trajectories
         self.Render.update(
