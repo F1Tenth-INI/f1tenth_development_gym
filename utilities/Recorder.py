@@ -15,7 +15,11 @@ except:
     pass
 
 from utilities.state_utilities import FULL_STATE_VARIABLES
-config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+
+from utilities.path_helper_ros import get_gym_path
+gym_path = get_gym_path()
+
+config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
 waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
 

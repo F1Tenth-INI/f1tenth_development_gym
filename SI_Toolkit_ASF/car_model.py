@@ -207,6 +207,8 @@ class car_model:
 
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
         min_vel_x = tf.reduce_min(v_x)
+        # if(tf.less(min_vel_x, 0.5)):
+        #     return self._step_dynamics_ks(s,Q, params)
 
         # Constaints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -426,15 +428,8 @@ class car_model:
 
         delta_dot = self.servo_proportional(desired_angle, delta)
         vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
-        
-        # # Debugging
-        # if hasattr(desired_angle, 'numpy'):
-        #     desired_angle_np = desired_angle.numpy()
-        #     desired_speed_np = desired_speed.numpy()
-        #     delta_dot_np = delta_dot.numpy()
-        #     vel_x_dot_np = vel_x_dot.numpy()
 
-        Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot ]))
+        Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot]))
 
         return self._step_dynamics_st(s, Q_pid, params)
 
