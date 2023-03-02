@@ -7,14 +7,15 @@ from Control_Toolkit.Controllers import template_controller
 from SI_Toolkit.computation_library import ComputationLibrary
 
 from utilities.state_utilities import *
-
+from utilities.path_helper_ros import *
 
 distance_normalization = 6.0
 
 # TODO: Config should be loaded at specific functions
 # load constants from config file config_controllers
-config = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
-config_controllers = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
+gym_path = get_gym_path()
+config = yaml.load(open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
+config_controllers = yaml.load(open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
 
 mpc_type = config_controllers["mpc"]['optimizer']
 

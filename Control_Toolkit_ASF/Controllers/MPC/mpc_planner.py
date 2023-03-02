@@ -2,8 +2,13 @@
 import numpy as np
 import math
 from utilities.Settings import Settings
-from utilities.waypoint_utils import WaypointUtils
-from utilities.render_utilities import RenderUtils
+if(Settings.ROS_BRIDGE):
+    from utilities.waypoint_utils_ros import WaypointUtils
+    from utilities.render_utilities_ros import RenderUtils
+else:
+    from utilities.waypoint_utils import WaypointUtils
+    from utilities.render_utilities import RenderUtils
+
 from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
@@ -49,7 +54,7 @@ class mpc_planner:
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high = get_control_limits([[-1.066, -10.], [1.066, 20.]])
+                control_limits_low, control_limits_high = get_control_limits([[-1.066, 1], [1.066, 10]])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
@@ -157,22 +162,24 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
+
         rollout_trajectories = None
-        optimal_trajecotry = None
+        optimal_trajectory = None
         traj_cost = None
 
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
-            optimal_trajecotry = self.mpc.optimizer.optimal_trajectory
+            optimal_trajectory = self.mpc.optimizer.optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
         # TODO: pass optimal trajectory
+        self.rollout_trajectories = rollout_trajectories
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
-            optimal_trajectory=optimal_trajecotry,
+            optimal_trajectory=optimal_trajectory,
             traj_cost=traj_cost,
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
