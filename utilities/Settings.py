@@ -31,7 +31,7 @@ class Settings:
 
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 36000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 360  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     TIMESTEP_CONTROL = 0.08    # Multiple of 0.01
     
@@ -54,8 +54,9 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = False
-
+    SAVE_RECORDINGS = True
+    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    
     #Set Noise Level
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0 # ftg: 0.5  # mppi: 2.0
     NOISE_LEVEL_ANGULAR_CONTROL = 0  # ftg: 0.05  # mppi: 3.0
@@ -77,5 +78,7 @@ class Settings:
     ONLY_ODOMETRY_AVAILABLE = False
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-
+    
+    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation 
+    
     ROS_BRIDGE = None # Automatically determined on program start

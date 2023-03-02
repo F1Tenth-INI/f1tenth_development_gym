@@ -7,6 +7,8 @@ from datetime import datetime
 import csv
 import numpy as np
 import yaml
+import matplotlib.pyplot as plt
+import pandas as pd
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -250,6 +252,32 @@ class Recorder:
 
             writer.writerow([float(x) for x in self.dict_to_save.values()])
 
+    '''
+    Generate plots from the csv file of the recording
+    '''
+    def plot_data(self):
+        
+        save_path = self.csv_filepath[:-4]+"_plots"
+        os.mkdir(save_path)
+        df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
+        print (df)
+
+        angular_controls = df['angular_control_applied'].to_numpy()
+        translational_controls = df['translational_control_applied'].to_numpy()        
+        
+        # Plot Angular Control
+        plt.title("Angular Control")
+        plt.plot(angular_controls, color="red")
+        plt.savefig(save_path+"/angular_control.png")
+        plt.clf()
+
+        # Plot Translational Control
+        plt.title("Translational Control")
+        plt.plot(translational_controls, color="blue")
+        plt.savefig(save_path+"/translational_control.png")
+        plt.clf()
+        
+        
     def reset(self):
         self.headers_already_saved = False
         self.keys_time = None
