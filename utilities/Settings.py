@@ -1,4 +1,3 @@
-
 class Settings:
 
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
@@ -14,7 +13,6 @@ class Settings:
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
 
-    
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     NET_NAME = 'LSTM-94IN-32H1-32H2-2OUT-0'
 
