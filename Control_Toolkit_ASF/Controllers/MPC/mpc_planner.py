@@ -49,7 +49,7 @@ class mpc_planner:
         self.target_point = np.array([0, 0], dtype=np.float32)
         
         # TODO: Move to a config file ( which one tho?)
-        control_average_window = [5, 5] # Window for averaging control input for smoother control [angular, translational]
+        control_average_window = [0, 1] # Window for averaging control input for smoother control [angular, translational]
 
         self.angular_control_avg_window = control_average_window[0]
         self.translational_control_avg_window = control_average_window[1]
