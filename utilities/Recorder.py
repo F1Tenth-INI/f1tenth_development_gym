@@ -7,6 +7,9 @@ from datetime import datetime
 import csv
 import numpy as np
 import yaml
+import matplotlib.pyplot as plt
+import pandas as pd
+import shutil
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -15,7 +18,11 @@ except:
     pass
 
 from utilities.state_utilities import FULL_STATE_VARIABLES
-config = yaml.load(open("config.yml", "r"), Loader=yaml.FullLoader)
+
+from utilities.path_helper_ros import get_gym_path
+gym_path = get_gym_path()
+
+config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
 waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
 
@@ -246,6 +253,40 @@ class Recorder:
 
             writer.writerow([float(x) for x in self.dict_to_save.values()])
 
+    '''
+    Generate plots from the csv file of the recording
+    '''
+    def plot_data(self):
+        
+        save_path = self.csv_filepath[:-4]+"_data"
+        os.mkdir(save_path)
+        df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
+
+        angular_controls = df['angular_control_applied'].to_numpy()[1:]
+        translational_controls = df['translational_control_applied'].to_numpy()[1:]   
+        
+        # Plot Angular Control
+        plt.title("Angular Control")
+        plt.plot(angular_controls, color="red")
+        plt.savefig(save_path+"/angular_control.png")
+        plt.clf()
+
+        # Plot Translational Control
+        plt.title("Translational Control")
+        plt.plot(translational_controls, color="blue")
+        plt.savefig(save_path+"/translational_control.png")
+        plt.clf()
+        
+        
+        # Copy Settings and configs
+        config_sage_path = os.path.join(save_path, "configs")
+        os.mkdir(config_sage_path)
+        shutil.copy("Control_Toolkit_ASF/config_controllers.yml", config_sage_path) 
+        shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
+        shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
+        shutil.copy("utilities/Settings.py", config_sage_path) 
+        
+        
     def reset(self):
         self.headers_already_saved = False
         self.keys_time = None

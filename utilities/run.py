@@ -16,12 +16,16 @@ from argparse import Namespace
 
 from tqdm import trange
 from utilities.Settings import Settings
-
 from utilities.Recorder import Recorder
+import pandas as pd
 
 from f110_gym.envs.dynamic_models import pid
 
-from utilities.state_utilities import full_state_original_to_alphabetical
+from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
+
+from time import sleep
+
+Settings.ROS_BRIDGE = False # No ros bridge if this script is running
 
 # Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
@@ -33,6 +37,12 @@ def main():
     """
     main entry point
     """
+    if Settings.FROM_RECORDING:
+        state_recording = pd.read_csv('Sim-KS-very-short.csv', delimiter=',', comment='#')
+        time_axis = state_recording['time'].to_numpy()
+        state_recording = state_recording[FULL_STATE_VARIABLES].to_numpy()
+    else:
+        state_recording = None
 
     # Config
     map_config_file = Settings.MAP_CONFIG_FILE
@@ -166,8 +176,12 @@ def main():
     est_slip_vec = []
     est_steer_vec = []
 
+    if Settings.FROM_RECORDING:
+        experiment_length = len(state_recording)
+    else:
+        experiment_length = Settings.EXPERIMENT_LENGTH
 
-    for _ in trange(Settings.EXPERIMENT_LENGTH):
+    for simulation_index in trange(experiment_length):
         if done:
             break
         ranges = obs['scans']
@@ -177,10 +191,16 @@ def main():
         else:
             next_waypoints = None
         for index, driver in enumerate(drivers):
-            odom = get_odom(obs, index)
-            odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
-            odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-            driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+            if Settings.FROM_RECORDING:
+                sleep(0.05)
+                driver.car_state = state_recording[simulation_index]
+                odom = {} # FIXME: MPC uses just the car state
+                env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
+            else:
+                odom = get_odom(obs, index)
+                odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
+                odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
+                driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
 
             real_slip_vec.append(driver.car_state[7])
             real_steer_vec.append(driver.car_state[8])
@@ -195,8 +215,10 @@ def main():
                 est_steer_vec.append(driver.car_state[8])
 
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
+            start_control = time.time()
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
-
+            end = time.time()-start_control
+            # print("time for 1 step:", end)
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].get_data(control_inputs_calculated=(translational_control, angular_control),
                                            odometry=odom, ranges=ranges[index], state=driver.car_state,
@@ -216,6 +238,7 @@ def main():
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
 
+        # print("speed, steer ", noisy_control[0])
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
@@ -239,7 +262,10 @@ def main():
                 recorders[index].save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
-
+    if Settings.SAVE_PLOTS:
+        for index, driver in enumerate(drivers):
+            recorders[index].plot_data()
+    
     env.close()
 
     ###PRINT RESULTS FOR ESTIMATION
