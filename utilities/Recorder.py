@@ -265,6 +265,10 @@ class Recorder:
         angular_controls = df['angular_control_applied'].to_numpy()[1:]
         translational_controls = df['translational_control_applied'].to_numpy()[1:]   
         
+        # State
+        pos_x = df['pose_x'].to_numpy()[1:]   
+        pos_y = df['pose_y'].to_numpy()[1:]   
+        
         # Plot Angular Control
         plt.title("Angular Control")
         plt.plot(angular_controls, color="red")
@@ -275,6 +279,12 @@ class Recorder:
         plt.title("Translational Control")
         plt.plot(translational_controls, color="blue")
         plt.savefig(save_path+"/translational_control.png")
+        plt.clf()
+        
+        # Plot Position
+        plt.title("Car Positions")
+        plt.plot(pos_x,pos_y,color="blue")
+        plt.savefig(save_path+"/car_position.png")
         plt.clf()
         
         

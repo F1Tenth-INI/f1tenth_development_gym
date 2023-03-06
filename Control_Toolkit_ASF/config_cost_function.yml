@@ -10,17 +10,18 @@ Car:
     ccrc_weight: 0.0
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
+    angular_velocity_cost_weight: 0.001
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 0.0
-    velocity_diff_to_waypoints_cost_weight: 0.0
-    speed_control_diff_to_waypoints_cost_weight: 0.5  # Penalize difference between desired speed of control and the position's closest waypoint
+    velocity_diff_to_waypoints_cost_weight: 0.1
+    speed_control_diff_to_waypoints_cost_weight: 0.0  # Penalize difference between desired speed of control and the position's closest waypoint
     distance_to_waypoints_cost_weight: 5.0
     target_distance_cost_weight: 0.0            #only if you want to follow a target on an empty map
 
 
     # Different optimizers works the best with different cost functions parameters
     mppi:
-      acceleration_cost_weight: 0.0
+      acceleration_cost_weight: 0.0 
       max_acceleration: 9.2
       desired_max_speed: 3.8             # desired max speed for the car [m/s]
       waypoint_velocity_factor : 0.75
@@ -29,7 +30,7 @@ Car:
       acceleration_cost_weight: 0.0
       max_acceleration: 0.0
       desired_max_speed: 3.8               # desired max speed for the car [m/s]
-      waypoint_velocity_factor : 0.75
+      waypoint_velocity_factor : 1.75
 
   following_target:
     # TODO: The parameters not set yet, same as for racing

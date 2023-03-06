@@ -4,6 +4,7 @@
 # from others.Controllers_obsolate.MPPI.mppi_planner import MppiPlanner
 # from others.Controllers_obsolate.xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
 # from others.Controllers_obsolate.xiang.ftg_planner_postqualification import FollowTheGapPlanner as FollowTheGapPlannerXiang2
+import sys
 
 # Obstacle creation
 from utilities.random_obstacle_creator import RandomObstacleCreator
@@ -206,10 +207,10 @@ def main():
             real_steer_vec.append(driver.car_state[8])
 
             if Settings.SLIP_STEER_PREDICTION:
-                print("state before: ", driver.car_state)
+                # print("state before: ", driver.car_state)
                 driver.car_state = steer_estimator.get_slip_steer_car_state(slip_estimator, odom, translational_control, angular_control)
-                print("state after: ", driver.car_state)
-                if _ < 20:
+                # print("state after: ", driver.car_state)
+                if simulation_index < 20:
                     driver.car_state[7] = 0.0
                 est_slip_vec.append(driver.car_state[7])
                 est_steer_vec.append(driver.car_state[8])
@@ -255,6 +256,8 @@ def main():
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))
+            if(info['checkpoint_done'][0]):
+                done = True
             laptime += step_reward
 
         if (Settings.SAVE_RECORDINGS):
@@ -275,10 +278,16 @@ def main():
         else:
             x = range(render_index)
 
-        steer_estimator.show_slip_steer_results(x, real_slip_vec, est_slip_vec, real_steer_vec, est_steer_vec)
+        # steer_estimator.show_slip_steer_results(x, real_slip_vec, est_slip_vec, real_steer_vec, est_steer_vec)
 
 
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
+    f = open("laptimes.txt", "a") 
+    text = 'Sim elapsed time:' + str(laptime) + 'Real elapsed time:' + str(time.time()-start) + '\n'
+    f.write(text)
+    f.close()
+
+
 
 
 def run_experiments():
@@ -299,3 +308,9 @@ main()
 if __name__ == '__main__':
     run_experiments()
 
+    original_stdout = sys.stdout # Save a reference to the original standard output
+
+    with open('log.txt', 'w') as f:
+        sys.stdout = f # Change the standard output to the file we created.
+        print('This message will be written to a file.')
+        sys.stdout = original_stdout # Reset the standard output to its original value
