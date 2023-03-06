@@ -27,6 +27,7 @@ distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoin
 velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
+angular_velocity_cost_weight = config["Car"]["racing"]["angular_velocity_cost_weight"]
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
 
@@ -79,7 +80,6 @@ class f1t_cost_function(cost_function_base):
 
     # endregion
 
-    # region Cost components
     # TODO: Make it library agnostic. This also justifies why some methods are not static, although currently they could be
     def get_actuation_cost(self, u):
         cc_cost = R * (u ** 2)
@@ -117,6 +117,11 @@ class f1t_cost_function(cost_function_base):
         steering_cost = steering_cost_weight * steering
 
         return steering_cost
+    
+    def get_angular_velocity_cost(self, s):
+        angular_velovities = s[:, :, ANGULAR_VEL_Z_IDX]
+        angula_velocity_cost = angular_velocity_cost_weight * tf.square(angular_velovities)
+        return angula_velocity_cost
 
     def get_distance_to_waypoints_per_rollout(self, trajectory_points, waypoints):
         trajectories_shape = tf.shape(trajectory_points)

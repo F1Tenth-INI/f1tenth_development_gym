@@ -26,6 +26,7 @@ class racing(f1t_cost_function):
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
+        angular_velocity_cost = self.get_angular_velocity_cost(s)
 
         # Costs related to waypoints 
         if hasattr (self.controller.next_waypoints, 'shape'):
@@ -51,6 +52,7 @@ class racing(f1t_cost_function):
                 + ccrc
                 + distance_to_wp_segments_cost
                 + steering_cost
+                + angular_velocity_cost
                 + acceleration_cost
                 + velocity_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
