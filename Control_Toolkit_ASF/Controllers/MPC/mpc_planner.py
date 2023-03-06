@@ -2,8 +2,13 @@
 import numpy as np
 import math
 from utilities.Settings import Settings
-from utilities.waypoint_utils import WaypointUtils
-from utilities.render_utilities import RenderUtils
+if(Settings.ROS_BRIDGE):
+    from utilities.waypoint_utils_ros import WaypointUtils
+    from utilities.render_utilities_ros import RenderUtils
+else:
+    from utilities.waypoint_utils import WaypointUtils
+    from utilities.render_utilities import RenderUtils
+
 from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
@@ -42,6 +47,15 @@ class mpc_planner:
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
+        
+        # TODO: Move to a config file ( which one tho?)
+        control_average_window = [0, 1] # Window for averaging control input for smoother control [angular, translational]
+
+        self.angular_control_avg_window = control_average_window[0]
+        self.translational_control_avg_window = control_average_window[1]
+        self.angular_control_history = np.zeros(self.angular_control_avg_window)
+        self.translational_control_history = np.zeros(self.angular_control_avg_window)
+
 
         if Settings.ENVIRONMENT_NAME == 'Car':
             num_states = 9
@@ -49,7 +63,7 @@ class mpc_planner:
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
             else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high = get_control_limits([[-1.066, -10.], [1.066, 20.]])
+                control_limits_low, control_limits_high = get_control_limits([[-1.066, 1], [1.066, 10]])
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
@@ -114,7 +128,7 @@ class mpc_planner:
         # Deprecated, meybe use for racing again?
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
-        if self.simulation_index < 4:
+        if self.simulation_index < 1:
             self.simulation_index += 1
             self.translational_control = 10
             self.angular_control = 0
@@ -157,27 +171,42 @@ class mpc_planner:
         # translational_control = self.SpeedGenerator.step()
         # translational_control = 0.1
 
+
         rollout_trajectories = None
-        optimal_trajecotry = None
+        optimal_trajectory = None
         traj_cost = None
 
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
-            optimal_trajecotry = self.mpc.optimizer.optimal_trajectory
+            optimal_trajectory = self.mpc.optimizer.optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
         # TODO: pass optimal trajectory
+        self.rollout_trajectories = rollout_trajectories
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
-            optimal_trajectory=optimal_trajecotry,
+            optimal_trajectory=optimal_trajectory,
             traj_cost=traj_cost,
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
         )
         
+        # Averaging control commands over history        
+        angular_control_window = np.append(self.angular_control_history, [angular_control])
+        # weights = np.arange(0,self.angular_control_avg_window +1, 1)
+        # angular_control = np.average(angular_control_window, weights=weights)
+        angular_control = np.average(angular_control_window)
+        self.angular_control_history = angular_control_window[1:]
+        
+        translational_control_window = np.append(self.translational_control_history, [translational_control])
+        translational_control = np.mean(translational_control_window)
+        self.translational_control_history = translational_control_window[1:]
+        
+        
+        self.last_steering = angular_control
         self.translational_control = translational_control
         self.angular_control = angular_control
         

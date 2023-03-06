@@ -7,14 +7,15 @@ from Control_Toolkit.Controllers import template_controller
 from SI_Toolkit.computation_library import ComputationLibrary
 
 from utilities.state_utilities import *
-
+from utilities.path_helper_ros import *
 
 distance_normalization = 6.0
 
 # TODO: Config should be loaded at specific functions
 # load constants from config file config_controllers
-config = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
-config_controllers = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
+gym_path = get_gym_path()
+config = yaml.load(open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
+config_controllers = yaml.load(open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
 
 mpc_type = config_controllers["mpc"]['optimizer']
 
@@ -24,6 +25,7 @@ cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
 velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
+speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
@@ -246,6 +248,10 @@ class f1t_cost_function(cost_function_base):
         return distance_to_wp_segments_cost
     
     def get_velocity_difference_to_wp_cost(self, s, waypoints):
+        
+        # if (velocity_diff_to_waypoints_cost_weight == 0): # Don't calculate if cost is 0
+        #     return tf.zeros_like(s[:,:,0])
+
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:, 1:3]
@@ -255,6 +261,18 @@ class f1t_cost_function(cost_function_base):
         horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
+    
+    def get_speed_control_difference_to_wp_cost(self, u, s, waypoints):
+        
+        # Get nearest and the nearest_next waypoint for every position on the car's rollout
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        waypoint_positions = waypoints[:, 1:3]
+        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
+        speed_control = u[:, :, TRANSLATIONAL_CONTROL_IDX]
+        velocity_difference_to_wp = self.get_velocity_difference_to_wp(speed_control, waypoints, nearest_waypoint_indices)
+        horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
+        velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
+        return speed_control_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
         
     def get_velocity_difference_to_wp(self, car_vel, waypoints, nearest_waypoint_indices):
 
@@ -266,7 +284,5 @@ class f1t_cost_function(cost_function_base):
         
         vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
         return vel_difference
-        
-        
         
         
