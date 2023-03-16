@@ -28,7 +28,10 @@ def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min,
     # constraint steering velocity
     steering_velocity = \
         casadi.if_else(
-            (steering_angle <= s_min and steering_velocity <= 0) or (steering_angle >= s_max and steering_velocity >= 0),
+            casadi.logic_or(casadi.logic_and(steering_angle <= s_min,
+                                             steering_velocity <= 0),
+                            casadi.logic_and(steering_angle >= s_max,
+                                             steering_velocity >= 0)),
             0,
             casadi.if_else(steering_velocity <= sv_min,
                            sv_min,
@@ -40,7 +43,7 @@ def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min,
     return steering_velocity
 
 
-def vehicle_dynamics_ks(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min,
+def vehicle_dynamics_ks(x, u_unclipped, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min,
                         v_max):
     """
     Single Track Kinematic Vehicle Dynamics.
@@ -64,6 +67,9 @@ def vehicle_dynamics_ks(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_
 
     # # constraints
     # u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
+    u = casadi.SX((2,1))
+    u[0] = steering_constraint(x[2], u_unclipped[0], s_min, s_max, sv_min, sv_max)
+    u[1] = u_unclipped[1]
 
     # system dynamics
     f = casadi.vcat([x[3] * np.cos(x[4]),
@@ -74,7 +80,7 @@ def vehicle_dynamics_ks(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_
     return f
 
 
-def vehicle_dynamics_st_forces(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max,
+def vehicle_dynamics_st_forces(x, u_unclipped, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max,
                                v_min,
                                v_max):
     """
@@ -102,7 +108,9 @@ def vehicle_dynamics_st_forces(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_m
 
     # # constraints
     # u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
-    u[0] =  steering_constraint(x[2], u[0], s_min, s_max, sv_min, sv_max)
+    u = casadi.SX((2, 1))
+    u[0] = steering_constraint(x[2], u_unclipped[0], s_min, s_max, sv_min, sv_max)
+    u[1] = u_unclipped[1]
 
     # kinematic model for small velocities
     # wheelbase
@@ -134,9 +142,6 @@ def vehicle_dynamics_st_forces(x, u, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_m
 
     f = casadi.if_else(casadi.fabs(x[3]) < 0.1, f_small_vels, f)
     return f
-
-
-dynamics = vehicle_dynamics_st_forces
 
 params = {
     'mu': 1.0489,  # friction coefficient  [-]
@@ -178,12 +183,9 @@ def f1tenth_dynamics_env(s, u, p):
     return sD
 
 
-
-
-
 def test_dynamics(M: int):
     for _ in range(M):
-        s = np.random.random_sample((7,))*2
+        s = np.random.random_sample((7,))*10
         u = np.random.random_sample((2,))*3
 
         sD_env = f1tenth_dynamics_env(s, u, None)
@@ -194,4 +196,4 @@ def test_dynamics(M: int):
 
 
 if __name__ == '__main__':
-    test_dynamics(100)
+    test_dynamics(200)
