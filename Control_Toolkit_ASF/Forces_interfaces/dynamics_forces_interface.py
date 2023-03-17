@@ -42,6 +42,32 @@ def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min,
 
     return steering_velocity
 
+def accl_constraints(vel, accl, v_switch, a_max, v_min, v_max):
+    """
+    Acceleration constraints, adjusts the acceleration based on constraints
+
+        Args:
+            vel (float): current velocity of the vehicle
+            accl (float): unconstraint desired acceleration
+            v_switch (float): switching velocity (velocity at which the acceleration is no longer able to create wheel spin)
+            a_max (float): maximum allowed acceleration
+            v_min (float): minimum allowed velocity
+            v_max (float): maximum allowed velocity
+
+        Returns:
+            accl (float): adjusted acceleration
+    """
+
+    # positive accl limit
+    pos_limit = casadi.if_else(vel > v_switch, a_max * v_switch / vel, a_max)
+
+    # accl limit reached?
+    accl = casadi.if_else(casadi.logic_or(casadi.logic_and(vel <= v_min, accl <= 0),
+                                          casadi.logic_and(vel >= v_max, accl >= 0)), 0,
+                          casadi.if_else(accl <= -a_max, -a_max,
+                                         casadi.if_else(accl >= pos_limit, pos_limit, accl)))
+
+    return accl
 
 def vehicle_dynamics_ks(x, u_unclipped, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min,
                         v_max):
@@ -69,7 +95,7 @@ def vehicle_dynamics_ks(x, u_unclipped, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, 
     # u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
     u = casadi.SX((2,1))
     u[0] = steering_constraint(x[2], u_unclipped[0], s_min, s_max, sv_min, sv_max)
-    u[1] = u_unclipped[1]
+    u[1] = accl_constraints(x[3], u_unclipped[1], v_switch, a_max, v_min, v_max)
 
     # system dynamics
     f = casadi.vcat([x[3] * np.cos(x[4]),
@@ -110,7 +136,7 @@ def vehicle_dynamics_st_forces(x, u_unclipped, mu, C_Sf, C_Sr, lf, lr, h, m, I, 
     # u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
     u = casadi.SX((2, 1))
     u[0] = steering_constraint(x[2], u_unclipped[0], s_min, s_max, sv_min, sv_max)
-    u[1] = u_unclipped[1]
+    u[1] = accl_constraints(x[3], u_unclipped[1], v_switch, a_max, v_min, v_max)
 
     # kinematic model for small velocities
     # wheelbase
@@ -175,21 +201,23 @@ def f1tenth_dynamics(s, u, p):
 
 # dynamics of the environment only for DEBUG purposes
 # should be equal to the one in this file
-def f1tenth_dynamics_env(s, u, p):
+def Car_env(s, u, p):
     sD = vehicle_dynamics_st(
         s,
         u,
         **params)
     return sD
 
+def casadi_to_numpy(sx):
+    return np.array([float(sx[i]) for i in range(sx.shape[0])])
 
 def test_dynamics(M: int):
-    for _ in range(M):
-        s = np.random.random_sample((7,))*10
-        u = np.random.random_sample((2,))*3
+    for i in range(M):
+        s = (np.random.random_sample((7,))-0.5)*30
+        u = (np.random.random_sample((2,))-0.5)*10
 
-        sD_env = f1tenth_dynamics_env(s, u, None)
-        sD_forces = np.array(f1tenth_dynamics(s, u, None)).squeeze()
+        sD_env = Car_env(s, u, None)
+        sD_forces = casadi_to_numpy(f1tenth_dynamics(s, u, None))
         error = np.linalg.norm(sD_env - sD_forces)
         pass
     return

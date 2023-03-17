@@ -215,7 +215,8 @@ nlp-forces:
   environment_specific_parameters:
     Car:
       dynamics: f1tenth_dynamics
-      cost: f1tenth
+#      cost: f1tenth_stage_cost
+      cost: f1tenth_distance_to_waypoint
       target: f1tenth_target
       npar: 142
       dt: 0.01                            # Integration stepsize, make sure matches the one of the environment
@@ -233,7 +234,7 @@ nlp-forces:
 #          x0: x position in global coordinates
 #          x1: y position in global coordinates
 #          x2: steering angle of front wheels           min: -0.4189  max = 0.4189
-#          x3: velocity in x direction
+#          x3: velocity in longitudial direction
 #          x4: yaw angle
 #          x5: angular velocity
 #          x6: slip_angle
