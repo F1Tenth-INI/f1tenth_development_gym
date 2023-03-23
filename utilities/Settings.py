@@ -52,7 +52,7 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     #Set Noise Level

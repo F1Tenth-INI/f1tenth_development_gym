@@ -47,7 +47,7 @@ class WaypointUtils:
         self.interpolation_steps = 1
         self.decrease_resolution_factor = 1
 
-        self.look_ahead_steps = self.interpolation_steps * 20
+        self.look_ahead_steps = self.interpolation_steps * 30
         self.ignore_steps = 0
 
         self.pub_global_waypoints = rospy.Publisher('/global_waypoints/markers', MarkerArray, queue_size=10)

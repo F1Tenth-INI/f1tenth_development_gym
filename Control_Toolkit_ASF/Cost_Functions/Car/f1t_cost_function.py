@@ -99,6 +99,13 @@ class f1t_cost_function(cost_function_base):
         """Compute penalty of control jerk, i.e. difference to previous control input"""
         u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
         ccrc = (u - u_prev_vec) ** 2
+
+        # Discounts
+        gamma = 0.9 * self.lib.ones_like(ccrc)
+        gamma = self.lib.cumprod(gamma, 1)
+        ccrc = gamma * ccrc
+
+        ccrc = tf.convert_to_tensor([1,0], dtype=tf.float32)*ccrc
         return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
 
     def get_acceleration_cost(self, u):
