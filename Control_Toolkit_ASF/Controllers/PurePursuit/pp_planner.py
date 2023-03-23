@@ -27,7 +27,7 @@ class PurePursuitPlanner:
 
     def __init__(self):
     
-        print("Controller initialized")
+        print("Initializing PP Planner")
     
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
@@ -55,7 +55,7 @@ class PurePursuitPlanner:
         self.angular_control = 0.
         self.translational_control = 0.
         
-        
+        print('Initialization done.')
         # Original values 
         # self.wheelbase = 0.17145+0.15875        
         # self.max_reacquire = 20.
