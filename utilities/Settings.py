@@ -8,7 +8,7 @@ class Settings:
     NET_NAME_SLIP = 'GRU-15IN-64H1-64H2-1OUT-0'
     NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-0'
     
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'pp'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 

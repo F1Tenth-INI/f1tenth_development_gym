@@ -39,10 +39,10 @@ class PurePursuitPlanner:
 
         
         # Controller settings
-        self.waypoint_velocity_factor = 1.2
+        self.waypoint_velocity_factor = 0.6
         self.lookahead_distance = 1.82461887897713965
         self.wheelbase = 0.6
-        self.vgain = 0.85 # velocity factor applied to the output
+        self.vgain = 0.55 # velocity factor applied to the output
         self.max_reacquire = 20.
         
         self.simulation_index = 0
