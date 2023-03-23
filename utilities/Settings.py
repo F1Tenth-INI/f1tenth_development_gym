@@ -8,7 +8,7 @@ class Settings:
     NET_NAME_SLIP = 'GRU-15IN-64H1-64H2-1OUT-0'
     NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-0'
     
-    CONTROLLER = 'pp'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
@@ -52,12 +52,15 @@ class Settings:
     PLACE_RANDOM_OBSTACLES = False
     
     FOLLOW_RANDOM_TARGETS = False
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     #Set Noise Level
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0 # ftg: 0.5  # mppi: 2.0
     NOISE_LEVEL_ANGULAR_CONTROL = 0  # ftg: 0.05  # mppi: 3.0
+    
+    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # NOISE_LEVEL_CAR_STATE = [ 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
 
     # Automatically follow the first car on the map
     CAMERA_AUTO_FOLLOW = False

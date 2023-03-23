@@ -200,7 +200,13 @@ def main():
                 odom = get_odom(obs, index)
                 odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-                driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+                # Add Noise to the car state
+                car_state_without_noise = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+                car_state_with_noise = np.zeros(9)
+                for state_index in range(9):
+                    car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
+                
+                driver.car_state = car_state_with_noise
 
             real_slip_vec.append(driver.car_state[7])
             real_steer_vec.append(driver.car_state[8])
@@ -262,7 +268,7 @@ def main():
                 recorders[index].save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
-    if Settings.SAVE_PLOTS:
+    if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
             recorders[index].plot_data()
     

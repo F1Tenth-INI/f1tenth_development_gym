@@ -25,7 +25,7 @@ v_switch: 7.319
 
 # Servo
 servo_p: 10             # proportional factor of servo PID
-steering_diff_low: 0.01  # [rad] Steering angle difference below is considered as 0
+steering_diff_low: 0.001  # [rad] Steering angle difference below is considered as 0
 
 # Other
 min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
