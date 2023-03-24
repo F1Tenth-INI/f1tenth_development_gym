@@ -262,6 +262,7 @@ class Recorder:
         os.mkdir(save_path)
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
+        times = df['time'].to_numpy()[1:]
         angular_controls = df['angular_control_applied'].to_numpy()[1:]
         translational_controls = df['translational_control_applied'].to_numpy()[1:]   
         
@@ -276,6 +277,19 @@ class Recorder:
         plt.plot(translational_controls, color="blue")
         plt.savefig(save_path+"/translational_control.png")
         plt.clf()
+        
+        # Plot time needed for calculation
+        dts = []
+        for i in range(15, len(times)-1):
+            
+            last_row = times[i-1]
+            row = times[i]
+            delta =float(row) - float(last_row) 
+            dts.append(delta)
+
+
+        plt.plot(dts)
+        plt.savefig(save_path+"/dt_control.png")
         
         
         # Copy Settings and configs

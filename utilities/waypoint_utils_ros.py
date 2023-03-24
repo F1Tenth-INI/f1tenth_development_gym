@@ -49,7 +49,7 @@ class WaypointUtils:
         self.interpolation_steps = 1
         self.decrease_resolution_factor = 1
 
-        self.look_ahead_steps = self.interpolation_steps * 30
+        self.look_ahead_steps = self.interpolation_steps * 40
         self.ignore_steps = 0
 
         self.waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
