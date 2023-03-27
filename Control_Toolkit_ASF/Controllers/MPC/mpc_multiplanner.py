@@ -47,10 +47,13 @@ class mpc_multiplanner(mpc_planner):
         pass
 
     def process_observation(self, ranges=None, ego_odom=None):
-        super().process_observation(ranges, ego_odom)
+        translational_control, angular_control = super().process_observation(ranges, ego_odom)
 
         s = self.car_state
-        rollout_trajectories_tuple = (self.mpc.optimizer.rollout_trajectories,)
+        if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
+            rollout_trajectories_tuple = (self.mpc.optimizer.rollout_trajectories,)
+        else:
+            rollout_trajectories_tuple = ()
 
         for redundant_controller in self.redundant_controllers:
             redundant_controller.step(s,
@@ -72,3 +75,5 @@ class mpc_multiplanner(mpc_planner):
             next_waypoints=self.waypoint_utils.next_waypoint_positions,
             car_state=s
         )
+
+        return translational_control, angular_control
