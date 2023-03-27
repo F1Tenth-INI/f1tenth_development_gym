@@ -1,20 +1,18 @@
 
+import sys
+sys.path.insert(1, 'FollowtheGap')
+
 import numpy as np
-from os.path import exists
+import math
+import matplotlib.pyplot as plt
+import pyglet.gl as gl
+
+from utilities.waypoint_utils import WaypointUtils
+from utilities.render_utilities import RenderUtils
+
 from numba import njit
-import yaml
-from argparse import Namespace
-
-from pyglet.gl import GL_POINTS
-
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
 
-
-
-"""
-Planner Helpers
-"""
 @njit(fastmath=False, cache=True)
 def nearest_point_on_trajectory(point, trajectory):
     """
@@ -48,6 +46,7 @@ def nearest_point_on_trajectory(point, trajectory):
         dists[i] = np.sqrt(np.sum(temp*temp))
     min_dist_segment = np.argmin(dists)
     return projections[min_dist_segment], dists[min_dist_segment], t[min_dist_segment], min_dist_segment
+
 
 @njit(fastmath=False, cache=True)
 def first_point_on_trajectory_intersecting_circle(point, radius, trajectory, t=0.0, wrap=False):
@@ -145,123 +144,4 @@ def get_actuation(pose_theta, lookahead_point, position, lookahead_distance, whe
     radius = 1/(2.0*waypoint_y/lookahead_distance**2)
     steering_angle = np.arctan(wheelbase/radius)
     return speed, steering_angle
-
-
-
-class PurePursuitPlanner:
-    """
-    Example Planner
-    """
-    def __init__(self, config_file, wb = None):
-        
-        with open(config_file) as file:
-            conf_dict = yaml.load(file, Loader=yaml.FullLoader)
-        conf = Namespace(**conf_dict)
-
-        if( wb == None):
-            wb = 0.17145+0.15875        
-        self.wheelbase = wb
-        self.conf = conf
-        self.load_waypoints(conf)
-        self.max_reacquire = 20.
-
-        self.lookahead_distance = 1.82461887897713965
-        self.vgain = 0.80338203837889
-
-
-        self.drawn_waypoints = []
-
-    def load_waypoints(self, conf):
-        """
-        loads waypoints
-        """
-        if exists(conf.wpt_path):
-            self.waypoints = np.loadtxt(conf.wpt_path, delimiter=conf.wpt_delim, skiprows=conf.wpt_rowskip)
-        else:
-            print("Waypoint file does not exist")
-            exit()
-
-    def render(self, e):
-        """
-        update waypoints being drawn by EnvRenderer
-        """
-
-        #points = self.waypoints
-
-        points = np.vstack((self.waypoints[:, self.conf.wpt_xind], self.waypoints[:, self.conf.wpt_yind])).T
-        
-        scaled_points = 50.*points
-
-        for i in range(points.shape[0]):
-            if len(self.drawn_waypoints) < points.shape[0]:
-                b = e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[i, 0], scaled_points[i, 1], 0.]),
-                                ('c3B/stream', [183, 193, 222]))
-                self.drawn_waypoints.append(b)
-            else:
-                self.drawn_waypoints[i].vertices = [scaled_points[i, 0], scaled_points[i, 1], 0.]
-        
-    def _get_current_waypoint(self, waypoints, lookahead_distance, position, theta):
-        """
-        gets the current waypoint to follow
-        """
-        wpts = np.vstack((self.waypoints[:, self.conf.wpt_xind], self.waypoints[:, self.conf.wpt_yind])).T
-        nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
-        if nearest_dist < lookahead_distance:
-            lookahead_point, i2, t2 = first_point_on_trajectory_intersecting_circle(position, lookahead_distance, wpts, i+t, wrap=True)
-            if i2 == None:
-                return None
-            current_waypoint = np.empty((3, ))
-            # x, y
-            current_waypoint[0:2] = wpts[i2, :]
-            # speed
-            current_waypoint[2] = waypoints[i, self.conf.wpt_vind]
-            return current_waypoint
-        elif nearest_dist < self.max_reacquire:
-            return np.append(wpts[i, :], waypoints[i, self.conf.wpt_vind])
-        else:
-            return None
-
-    def plan(self, pose_x, pose_y, pose_theta, lookahead_distance, vgain):
-        """
-        gives actuation given observation
-        """
-        position = np.array([pose_x, pose_y])
-        lookahead_point = self._get_current_waypoint(self.waypoints, lookahead_distance, position, pose_theta)
-
-        if lookahead_point is None:
-            return 4.0, 0.0
-
-        speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, lookahead_distance, self.wheelbase)
-        speed = vgain * speed
-
-        return speed, steering_angle
-
-
-    def process_observation(self, ranges=None, ego_odom=None):
-        """
-        gives actuation given observation
-        @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-        @ ego_odom: A dict with following indices:
-        {
-            'pose_x': float,
-            'pose_y': float,
-            'pose_theta': float,
-            'linear_vel_x': float,
-            'linear_vel_y': float,
-            'angular_vel_z': float,
-        }
-        """
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-        pose_theta = ego_odom['pose_theta']
-
-        position = np.array([pose_x, pose_y])
-        lookahead_point = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
-
-        if lookahead_point is None:
-            return 4.0, 0.0
-
-        speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
-        speed = self.vgain * speed
-
-        return speed, steering_angle
+    
