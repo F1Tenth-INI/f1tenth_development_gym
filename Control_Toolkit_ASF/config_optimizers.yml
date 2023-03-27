@@ -208,8 +208,9 @@ nlp-forces:
   num_rollouts: 1
   mpc_horizon: 20                     # steps
   initial_guess: no_action                     # no_action or PD
-#  generate_new_solver: False
-  generate_new_solver: True
+  mppi_reinitialization: True
+  generate_new_solver: False
+#  generate_new_solver: True
   terminal_constraint_at_target: False
   terminal_set_width: 0.0               # Set to <=0 for no terminal set
   environment_specific_parameters:
@@ -219,7 +220,7 @@ nlp-forces:
       cost: f1tenth_distance_to_waypoint
       target: f1tenth_target
       npar: 142
-      dt: 0.01                            # Integration stepsize, make sure matches the one of the environment
+      dt: 0.03                            # Integration stepsize, make sure matches the one of the environment
 #     optimize_over: [ 0, 1, 2, 3, 4, 5, 6, 7, 8]           #optimization variables idxs
       optimize_over: [5, 6, 8, 1, 2, 0, 7]
       is_angle: []                       # Which of the idxs refer to an angle

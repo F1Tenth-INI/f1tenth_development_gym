@@ -53,6 +53,9 @@ def main():
         # FIXME: Out of order
         from others.examples.pure_pursuit_planner import PurePursuitPlanner
         planner1 = PurePursuitPlanner(Settings.MAP_CONFIG_FILE)
+    elif Settings.CONTROLLER == 'multimpc':
+        from Control_Toolkit_ASF.Controllers.MPC.mpc_multiplanner import mpc_multiplanner
+        planner1 = mpc_multiplanner()
     else:
         NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
 

@@ -79,14 +79,14 @@ class f1t_cost_function_forces(cost_function_base):
     # region Cost components
     # TODO: Make it library agnostic. This also justifies why some methods are not static, although currently they could be
     def get_actuation_cost(self, u):
-        cc_cost = R * (u ** 2)
+        cc_cost = R * (u.T @ u)
         return casadi.cumsum(cc_weight.numpy() * cc_cost, -1)
 
     def get_terminal_speed_cost(self, terminal_state):
         ''' Compute penality for deviation from desired max speed'''
-        terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
+        terminal_speed = terminal_state[3]
 
-        speed_diff = tf.abs(terminal_speed - desired_max_speed)
+        speed_diff = casadi.fabs(terminal_speed - desired_max_speed)
         terminal_speed_cost = terminal_speed_cost_weight * speed_diff
 
         return terminal_speed_cost
@@ -104,17 +104,17 @@ class f1t_cost_function_forces(cost_function_base):
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''
-        accelerations = u[:, :, TRANSLATIONAL_CONTROL_IDX]
+        accelerations = u[1]
         acceleration_cost = max_acceleration - accelerations
-        acceleration_cost = tf.abs(acceleration_cost)
+        acceleration_cost = casadi.fabs(acceleration_cost)
         acceleration_cost = acceleration_cost_weight * acceleration_cost
 
         return acceleration_cost
 
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
-        steering = u[:, :, ANGULAR_CONTROL_IDX]
-        steering = tf.abs(steering)
+        steering = u[0]
+        steering = casadi.fabs(steering)
         steering_cost = steering_cost_weight * steering
 
         return steering_cost

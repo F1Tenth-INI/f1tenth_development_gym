@@ -18,7 +18,7 @@ class racing_forces(f1t_cost_function_forces):
         # next_waypoints = p[2:].reshape((20, 7))
         next_waypoints = p[2:].reshape((7, 20)).T
         # It is not used while writing...
-        # cc = self.get_actuation_cost(u)
+        cc = self.get_actuation_cost(u)
         # ccrc = self.get_control_change_rate_cost(u, u_prev)
 
         ## Crash cost: comment out for faster calculation...
@@ -26,8 +26,8 @@ class racing_forces(f1t_cost_function_forces):
         # crash_cost = tf.stop_gradient(self.get_crash_cost(car_positions, self.controller.lidar_points))
         
         # Cost related to control
-        # acceleration_cost = self.get_acceleration_cost(u)
-        # steering_cost = self.get_steering_cost(u)
+        acceleration_cost = self.get_acceleration_cost(u)
+        steering_cost = self.get_steering_cost(u)
 
         # Costs related to waypoints 
         if next_waypoints.shape[0]:
@@ -48,8 +48,8 @@ class racing_forces(f1t_cost_function_forces):
                 # cc
                 # + ccrc
                 distance_to_wp_segments_cost
-                # + steering_cost
-                # + acceleration_cost
+                + steering_cost
+                + acceleration_cost
                 + velocity_difference_to_wp_cost
                 # + crash_cost
                 # + distance_to_waypoints_cost

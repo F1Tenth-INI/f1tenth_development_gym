@@ -35,7 +35,7 @@ Car:
     nlp-forces:
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
-      desired_max_speed: 16.0             # desired max speed for the car [m/s]
+      desired_max_speed: 0.0             # desired max speed for the car [m/s]
       waypoint_velocity_factor: 2.2
 
   following_target:
