@@ -186,13 +186,13 @@ class mpc_planner:
 
 
 
-def get_control_limits(clip_control_input):
-    if isinstance(clip_control_input[0], list):
-        clip_control_input_low = np.array(clip_control_input[0])
-        clip_control_input_high = np.array(clip_control_input[1])
-    else:
-        clip_control_input_high = np.array(clip_control_input)
-        clip_control_input_low = -np.array(clip_control_input_high)
+    def get_control_limits(self, clip_control_input):
+        if isinstance(clip_control_input[0], list):
+            clip_control_input_low = np.array(clip_control_input[0])
+            clip_control_input_high = np.array(clip_control_input[1])
+        else:
+            clip_control_input_high = np.array(clip_control_input)
+            clip_control_input_low = -np.array(clip_control_input_high)
 
-    return clip_control_input_low, clip_control_input_high
+        return clip_control_input_low, clip_control_input_high
 
