@@ -28,8 +28,9 @@ class mpc_multiplanner(mpc_planner):
             Loader=yaml.FullLoader
         )
         optimizers_names = config_controllers['multimpc']['optimizers']
+        cost_function_specifications = config_controllers['multimpc']['cost_function_specifications']
         self.redundant_controllers = []
-        for optimizer_name in optimizers_names:
+        for optimizer_name, cost_function_specification in zip(optimizers_names, cost_function_specifications):
             redundant_controller = controller_mpc(
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
@@ -44,6 +45,7 @@ class mpc_multiplanner(mpc_planner):
                 control_limits=(control_limits_low, control_limits_high),
             )
             redundant_controller.configure(optimizer_name=optimizer_name)
+            redundant_controller.cost_function.configure(redundant_controller, cost_function_specification=cost_function_specification)
             self.redundant_controllers += [redundant_controller]
         pass
 

@@ -21,3 +21,4 @@ neural-imitator-pytorch:
   controller_logging: True
 multimpc:
   optimizers: ['nlp-forces', 'rpgd-tf']
+  cost_function_specifications: ['racing', 'track_last_waypoint']

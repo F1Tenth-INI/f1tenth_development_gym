@@ -19,6 +19,6 @@ def f1tenth_stage_cost(z, p):
     return racing_forces_instance.get_stage_cost(z[2:], z[:2], p)
 
 def f1tenth_distance_to_waypoint(z, p):
-    v = z[2:4] - p[17:19]
-    return v.T @ v + 100*z[7]
+    v = z[2:4] - p[101:103]
+    return v.T @ v + 10*(z[0]**2)
 
