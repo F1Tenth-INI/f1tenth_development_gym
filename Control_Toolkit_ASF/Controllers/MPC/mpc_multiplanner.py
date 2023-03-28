@@ -1,3 +1,4 @@
+import Control_Toolkit.Optimizers
 from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 from utilities.Settings import Settings
@@ -50,10 +51,13 @@ class mpc_multiplanner(mpc_planner):
         translational_control, angular_control = super().process_observation(ranges, ego_odom)
 
         s = self.car_state
-        if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
+        if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
+            rollout_trajectories_tuple = (self.mpc.optimizer.optimal_trajectory,)
+        elif hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories_tuple = (self.mpc.optimizer.rollout_trajectories,)
         else:
-            rollout_trajectories_tuple = ()
+            rollout_trajectories_tuple = (np.zeros((1, self.mpc.optimizer.mpc_horizon + 1, s.shape[0])), )
+
 
         for redundant_controller in self.redundant_controllers:
             redundant_controller.step(s,
@@ -63,8 +67,8 @@ class mpc_multiplanner(mpc_planner):
                                            "next_waypoints": self.waypoint_utils.next_waypoints,
                                            "target_point": self.target_point,
                                         })
-            if hasattr(redundant_controller.optimizer, 'rollout_trajectories'):
-                rollout_trajectories_tuple += (redundant_controller.optimizer.rollout_trajectories,)
+            if hasattr(redundant_controller.optimizer, 'optimal_trajectory'):
+                rollout_trajectories_tuple += (self.optimal_trajectory(redundant_controller.optimizer),)
 
         rollout_trajectories = np.concatenate(rollout_trajectories_tuple, axis=0)
 
@@ -77,3 +81,10 @@ class mpc_multiplanner(mpc_planner):
         )
 
         return translational_control, angular_control
+
+    def optimal_trajectory(self, optimizer: Control_Toolkit.Optimizers.template_optimizer):
+        if optimizer.optimizer_name in ['rpgd-tf', 'mppi']:
+            return optimizer.optimal_trajectory
+        elif optimizer.optimizer_name == 'nlp-forces':
+            return optimizer.rollout_trajectories
+        return None

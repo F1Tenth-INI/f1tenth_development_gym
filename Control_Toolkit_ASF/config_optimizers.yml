@@ -211,7 +211,7 @@ nlp-forces:
   num_rollouts: 1
   mpc_horizon: 20                     # steps
   initial_guess: no_action                     # no_action or PD
-  mppi_reinitialization: True
+  mppi_reinitialization: False
   generate_new_solver: False
 #  generate_new_solver: True
   terminal_constraint_at_target: False
