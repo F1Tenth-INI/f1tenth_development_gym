@@ -113,7 +113,7 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, header=None).to_numpy()
+        waypoints = pd.read_csv(file_path, header=1).to_numpy()
         return np.array(waypoints)
      
     @staticmethod

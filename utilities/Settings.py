@@ -38,8 +38,7 @@ class Settings:
     # If you want to create a new file, orientate on existing ones.
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Map.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_example_map.yaml"
-    # MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_INI.yaml"
+    # MAP_CONFIG_FILE =  "utilities/maps/hangar/config_hangar.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Budapest.yaml"
     # MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"
     
