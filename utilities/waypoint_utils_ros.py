@@ -45,24 +45,27 @@ waypoints = waypoint_utils.next_waypoints
 class WaypointUtils:
     
     def __init__(self):
+        self.number_of_waypoints = None
         
-        self.interpolation_steps = 1
-        self.decrease_resolution_factor = 1
-
-        self.look_ahead_steps = self.interpolation_steps * 40
-        self.ignore_steps = 0
-
-        self.waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
-
-        self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
-        self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
-
-
         rospy.Subscriber('/local_waypoints', WpntArray, self.local_waypoints_cb)
+        rospy.wait_for_message("local_waypoints", WpntArray, timeout=10)
+        rospy.loginfo("Waypointutils: Got local waypoints")
+        rospy.sleep(0.5)
+
+        self.waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.number_of_waypoints, 7), dtype=np.float32)
+        self.next_waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
+
+
 
     
 
     def local_waypoints_cb(self, data):
+        # Check length of waypoints array for initialization
+        if(self.number_of_waypoints is None):
+            self.number_of_waypoints = len(data.wpnts)
+            
+        # Save waypoint array
         next_waypoints = []
         next_waypoint_positions = []
 
