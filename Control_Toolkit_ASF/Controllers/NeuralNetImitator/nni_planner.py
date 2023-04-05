@@ -24,7 +24,7 @@ from SI_Toolkit.computation_library import TensorFlowLibrary
 
 
 NET_NAME = Settings.NET_NAME
-PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
+PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiments_MPPI_Imitator_Flo/Models/'
 
 class NeuralNetImitatorPlanner:
 
@@ -106,6 +106,8 @@ class NeuralNetImitatorPlanner:
 
         #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
         #Example of all possible inputs in correct order:
+        # Order has to stay the same: SAME AS IN Config_training
+        # If we want to change, look at recording
         #input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
         #                              [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
         #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
