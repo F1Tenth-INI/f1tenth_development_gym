@@ -72,8 +72,21 @@ class WaypointUtils:
         
         
         
-    def update_next_waypoints(self, car_position, car_sin_theta=None, car_cos_theta=None):
+    def update_next_waypoints(self, car_state):
         if self.waypoints is None: return
+    
+        car_position = []
+        # Main branch uses only car position for waypoints at the moment. 
+        # TODO: Use full state everywhere
+        if(len(car_state) == 2):
+            car_position = car_state
+            car_sin_theta = None
+            car_cos_theta = None
+        else:
+            car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+            car_sin_theta = car_state[POSE_THETA_SIN_IDX]
+            car_cos_theta = car_state[POSE_THETA_COS_IDX]
+            
         if self.nearest_waypoint_index is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)  
