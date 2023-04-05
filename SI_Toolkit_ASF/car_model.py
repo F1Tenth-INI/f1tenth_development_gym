@@ -289,8 +289,8 @@ class car_model:
 
         speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(batch_size,1))
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
-        next_step = s_next_ts
-        #next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
+        # next_step = s_next_ts # For ST only
+        next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
         return next_step
 
