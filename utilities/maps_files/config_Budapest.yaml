@@ -5,7 +5,8 @@ map_path: 'utilities/maps_files/maps/Budapest'
 waypoint_path: 'utilities/maps_files/waypoints/Budapest_wp'
 
 # starting pose for map
-starting_positions: 
+starting_positions:
+ - [0., 0., -2.4] # Budapest
  - [0., 0., -2.7] # Budapest
 
 

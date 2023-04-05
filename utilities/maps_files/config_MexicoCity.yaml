@@ -6,4 +6,5 @@ waypoint_path: 'utilities/maps_files/waypoints/MexicoCity_wp'
 
 # starting pose for map
 starting_positions: 
- - [0., 0., 0.3] 
+ - [0., 0., 0.1]
+ - [0., 0., 0.3]

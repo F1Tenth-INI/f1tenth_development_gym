@@ -6,4 +6,4 @@ waypoint_path: 'utilities/maps_files/waypoints/Melbourne_wp'
 
 # starting pose for map
 starting_positions: 
- - [0., 0., -2.6] 
+ - [0., 0., -2.4]
