@@ -106,11 +106,7 @@ class mpc_planner:
         else:
             s = self.car_state
 
-        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        car_sin_theta = ego_odom['pose_theta_sin']
-        car_cos_theta = ego_odom['pose_theta_cos']
-        self.waypoint_utils.update_next_waypoints(car_position,car_sin_theta, car_cos_theta)
-
+        self.waypoint_utils.update_next_waypoints(s)
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
         if self.simulation_index < Settings.ACCELERATION_TIME:
