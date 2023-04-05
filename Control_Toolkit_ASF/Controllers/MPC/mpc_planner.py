@@ -106,17 +106,12 @@ class mpc_planner:
         else:
             s = self.car_state
 
-        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        self.waypoint_utils.update_next_waypoints(car_position)
-        
-        # print("next_waypoints", self.waypoint_utils.next_waypoints.shape)
-
-        # Deprecated, meybe use for racing again?
+        self.waypoint_utils.update_next_waypoints(s)
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
-        if self.simulation_index < 4:
+        if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
-            self.translational_control = 10
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
             return self.translational_control, self.angular_control
 
@@ -169,6 +164,7 @@ class mpc_planner:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
         # TODO: pass optimal trajectory
+        """
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
@@ -177,6 +173,7 @@ class mpc_planner:
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
         )
+        """
         
         self.translational_control = translational_control
         self.angular_control = angular_control

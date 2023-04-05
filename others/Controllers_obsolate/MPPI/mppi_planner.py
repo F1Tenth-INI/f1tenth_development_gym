@@ -1,12 +1,11 @@
 import sys
-from matplotlib.font_manager import json_dump
 
 from numba.core import compiler_machinery
 
 from scipy.spatial.distance import cdist
-# sys.path.insert(0, "./pkg/src/pkg/mppi")
+# sys.path.insert(0, "./commonroad-vehicle-models/PYTHON/")
 
-from MPPI.mppi_settings import MppiSettings
+from globals import *
 # from util import *
 
 import numpy as np
@@ -20,8 +19,6 @@ import math
 import csv
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 
-from pyglet.gl import GL_POINTS
-import pyglet
 
 def solveEuler(func, x0, t, args):
     history = np.empty([len(t), len(x0)])
@@ -34,10 +31,8 @@ def solveEuler(func, x0, t, args):
         history[i] = x
     return history
 
-    
 
-
-class MppiPlanner:
+class CarController:
     """
     Implementation of a neural MPPI MPC controller
     """
@@ -51,22 +46,11 @@ class MppiPlanner:
         @return: None
         """
 
-        self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
-
         # Global
         self.tControlSequence = 0.05  # [s] How long is a control input applied
 
         # Racing objects
-        #     x1: x position in global coordinates
-        #     x2: y position in global coordinates
-        #     x3: steering angle of front wheels
-        #     x4: velocity in x direction
-        #     x5: yaw angle
-        #     x6: yaw rate
-        #     x7: slip angle at vehicle center
-        self.car_state = MppiSettings.INITIAL_STATE
-      
-
+        self.car_state = [1, 1, 1, 1, 1, 1, 1]
         self.track = track  # Track waypoints for drawing
 
         # Control with common-road models
@@ -124,14 +108,6 @@ class MppiPlanner:
         # Get track ready
         self.update_trackline()
 
-        self.vertex_list = pyglet.graphics.vertex_list(2,
-                                                       ('v2i', (10, 15, 30, 35)),
-                                                       ('c3B', (0, 0, 255, 0, 255, 0))
-                                                       )
-        
-        self.next_state_estimation = MppiSettings.INITIAL_STATE
-        self.simulation_index = 0
-
     def set_state(self, state):
         """
         Overwrite the controller's car_state
@@ -147,7 +123,6 @@ class MppiPlanner:
             self.car_state[4] = self.car_state[4] - 6.28
 
     def update_trackline(self):
-        return
         """
         Update the the next points of the trackline due to the current car state
         Those waypoints are used for the cost function and drawing the simulated history
@@ -205,8 +180,7 @@ class MppiPlanner:
             self.params['v_max'])
         return f
 
-    
-    
+
     def simulate_step(self, state, control_input):
         """
         Calculate the next system state due to a given state and control input
@@ -221,7 +195,6 @@ class MppiPlanner:
 
         x_next = solveEuler(self.car_dynamics, state, t, args=(control_input, self.params))
         x_next = x_next[-1]
-        
 
         x_next[4] = x_next[4] % 6.28
         if x_next[4] > 3.14:
@@ -229,6 +202,7 @@ class MppiPlanner:
 
         return x_next
 
+       
 
     def simulate_trajectory(self, control_inputs):
         """
@@ -242,11 +216,10 @@ class MppiPlanner:
         cost = 0
         index = 0
 
-
         start = time.time()
         for control_input in control_inputs:
-            if cost > MppiSettings.MAX_COST:
-                cost = MppiSettings.MAX_COST
+            if cost > MAX_COST:
+                cost = MAX_COST
                 # continue
 
             simulated_state = self.simulate_step(simulated_state, control_input)
@@ -256,7 +229,6 @@ class MppiPlanner:
             index += 1
         end = time.time()
         # print("Simulate all trajectories", end - start)
-
 
         start = time.time()
         cost = self.point_cloud_cost_function(simulated_trajectory, control_inputs)
@@ -293,7 +265,6 @@ class MppiPlanner:
 
         return results, costs
 
-    # Not yet used: First train Neural networks
     def simulate_trajectory_distribution_nn(self, control_inputs_distrubution):
 
         """
@@ -333,17 +304,16 @@ class MppiPlanner:
         @returns: results{list<control sequence>}: A primitive distribution of control sequences
         """
         control_inputs = [
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[0., 0.]],  # No input
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[-0.2, 0.]],  # little left
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[-1., 0.]],  # hard left
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[0.2, 0.]],  # little right
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[1., 0.]],  # hard right
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[0., -1.]],  # brake
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[0., 5.]],  # accelerate
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[-1., 5.]],  # accelerate and left
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY * [[1., 5.]],  # accelerate and right
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[0, 0]],  # No input
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[-0.2, 0]],  # little left
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[-1, 0]],  # hard left
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[0.2, 0]],  # little right
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[1, 0]],  # hard right
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[0, -1]],  # brake
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[0, 1]],  # accelerate
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[-0.4, 1]],  # accelerate and left
+            NUMBER_OF_STEPS_PER_TRAJECTORY * [[0.4, 1]],  # accelerate and right
         ]
-        # print ("control_input_sequences",control_inputs)
 
         return control_inputs
 
@@ -355,24 +325,24 @@ class MppiPlanner:
 
         steering = np.random.normal(
             0,
-            MppiSettings.INITIAL_STEERING_VARIANCE,
-            MppiSettings.NUMBER_OF_INITIAL_TRAJECTORIES * MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY,
+            INITIAL_STEERING_VARIANCE,
+            NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
         )
         # acceleration = np.random.normal(
         #     INITIAL_ACCELERATION_MEAN,
         #     INITIAL_ACCELERATION_VARIANCE,
-        #     MppiSettings.NUMBER_OF_INITIAL_TRAJECTORIES * MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY,
+        #     NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
         # )
         acceleration = np.random.uniform(
             -10,
             10,
-            MppiSettings.NUMBER_OF_INITIAL_TRAJECTORIES * MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY,
+            NUMBER_OF_INITIAL_TRAJECTORIES * NUMBER_OF_STEPS_PER_TRAJECTORY,
         )
 
         control_input_sequences = np.column_stack((steering, acceleration))
         control_input_sequences = np.reshape(
             control_input_sequences,
-            (MppiSettings.NUMBER_OF_INITIAL_TRAJECTORIES, MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY, 2),
+            (NUMBER_OF_INITIAL_TRAJECTORIES, NUMBER_OF_STEPS_PER_TRAJECTORY, 2),
         )
         return control_input_sequences
 
@@ -396,23 +366,23 @@ class MppiPlanner:
         # To keep the length of the control sequence add one to the end
         last_control_sequence = last_control_sequence[1:]
         last_control_sequence = np.append(last_control_sequence, [0, 0]).reshape(
-            MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY, 2
+            NUMBER_OF_STEPS_PER_TRAJECTORY, 2
         )
 
         last_steerings = last_control_sequence[:, 0]
         last_accelerations = last_control_sequence[:, 1]
 
         control_input_sequences = np.zeros(
-            [MppiSettings.NUMBER_OF_TRAJECTORIES, MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY, 2]
+            [NUMBER_OF_TRAJECTORIES, NUMBER_OF_STEPS_PER_TRAJECTORY, 2]
         )
 
-        for i in range(MppiSettings.NUMBER_OF_TRAJECTORIES):
+        for i in range(NUMBER_OF_TRAJECTORIES):
 
             steering_noise = np.random.normal(
-                0, MppiSettings.STEP_STEERING_VARIANCE, MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY
+                0, STEP_STEERING_VARIANCE, NUMBER_OF_STEPS_PER_TRAJECTORY
             )
             acceleration_noise = np.random.normal(
-                0, MppiSettings.STEP_ACCELERATION_VARIANCE, MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY
+                0, STEP_ACCELERATION_VARIANCE, NUMBER_OF_STEPS_PER_TRAJECTORY
             )
 
             next_steerings = last_steerings + steering_noise
@@ -445,38 +415,42 @@ class MppiPlanner:
             return squared_distances
 
 
-        executed_control_input = control_inputs[0]        
+        # print("ControlInputs", control_inputs.shape)
+        executed_control_input = control_inputs[0]
+        # print("executed_control_input", executed_control_input)
+
         executed_acceleration = executed_control_input[1]
 
         acceleration_cost =  10 - executed_acceleration
+        # print("acceleration_cost",  acceleration_cost)
 
-        initial_state = trajectory[0] 
+        initial_state = trajectory[0]
         initial_position = initial_state[:2]
 
         terminal_state = trajectory[-1]
-    
+
         distance_cost = 0
 
         steer_sum = 0
         for control_input in control_inputs:
             steer_sum += abs(control_input[0])
-        
+
         trajectory = np.array(trajectory)
 
 
         for state in trajectory:
-            distances = dist_to_array(state, self.lidar_points)
+            distances = dist_to_array(state, self.track.lidar_points_live)
             if(np.any(distances < 0.15) ):
                 return 10000
 
         speed_cost = 10.4 - terminal_state[3]
         steer_cost = steer_sum
 
-        
+
 
         cost = 0 * distance_cost + 1 * speed_cost + 2 * steer_cost + 1 * acceleration_cost
 
-        if(False):
+        if(log):
             print("distance_cost", distance_cost)
             print("speed_cost", speed_cost)
             print("steer_cost", steer_cost)
@@ -486,15 +460,13 @@ class MppiPlanner:
 
         return cost
 
-    # Deprecated: Cost function on comparison to the border line segments of the track
-    # Not useable if there are obstacles 
     def border_segments_cost_function(self, trajectory):
-        return 0
         """
         calculate the cost of a trajectory
         @param: trajectory {list<state>} The trajectory of states that needs to be evaluated
         @returns: cost {float}: the scalar cost of the trajectory
         """
+
         distance_cost_weight = 1
         terminal_speed_cost_weight = 0
         terminal_position_cost_weight = 1
@@ -560,10 +532,9 @@ class MppiPlanner:
         # print("cost", cost)
         return cost
 
-       
 
-    # Deprecated: Old costfunction from l2race
-    # Can be used again when we know the optimal trackline
+
+
     def waypoint_cost_function(self, trajectory):
         """
         calculate the cost of a trajectory
@@ -649,108 +620,16 @@ class MppiPlanner:
         )
         return cost
 
-    def process_observation(self, ranges=None, ego_odom=None):
-
-        """
-        gives actuation given observation
-        @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-        @ ego_odom: A dict with following indices:
-        {
-            'pose_x': float,
-            'pose_y': float,
-            'pose_theta': float,
-            'linear_vel_x': float,
-            'linear_vel_y': float,
-            'angular_vel_z': float,
-        }
-        """
-        
-        if  self.simulation_index < 10:
-            self.simulation_index += 1
-            return 100, 0
-             
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-        pose_theta = ego_odom['pose_theta']
-        linear_vel_x = ego_odom['linear_vel_x']
-        linear_vel_y = ego_odom['linear_vel_y']
-
-        speed = math.sqrt(linear_vel_x ** 2 + linear_vel_y ** 2)
-        angle = linear_vel_x * math.sin(linear_vel_y)
-
-        angular_vel_z = ego_odom['angular_vel_z']
-
-        slipping_angle = angle - pose_theta
-        # print("angle", angle)
-        print("pose_theta", pose_theta)
-        # print("linear_vel_x", linear_vel_x)
-        # print("linear_vel_y", linear_vel_y)
-        print("angle", angle)
-
-        # State of TUM dynamical models
-        #     x1: x position in global coordinates
-        #     x2: y position in global coordinates
-        #     x3: steering angle of front wheels
-        #     x4: velocity in front direction
-        #     x5: yaw angle
-        #     x6: yaw rate
-        #     x7: slip angle at vehicle center
-        # self.car_state = [
-        #     pose_x, pose_y, 0. , linear_vel_x, pose_theta, angular_vel_z, 0.
-        # ]
-        
-        # self.car_state = self.next_state_estimation
-        # self.car_state[0] = pose_x
-        # self.car_state[1] = pose_y
-        # self.car_state[2] = pose_theta
-        # self.car_state[3] = linear_vel_x
-        # self.car_state[4] = pose_theta
-        # self.car_state[5] = angular_vel_z
-        
-        # print("mppi state estimation", self.car_state)
-        # print("mppi state estimation", self.next_state_estimation)
-
-        scans = ranges
-        points = []
-        for i in range(108):
-            max_distance = 15
-            index = 10*i
-            if(scans[index] > max_distance): continue
-            p1 = self.car_state[0] + scans[index] * math.cos(self.lidar_scan_angles[index] + self.car_state[4])
-            p2 = self.car_state[1] + scans[index] * math.sin(self.lidar_scan_angles[index] + self.car_state[4])
-            points.append((p1,p2))
-            
-            # print("points", points)
-            self.lidar_points = points
-    
-
-        # Take into account size of car
-        mppi_accel, mppi_steer = self.plan()
-        
-        next_state = self.simulate_step(self.car_state, [mppi_accel, mppi_steer])
-        
-      
-        print("Next state", next_state)
-        
-        # print ("Accel, steer", mppi_accel, mppi_steer)
-        self.simulation_index += 1
-        
-        return mppi_accel, mppi_steer
-        
     def plan(self):
-        dist = self.sample_control_inputs()
-        
-        # dist = self.static_control_inputs()
-        # dist = self.sample_control_inputs_history_based(self.best_control_sequenct)
+        # dist = self.sample_control_inputs()
+
+        dist = self.sample_control_inputs_history_based(self.best_control_sequenct)
         # dist = self.sample_control_inputs()
 
         self.update_trackline()
         
         trajectories, costs = self.simulate_trajectory_distribution(dist)
 
-        # print("Costs", costs)
-
-        
         if(math.isnan(costs[0])):
             min_index = 0
             mppi_steering = dist[min_index][0][0]
@@ -773,7 +652,7 @@ class MppiPlanner:
                     lowest_cost = cost
 
                 if(cost < 9999):
-                    weight = math.exp((-1 / MppiSettings.INVERSE_TEMP) * cost)
+                    weight = math.exp((-1 / INVERSE_TEMP) * cost)
                 else:
                     weight = 0
                 
@@ -784,7 +663,7 @@ class MppiPlanner:
                 self.collision_corse = False
 
             else:
-                next_control_sequence = [[0,-5]] * MppiSettings.NUMBER_OF_STEPS_PER_TRAJECTORY
+                next_control_sequence = [[0,-5]] * NUMBER_OF_STEPS_PER_TRAJECTORY
                 mppi_steering = 0
                 mppi_speed = -5
                 print("No good trajectory")
@@ -792,79 +671,100 @@ class MppiPlanner:
                 # next_control_sequence = dist[best_index]
 
             # next_control_sequence = dist[best_index]
-            
+
             best_route, best_cost = np.array(self.simulate_trajectory(next_control_sequence))
             # executed_cost = self.point_cloud_cost_function(best_route, next_control_sequence, log = True)
-            self.next_state_estimation = best_route[0]
-            # print("lowest_cost",lowest_cost)
+
+            print("lowest_cost",lowest_cost)
 
             mppi_steering = next_control_sequence[0][0]
             mppi_speed = next_control_sequence[0][1]
 
             self.best_control_sequenct = next_control_sequence
 
-        if MppiSettings.DRAW_LIVE_ROLLOUTS:
+        if DRAW_LIVE_ROLLOUTS:
             best_route, best_cost = np.array(self.simulate_trajectory(next_control_sequence))
             self.draw_simulated_history(0, best_route)
 
 
-        # print("Planning in Car Controller", mppi_speed, mppi_steering )
+        print("Planning in Car Controller",mppi_speed, mppi_steering )
 
         return mppi_speed, mppi_steering
 
+    # def control_step(self):
+    #     """
+    #     Calculate an aprocimation to the optimal next control sequence
+    #     @returns: next_control_sequence{list<control input>} The optimal control sequnce
+    #     """
+    #     self.update_trackline()
 
-  
+    #     # Do not overshoot the car's steering contraints
+    #     self.last_control_input[0] = min(self.last_control_input[0], 1)
+    #     self.last_control_input[1] = min(self.last_control_input[1], 0.5)
+
+    #     # History based sampling due to the last optimal control sequence
+    #     control_sequences = self.sample_control_inputs_history_based(
+    #         self.best_control_sequenct
+    #     )
+
+    #     simulated_history, costs = self.simulate_trajectory_distribution(
+    #         control_sequences
+    #     )
+
+    #     lowest_cost = 100000
+    #     best_index = 0
+
+    #     weights = np.zeros(len(control_sequences))
+
+    #     for i in range(len(control_sequences)):
+    #         cost = costs[i]
+    #         # find best
+    #         if cost < lowest_cost:
+    #             best_index = i
+    #             lowest_cost = cost
+
+    #         if cost < MAX_COST:
+    #             weight = math.exp((-1 / INVERSE_TEMP) * cost)
+    #         else:
+    #             weight = 0
+    #         weights[i] = weight
+
+    #     best_conrol_sequence = control_sequences[best_index]
+
+    #     # Finding weighted avg input
+    #     # If all trajectories are bad (weights = 0), go for the best one
+    #     if weights.max() != 0:
+    #         next_control_sequence = np.average(
+    #             control_sequences, axis=0, weights=weights
+    #         )
+    #     else:
+    #         next_control_sequence = best_conrol_sequence
+
+    #     # Optional, just take best anyway
+    #     next_control_sequence = best_conrol_sequence
+
+    #     self.best_control_sequenct = next_control_sequence
+    #     return next_control_sequence
 
     """
     draws the simulated history (position and speed) of the car into a plot for a trajectory distribution resp. the history of all trajectory distributions
     """
-    def render(self,renderer):
-        points = np.array(self.simulated_history)
-        chosen_trajectory = points[0][:][:]
-        chosen_trajectory_positions = chosen_trajectory[:][:]
-        c = 0
-        
 
-        if(points.shape[0] != 1):
-            self.vertex_list.delete()
-            points = points.reshape((points.shape[0] * points.shape[1],7))
-            trajectory = points[:,:2]
-
-            scaled_points = 50.*trajectory
-
-            howmany = scaled_points.shape[0]
-            scaled_points_flat = scaled_points.flatten()
-
-            c = c + 140
-            self.vertex_list = renderer.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
-                        ('c3B', (0, c, 255 -c) * howmany ))
-
-
-        self.simulated_history  = [[0,0,0,0,0,0,0]]
-        
     def draw_simulated_history(self, waypoint_index=0, chosen_trajectory=[]):
-        
-        
-        plt.clf()
 
-        plt.xlim(-6, 6)
-        plt.ylim(-2, 10)
+        plt.clf()
 
         fig, position_ax = plt.subplots()
 
-        # for segment in self.track.segments:
-        #     x_val = [x[0] for x in segment]
-        #     y_val = [x[1] for x in segment]
+        for segment in self.track.segments:
+            x_val = [x[0] for x in segment]
+            y_val = [x[1] for x in segment]
 
-        #     plt.plot(x_val,y_val,'o')
+            plt.plot(x_val,y_val,'o')
 
         plt.title("History based random control")
         plt.xlabel("Position x [m]")
         plt.ylabel("Position y [m]")
-
-        plt.savefig("mppi/live_rollouts_without_optimal.png")
-
-
 
         s_x = []
         s_y = []
@@ -894,24 +794,24 @@ class MppiPlanner:
         position_ax.scatter(p_x, p_y, c="#FF0000", label="Current car position")
 
         # Draw waypoints
-        # waypoint_index = self.track.get_closest_index(self.car_state[:2])
+        waypoint_index = self.track.get_closest_index(self.car_state[:2])
 
-        # waypoints = np.array(self.track.waypoints)
-        # w_x = waypoints[
-        #     waypoint_index
-        #     + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS : waypoint_index
-        #     + NUMBER_OF_NEXT_WAYPOINTS
-        #     + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS,
-        #     0,
-        # ]
-        # w_y = waypoints[
-        #     waypoint_index
-        #     + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS : waypoint_index
-        #     + NUMBER_OF_NEXT_WAYPOINTS
-        #     + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS,
-        #     1,
-        # ]
-        # position_ax.scatter(w_x, w_y, c="#000000", label="Next waypoints")
+        waypoints = np.array(self.track.waypoints)
+        w_x = waypoints[
+            waypoint_index
+            + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS : waypoint_index
+            + NUMBER_OF_NEXT_WAYPOINTS
+            + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS,
+            0,
+        ]
+        w_y = waypoints[
+            waypoint_index
+            + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS : waypoint_index
+            + NUMBER_OF_NEXT_WAYPOINTS
+            + NUMBER_OF_IGNORED_CLOSEST_WAYPOINTS,
+            1,
+        ]
+        position_ax.scatter(w_x, w_y, c="#000000", label="Next waypoints")
 
         # Draw Borders
 
