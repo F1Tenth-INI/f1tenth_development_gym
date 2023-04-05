@@ -22,7 +22,7 @@ waypoint_utils = WaypointUtils()
 
 # Update at every step for the next_waypoints with the current car's position
 car_position = [0., 0.]
-waypoint_utils.update_next_waypoints(car_position)
+waypoint_utils.update_next_waypoints(car_state)
 
 # Access next waypoint's positions list([x,y]):
 waypoints_positions = waypoint_utils.next_waypoint_positions
