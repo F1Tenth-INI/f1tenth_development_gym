@@ -35,14 +35,13 @@ class PurePursuitPlanner:
         self.waypoint_utils = WaypointUtils()
         self.Render = RenderUtils()
         self.Render.waypoints = self.waypoint_utils.waypoint_positions
-
+        self.speed = 1
 
         
         # Controller settings
-        self.waypoint_velocity_factor = 0.6
+        self.waypoint_velocity_factor = 0.76
         self.lookahead_distance = 1.82461887897713965
         self.wheelbase = 0.6
-        self.vgain = 0.55 # velocity factor applied to the output
         self.max_reacquire = 20.
         
         self.simulation_index = 0
@@ -60,7 +59,7 @@ class PurePursuitPlanner:
         # self.wheelbase = 0.17145+0.15875        
         # self.max_reacquire = 20.
         # self.lookahead_distance = 1.82461887897713965
-        # self.vgain = 0.80338203837889
+        # self.waypoint_velocity_factor = 0.80338203837889
         
 
     def render(self, e):
@@ -83,7 +82,7 @@ class PurePursuitPlanner:
             # x, y
             current_waypoint[0:2] = wpts[i2, :]
             # speed
-            current_waypoint[2] = self.waypoint_velocity_factor * waypoints[i, 5]
+            current_waypoint[2] =  waypoints[i, 5]
             return current_waypoint
         elif nearest_dist < self.max_reacquire:
             return np.append(wpts[i, :], waypoints[i, 5])
@@ -111,18 +110,23 @@ class PurePursuitPlanner:
         position = np.array([pose_x, pose_y])
         
         self.waypoint_utils.update_next_waypoints([pose_x, pose_y])
-        lookahead_point = self.waypoint_utils.next_waypoints[10]
-        lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
-        # lookahead_point = self._get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
+        
+        self.lookahead_distance = 0.7 * self.speed
+        # lookahead_point = self.waypoint_utils.next_waypoints[3]
+        # lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
+        lookahead_point = self._get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
         # print ("lookaheadpoints", lookahead_point)
         if lookahead_point is None:
-            self.angular_control = 0.
-            self.translational_control = 1.
-            return 1.0, 0.0
+            print("warning no lookahead point")
+            lookahead_point = self.waypoint_utils.next_waypoints[3]
+            lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
+            # self.angular_control = 0.
+            # self.translational_control = 1.
+            # return 1.0, 0.0
 
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
-        speed = self.vgain * speed
-        
+        speed = self.waypoint_velocity_factor * speed
+        self.speed = speed
         s = odometry_dict_to_state(ego_odom)
         self.Render.update(
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
