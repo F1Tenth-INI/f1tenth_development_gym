@@ -119,8 +119,8 @@ class RenderUtils:
             scaled_points = RenderUtils.get_scaled_points(points)
             # Color [r,g,b] values (int) between 0 and 255
             color = [
-                max(min(int(10 * speed), 255), 0) ,
-                min(max(int(255- 10 * speed), 0), 255), 
+                max(min(int(10 * speed), 255), 0),
+                min(max(int(255 - 10 * speed), 0), 255),
                 0
             ]
             e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
