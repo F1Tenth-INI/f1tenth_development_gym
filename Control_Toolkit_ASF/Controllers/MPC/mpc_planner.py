@@ -164,7 +164,6 @@ class mpc_planner:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
         # TODO: pass optimal trajectory
-        """
         self.Render.update(
             lidar_points=self.lidar_points,
             rollout_trajectory=rollout_trajectories,
@@ -173,7 +172,6 @@ class mpc_planner:
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = s
         )
-        """
         
         self.translational_control = translational_control
         self.angular_control = angular_control
