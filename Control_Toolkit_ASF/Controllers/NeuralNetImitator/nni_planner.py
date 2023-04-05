@@ -24,7 +24,7 @@ from SI_Toolkit.computation_library import TensorFlowLibrary
 
 
 NET_NAME = Settings.NET_NAME
-PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiments_MPPI_Imitator_Flo/Models/'
+PATH_TO_MODELS = Settings.PATH_TO_MODELS
 
 class NeuralNetImitatorPlanner:
 
@@ -93,11 +93,7 @@ class NeuralNetImitatorPlanner:
 
         #Loading next n wypts using waypoint_utils.py
         self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
-        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        car_sin_theta = s[POSE_THETA_SIN_IDX]
-        car_cos_theta = s[POSE_THETA_COS_IDX]
-
-        self.waypoint_utils.update_next_waypoints(car_position, car_sin_theta, car_cos_theta)
+        self.waypoint_utils.update_next_waypoints(s)
         next_waypoints = self.waypoint_utils.next_waypoint_positions
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
