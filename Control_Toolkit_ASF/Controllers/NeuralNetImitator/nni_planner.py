@@ -1,3 +1,6 @@
+import sklearn # Don't touch
+# sklearn is needed later, need to import it here for nni planner to work on nvidia jetson:
+# https://forums.developer.nvidia.com/t/sklearn-skimage-cannot-allocate-memory-in-static-tls-block/236960
 import numpy as np
 import tensorflow as tf
 import yaml
@@ -110,7 +113,7 @@ class NeuralNetImitatorPlanner:
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
+        input_data = np.concatenate((next_waypoints_x, next_waypoints_y,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
 
