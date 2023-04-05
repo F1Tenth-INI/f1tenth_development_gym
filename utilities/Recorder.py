@@ -182,16 +182,17 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:,1]
-        waypoints_y_to_save = waypoints_to_save[:, 0]
+        waypoints_x_to_save = waypoints_to_save[:, 0]
+        waypoints_y_to_save = waypoints_to_save[:, 1]
+
 
         if self.keys_next_x_waypoints is None:
             # Initialise
-            self.keys_next_x_waypoints = ['WYPT_X_' + str(i) for i in range(len(waypoints_x_to_save))]
+            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
 
         if self.keys_next_y_waypoints is None:
             # Initialise
-            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i) for i in range(len(waypoints_y_to_save))]
+            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
 
         self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
         self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))

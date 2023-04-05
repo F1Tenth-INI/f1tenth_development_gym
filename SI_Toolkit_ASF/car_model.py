@@ -214,6 +214,11 @@ class car_model:
         # if(tf.less(min_vel_x, 0.5)):
         #     return self._step_dynamics_ks(s,Q, params)
 
+        """
+        if(tf.less(min_vel_x, 0.5)):
+            return self._step_dynamics_ks(s,Q, params)
+        """
+
         # Constaints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
@@ -225,6 +230,7 @@ class car_model:
 
         #speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
         speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
+
 
         # TODO: Use ks model for slow speed
 
@@ -269,6 +275,7 @@ class car_model:
         slip_angle = beta
         steering_angle = delta
 
+
         s_next_ks = self._step_dynamics_ks(s, Q, None)
         s_next_ts = self.next_step_output(angular_vel_z,
                                           linear_vel_x,
@@ -282,7 +289,8 @@ class car_model:
 
         speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(batch_size,1))
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
-        next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
+        next_step = s_next_ts
+        #next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
         return next_step
 

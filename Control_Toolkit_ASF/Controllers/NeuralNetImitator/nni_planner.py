@@ -24,7 +24,7 @@ from SI_Toolkit.computation_library import TensorFlowLibrary
 
 
 NET_NAME = Settings.NET_NAME
-PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
+PATH_TO_MODELS = Settings.PATH_TO_MODELS
 
 class NeuralNetImitatorPlanner:
 
@@ -84,25 +84,36 @@ class NeuralNetImitatorPlanner:
 
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
         config_training_NN = yaml.load(open(os.path.join(PATH_TO_MODELS, NET_NAME, "config_training.yml")), Loader=yaml.FullLoader)
-        state_inputs = config_training_NN["training_default"]["state_inputs"]
+        config_inputs = np.append(config_training_NN["training_default"]["state_inputs"], config_training_NN["training_default"]["control_inputs"])
         number_of_next_waypoints = 0
-        for element in state_inputs:
+        for element in config_inputs:
             if "WYPT_X" in element:
                 number_of_next_waypoints += 1
 
 
         #Loading next n wypts using waypoint_utils.py
         self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
-        car_position = [s[POSE_X_IDX], s[POSE_Y_IDX]]
-        self.waypoint_utils.update_next_waypoints(car_position)
+        self.waypoint_utils.update_next_waypoints(s)
         next_waypoints = self.waypoint_utils.next_waypoint_positions
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
-        #input_data = car_states + Lidar + next waypoints #ToDo append exactly what was listed as state inputs in config training and or CSV file of Model automatically instead of appending it manually
-        input_data = ranges
+        #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
+        #Example of all possible inputs in correct order:
+        # Order has to stay the same: SAME AS IN Config_training
+        # If we want to change, look at recording
+        #input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
+        #                              [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
+        #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
+        #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
+        
+        #Current Input:
+        input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
+                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
+
+
         net_input = tf.convert_to_tensor(input_data, tf.float32)
 
         net_output = self.process_tf(net_input)
@@ -111,12 +122,14 @@ class NeuralNetImitatorPlanner:
         angular_control = float(net_output[0])
         translational_control = float(net_output[1])
 
-        # Accelerate at the beginning (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
-        if self.simulation_index < 10:
+
+        # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
+        if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
-            self.translational_control = 10
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
             return self.translational_control, self.angular_control
+
 
         self.translational_control = translational_control
         self.angular_control = angular_control
