@@ -9,7 +9,6 @@
 from utilities.random_obstacle_creator import RandomObstacleCreator
 
 import time
-
 import yaml
 import gym
 import numpy as np
@@ -50,9 +49,8 @@ def main():
         from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
         planner1 = NeuralNetImitatorPlanner()
     elif Settings.CONTROLLER == 'pp':
-        # FIXME: Out of order
-        from others.examples.pure_pursuit_planner import PurePursuitPlanner
-        planner1 = PurePursuitPlanner(Settings.MAP_CONFIG_FILE)
+        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
+        planner1 = PurePursuitPlanner()
     else:
         NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
 
@@ -89,6 +87,15 @@ def main():
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
+
+    ###Loading neural network for slip steer estimation -> specify net name in Settings
+    if Settings.SLIP_STEER_PREDICTION:
+        from SI_Toolkit_ASF.nn_loader_race import NeuralNetImitatorPlannerNV
+        import matplotlib.pyplot as plt
+        steer_estimator = NeuralNetImitatorPlannerNV(Settings.NET_NAME_STEER)
+        slip_estimator = NeuralNetImitatorPlannerNV(Settings.NET_NAME_SLIP)
+        translational_control = None
+        angular_control = None
     
 
     def get_odom(obs, agent_index):
@@ -148,10 +155,27 @@ def main():
     if Settings.RENDER_MODE is not None:
         env.render()
 
+    # Add Keyboard event listener
+
+    if Settings.KEYBOARD_INPUT_ENABLE:
+        # Run it from pycharm terminal first to receive a prompt to allow for keyboard input
+        from pynput import keyboard
+        def on_press(key):
+            if key == keyboard.Key.space:
+                Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()  # start to listen on a separate thread
+
     laptime = 0.0
     start = time.time()
 
     render_index = 0
+
+    real_slip_vec = []
+    real_steer_vec = []
+
+    est_slip_vec = []
+    est_steer_vec = []
 
 
     for _ in trange(Settings.EXPERIMENT_LENGTH):
@@ -175,6 +199,20 @@ def main():
             odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
             odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
             driver.car_state = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
+
+            real_slip_vec.append(driver.car_state[7])
+            real_steer_vec.append(driver.car_state[8])
+
+            if Settings.SLIP_STEER_PREDICTION:
+                print("state before: ", driver.car_state)
+                driver.car_state = steer_estimator.get_slip_steer_car_state(slip_estimator, odom, translational_control, angular_control)
+                print("state after: ", driver.car_state)
+                if _ < 20:
+                    driver.car_state[7] = 0.0
+                est_slip_vec.append(driver.car_state[7])
+                est_steer_vec.append(driver.car_state[8])
+
+            ### GOES TO MPC PLANNER PROCESS OBSERVATION
             translational_control, angular_control = driver.process_observation(ranges[index], odom)
 
             if (Settings.SAVE_RECORDINGS):
@@ -208,8 +246,7 @@ def main():
                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 else:
                     accl, sv = translational_control_with_noise, angular_control_with_noise
-
-                # print("sv, accl", sv, accl)
+                
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))
@@ -222,6 +259,17 @@ def main():
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
 
     env.close()
+
+    ###PRINT RESULTS FOR ESTIMATION
+    if Settings.SLIP_STEER_PREDICTION:
+        if Settings.RENDER_MODE is None:
+            x = range(Settings.EXPERIMENT_LENGTH)
+        else:
+            x = range(render_index)
+
+        steer_estimator.show_slip_steer_results(x, real_slip_vec, est_slip_vec, real_steer_vec, est_steer_vec)
+
+
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 

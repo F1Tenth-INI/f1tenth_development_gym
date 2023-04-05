@@ -39,6 +39,8 @@ import numpy as np
 import os
 import time
 
+import yaml
+
 # gl
 import pyglet
 pyglet.options['debug_gl'] = False
@@ -100,6 +102,10 @@ class F110Env(gym.Env):
     render_callbacks = []
 
     def __init__(self, **kwargs):        
+        
+        car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE
+        env_car_parameters = yaml.load(open(car_parameter_file, "r"), Loader=yaml.FullLoader)
+
         # kwargs extraction
         try:
             self.seed = kwargs['seed']
@@ -127,26 +133,7 @@ class F110Env(gym.Env):
         try:
             self.params = kwargs['params']
         except:
-            self.params = {
-                'mu': 1.0489,       # friction coefficient  [-]
-                'C_Sf': 4.718,      # cornering stiffness front [1/rad]
-                'C_Sr': 5.4562,     # cornering stiffness rear [1/rad]
-                'lf': 0.15875,      # distance from venter of gracity to front axle [m]
-                'lr': 0.17145,      # distance from venter of gracity to rear axle [m]
-                'h': 0.074,         # center of gravity height of toal mass [m]
-                'm': 3.74,          # Total Mass of car [kg]
-                'I': 0.04712,       # Moment of inertia for entire mass about z axis  [kgm^2]
-                's_min': -0.4189,   # Min steering angle [rad]
-                's_max': 0.4189,    # Max steering angle [rad]
-                'sv_min': -3.2,     # Min steering velocity [rad/s]
-                'sv_max': 3.2,      # Max steering velocity [rad/s]
-                'v_switch': 7.319,  # switching velocity [m/s]
-                'a_max': 9.51,      # Max acceleration [m/s^2]
-                'v_min':-5.0,       # Min velocity [m/s]
-                'v_max': 20.0,      # Max velocity [m/s]
-                'width': 0.31,      # Width of car [m]
-                'length': 0.58      # Length of car [m]
-                }
+            self.params = env_car_parameters
 
         # simulation parameters
         try:

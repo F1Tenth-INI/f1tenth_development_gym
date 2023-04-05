@@ -11,6 +11,9 @@ docs/_build/
 flycheck_*
 dev.py
 
+# NN Models
+SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
+
 # Pycharm
 .idea
 
@@ -21,6 +24,7 @@ ExperimentRecordings/*
 # Submodule specific config files
 SI_Toolkit/src/SI_Tooklit/SI_Toolkit.egg-info/*
 SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*
+SI_Toolkit_ASF/Experiments/*
 /utilites/LaunchConfigsPycharm/*
 .idea
 
