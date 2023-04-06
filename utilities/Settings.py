@@ -8,14 +8,14 @@ class Settings:
     NET_NAME_SLIP = 'GRU-15IN-64H1-64H2-1OUT-0'
     NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-0'
     
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'neural'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
         # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
 
 
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
-    NET_NAME = 'Dense-92IN-64H1-64H2-2OUT-6'
+    NET_NAME = 'Dense-24IN-64H1-64H2-2OUT-0'
     ACCELERATION_TIME = 1              #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10         #nni 2, mpc 10
 
@@ -30,9 +30,9 @@ class Settings:
 
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
-    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 10  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 360  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 5000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     TIMESTEP_CONTROL = 0.08    # Multiple of 0.01
     
@@ -80,9 +80,10 @@ class Settings:
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     #Set Noise Level
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.1 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.1  # ftg: 0.05  # mppi: 3.0
-    
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.4 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.10  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0. # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.  # ftg: 0.05  # mppi: 3.0
     NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
     # NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -91,9 +92,9 @@ class Settings:
     DRAW_POSITION_HISTORY = True
 
     # We can chose between slow rendering (human) and fast rendering (human_fast)
-    #RENDER_MODE = None
-    #RENDER_MODE = "human_fast"
-    RENDER_MODE = "human"
+    RENDER_MODE = None
+    RENDER_MODE = "human_fast"
+    # RENDER_MODE = "human"
     NUM_TRAJECTORIES_TO_PLOT = 20
 
     # If false the max range of LIDAR is considered, otherwise only forward cone

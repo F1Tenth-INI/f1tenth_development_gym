@@ -228,4 +228,22 @@ class WaypointUtils:
     
         unique_waypoints = waypoints[unique_indices, :]
         return np.array(unique_waypoints)
+    
+    @staticmethod
+    def get_relative_positions(waypoints, car_state):
+        waypoints_x_absolute = waypoints[:,X_M_IDX]
+        waypoints_y_absolute = waypoints[:,Y_M_IDX]
+     
+        ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
+        # translation by x and y coordinate of car
+        next_waypoints_x_after_translation = waypoints_x_absolute - car_state[POSE_X_IDX]
+        next_waypoints_y_after_translation = waypoints_y_absolute - car_state[POSE_Y_IDX]
+
+        # Rotation (counterclockwise):
+        next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_state[POSE_THETA_COS_IDX] + next_waypoints_y_after_translation *  car_state[POSE_THETA_SIN_IDX], 4)
+        next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * - car_state[POSE_THETA_SIN_IDX] + next_waypoints_y_after_translation *  car_state[POSE_THETA_COS_IDX], 4)
+
+        next_waypoint_positions_relative = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
+        return next_waypoint_positions_relative
+
          
