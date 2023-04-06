@@ -12,8 +12,11 @@ from utilities.state_utilities import (
 
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
+    from utilities.render_utilities_ros import RenderUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
+    from utilities.render_utilities import RenderUtils
+
     
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
@@ -27,7 +30,7 @@ class mpc_planner:
     def __init__(self):
 
         print("MPC planner initialized")
-        self.render_utils = None
+        self.render_utils = RenderUtils()
         
         
         self.translational_control = None
@@ -158,17 +161,15 @@ class mpc_planner:
 
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
             rollout_trajectories = self.mpc.optimizer.rollout_trajectories
+            self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
+            self.optimal_trajectory = optimal_trajectory
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
-
-        # TODO: pass optimal trajectory
-        self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
-        self.optimal_trajectory = optimal_trajectory
         
         self.render_utils.update_mpc(
-            rollout_trajectory=self.rollout_trajectories,
+            rollout_trajectory=rollout_trajectories,
             optimal_trajectory=optimal_trajectory,
         )
         
