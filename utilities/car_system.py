@@ -33,15 +33,16 @@ class CarSystem:
         self.draw_lidar_data = True
         self.lidar_visualization_color = (255, 0, 255)
         
-        
         # Initial values
         self.car_state = [1,1,1,1,1,1,1,1,1]
+        car_index = 1
         
         
         # Utilities 
         self.waypoint_utils = WaypointUtils()
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
+        self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL)
 
         
         # Planner
@@ -111,6 +112,18 @@ class CarSystem:
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = car_state
         )
+        
+        if (Settings.SAVE_RECORDINGS):
+            self.recorder.get_data(
+                control_inputs_calculated=(self.translational_control, self.angular_control),
+                odometry=ego_odom, 
+                ranges=ranges, 
+                state=self.car_state,
+                next_waypoints=self.waypoint_utils.next_waypoint_positions,
+                time=0 # TODO
+            )     
+        
+                
         return self.angular_control, self.translational_control
 
             

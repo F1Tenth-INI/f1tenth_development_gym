@@ -130,7 +130,6 @@ def main():
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-    recorders = [Recorder(controller_name='Blank-MPPI-{}'.format(str(i)), dt=Settings.TIMESTEP_CONTROL) for i in range(number_of_drivers)]
   
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
@@ -206,11 +205,7 @@ def main():
             angular_control, translational_control = driver.process_observation(ranges[index], odom)
             end = time.time()-start_control
             # print("time for 1 step:", end)
-            if (Settings.SAVE_RECORDINGS):
-                recorders[index].get_data(control_inputs_calculated=(translational_control, angular_control),
-                                           odometry=odom, ranges=ranges[index], state=driver.car_state,
-                                           time=current_time_in_simulation, next_waypoints=[])
-                # TODO: save waypoints
+        
 
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
@@ -224,9 +219,8 @@ def main():
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
-                recorders[index].get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
+                driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
 
-        # print("speed, steer ", noisy_control[0])
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
@@ -247,12 +241,12 @@ def main():
 
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
-                recorders[index].save_data()
+                driver.recorder.save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
-            recorders[index].plot_data()
+            driver.recorder.plot_data()
     
     env.close()
 
