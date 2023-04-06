@@ -43,8 +43,10 @@ class NeuralNetImitatorPlanner:
         self.simulation_index = 0
 
         self.car_state = None
-        self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
-                                               # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
+        self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
+        self.waypoints = None
+        # self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
+        #                                        # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
 
 
         a = SimpleNamespace()
@@ -70,8 +72,8 @@ class NeuralNetImitatorPlanner:
     def render(self, e):
         return
 
-        # def set_waypoints(self, waypoints):
-        # self.waypoints = waypoints
+    def set_waypoints(self, waypoints):
+        self.waypoints = waypoints
         
     def set_car_state(self, car_state):
         self.car_state = np.array(car_state).astype(np.float32)
@@ -95,9 +97,10 @@ class NeuralNetImitatorPlanner:
 
 
         #Loading next n wypts using waypoint_utils.py
-        self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
-        self.waypoint_utils.update_next_waypoints(s)
-        next_waypoints = self.waypoint_utils.next_waypoint_positions_relative
+        self.waypoint_utils.look_ahead_steps = number_of_next_waypoints # Do at init? 
+        
+        # The NNI planner needs relativa waypoints in any case
+        next_waypoints = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]

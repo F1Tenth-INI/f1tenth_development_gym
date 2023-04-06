@@ -1,11 +1,32 @@
 import numpy as np
 import math
 import time
+from utilities.state_utilities import *
 
+
+
+class Utils:
+    
+    @staticmethod
+    def get_lidar_posisions(ranges, car_state):
+        lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
+
+        p1 = car_state[POSE_X_IDX] + ranges * np.cos(lidar_scan_angles + car_state[POSE_THETA_IDX])
+        p2 = car_state[POSE_Y_IDX] + ranges * np.sin(lidar_scan_angles + car_state[POSE_THETA_IDX])
+        lidar_points = np.stack((p1, p2), axis=1)
+        return lidar_points
+    
 def column(matrix, i):
         return [row[i] for row in matrix]
         
 
+def get_lidar_posisions(ranges, car_state):
+    lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
+
+    p1 = car_state[POSE_X_IDX] + ranges * np.cos(lidar_scan_angles + car_state[POSE_THETA_IDX])
+    p2 = car_state[POSE_Y_IDX] + ranges * np.sin(lidar_scan_angles + car_state[POSE_THETA_IDX])
+    lidar_points = np.stack((p1, p2), axis=1)
+    
 def solveEuler(func, x0, t, args):
     history = np.empty([len(t), len(x0)])
     history[0] = x0
