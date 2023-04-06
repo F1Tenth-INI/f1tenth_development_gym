@@ -74,6 +74,7 @@ class WaypointUtils:
          # next waypoints considering ignored waypoints index offset
         self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
+        self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
 
         if(self.waypoints is None):
@@ -120,23 +121,20 @@ class WaypointUtils:
         next_waypoints_y_absolute = self.next_waypoint_positions[:,1]
 
 
-        if Settings.USE_WAYPOINTS == 'relative':
-            ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
-            # translation by x and y coordinate of car
-            next_waypoints_x_after_translation = next_waypoints_x_absolute - car_position[0]
-            next_waypoints_y_after_translation = next_waypoints_y_absolute - car_position[1]
+     
+        ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
+        # translation by x and y coordinate of car
+        next_waypoints_x_after_translation = next_waypoints_x_absolute - car_position[0]
+        next_waypoints_y_after_translation = next_waypoints_y_absolute - car_position[1]
 
-            # Rotation (counterclockwise):
-            next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_cos_theta + next_waypoints_y_after_translation * car_sin_theta, 4)
-            next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * -car_sin_theta + next_waypoints_y_after_translation * car_cos_theta, 4)
+        # Rotation (counterclockwise):
+        next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_cos_theta + next_waypoints_y_after_translation * car_sin_theta, 4)
+        next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * -car_sin_theta + next_waypoints_y_after_translation * car_cos_theta, 4)
 
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
+        self.next_waypoint_positions = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
 
-        elif Settings.USE_WAYPOINTS == 'absolute':
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
-
-        else:
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
+        self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
+        self.next_waypoint_positions_relative = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
 
 
     @staticmethod
