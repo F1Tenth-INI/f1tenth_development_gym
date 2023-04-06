@@ -47,16 +47,6 @@ def main():
     driver1 = CarSystem()
 
 
-    if Settings.USE_WAYPOINTS == 'relative':
-        print('initialized with relative waypoints')
-    elif Settings.USE_WAYPOINTS == 'absolute':
-        print('initialized with absolute waypoints')
-    elif Settings.USE_WAYPOINTS == False:
-        print('initialized with no waypoints')
-    else:
-        print('no waypoints specified, using "absolute" waypoints by default')
-   
-
     # second planner
     # driver2 = CarSystem()
    
