@@ -5,12 +5,7 @@ import numpy as np
 import math
 
 from utilities.Settings import Settings
-if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
-else:
-    from utilities.waypoint_utils import *
-    from utilities.render_utilities import RenderUtils
+
 
 
 
@@ -33,7 +28,6 @@ class PurePursuitPlanner:
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
         
         self.waypoints = None
-        self.Render = RenderUtils()
         self.speed = 1
 
         

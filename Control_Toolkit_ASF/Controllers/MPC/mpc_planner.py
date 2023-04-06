@@ -10,11 +10,14 @@ from utilities.state_utilities import (
     odometry_dict_to_state
 )
 
+if(Settings.ROS_BRIDGE):
+    from utilities.waypoint_utils_ros import WaypointUtils
+else:
+    from utilities.waypoint_utils import WaypointUtils
+    
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
-
-from utilities.waypoint_utils import WaypointUtils
 
 class mpc_planner:
     """
@@ -40,8 +43,10 @@ class mpc_planner:
         self.nearest_waypoint_index = None
 
         self.time = 0.0
-        wputls=WaypointUtils() 
-        self.waypoints =wputls.next_waypoints
+        
+       
+        self.waypoint_utils=WaypointUtils()   # Only needed for initialization
+        self.waypoints = self.waypoint_utils.next_waypoints
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
@@ -92,7 +97,7 @@ class mpc_planner:
     #     self.render_utils.render(e)
 
     def set_waypoints(self, waypoints):
-        self.waypoints = waypoints
+        self.waypoints =  np.array(waypoints).astype(np.float32)
         
     def set_car_state(self, car_state):
         self.car_state = np.array(car_state).astype(np.float32)
