@@ -7,7 +7,7 @@ Car:
   racing:
 
     cc_weight: 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    ccrc_weight: 0.03
+    ccrc_weight: 1.5
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     angular_velocity_cost_weight: 0.001
@@ -25,7 +25,7 @@ Car:
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
       desired_max_speed: 3.8             # desired max speed for the car [m/s]
-      waypoint_velocity_factor : 0.65
+      waypoint_velocity_factor : 0.75
 
     rpgd-tf:
       acceleration_cost_weight: 0.0
