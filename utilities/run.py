@@ -1,13 +1,5 @@
 
 
-# Import Planner Classes
-# from others.Controllers_obsolate.MPPI.mppi_planner import MppiPlanner
-# from others.Controllers_obsolate.xiang.ftg_planner_freespace import FollowTheGapPlanner as FollowTheGapPlannerXiang
-# from others.Controllers_obsolate.xiang.ftg_planner_postqualification import FollowTheGapPlanner as FollowTheGapPlannerXiang2
-
-# Obstacle creation
-from utilities.random_obstacle_creator import RandomObstacleCreator
-
 import time
 import yaml
 import gym
@@ -17,11 +9,15 @@ from argparse import Namespace
 from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
+from utilities.car_system import CarSystem
+
 import pandas as pd
 
 from f110_gym.envs.dynamic_models import pid
 
+# Utilities
 from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
+from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 
 from time import sleep
 
@@ -48,21 +44,7 @@ def main():
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-
-    if Settings.CONTROLLER == 'mpc':
-        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-        planner1 = mpc_planner()
-    elif Settings.CONTROLLER == 'ftg':
-        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-        planner1 = FollowTheGapPlanner()
-    elif Settings.CONTROLLER == 'neural':
-        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-        planner1 = NeuralNetImitatorPlanner()
-    elif Settings.CONTROLLER == 'pp':
-        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-        planner1 = PurePursuitPlanner()
-    else:
-        NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
+    driver1 = CarSystem()
 
 
     if Settings.USE_WAYPOINTS == 'relative':
@@ -73,22 +55,13 @@ def main():
         print('initialized with no waypoints')
     else:
         print('no waypoints specified, using "absolute" waypoints by default')
-
-
-    # planner1 = FollowTheGapPlannerXiang2()
-    # planner1 = FollowTheGapPlannerIcra()
-    planner1.plot_lidar_data = False
-    planner1.draw_lidar_data = True
-    planner1.lidar_visualization_color = (255, 0, 255)
+   
 
     # second planner
-    # planner2 = PurePursuitPlanner(map_config_file = map_config_file)
-
-    # Old MPPI Planner without TF
-    # planner2 = MppiPlanner()
-
+    # driver2 = CarSystem()
+   
     ##################### DEFINE DRIVERS HERE #####################
-    drivers = [planner1]
+    drivers = [driver1]
     ###############################################################
 
     number_of_drivers = len(drivers)
@@ -198,20 +171,10 @@ def main():
 
         ranges = obs['scans']
 
-        #Waypoint settings
-        if Settings.USE_WAYPOINTS != False and Settings.CONTROLLER != 'ftg':         #for MPPI and neural mppi imitator
-            next_waypoints = planner1.waypoint_utils.next_waypoint_positions         #load waypoints
-        elif Settings.USE_WAYPOINTS == False and Settings.CONTROLLER == 'neural':    #for neural FTG imitator
-            next_waypoints = None
-            planner1.waypoint_utils.waypoints = None
-        else:                                                                       #for FTG
-            next_waypoints = None
-
-
         for index, driver in enumerate(drivers):
             if Settings.FROM_RECORDING:
                 sleep(0.05)
-                driver.car_state = state_recording[simulation_index]
+                driver.set_car_state(state_recording[simulation_index])
                 odom = {} # FIXME: MPC uses just the car state
                 env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
             else:
@@ -224,7 +187,7 @@ def main():
                 for state_index in range(9):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
                 
-                driver.car_state = car_state_with_noise
+                driver.set_car_state(car_state_with_noise)
 
             real_slip_vec.append(driver.car_state[7])
             real_steer_vec.append(driver.car_state[8])
@@ -240,13 +203,14 @@ def main():
 
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
             start_control = time.time()
-            translational_control, angular_control = driver.process_observation(ranges[index], odom)
+            angular_control, translational_control = driver.process_observation(ranges[index], odom)
             end = time.time()-start_control
             # print("time for 1 step:", end)
             if (Settings.SAVE_RECORDINGS):
                 recorders[index].get_data(control_inputs_calculated=(translational_control, angular_control),
                                            odometry=odom, ranges=ranges[index], state=driver.car_state,
-                                           time=current_time_in_simulation, next_waypoints=next_waypoints)
+                                           time=current_time_in_simulation, next_waypoints=[])
+                # TODO: save waypoints
 
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)

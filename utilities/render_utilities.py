@@ -60,7 +60,8 @@ class RenderUtils:
         self.waypoints = None
         self.next_waypoints = None
         self.lidar_border_points = None
-        self.rollout_trajectory, self.traj_cost = None, None
+        self.rollout_trajectory = None
+        self.traj_cost =None
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None
         self.target_point = None
@@ -79,15 +80,20 @@ class RenderUtils:
                car_state = None,):
         
         
-        self.lidar_border_points = lidar_points
-        self.rollout_trajectory, self.traj_cost = rollout_trajectory, traj_cost
-        self.optimal_trajectory = optimal_trajectory
-        self.largest_gap_middle_point = largest_gap_middle_point
-        self.target_point = target_point
-        self.next_waypoints = next_waypoints
-        self.car_state = car_state
+        if(lidar_points is not None): self.lidar_border_points = lidar_points
+        if(rollout_trajectory is not None): self.rollout_trajectory = rollout_trajectory,
+        if(traj_cost is not None): self.traj_cost = traj_cost
+        if(optimal_trajectory is not None): self.optimal_trajectory = optimal_trajectory
+        if(largest_gap_middle_point is not None): self.largest_gap_middle_point = largest_gap_middle_point
+        if(target_point is not None): self.target_point = target_point
+        if(next_waypoints is not None): self.next_waypoints = next_waypoints
+        if(car_state is not None): self.car_state = car_state
         
         if(self.next_waypoints == []):self.next_waypoints = None
+
+    def update_mpc(self, rollout_trajectory, optimal_trajectory):
+        self.rollout_trajectory = rollout_trajectory
+        self.optimal_trajectory = optimal_trajectory
 
     def render(self, e):
         

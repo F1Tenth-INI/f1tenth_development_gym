@@ -31,7 +31,18 @@ waypoints_positions = waypoint_utils.next_waypoint_positions
 waypoints = waypoint_utils.next_waypoints
 
 '''
-     
+
+
+# Indices of waypoint
+S_M_IDX = 0
+X_M_IDX = 1
+Y_M_IDX = 2
+PSI_IDX = 3
+KAPPA_IDX = 4
+V_X_IDX = 5
+A_X_IDX = 6
+
+
 class WaypointUtils:
     
     def __init__(self):
