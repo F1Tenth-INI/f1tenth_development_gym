@@ -67,7 +67,12 @@ class RenderUtils:
         # print("Rollout trajectory", np.array(self.rollout_trajectory).shape)
         
         if(self.next_waypoints == []):self.next_waypoints = None
-
+    
+    
+    def update_mpc(self, rollout_trajectory, optimal_trajectory):
+        self.rollout_trajectory = rollout_trajectory
+        self.optimal_trajectory = optimal_trajectory
+        
     def render(self, e):
         # Todo: Publish data for RVIZ
         
