@@ -3,7 +3,6 @@ import yaml
 import gym
 import numpy as np
 from argparse import Namespace
-
 from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
@@ -14,6 +13,7 @@ from f110_gym.envs.dynamic_models import pid
 # Utilities
 from utilities.state_utilities import *
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
+from utilities.util import Utils
 
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
@@ -36,6 +36,7 @@ class CarSystem:
         # Initial values
         self.car_state = [1,1,1,1,1,1,1,1,1]
         car_index = 1
+        self.scans = None
         
         
         # Utilities 
@@ -63,6 +64,7 @@ class CarSystem:
             NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
             
         self.planner.render_utils = self.render_utils
+        self.planner.waypoint_utils = self.waypoint_utils
             
 
     
@@ -95,6 +97,8 @@ class CarSystem:
         
         car_state = self.car_state
         ranges = np.array(ranges)
+        lidar_points = Utils.get_lidar_posisions(ranges, car_state)
+        
         self.waypoint_utils.update_next_waypoints(car_state)
         
         # Pass data to the planner
@@ -104,11 +108,12 @@ class CarSystem:
         if hasattr(self.planner, 'set_car_state'):
             self.planner.set_car_state(car_state)
             
-       
-                
+        # Control step 
         self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
         
+        # Rendering and recording
         self.render_utils.update(
+            lidar_points= lidar_points,
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = car_state
         )

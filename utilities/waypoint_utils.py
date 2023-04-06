@@ -115,26 +115,9 @@ class WaypointUtils:
         self.current_waypoint_cache = next_waypoints_including_ignored
         
         self.next_waypoint_positions = WaypointUtils.get_waypoint_positions(self.next_waypoints)
+        self.next_waypoint_positions_relative = WaypointUtils.get_relative_positions(self.next_waypoints, car_state)
+        
         self.nearest_waypoint_index = nearest_waypoint_index
-
-        next_waypoints_x_absolute = self.next_waypoint_positions[:,0]
-        next_waypoints_y_absolute = self.next_waypoint_positions[:,1]
-
-
-     
-        ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
-        # translation by x and y coordinate of car
-        next_waypoints_x_after_translation = next_waypoints_x_absolute - car_position[0]
-        next_waypoints_y_after_translation = next_waypoints_y_absolute - car_position[1]
-
-        # Rotation (counterclockwise):
-        next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_cos_theta + next_waypoints_y_after_translation * car_sin_theta, 4)
-        next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * -car_sin_theta + next_waypoints_y_after_translation * car_cos_theta, 4)
-
-        self.next_waypoint_positions = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
-
-        self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
-        self.next_waypoint_positions_relative = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
 
 
     @staticmethod
