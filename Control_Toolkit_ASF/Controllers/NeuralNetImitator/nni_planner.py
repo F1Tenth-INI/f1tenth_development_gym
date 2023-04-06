@@ -70,16 +70,16 @@ class NeuralNetImitatorPlanner:
     def render(self, e):
         return
 
-
+        # def set_waypoints(self, waypoints):
+        # self.waypoints = waypoints
+        
+    def set_car_state(self, car_state):
+        self.car_state = np.array(car_state).astype(np.float32)
+        
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-
-        if Settings.ONLY_ODOMETRY_AVAILABLE:
-            s = odometry_dict_to_state(ego_odom)
-        else:
-            s = self.car_state
-
+        s = self.car_state
 
         #code for Lidar bounds and Lidar data reduction
         ranges = ranges[200:880]
@@ -90,14 +90,14 @@ class NeuralNetImitatorPlanner:
         config_inputs = np.append(config_training_NN["training_default"]["state_inputs"], config_training_NN["training_default"]["control_inputs"])
         number_of_next_waypoints = 0
         for element in config_inputs:
-            if "WYPT_X" in element:
+            if "WYPT_REL_X" in element:
                 number_of_next_waypoints += 1
 
 
         #Loading next n wypts using waypoint_utils.py
         self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
         self.waypoint_utils.update_next_waypoints(s)
-        next_waypoints = self.waypoint_utils.next_waypoint_positions
+        next_waypoints = self.waypoint_utils.next_waypoint_positions_relative
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]
@@ -131,16 +131,15 @@ class NeuralNetImitatorPlanner:
             self.simulation_index += 1
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
-            return self.translational_control, self.angular_control
-
+            return self.angular_control, self.translational_control,
 
         self.translational_control = translational_control
         self.angular_control = angular_control
 
 
-        return translational_control, angular_control
+        return angular_control, translational_control 
 
-    @CompileTF
+    @CompileTF 
     def process_tf(self, net_input):
 
         self.net_input_normed.assign(self.normalize_inputs(
