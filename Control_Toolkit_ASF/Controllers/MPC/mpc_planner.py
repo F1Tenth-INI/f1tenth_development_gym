@@ -2,12 +2,6 @@
 import numpy as np
 import math
 from utilities.Settings import Settings
-if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
-else:
-    from utilities.waypoint_utils import WaypointUtils
-    from utilities.render_utilities import RenderUtils
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -20,6 +14,7 @@ from Control_Toolkit.Controllers.controller_mpc import controller_mpc
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
+from utilities.waypoint_utils import WaypointUtils
 
 class mpc_planner:
     """
@@ -29,7 +24,9 @@ class mpc_planner:
     def __init__(self):
 
         print("MPC planner initialized")
-
+        self.render_utils = None
+        
+        
         self.translational_control = None
         self.angular_control = None
 
@@ -43,7 +40,8 @@ class mpc_planner:
         self.nearest_waypoint_index = None
 
         self.time = 0.0
-        self.waypoint_utils = WaypointUtils()
+        wputls=WaypointUtils() 
+        self.waypoints =wputls.next_waypoints
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
@@ -73,7 +71,7 @@ class mpc_planner:
                 environment_name="Car",
                 initial_environment_attributes={
                     "lidar_points": self.lidar_points,
-                    "next_waypoints": self.waypoint_utils.next_waypoints,
+                    "next_waypoints": self.waypoints,
                     "target_point": self.target_point
 
                 },
@@ -85,49 +83,32 @@ class mpc_planner:
             raise NotImplementedError
 
         self.mpc.configure()
-
-        self.Render = RenderUtils()
-        self.Render.waypoints = self.waypoint_utils.waypoint_positions
         
-        self.car_state = [0, 0, 0, 0, 0, 0, 0]
+        self.car_state = [0,0,0,0,0,0,0]
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
-    def render(self, e):
-        self.Render.render(e)
+    # def render(self, e):
+    #     self.render_utils.render(e)
+
+    def set_waypoints(self, waypoints):
+        self.waypoints = waypoints
+        
+    def set_car_state(self, car_state):
+        self.car_state = np.array(car_state).astype(np.float32)
+        
 
     def process_observation(self, ranges=None, ego_odom=None):
-        """
-        gives actuation given observation
-        @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-        @ ego_odom: A dict with following indices:
-        {
-            'pose_x': float,
-            'pose_y': float,
-            'pose_theta': float,
-            'linear_vel_x': float,
-            'linear_vel_y': float,
-            'angular_vel_z': float,
-        }
-        """
 
+        s = self.car_state
 
-
-
-
-        if Settings.ONLY_ODOMETRY_AVAILABLE:
-            s = odometry_dict_to_state(ego_odom)
-        else:
-            s = self.car_state
-
-        self.waypoint_utils.update_next_waypoints(s)
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
         if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
-            return self.translational_control, self.angular_control
+            return self.angular_control, self.translational_control
 
         if Settings.LOOK_FORWARD_ONLY:
             lidar_range_min = 200
@@ -136,8 +117,7 @@ class mpc_planner:
             lidar_range_min = 0
             lidar_range_max = -1
             
-        scans = np.array(ranges)
-        distances = scans[lidar_range_min:lidar_range_max:5]  # Only use every 5th lidar point
+        distances = ranges[lidar_range_min:lidar_range_max:5]  # Only use every 5th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
 
         p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])
@@ -156,7 +136,7 @@ class mpc_planner:
                                                                self.time,
                                                                {
                                                                    "lidar_points": self.lidar_points,
-                                                                   "next_waypoints": self.waypoint_utils.next_waypoints,
+                                                                   "next_waypoints": self.waypoints,
                                                                    "target_point": self.target_point,
 
                                                                })
@@ -179,14 +159,12 @@ class mpc_planner:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
         # TODO: pass optimal trajectory
-        self.rollout_trajectories = rollout_trajectories
-        self.Render.update(
-            lidar_points=self.lidar_points,
-            rollout_trajectory=rollout_trajectories,
+        self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
+        self.optimal_trajectory = optimal_trajectory
+        
+        self.render_utils.update_mpc(
+            rollout_trajectory=self.rollout_trajectories,
             optimal_trajectory=optimal_trajectory,
-            traj_cost=traj_cost,
-            next_waypoints= self.waypoint_utils.next_waypoint_positions,
-            car_state = s
         )
         
         # Averaging control commands over history        
@@ -210,7 +188,7 @@ class mpc_planner:
         
         self.simulation_index += 1
 
-        return translational_control, angular_control
+        return angular_control, translational_control
 
 
 

@@ -203,6 +203,11 @@ class f1t_cost_function(cost_function_base):
 
     def distances_from_list_to_list_of_points(self, points1, points2):
 
+        # TODO: Cast both as float
+        points1 = tf.cast(points1, tf.float32)
+        points2 = tf.cast(points2, tf.float32)
+        
+        
         length1 = tf.shape(points1)[0]
         length2 = tf.shape(points2)[0]
 
