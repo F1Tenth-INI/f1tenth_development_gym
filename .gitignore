@@ -30,3 +30,8 @@ SI_Toolkit_ASF/Experiments/*
 
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
+
+utilities/Settings.py
+Control_Toolkit_ASF/config_controllers.yml
+Control_Toolkit_ASF/config_cost_function.yml 
+Control_Toolkit_ASF/config_optimizers.yml 
