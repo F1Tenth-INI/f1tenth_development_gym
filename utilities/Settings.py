@@ -17,7 +17,7 @@ class Settings:
     PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
     NET_NAME = 'Dense-24IN-64H1-64H2-2OUT-0'
     ACCELERATION_TIME = 1              #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
-    ACCELERATION_AMPLITUDE = 10         #nni 2, mpc 10
+    ACCELERATION_AMPLITUDE = 10.0         #nni 2, mpc 10 [Float!]
 
 
     # Decide if to use PID as in the original F1TENTH implementation
@@ -30,11 +30,11 @@ class Settings:
 
     QUAD_VIZ = True  # Visualization, only for Quadruped
 
-    NUMBER_OF_EXPERIMENTS = 10  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 5000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 300  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
-    TIMESTEP_CONTROL = 0.08    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
     
     # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
     # physical params etc.
@@ -80,8 +80,8 @@ class Settings:
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     #Set Noise Level
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.4 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.10  # ftg: 0.05  # mppi: 3.0
+    # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
+    # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0. # ftg: 0.5  # mppi: 2.0
     NOISE_LEVEL_ANGULAR_CONTROL = 0.  # ftg: 0.05  # mppi: 3.0
     NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
