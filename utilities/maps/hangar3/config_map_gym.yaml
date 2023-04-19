@@ -7,3 +7,7 @@ waypoint_path: 'utilities/maps/hangar3/hangar3_wp'
 # starting pose for map
 starting_positions: 
  - [0., 0., 0.75]
+
+waypoints:
+  decrease_resolution_factor: 1
+  ignore_waypoints: 1
