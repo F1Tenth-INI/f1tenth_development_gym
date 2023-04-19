@@ -4,9 +4,15 @@ import os
 from utilities.Settings import Settings
 
 def overwrite_from_master_settings():
-    config_controllers = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_controllers.yml")),Loader=yaml.FullLoader)
-    config_optimizers = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_optimizers.yml")), Loader=yaml.FullLoader)
-    config_cost_function = yaml.load(open(os.path.join("Control_Toolkit_ASF", "config_cost_function.yml")), Loader=yaml.FullLoader)
+    
+    
+    control_toolkit_config_path = "Control_Toolkit_ASF"
+    if not os.path.isfile(os.path.join("Control_Toolkit_ASF", "config_controllers.yml")):
+        control_toolkit_config_path = os.path.join("Control_Toolkit_ASF", "Config_Templates")
+        
+    config_controllers = yaml.load(open(os.path.join(control_toolkit_config_path, "config_controllers.yml")),Loader=yaml.FullLoader)
+    config_optimizers = yaml.load(open(os.path.join(control_toolkit_config_path, "config_optimizers.yml")), Loader=yaml.FullLoader)
+    config_cost_function = yaml.load(open(os.path.join(control_toolkit_config_path, "config_cost_function.yml")), Loader=yaml.FullLoader)
 
     config_controllers['mpc']['calculate_optimal_trajectory'] = Settings.mpc_calculate_optimal_trajectory
     config_controllers['mpc']['optimizer'] = Settings.mpc_optimizer

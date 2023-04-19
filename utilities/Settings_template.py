@@ -1,3 +1,5 @@
+# Rename or copy this file to Settings.py
+
 class Settings:
 
     ### Environment ###
@@ -91,7 +93,7 @@ class Settings:
     mpc_optimizer = "mppi" # mppi or rpgd-tf
     
     ## overwriting config_optimizer.yaml
-    mppi_mpc_horizon= 10                       # steps
+    mppi_mpc_horizon= 15                       # steps
     mppi_num_rollouts = 9000                    # Number of Monte Carlo samples
     mppi_LBD =0.01                              # Cost parameter lambda
     mppi_NU =2000.0                            # Exploration variance
