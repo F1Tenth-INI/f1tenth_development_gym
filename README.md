@@ -1,4 +1,4 @@
-![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
+j![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
 
 # Notes by Florian
@@ -22,29 +22,44 @@ To set up he SI_Toolkit, pull all sub modules:
 git submodule update --init --recursive
 git submodule update --recursive --remote
 ```
-and then install the packages: 
+and then install the Toolkit packages: 
 ```bash
 python -m pip install --user -e ./SI_Toolkit
-python3 -m pip install --user -e ./SI_Toolkit_ASF/GlobalPackage
+python -m pip install --user -e ./Control_Toolkit
+```
+
+Finally copy Settings_Template.py.py to Settings.py, to have your own gitignored settings.
+```bash
+cp Settings_Template.py Settings.py
 ```
 ## Run
 
-Please run all python scripts from the root folder
 
-The  environment you should use is in the MultiAgents folder.
+
+
+Run the simulation
 ```bash
-python MultiAgents/run.py
+python run.py
 ```
 
-You can add one or multiple instances of driver classes to the drivers array:
+If you are running from terminal, please run all python scripts from the project's root folder. You might want to export the Python Path env variable:
+```bash
+export PYTHONPATH=./
+```
+##Environment, CarModel and Controller
+
+Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the planners array:
 ```python
 ##################### DEFINE DRIVERS HERE #####################    
 drivers = [planner1,planner2]
 ###############################################################   
 ```
 
+Have a look at [car_system.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/car_system.py). This file represents the car. Everyting that runs on this object can directly be applied on the physical car. Inside the carSystem, we can define a controller (planner).
+
+
 ### Settings
-Have a look at the MultiAgent's settings file: [Settings.py](https://github.com/Florian-Bolli/f1tenth_development_gym/blob/main/MultiAgents/Settings.py) 
+Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) 
 
  
  ## Develop
