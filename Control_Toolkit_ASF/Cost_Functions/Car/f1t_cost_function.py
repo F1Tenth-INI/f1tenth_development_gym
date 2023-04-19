@@ -31,10 +31,10 @@ angular_velocity_cost_weight = config["Car"]["racing"]["angular_velocity_cost_we
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
 
-acceleration_cost_weight = config["Car"]["racing"][mpc_type]["acceleration_cost_weight"]
-max_acceleration = config["Car"]["racing"][mpc_type]["max_acceleration"]
-desired_max_speed = config["Car"]["racing"][mpc_type]["desired_max_speed"]
-waypoint_velocity_factor = config["Car"]["racing"][mpc_type]["waypoint_velocity_factor"]
+acceleration_cost_weight = config["Car"]["racing"]["acceleration_cost_weight"]
+max_acceleration = config["Car"]["racing"]["max_acceleration"]
+desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
+waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
 
 class f1t_cost_function(cost_function_base):
