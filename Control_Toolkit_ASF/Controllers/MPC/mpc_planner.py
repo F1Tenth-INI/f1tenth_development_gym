@@ -53,14 +53,7 @@ class mpc_planner:
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
-        
-        # TODO: Move to a config file ( which one tho?)
-        control_average_window = [0, 0] # Window for averaging control input for smoother control [angular, translational]
 
-        self.angular_control_avg_window = control_average_window[0]
-        self.translational_control_avg_window = control_average_window[1]
-        self.angular_control_history = np.zeros(self.angular_control_avg_window)
-        self.translational_control_history = np.zeros(self.angular_control_avg_window)
 
 
         if Settings.ENVIRONMENT_NAME == 'Car':
@@ -164,7 +157,8 @@ class mpc_planner:
             self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
-            self.optimal_trajectory = optimal_trajectory
+        if hasattr(self.mpc.optimizer, 'optimal_control_sequence'):
+            self.optimal_control_sequence = self.mpc.optimizer.optimal_control_sequence[0]
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
         
@@ -172,17 +166,6 @@ class mpc_planner:
             rollout_trajectory=rollout_trajectories,
             optimal_trajectory=optimal_trajectory,
         )
-        
-        # Averaging control commands over history        
-        angular_control_window = np.append(self.angular_control_history, [angular_control])
-        # weights = np.arange(0,self.angular_control_avg_window +1, 1)
-        # angular_control = np.average(angular_control_window, weights=weights)
-        angular_control = np.average(angular_control_window)
-        self.angular_control_history = angular_control_window[1:]
-        
-        translational_control_window = np.append(self.translational_control_history, [translational_control])
-        translational_control = np.mean(translational_control_window)
-        self.translational_control_history = translational_control_window[1:]
         
         
         self.last_steering = angular_control

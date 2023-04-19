@@ -32,11 +32,16 @@ class CarSystem:
         self.plot_lidar_data = False
         self.draw_lidar_data = True
         self.lidar_visualization_color = (255, 0, 255)
+                
+        # TODO: Move to a config file ( which one tho?)
+        self.control_average_window = [3, 3] # Window for averaging control input for smoother control [angular, translational]
+        self.control_history = np.zeros(self.control_average_window)
         
         # Initial values
         self.car_state = [1,1,1,1,1,1,1,1,1]
         car_index = 1
         self.scans = None
+        self.control_index = 0
         
         
         # Utilities 
@@ -98,18 +103,35 @@ class CarSystem:
         car_state = self.car_state
         ranges = np.array(ranges)
         lidar_points = Utils.get_lidar_posisions(ranges, car_state)
-        
         self.waypoint_utils.update_next_waypoints(car_state)
         
         # Pass data to the planner
         if hasattr(self.planner, 'set_waypoints'):
             self.planner.set_waypoints(self.waypoint_utils.next_waypoints)
-            
         if hasattr(self.planner, 'set_car_state'):
             self.planner.set_car_state(car_state)
-            
+        
+        optimize_every_n_steps = 2
         # Control step 
-        self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
+        if(self.control_index % optimize_every_n_steps == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
+            self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
+            
+        # Control Queue if exists
+        if hasattr(self.planner, 'optimal_control_sequence'):
+            self.optimal_control_sequence = self.planner.optimal_control_sequence
+            next_control_step = self.optimal_control_sequence[self.control_index % optimize_every_n_steps]
+            self.angular_control = next_control_step[0]
+            self.translational_control = next_control_step[1]
+            
+        # Average filter
+        angular_control_history = np.append(self.control_history[0,:], self.angular_control)[1:]
+        translational_control_history = np.append(self.control_history[1,:], self.translational_control)[1:]
+        self.control_history = np.vstack((angular_control_history, translational_control_history))
+        self.angular_control = np.average(angular_control_history)
+        self.translational_control = np.average(translational_control_history)
+
+
+
         
         # Rendering and recording
         self.render_utils.update(
@@ -129,7 +151,7 @@ class CarSystem:
                 time=0 # TODO
             )     
         
-                
+        self.control_index += 1
         return self.angular_control, self.translational_control
 
             
