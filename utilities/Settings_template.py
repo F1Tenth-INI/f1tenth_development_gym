@@ -65,6 +65,8 @@ class Settings:
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
     
+    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
+    
     FOLLOW_RANDOM_TARGETS = False
 
     LOOK_FORWARD_ONLY = False # If false the max range of LIDAR is considered, otherwise only forward cone
