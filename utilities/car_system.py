@@ -34,8 +34,9 @@ class CarSystem:
         self.lidar_visualization_color = (255, 0, 255)
                 
         # TODO: Move to a config file ( which one tho?)
-        self.control_average_window = [3, 3] # Window for averaging control input for smoother control [angular, translational]
-        self.control_history = np.zeros(self.control_average_window)
+        self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
+        self.angular_control_history = np.zeros(self.control_average_window[0], dtype=np.int32)
+        self.translational_control_history = np.zeros(self.control_average_window[1], dtype=np.int32)
         
         # Initial values
         self.car_state = [1,1,1,1,1,1,1,1,1]
@@ -124,11 +125,10 @@ class CarSystem:
             self.translational_control = next_control_step[1]
             
         # Average filter
-        angular_control_history = np.append(self.control_history[0,:], self.angular_control)[1:]
-        translational_control_history = np.append(self.control_history[1,:], self.translational_control)[1:]
-        self.control_history = np.vstack((angular_control_history, translational_control_history))
-        self.angular_control = np.average(angular_control_history)
-        self.translational_control = np.average(translational_control_history)
+        self.angular_control_history = np.append(self.angular_control_history, self.angular_control)[1:]
+        self.translational_control_history = np.append(self.translational_control_history, self.translational_control)[1:]
+        self.angular_control = np.average(self.angular_control_history)
+        self.translational_control = np.average(self.translational_control_history)
 
 
 
