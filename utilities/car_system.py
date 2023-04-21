@@ -112,15 +112,14 @@ class CarSystem:
         if hasattr(self.planner, 'set_car_state'):
             self.planner.set_car_state(car_state)
         
-        optimize_every_n_steps = 2
         # Control step 
-        if(self.control_index % optimize_every_n_steps == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
+        if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
-            
+
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
             self.optimal_control_sequence = self.planner.optimal_control_sequence
-            next_control_step = self.optimal_control_sequence[self.control_index % optimize_every_n_steps]
+            next_control_step = self.optimal_control_sequence[self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS]
             self.angular_control = next_control_step[0]
             self.translational_control = next_control_step[1]
             
@@ -129,8 +128,6 @@ class CarSystem:
         self.translational_control_history = np.append(self.translational_control_history, self.translational_control)[1:]
         self.angular_control = np.average(self.angular_control_history)
         self.translational_control = np.average(self.translational_control_history)
-
-
 
         
         # Rendering and recording

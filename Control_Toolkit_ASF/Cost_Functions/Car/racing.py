@@ -26,15 +26,23 @@ class racing(f1t_cost_function):
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
+        
+        # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
+        slipping_cost = self.get_slipping_cost(s)
 
         # Costs related to waypoints 
         if hasattr (self.controller.next_waypoints, 'shape'):
             # TODO: calculate closest waypoints only once
             waypoints = self.controller.next_waypoints #np.array(self.controller.next_waypoints).astype(np.float32) #tf.constant(self.controller.next_waypoints, dtype=tf.float32)
-            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints)
-            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints)
-            speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints)
+            waypoint_positions = waypoints[:,1:3]
+            
+            # Reuse, dont calculate twice...
+            nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
+            
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
+            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
+            speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
@@ -56,6 +64,7 @@ class racing(f1t_cost_function):
                 + acceleration_cost
                 + velocity_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
+                + slipping_cost
                 # + crash_cost
                 # + distance_to_waypoints_cost
             )
