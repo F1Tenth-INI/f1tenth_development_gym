@@ -6,7 +6,7 @@ import math
 
 from utilities.Settings import Settings
 
-
+from utilities.waypoint_utils import *
 
 
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
@@ -23,18 +23,19 @@ class PurePursuitPlanner:
     def __init__(self):
     
         print("Initializing PP Planner")
+        car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
         
         self.waypoints = None
-        self.speed = 1
+        self.speed = 1.
 
         
         # Controller settings
-        self.waypoint_velocity_factor = 0.56
-        self.lookahead_distance = 1.82461887897713965
-        self.wheelbase = 0.17145+0.15875  
+        self.waypoint_velocity_factor = Settings.PP_WAYPOINT_VELOCITY_FACTOR
+        self.lookahead_distance =  Settings.PP_LOOKAHEAD_DISTANCE 
+        self.wheelbase = car_parameters['lf'] +  car_parameters['lr'] 
         self.max_reacquire = 20.
         
         self.simulation_index = 0
@@ -109,8 +110,8 @@ class PurePursuitPlanner:
         # print ("lookaheadpoints", lookahead_point)
         if lookahead_point is None:
             print("warning no lookahead point")
-            lookahead_point = self.waypoints[3]
-            lookahead_point = [lookahead_point[X_M_IDX],lookahead_point[Y_M_IDX],lookahead_point[V_X_IDX]]
+            lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
+            lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
             # self.angular_control = 0.
             # self.translational_control = 1.
             # return 1.0, 0.0

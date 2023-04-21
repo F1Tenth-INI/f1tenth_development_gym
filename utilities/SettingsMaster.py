@@ -1,14 +1,15 @@
-# Rename or copy this file to Settings.py
-
-class Settings:
+class SettingsMaster:
 
     ### Environment ###
+    
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     FROM_RECORDING = False
     
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
-    
+    # MAP_CONFIG_FILE =  "utilities/maps_files/Oschersleben.yaml"    
+    MAP_CONFIG_FILE =  "utilities/maps/hangar3/config_map_gym.yaml"   
+     
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car  
+        
     
     DISABLE_AUTOMATIC_TIMEOUT = True
     PLACE_RANDOM_OBSTACLES = False # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
@@ -29,7 +30,7 @@ class Settings:
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 300  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -60,39 +61,39 @@ class Settings:
     
     
     ### Controller Settings
+    
+    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
     
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
     
-    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
     
     FOLLOW_RANDOM_TARGETS = False
 
     LOOK_FORWARD_ONLY = False # If false the max range of LIDAR is considered, otherwise only forward cone
 
+    ## Pure Pursuit Controller ##
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.8
+    PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
+    PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
     
-    ## Neural Controller
+    
+    ## Neural Controller ##
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
     NET_NAME = 'Dense-24IN-64H1-64H2-2OUT-0'
 
-   
-    ### Map Settings ###
-    # The map config file contains all information about the map, including the map_path, starting positions, waypoint_file path
-    # physical params etc.
-    # If you want to create a new file, orientate on existing ones.
-
-    #MAP_CONFIG_FILE =  "utilities/maps_files/config_Sepang.yaml"          
-    MAP_CONFIG_FILE =  "utilities/maps/hangar3/config_map_gym.yaml"   
-
   
-    ### MPC Controller ###
+    ## MPC Controller ##
     NUM_TRAJECTORIES_TO_PLOT = 20
-
+    OPTIMIZE_EVERY_N_STEPS = 1
+    
     ## overwriting config_controller.yaml
     mpc_calculate_optimal_trajectory= True
-    mpc_optimizer = "mppi" # mppi or rpgd-tf
+    mpc_optimizer = "rpgd-tf" # mppi or rpgd-tf
     
     ## overwriting config_optimizer.yaml
     mppi_mpc_horizon= 15                       # steps
@@ -109,8 +110,9 @@ class Settings:
     R = 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     steering_cost_weight = 0.0
     angular_velocity_cost_weight = 0.001
+    slipping_cost_weight = 2.0
     terminal_speed_cost_weight = 0.0
-    velocity_diff_to_waypoints_cost_weight = 0.0
+    velocity_diff_to_waypoints_cost_weight = 0.1
     speed_control_diff_to_waypoints_cost_weight = 1.0  # Penalize difference between desired speed of control and the position's closest waypoint
     distance_to_waypoints_cost_weight = 10.0
     target_distance_cost_weight = 0.0            #only if you want to follow a target on an empty map
@@ -118,7 +120,7 @@ class Settings:
     acceleration_cost_weight = 0.0
     max_acceleration = 9.2
     desired_max_speed = 3.8                             # desired max speed for the car [m/s]
-    waypoint_velocity_factor  = 0.65
+    waypoint_velocity_factor  = 0.9
 
     ### Other Settings ###
     

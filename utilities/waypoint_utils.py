@@ -34,13 +34,13 @@ waypoints = waypoint_utils.next_waypoints
 
 
 # Indices of waypoint
-S_M_IDX = 0
-X_M_IDX = 1
-Y_M_IDX = 2
-PSI_IDX = 3
-KAPPA_IDX = 4
-V_X_IDX = 5
-A_X_IDX = 6
+WP_S_IDX = 0
+WP_X_IDX = 1
+WP_Y_IDX = 2
+WP_PSI_IDX = 3
+WP_KAPPA_IDX = 4
+WP_VX_IDX = 5
+WP_A_X_IDX = 6
 
 
 class WaypointUtils:
@@ -214,8 +214,8 @@ class WaypointUtils:
     
     @staticmethod
     def get_relative_positions(waypoints, car_state):
-        waypoints_x_absolute = waypoints[:,X_M_IDX]
-        waypoints_y_absolute = waypoints[:,Y_M_IDX]
+        waypoints_x_absolute = waypoints[:,WP_X_IDX]
+        waypoints_y_absolute = waypoints[:,WP_Y_IDX]
      
         ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
         # translation by x and y coordinate of car
