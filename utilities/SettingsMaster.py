@@ -32,8 +32,8 @@ class SettingsMaster:
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     
-    SAVE_RECORDINGS = True
-    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_RECORDINGS = False
+    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
     
     ### State Estimation ###
 
@@ -64,7 +64,7 @@ class SettingsMaster:
     
     CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.06    # Multiple of 0.01
     
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
@@ -76,7 +76,7 @@ class SettingsMaster:
     LOOK_FORWARD_ONLY = False # If false the max range of LIDAR is considered, otherwise only forward cone
 
     ## Pure Pursuit Controller ##
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.8
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.5
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
     
@@ -93,7 +93,7 @@ class SettingsMaster:
     
     ## overwriting config_controller.yaml
     mpc_calculate_optimal_trajectory= True
-    mpc_optimizer = "rpgd-tf" # mppi or rpgd-tf
+    mpc_optimizer = "mppi" # mppi or rpgd-tf
     
     ## overwriting config_optimizer.yaml
     mppi_mpc_horizon= 15                       # steps
@@ -105,12 +105,12 @@ class SettingsMaster:
     
     ## overwriting config_cost_function.yaml
     cc_weight = 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    ccrc_weight = 1.0
+    ccrc_weight = 0.1
 
     R = 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     steering_cost_weight = 0.0
     angular_velocity_cost_weight = 0.001
-    slipping_cost_weight = 2.0
+    slipping_cost_weight = 0.5
     terminal_speed_cost_weight = 0.0
     velocity_diff_to_waypoints_cost_weight = 0.1
     speed_control_diff_to_waypoints_cost_weight = 1.0  # Penalize difference between desired speed of control and the position's closest waypoint
@@ -120,7 +120,7 @@ class SettingsMaster:
     acceleration_cost_weight = 0.0
     max_acceleration = 9.2
     desired_max_speed = 3.8                             # desired max speed for the car [m/s]
-    waypoint_velocity_factor  = 0.9
+    waypoint_velocity_factor  = 0.45
 
     ### Other Settings ###
     
