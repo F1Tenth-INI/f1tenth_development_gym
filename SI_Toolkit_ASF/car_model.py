@@ -287,24 +287,26 @@ class car_model:
 
 
     def steering_constraints(self, steering_angle, steering_velocity):
+
         s_min = self.lib.constant([self.car_parameters['s_min']], self.lib.float32)
         s_max = self.lib.constant([self.car_parameters['s_max']], self.lib.float32)
         sv_min = self.lib.constant([self.car_parameters['sv_min']], self.lib.float32)
         sv_max = self.lib.constant([self.car_parameters['sv_max']], self.lib.float32)
 
-        # Steering angle constraings
-        steering_angle_not_too_low_indices = self.lib.greater(steering_angle, s_min)
-        steering_angle_not_too_low_indices = self.lib.cast(steering_angle_not_too_low_indices, self.lib.float32)
+        steering_velocity_non_negative_indices = self.lib.greater_equal(steering_velocity, 0.0)
+        steering_velocity_non_positive_indices =  self.lib.less_equal(steering_velocity, 0.0)
 
-        steering_angle_not_too_high_indices = self.lib.less(steering_angle, s_max)
-        steering_angle_not_too_high_indices = self.lib.cast(steering_angle_not_too_high_indices, self.lib.float32)
+        steering_angle_too_low_indices = self.lib.less_equal(steering_angle, s_min)
+        steering_angle_too_high_indices = self.lib.greater_equal(steering_angle, s_max)
 
-        steering_velocity = steering_angle_not_too_low_indices * steering_velocity
-        steering_velocity = steering_angle_not_too_high_indices * steering_velocity
+        cond1 = self.lib.logical_and(steering_angle_too_low_indices, steering_velocity_non_positive_indices)
+        cond2 = self.lib.logical_and(steering_angle_too_high_indices, steering_velocity_non_negative_indices)
+        good_steering_velocity_indices = self.lib.cast(self.lib.logical_not(self.lib.logical_or(cond1, cond2)), self.lib.float32)
+
+        steering_velocity = good_steering_velocity_indices * steering_velocity
 
         # Steering velocity is constrainted
         steering_velocity = self.lib.clip(steering_velocity, sv_min, sv_max)
-
 
         return steering_velocity
 
