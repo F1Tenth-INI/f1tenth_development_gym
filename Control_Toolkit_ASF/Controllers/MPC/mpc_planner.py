@@ -155,7 +155,7 @@ class mpc_planner:
             self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
-        if hasattr(self.mpc.optimizer, 'optimal_control_sequence'):
+        if hasattr(self.mpc.optimizer, 'optimal_control_sequence') and self.mpc.optimizer.optimal_control_sequence is not None:
             self.optimal_control_sequence = self.mpc.optimizer.optimal_control_sequence[0]
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
