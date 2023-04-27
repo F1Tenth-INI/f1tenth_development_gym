@@ -1,0 +1,9 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps/hangar/hangar'
+waypoint_path: 'utilities/maps/hangar/hangar_wp'
+
+# starting pose for map
+starting_positions: 
+ - [1., -1., 0.75]

@@ -1,5 +1,7 @@
 import tensorflow as tf
 import yaml
+from utilities.path_helper_ros import *
+
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
@@ -31,7 +33,9 @@ class car_model:
     ):
         self.lib = computation_lib
 
-        self.car_parameters = yaml.load(open(car_parameter_file, "r"), Loader=yaml.FullLoader)
+        gym_path = get_gym_path()
+        # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
+        self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
@@ -207,8 +211,7 @@ class car_model:
 
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
         min_vel_x = tf.reduce_min(v_x)
-        # if(tf.less(min_vel_x, 0.5)):
-        #     return self._step_dynamics_ks(s,Q, params)
+
 
         # Constaints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)

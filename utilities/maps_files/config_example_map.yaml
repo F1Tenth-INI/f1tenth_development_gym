@@ -6,6 +6,7 @@ perf_num: 6
 # map paths
 map_path: 'utilities/maps_files/maps/example_map'
 map_ext: '.png'
+waypoint_path: 'utilities/maps_files/waypoints/example_waypoints_adapted_lean50'
 
 # starting pose for map
 starting_positions: 

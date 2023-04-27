@@ -27,18 +27,30 @@ class racing(f1t_cost_function):
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
 
+        # Cost related to state
+        angular_velocity_cost = self.get_angular_velocity_cost(s)
+        slipping_cost = self.get_slipping_cost(s)
+
         # Costs related to waypoints 
         if hasattr (self.variable_parameters.next_waypoints, 'shape'):
-            if self.variable_parameters.next_waypoints.shape[0]:
-                distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.variable_parameters.next_waypoints)
-                velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.variable_parameters.next_waypoints)
+            # TODO: calculate closest waypoints only once
+            waypoints = self.variable_parameters.next_waypoints #np.array(self.controller.next_waypoints).astype(np.float32) #tf.constant(self.controller.next_waypoints, dtype=tf.float32)
+            waypoint_positions = waypoints[:,1:3]
+
+            # Reuse, dont calculate twice...
+            nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
+
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
+            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
+            speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
+            speed_control_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
 
         ## Old waypoint cost function: only distance to nearest waypoint
         # if self.variable_parameters.next_waypoints.shape[0]:
-        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.variable_parameters.next_waypoints)
+        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.controller.next_waypoints)
         # else:
         #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
 
@@ -48,8 +60,11 @@ class racing(f1t_cost_function):
                 + ccrc
                 + distance_to_wp_segments_cost
                 + steering_cost
+                + angular_velocity_cost
                 + acceleration_cost
                 + velocity_difference_to_wp_cost
+                + speed_control_difference_to_wp_cost
+                + slipping_cost
                 # + crash_cost
                 # + distance_to_waypoints_cost
             )
