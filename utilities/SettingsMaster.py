@@ -1,10 +1,15 @@
+import os
 class SettingsMaster:
 
     ### Environment ###
     
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
-    FROM_RECORDING = False
-    
+
+    FROM_RECORDING = True
+    RECORDING_NAME = 'MPPI_DEBUGGING_SHORT.csv'
+    RECORDING_FOLDER = './'
+    RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
+
     # MAP_CONFIG_FILE =  "utilities/maps_files/Oschersleben.yaml"    
     MAP_CONFIG_FILE =  "utilities/maps/hangar9/config_map_gym.yaml"   
      

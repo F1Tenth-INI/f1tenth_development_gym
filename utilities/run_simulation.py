@@ -35,7 +35,7 @@ def main():
     main entry point
     """
     if Settings.FROM_RECORDING:
-        state_recording = pd.read_csv('Sim-KS-very-short.csv', delimiter=',', comment='#')
+        state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
         time_axis = state_recording['time'].to_numpy()
         state_recording = state_recording[FULL_STATE_VARIABLES].to_numpy()
     else:
