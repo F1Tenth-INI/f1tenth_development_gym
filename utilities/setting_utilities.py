@@ -23,6 +23,8 @@ def overwrite_from_master_settings():
     config_optimizers['mppi']['NU'] = Settings.mppi_NU
     config_optimizers['mppi']['SQRTRHOINV'] = Settings.mppi_SQRTRHOINV
     config_optimizers['mppi']['period_interpolation_inducing_points'] = Settings.mppi_period_interpolation_inducing_points
+    
+    config_optimizers['rpgd-tf']['mpc_horizon'] = Settings.rpgd_mpc_horizon
 
     config_cost_function['Car']['racing']['cc_weight'] = Settings.cc_weight
     config_cost_function['Car']['racing']['ccrc_weight'] = Settings.ccrc_weight

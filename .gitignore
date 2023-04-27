@@ -35,3 +35,6 @@ SI_Toolkit_ASF/Experiments/*
 Control_Toolkit_ASF/config_controllers.yml
 Control_Toolkit_ASF/config_cost_function.yml 
 Control_Toolkit_ASF/config_optimizers.yml 
+
+utilities/maps/*
+!utilities/maps/hangar9
