@@ -1,6 +1,7 @@
 import yaml
 import os
 import tensorflow as tf
+from types import SimpleNamespace
 
 from Control_Toolkit.Cost_Functions import cost_function_base
 from Control_Toolkit.Controllers import template_controller
@@ -36,8 +37,8 @@ waypoint_velocity_factor = config["Car"]["racing"][mpc_type]["waypoint_velocity_
 
 
 class f1t_cost_function(cost_function_base):
-    def __init__(self, controller: template_controller, ComputationLib: "type[ComputationLibrary]") -> None:
-        super(f1t_cost_function, self).__init__(controller, ComputationLib)
+    def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]") -> None:
+        super(f1t_cost_function, self).__init__(variable_parameters, ComputationLib)
         self._P1 = None
         self._P2 = None
 
