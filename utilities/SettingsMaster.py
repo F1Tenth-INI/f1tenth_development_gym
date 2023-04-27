@@ -6,7 +6,7 @@ class SettingsMaster:
     FROM_RECORDING = False
     
     # MAP_CONFIG_FILE =  "utilities/maps_files/Oschersleben.yaml"    
-    MAP_CONFIG_FILE =  "utilities/maps/hangar3/config_map_gym.yaml"   
+    MAP_CONFIG_FILE =  "utilities/maps/hangar9/config_map_gym.yaml"   
      
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car  
         
@@ -48,10 +48,10 @@ class SettingsMaster:
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    # NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0. # ftg: 0.5  # mppi: 2.0
     NOISE_LEVEL_ANGULAR_CONTROL = 0.  # ftg: 0.05  # mppi: 3.0
     NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
+    # NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     
             
     # Nikita's Slip/Steer Predictor
@@ -69,7 +69,7 @@ class SettingsMaster:
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
     
-    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (3, 1)     # Window for avg filter [angular, translational]
     
     FOLLOW_RANDOM_TARGETS = False
 
@@ -89,7 +89,7 @@ class SettingsMaster:
   
     ## MPC Controller ##
     NUM_TRAJECTORIES_TO_PLOT = 20
-    OPTIMIZE_EVERY_N_STEPS = 1
+    OPTIMIZE_EVERY_N_STEPS = 3
     
     ## overwriting config_controller.yaml
     mpc_calculate_optimal_trajectory= True
@@ -102,6 +102,9 @@ class SettingsMaster:
     mppi_NU =2000.0                            # Exploration variance
     mppi_SQRTRHOINV =[ 0.05, 0.05 ]     
     mppi_period_interpolation_inducing_points = 1     
+    
+    rpgd_mpc_horizon= 15                       # steps
+    
     
     ## overwriting config_cost_function.yaml
     cc_weight = 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
