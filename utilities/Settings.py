@@ -60,12 +60,12 @@ class Settings:
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_Montreal.yaml"              #Decrease_resolution_factor = 6   and  ignore_wypts = 2
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_Monza.yaml"                #Decrease_resolution_factor = 6
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_MoscowRaceway.yaml"        #Decrease_resolution_factor = 10
-    MAP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"         #Decrease_resolution_factor = 1
+    #AP_CONFIG_FILE =  "utilities/maps_files/config_Oschersleben.yaml"         #Decrease_resolution_factor = 1
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_Sakhir.yaml"               #Decrease_resolution_factor = 11
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_SaoPaulo.yaml"             #Decrease_resolution_factor = 9 and ignore_wypts=2
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_Sepang.yaml"               #Decrease_resolution_factor = 6
     #MAP_CONFIG_FILE =  "utilities/maps_files/config_Sochi.yaml"                #Decrease_resolution_factor = 10
-    #MAP_CONFIG_FILE =  "utilities/maps/hangar3/config_map_gym.yaml"         #Decrease_resolution_factor = 1
+    MAP_CONFIG_FILE =  "utilities/maps/hangar3/config_map_gym.yaml"         #Decrease_resolution_factor = 1
 
 
     # Car parameters
@@ -105,6 +105,6 @@ class Settings:
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     
-    GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
+    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     
     ROS_BRIDGE = None # Automatically determined on program start
