@@ -27,4 +27,11 @@ SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*
 SI_Toolkit_ASF/Experiments/*
 /utilites/LaunchConfigsPycharm/*
 .idea
+
+SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
+
+# utilities/Settings.py
+Control_Toolkit_ASF/config_controllers.yml
+Control_Toolkit_ASF/config_cost_function.yml 
+Control_Toolkit_ASF/config_optimizers.yml 

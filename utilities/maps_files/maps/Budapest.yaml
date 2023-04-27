@@ -7,3 +7,7 @@ origin:
 - -63.6582523
 - 0.0
 resolution: 0.1
+
+waypoints:
+  decrease_resolution_factor: 8
+  ignore_waypoints: 0

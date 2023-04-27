@@ -6,4 +6,4 @@ waypoint_path: 'utilities/maps_files/waypoints/Montreal_wp'
 
 # starting pose for map
 starting_positions: 
- - [0., 0., 0.55] 
+ - [0., 0., 1.55]
