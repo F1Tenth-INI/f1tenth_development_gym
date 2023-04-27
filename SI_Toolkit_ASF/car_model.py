@@ -387,17 +387,17 @@ class car_model:
 
         speed_difference = desired_speed - current_speed
 
-        forward_indices = tf.cast(tf.math.greater(tf.math.abs(current_speed), 0.0), tf.float32)
-        backward_indices = tf.cast(tf.math.less(tf.math.abs(current_speed), 0.0), tf.float32)
+        forward_indices = tf.cast(tf.math.greater(current_speed, 0.0), tf.float32)
+        backward_indices = tf.cast(tf.math.less_equal(current_speed, 0.0), tf.float32)
 
-        forward_accelerating_indices = forward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+        forward_accelerating_indices = forward_indices * tf.cast(tf.math.greater(speed_difference, 0.0),
                                                                  tf.float32)
-        forward_breaking_indices = forward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+        forward_breaking_indices = forward_indices * tf.cast(tf.math.less_equal(speed_difference, 0.0),
                                                              tf.float32)
 
-        backward_accelerating_indices = backward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+        backward_accelerating_indices = backward_indices * tf.cast(tf.math.less_equal(speed_difference, 0.0),
                                                                    tf.float32)
-        backward_breaking_indices = backward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+        backward_breaking_indices = backward_indices * tf.cast(tf.math.greater(speed_difference, 0.0),
                                                                tf.float32)
 
         # fwd accl
