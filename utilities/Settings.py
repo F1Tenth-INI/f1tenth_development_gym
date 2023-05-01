@@ -106,7 +106,7 @@ class Settings():
     mppi_num_rollouts = 9000                    # Number of Monte Carlo samples
     mppi_LBD =0.01                              # Cost parameter lambda
     mppi_NU =2000.0                            # Exploration variance
-    mppi_SQRTRHOINV =[ 0.05, 0.05 ]
+    mppi_SQRTRHOINV =[ 0.05, 0.1 ]
     mppi_period_interpolation_inducing_points = 1
 
     rpgd_mpc_horizon= 15                       # steps

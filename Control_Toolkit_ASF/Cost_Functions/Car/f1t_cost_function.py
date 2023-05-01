@@ -179,8 +179,8 @@ class f1t_cost_function(cost_function_base):
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
-        minima = tf.clip_by_value(minima, 0.0, 0.3)
-        cost_for_passing_close = 0.1/(minima+0.01)
+        minima = tf.clip_by_value(minima, 0.0, 0.5)
+        cost_for_passing_close = 0.5/(minima+0.0001)
         # crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
 
         return cost_for_passing_close
