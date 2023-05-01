@@ -67,7 +67,7 @@ class SettingsMaster:
     
     ### Controller Settings
     
-    CONTROLLER = 'mpc'  # Options: 'mpc', 'ftg' (follow the gap), neural (neural network),  Out of order: 'pp' (pure pursuit)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
     TIMESTEP_CONTROL = 0.06    # Multiple of 0.01
     
