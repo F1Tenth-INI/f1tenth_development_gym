@@ -111,7 +111,8 @@ def save_map(map_img, map_template_path, path_where_to_save_the_map=path_where_t
     return new_map_path
 
 def register_map(map_path, delete_random_obstacle_map):
-    atexit.register(delete_random_obstacle_map, map_path)
+    if Settings.DELETE_MAP_WITH_OBSTACLES_IF_CRASHED:
+        atexit.register(delete_random_obstacle_map, map_path)
 
 
 def add_random_obstacles(map_template_path: str = None, solo_starting_positions=[[0.0, 0.0, 0.0]],
