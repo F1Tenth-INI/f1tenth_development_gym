@@ -73,6 +73,7 @@ class mpc_planner:
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
                 initial_environment_attributes={
+                    "obstacles": self.obstacles,
                     "lidar_points": self.lidar_points,
                     "next_waypoints": self.waypoints,
                     "target_point": self.target_point
@@ -143,6 +144,7 @@ class mpc_planner:
         angular_control, translational_control  = self.mpc.step(s,
                                                                self.time,
                                                                {
+                                                                   "obstacles": self.obstacles,
                                                                    "lidar_points": self.lidar_points,
                                                                    "next_waypoints": self.waypoint_utils.next_waypoints,
                                                                    "target_point": self.target_point,
