@@ -48,6 +48,7 @@ class RenderUtils:
         self.optimal_trajectory_visualization_color = (255, 165, 0)
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
+        self.obstacle_visualization_color = (255, 0, 0)
 
         self.waypoint_vertices = None
         self.next_waypoint_vertices = None
@@ -56,6 +57,7 @@ class RenderUtils:
         self.mppi_rollouts_vertices = None
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
+        self.obstacle_vertices = None
 
         self.waypoints = None
         self.next_waypoints = None
@@ -66,6 +68,7 @@ class RenderUtils:
         self.largest_gap_middle_point = None
         self.target_point = None
         self.car_state = None
+        self.obstacles = None
         
 
     # Pass all data that is updated during simulation
@@ -94,6 +97,9 @@ class RenderUtils:
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
         self.optimal_trajectory = optimal_trajectory
+        
+    def update_obstacles(self, obstacles):
+        self.obstacles = obstacles
 
     def render(self, e):
         
@@ -184,6 +190,18 @@ class RenderUtils:
             scaled_target_point = RenderUtils.get_scaled_points(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()
             self.target_vertex = shapes.Circle(scaled_target_point_flat[0], scaled_target_point_flat[1], 10, color=self.target_point_visualization_color, batch=e.batch)
+            
+        
+        if self.obstacles is not None:
+            scaled_points = RenderUtils.get_scaled_points(self.obstacles)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            
+            # if self.obstacle_vertices is None:
+            self.obstacle_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                            ('c3B', self.obstacle_visualization_color * howmany))
+            # else:
+            #     self.obstacle_vertices.vertices = scaled_points_flat
 
     @staticmethod
     def get_scaled_points(points):

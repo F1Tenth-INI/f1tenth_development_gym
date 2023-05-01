@@ -19,20 +19,19 @@ Car:
     speed_control_diff_to_waypoints_cost_weight: 1.0  # Penalize difference between desired speed of control and the position's closest waypoint
     distance_to_waypoints_cost_weight: 10.0
     target_distance_cost_weight: 0.0            #only if you want to follow a target on an empty map
-
+    angle_difference_to_wp_cost_weight: 1.0
+    waypoint_velocity_factor : 0.65
 
     # Different optimizers works the best with different cost functions parameters
     mppi:
       acceleration_cost_weight: 0.0
       max_acceleration: 9.2
       desired_max_speed: 3.8             # desired max speed for the car [m/s]
-      waypoint_velocity_factor : 0.65
 
     rpgd-tf:
       acceleration_cost_weight: 0.0
       max_acceleration: 0.0
       desired_max_speed: 3.8               # desired max speed for the car [m/s]
-      waypoint_velocity_factor : 0.65
 
   following_target:
     # TODO: The parameters not set yet, same as for racing

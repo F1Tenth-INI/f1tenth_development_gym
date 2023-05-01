@@ -29,6 +29,7 @@ velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
 angular_velocity_cost_weight = config["Car"]["racing"]["angular_velocity_cost_weight"]
+angle_difference_to_wp_cost_weight = config["Car"]["racing"]["angle_difference_to_wp_cost_weight"]
 slipping_cost_weight = config["Car"]["racing"]["slipping_cost_weight"]
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
@@ -295,5 +296,13 @@ class f1t_cost_function(cost_function_base):
         
         vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
         return vel_difference
+    
+    def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints[:,:,3])
+        car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
+        angle_difference = tf.abs(nearest_waypoint_psi_rad_sin - car_angle_sin)
+        return angle_difference_to_wp_cost_weight * angle_difference
         
         
