@@ -69,6 +69,9 @@ class racing(f1t_cost_function):
                 # + distance_to_waypoints_cost
             )
 
+        discount_vector = self.lib.ones((self.lib.shape(s)[1],))*0.95
+        discount_vector = self.lib.cumprod(discount_vector, 0)
+
         # Read out values for cost weight callibration: Uncomment for debugging
 
         # distance_to_waypoints_cost_numpy = distance_to_waypoints_cost.numpy()[:20]
@@ -79,4 +82,4 @@ class racing(f1t_cost_function):
         # ccrc_numpy= ccrc.numpy()[:20]
         # stage_cost_numpy= stage_cost.numpy()[:20]
 
-        return stage_cost
+        return stage_cost*discount_vector
