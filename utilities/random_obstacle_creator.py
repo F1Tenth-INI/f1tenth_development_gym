@@ -11,6 +11,24 @@ import atexit
 import logging
 from datetime import datetime
 
+from distutils.dir_util import copy_tree
+
+from utilities.Settings import Settings
+
+import ruamel.yaml
+def overwrite_value_yaml(config_path, field_name, new_value):
+
+    # load data from YAML file
+    with open(config_path, 'r') as file:
+        data = ruamel.yaml.round_trip_load(file)
+
+    # modify data
+    data[field_name] = new_value
+
+    # write modified data back to YAML file
+    with open(config_path, 'w') as file:
+        ruamel.yaml.round_trip_dump(data, file)
+
 logger = logging.getLogger(__name__)
 
 obstacles_config_path = 'utilities/random_obstables.yaml'
@@ -93,22 +111,36 @@ def check_conf(conf):
 
 def save_map(map_img, map_template_path, path_where_to_save_the_map=path_where_to_save_the_map):
     dir = path_where_to_save_the_map
-    os.makedirs(dir, exist_ok=True)
     trackname = os.path.split(map_template_path)[-1]
-    temp_img_file = tempfile.NamedTemporaryFile(dir=path_where_to_save_the_map + '/', prefix=trackname + '-'+str(
-                    datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))+'-',
-                                                suffix='.png', delete=False)
-    random_obstacle_map_filename = temp_img_file.name
-    logger.info(f'making temporary map image file {random_obstacle_map_filename}')
+
+    random_obstacle_map_filename = trackname + '-'+str(
+                    datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+
+    dir = os.path.join(dir, random_obstacle_map_filename)
+    os.makedirs(dir, exist_ok=True)
+
+    copy_tree(os.path.dirname(map_template_path), dir)
+
+    logger.info(f'making image file {random_obstacle_map_filename}')
 
     # save new image and associated yaml to temp folder
-    map_img.save(random_obstacle_map_filename)
+    map_img.save(os.path.join(dir, random_obstacle_map_filename+'.png'))
     map_img.close()
-    new_map_path = random_obstacle_map_filename[:-4]
-    # we need to copy yaml file too and have it deleted automatically
+
+    new_map_path = os.path.join(dir, random_obstacle_map_filename)
+    os.remove(os.path.join(dir, trackname + '.yaml'))
     temp_yaml_filename = new_map_path + '.yaml'
     shutil.copyfile(map_template_path + '.yaml', temp_yaml_filename)
-    return new_map_path
+
+
+    overwrite_value_yaml(temp_yaml_filename, 'image', random_obstacle_map_filename+'.png')
+    overwrite_value_yaml(os.path.join(dir, 'config_map_gym.yaml'), 'map_path', new_map_path)
+    overwrite_value_yaml(os.path.join(dir, 'config_map_gym.yaml'), 'waypoint_path', os.path.join(dir, trackname+'_wp'))
+
+
+    return os.path.join(dir, random_obstacle_map_filename)
+
+
 
 def register_map(map_path, delete_random_obstacle_map):
     if Settings.DELETE_MAP_WITH_OBSTACLES_IF_CRASHED:
