@@ -177,10 +177,6 @@ class f1t_cost_function(cost_function_base):
 
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
-        distance_threshold = tf.constant([0.1])  # 0.6 ^2
-        indices_too_close = tf.math.less(minima, distance_threshold)
-        crash_cost_normed = tf.cast(indices_too_close, tf.float32)
-
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
         minima = tf.clip_by_value(minima, 0.0, 0.3)
         cost_for_passing_close = 0.1/(minima+0.01)
