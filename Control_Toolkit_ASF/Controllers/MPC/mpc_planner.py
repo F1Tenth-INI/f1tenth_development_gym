@@ -138,7 +138,7 @@ class mpc_planner:
         self.lidar_points = np.stack((p1, p2), axis=1)
 
 
-        self.target_point = [0, 0]  # dont need the target point for racing anymore
+        self.target_point = [0, 0]  # don't need the target point for racing anymore
 
         if (Settings.FOLLOW_RANDOM_TARGETS):
             self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
