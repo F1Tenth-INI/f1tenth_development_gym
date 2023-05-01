@@ -66,6 +66,9 @@ class CarSystem:
         elif Settings.CONTROLLER == 'pp':
             from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
             self.planner = PurePursuitPlanner()
+        elif Settings.CONTROLLER == 'manual':
+            from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
+            self.planner = manual_planner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
             
