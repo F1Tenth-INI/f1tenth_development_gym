@@ -5,7 +5,7 @@ class SettingsMaster:
     
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
-    FROM_RECORDING = True
+    FROM_RECORDING = False
     RECORDING_NAME = 'MPPI_DEBUGGING_SHORT.csv'
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
