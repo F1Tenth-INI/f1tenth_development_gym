@@ -69,7 +69,7 @@ class racing(f1t_cost_function):
                 # + distance_to_waypoints_cost
             )
 
-        discount_vector = self.lib.ones((self.lib.shape(s)[1],))*0.95
+        discount_vector = self.lib.ones_like(s[0, :, 0])*0.95
         discount_vector = self.lib.cumprod(discount_vector, 0)
 
         # Read out values for cost weight callibration: Uncomment for debugging
