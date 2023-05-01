@@ -42,6 +42,7 @@ class racing(f1t_cost_function):
             distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
+            angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
@@ -64,6 +65,8 @@ class racing(f1t_cost_function):
                 + velocity_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
                 + slipping_cost
+                + 1.0 * angle_difference_to_wp_cost
+                # + crash_cost
                 # + cost_for_stopping
                 + crash_cost
                 # + distance_to_waypoints_cost
