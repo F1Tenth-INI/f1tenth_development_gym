@@ -18,7 +18,7 @@ class Settings():
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
     
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    RENDER_MODE = "human_fast" # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    RENDER_MODE = "human" # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     CAMERA_AUTO_FOLLOW = False  # Automatically follow the first car on the map
     
     DRAW_POSITION_HISTORY = True
@@ -76,7 +76,7 @@ class Settings():
     LOOK_FORWARD_ONLY = False # If false the max range of LIDAR is considered, otherwise only forward cone
 
     ## Pure Pursuit Controller ##
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.9
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.55
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
     

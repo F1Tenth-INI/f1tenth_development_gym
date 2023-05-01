@@ -13,6 +13,7 @@ from f110_gym.envs.dynamic_models import pid
 # Utilities
 from utilities.state_utilities import *
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
+from utilities.obstacle_detector import ObstacleDetector
 from utilities.util import Utils
 
 if(Settings.ROS_BRIDGE):
@@ -50,7 +51,7 @@ class CarSystem:
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
         self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL)
-
+        self.obstacle_detector = ObstacleDetector()
         
         # Planner
         self.planner = None
@@ -66,6 +67,9 @@ class CarSystem:
         elif Settings.CONTROLLER == 'pp':
             from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
             self.planner = PurePursuitPlanner()
+        elif Settings.CONTROLLER == 'manual':
+            from Control_Toolkit_ASF.Controllers.ManualDriving.manual_driver import ManualDriver
+            self.planner = ManualDriver()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
             
@@ -105,12 +109,16 @@ class CarSystem:
         ranges = np.array(ranges)
         lidar_points = Utils.get_lidar_posisions(ranges, car_state)
         self.waypoint_utils.update_next_waypoints(car_state)
+        obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
         
         # Pass data to the planner
         if hasattr(self.planner, 'set_waypoints'):
             self.planner.set_waypoints(self.waypoint_utils.next_waypoints)
         if hasattr(self.planner, 'set_car_state'):
             self.planner.set_car_state(car_state)
+        if hasattr(self.planner, 'set_obstacles'):
+            self.planner.set_obstacles(obstacles)
+    
         
         # Control step 
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
@@ -136,6 +144,7 @@ class CarSystem:
             next_waypoints= self.waypoint_utils.next_waypoint_positions,
             car_state = car_state
         )
+        self.render_utils.update_obstacles(obstacles)
         
         if (Settings.SAVE_RECORDINGS):
             self.recorder.get_data(

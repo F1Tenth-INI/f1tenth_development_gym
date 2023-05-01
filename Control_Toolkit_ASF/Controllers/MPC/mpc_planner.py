@@ -2,6 +2,7 @@
 import numpy as np
 import math
 from utilities.Settings import Settings
+from utilities.obstacle_detector import ObstacleDetector
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -50,6 +51,8 @@ class mpc_planner:
        
         self.waypoint_utils=WaypointUtils()   # Only needed for initialization
         self.waypoints = self.waypoint_utils.next_waypoints
+        
+        self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
         self.lidar_points = np.zeros((216, 2), dtype=np.float32)
         self.target_point = np.array([0, 0], dtype=np.float32)
@@ -97,6 +100,12 @@ class mpc_planner:
         
     def set_car_state(self, car_state):
         self.car_state = np.array(car_state).astype(np.float32)
+        
+    def set_obstacles(self, obstacles):
+        
+        self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
+        # For Marcin ;)
+        print(self.obstacles)
         
 
     def process_observation(self, ranges=None, ego_odom=None):
