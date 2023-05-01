@@ -17,8 +17,9 @@ class SettingsMaster:
         
     
     DISABLE_AUTOMATIC_TIMEOUT = True
-    PLACE_RANDOM_OBSTACLES = False # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
-    
+    PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
+    DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
+
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
     
