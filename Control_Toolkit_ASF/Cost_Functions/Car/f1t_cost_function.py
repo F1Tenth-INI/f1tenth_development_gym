@@ -177,17 +177,20 @@ class f1t_cost_function(cost_function_base):
 
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
-        distance_threshold = tf.constant([0.36])  # 0.6 ^2
+        distance_threshold = tf.constant([0.1])  # 0.6 ^2
         indices_too_close = tf.math.less(minima, distance_threshold)
         crash_cost_normed = tf.cast(indices_too_close, tf.float32)
 
-        crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
+        minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
+        minima = tf.clip_by_value(minima, 0.0, 0.3)
+        cost_for_passing_close = 0.1/(minima+0.01)
+        # crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
 
-        return crash_cost_normed
+        return cost_for_passing_close
 
     def get_crash_cost(self, trajectories, border_points):
         return self.get_crash_cost_normed(trajectories,
-                                     border_points) * 1000000  # Disqualify trajectories too close to sensor points
+                                     border_points)  # Disqualify trajectories too close to sensor points
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
