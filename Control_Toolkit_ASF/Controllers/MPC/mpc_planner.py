@@ -55,7 +55,16 @@ class mpc_planner:
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
-        self.lidar_points = np.zeros((216, 2), dtype=np.float32)
+        self.lidar_decimation = 25
+        if Settings.LOOK_FORWARD_ONLY:
+            self.lidar_range_min = 200
+            self.lidar_range_max = 880
+        else:
+            self.lidar_range_min = 0
+            self.lidar_range_max = -1
+
+        self.lidar_points = np.zeros((1080, 2), dtype=np.float32)
+        self.lidar_points = self.lidar_points[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]
         self.target_point = np.array([0, 0], dtype=np.float32)
 
         if Settings.ENVIRONMENT_NAME == 'Car':
@@ -120,15 +129,9 @@ class mpc_planner:
             self.angular_control = 0
             return self.angular_control, self.translational_control
 
-        if Settings.LOOK_FORWARD_ONLY:
-            lidar_range_min = 200
-            lidar_range_max = 880
-        else:
-            lidar_range_min = 0
-            lidar_range_max = -1
             
-        distances = ranges[lidar_range_min:lidar_range_max:5]  # Only use every 5th lidar point
-        angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:5]
+        distances = ranges[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]  # Only use every 5th lidar point
+        angles = self.lidar_scan_angles[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]
 
         p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])
         p2 = s[POSE_Y_IDX] + distances * np.sin(angles + s[POSE_THETA_IDX])
