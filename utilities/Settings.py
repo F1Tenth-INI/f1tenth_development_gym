@@ -6,12 +6,12 @@ class Settings():
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
     FROM_RECORDING = False
-    RECORDING_NAME = 'MPPI_DEBUGGING_SHORT.csv'
+    RECORDING_NAME = 'shit_behaviour.csv'
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
     # MAP_CONFIG_FILE =  "utilities/maps_files/Oschersleben.yaml"
-    MAP_CONFIG_FILE = "utilities/maps_files/maps/WithRandomObstacles/hangar9-2023-05-01_14-57-13/config_map_gym.yaml" 
+    MAP_CONFIG_FILE = "utilities/maps/hangar12/config_map_gym.yaml" 
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
