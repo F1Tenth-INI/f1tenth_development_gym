@@ -34,13 +34,13 @@ waypoints = waypoint_utils.next_waypoints
 
 
 # Indices of waypoint
-WP_S_IDX = 0
-WP_X_IDX = 1
-WP_Y_IDX = 2
-WP_PSI_IDX = 3
-WP_KAPPA_IDX = 4
-WP_VX_IDX = 5
-WP_A_X_IDX = 6
+WP_S_IDX = 0 # Distance since start
+WP_X_IDX = 1 # Position x
+WP_Y_IDX = 2 # Position y
+WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
+WP_KAPPA_IDX = 4 # Relative angle
+WP_VX_IDX = 5 # Suggested velocity 
+WP_A_X_IDX = 6 # Suggested acceleration
 
 
 class WaypointUtils:
