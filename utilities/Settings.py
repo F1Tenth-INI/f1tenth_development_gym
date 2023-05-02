@@ -38,8 +38,8 @@ class Settings():
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
     EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
-    SAVE_RECORDINGS = False
-    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
+    SAVE_RECORDINGS = True
+    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
 
     ### State Estimation ###
 
@@ -70,7 +70,7 @@ class Settings():
 
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
-    TIMESTEP_CONTROL = 0.06    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
@@ -95,18 +95,18 @@ class Settings():
 
     ## MPC Controller ##
     NUM_TRAJECTORIES_TO_PLOT = 20
-    OPTIMIZE_EVERY_N_STEPS = 1
+    OPTIMIZE_EVERY_N_STEPS = 2
 
     ## overwriting config_controller.yaml
     mpc_calculate_optimal_trajectory= True
     mpc_optimizer = "mppi" # mppi or rpgd-tf
 
     ## overwriting config_optimizer.yaml
-    mppi_mpc_horizon= 15                       # steps
+    mppi_mpc_horizon= 50                       # steps
     mppi_num_rollouts = 9000                    # Number of Monte Carlo samples
-    mppi_LBD =0.01                              # Cost parameter lambda
+    mppi_LBD =0.05                              # Cost parameter lambda
     mppi_NU =2000.0                            # Exploration variance
-    mppi_SQRTRHOINV =[ 0.05, 0.1 ]
+    mppi_SQRTRHOINV =[ 0.1, 0.1 ]
     mppi_period_interpolation_inducing_points = 1
 
     rpgd_mpc_horizon= 15                       # steps
@@ -114,7 +114,7 @@ class Settings():
 
     ## overwriting config_cost_function.yaml
     cc_weight = 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    ccrc_weight = 0.1
+    ccrc_weight = 0.3
 
     R = 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     steering_cost_weight = 0.0
