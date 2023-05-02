@@ -281,6 +281,16 @@ class f1t_cost_function(cost_function_base):
         velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
     
+    def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        waypoint_positions = nearest_waypoints[:,:, 1:3]
+
+        wp_car_vector = car_positions - waypoint_positions
+        wp_car_vector_norms = tf.norm(wp_car_vector, axis=2)
+        return 1.0 * wp_car_vector_norms
+        
+    
     def get_speed_control_difference_to_wp_cost(self, u, s, waypoints, nearest_waypoint_indices):
         
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
