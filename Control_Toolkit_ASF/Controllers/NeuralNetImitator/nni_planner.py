@@ -105,7 +105,9 @@ class NeuralNetImitatorPlanner:
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
-
+        # TODO: waypoint velocity
+        
+        
         #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
         #Example of all possible inputs in correct order:
         # Order has to stay the same: SAME AS IN Config_training
