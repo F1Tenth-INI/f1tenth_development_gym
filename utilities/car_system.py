@@ -152,7 +152,7 @@ class CarSystem:
                 odometry=ego_odom, 
                 ranges=ranges, 
                 state=self.car_state,
-                next_waypoints=self.waypoint_utils.next_waypoint_positions,
+                next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
                 time=0 # TODO
             )     
