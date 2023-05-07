@@ -154,7 +154,7 @@ class CarSystem:
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                time=0 # TODO
+                time=self.control_index * Settings.TIMESTEP_CONTROL
             )     
         
         self.control_index += 1

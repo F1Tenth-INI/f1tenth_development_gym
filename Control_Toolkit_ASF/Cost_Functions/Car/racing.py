@@ -60,7 +60,7 @@ class racing(f1t_cost_function):
         stage_cost = (
                 # cc
                 distance_to_wp_segments_cost
-                + ccrc
+                #+ ccrc
                 # + steering_cost
                 # + angular_velocity_cost
                 # + acceleration_cost
@@ -74,7 +74,7 @@ class racing(f1t_cost_function):
                 # + distance_to_waypoints_cost
             )
 
-        discount_vector = self.lib.ones_like(s[0, :, 0])*0.95
+        discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
         discount_vector = self.lib.cumprod(discount_vector, 0)
 
         # Read out values for cost weight callibration: Uncomment for debugging

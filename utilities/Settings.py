@@ -66,6 +66,9 @@ class Settings():
     NET_NAME_STEER = 'GRU-14IN-64H1-64H2-1OUT-0'
 
 
+
+
+###################################################################################
     ### Controller Settings
 
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)

@@ -108,7 +108,10 @@ class NeuralNetImitatorPlanner:
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
-        # TODO: waypoint velocity
+
+        #Load Waypoint Velocities for next n (defined in config.yml) waypoints
+        next_waypoint_vx = self.waypoints[:,5] * Settings.waypoint_velocity_factor
+
         
         
         #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
@@ -121,7 +124,7 @@ class NeuralNetImitatorPlanner:
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((next_waypoints_x, next_waypoints_y,
+        input_data = np.concatenate((next_waypoints_x, next_waypoints_y, next_waypoint_vx,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
         net_input = tf.convert_to_tensor(input_data, tf.float32)
