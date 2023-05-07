@@ -190,7 +190,7 @@ class Recorder:
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
         waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
         waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
-        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
+        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX] * Settings.waypoint_velocity_factor
 
 
         # Initialise
