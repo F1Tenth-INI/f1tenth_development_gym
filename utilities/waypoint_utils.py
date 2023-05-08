@@ -58,7 +58,8 @@ class WaypointUtils:
         self.original_waypoints = WaypointUtils.load_waypoints()
         
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
-        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps) #increased resolution
+        self.waypoints = WaypointUtils.correct_velocity(self.original_waypoints)
+        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoints, self.interpolation_steps) #increased resolution
         self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor) # decreased resolution
         self.waypoints = WaypointUtils.remove_duplicates(self.waypoints)
 
@@ -228,5 +229,28 @@ class WaypointUtils:
 
         next_waypoint_positions_relative = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
         return next_waypoint_positions_relative
+    
+    @staticmethod
+    def correct_velocity(waypoints):
+        
+        speed_scaling_pth = os.path.join('utilities/maps/hangar12/speed_scaling.yaml')
+        speed_scaling_config = yaml.load(open(speed_scaling_pth, "r"), Loader=yaml.FullLoader)
+        
+        speed_scaling_array = np.zeros(waypoints.shape[0]+2)
+        
+        global_limit = speed_scaling_config['global_limit']
+        n_sectors = speed_scaling_config['n_sectors']
+        for i in range(n_sectors):
+            sector = speed_scaling_config['Sector'+str(i)]
+            for j in range(sector['start'], sector['end']+1):
+                speed_scaling_array[j] = sector['scaling']
+      
+        # TODO: Interpolate at edges
+        
+        speed_scaling_array = np.array(speed_scaling_array[:-2])
+        speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
+                
+        waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
+        return waypoints
 
          

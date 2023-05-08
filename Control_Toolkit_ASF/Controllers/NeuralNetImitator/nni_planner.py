@@ -110,7 +110,7 @@ class NeuralNetImitatorPlanner:
         next_waypoints_y = next_waypoints[:,1]
 
         #Load Waypoint Velocities for next n (defined in config.yml) waypoints
-        next_waypoint_vx = self.waypoints[:,5] * Settings.waypoint_velocity_factor
+        next_waypoint_vx = self.waypoints[:,5] 
 
         
         
@@ -144,7 +144,7 @@ class NeuralNetImitatorPlanner:
             self.angular_control = 0
             return self.angular_control, self.translational_control,
 
-        self.translational_control = translational_control
+        self.translational_control = 1.5 * translational_control
         self.angular_control = angular_control
 
 
