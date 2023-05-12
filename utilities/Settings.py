@@ -105,6 +105,6 @@ class Settings:
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     
-    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
+    GLOBALLY_DISABLE_COMPILATION = False  # Disable TF Compilation
     
     ROS_BRIDGE = None # Automatically determined on program start

@@ -62,6 +62,7 @@ rpgd-pfi:
   #uniform_dist_min: [ -0.4, 2.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   warmup: false
   warmup_iterations: 250
+  visualize: True
 
 
 
