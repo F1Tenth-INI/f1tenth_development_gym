@@ -95,46 +95,10 @@ class Settings():
     PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/'
     NET_NAME = 'Dense-24IN-64H1-64H2-2OUT-0'
 
-
     ## MPC Controller ##
     NUM_TRAJECTORIES_TO_PLOT = 20
     OPTIMIZE_EVERY_N_STEPS = 2
 
-    ## overwriting config_controller.yaml
-    mpc_calculate_optimal_trajectory= True
-    mpc_optimizer = "mppi" # mppi or rpgd-tf
-
-    ## overwriting config_optimizer.yaml
-    mppi_mpc_horizon= 50                       # steps
-    mppi_num_rollouts = 9000                    # Number of Monte Carlo samples
-    mppi_LBD =0.05                              # Cost parameter lambda
-    mppi_NU =2000.0                            # Exploration variance
-    mppi_SQRTRHOINV =[ 0.1, 0.1 ]
-    mppi_period_interpolation_inducing_points = 1
-
-    rpgd_mpc_horizon= 15                       # steps
-
-
-    ## overwriting config_cost_function.yaml
-    cc_weight = 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    ccrc_weight = 0.3
-
-    R = 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
-    steering_cost_weight = 0.0
-    angular_velocity_cost_weight = 0.001
-    slipping_cost_weight = 0.5
-    terminal_speed_cost_weight = 0.0
-    velocity_diff_to_waypoints_cost_weight = 0.1
-    speed_control_diff_to_waypoints_cost_weight = 1.0  # Penalize difference between desired speed of control and the position's closest waypoint
-    distance_to_waypoints_cost_weight = 10.0
-    target_distance_cost_weight = 0.0            #only if you want to follow a target on an empty map
-
-    acceleration_cost_weight = 0.0
-    max_acceleration = 9.2
-    desired_max_speed = 3.8                             # desired max speed for the car [m/s]
-    waypoint_velocity_factor  = 1.0
-
     ### Other Settings ###
-
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     ROS_BRIDGE = None # Automatically determined on program start
