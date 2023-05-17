@@ -25,7 +25,6 @@ git submodule update --recursive --remote
 and then install the Toolkit packages: 
 ```bash
 python -m pip install --user -e ./SI_Toolkit
-python -m pip install --user -e ./Control_Toolkit
 ```
 
 Finally copy Settings_Template.py.py to Settings.py, to have your own gitignored settings.
