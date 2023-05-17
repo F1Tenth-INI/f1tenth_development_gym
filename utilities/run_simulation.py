@@ -18,7 +18,6 @@ from f110_gym.envs.dynamic_models import pid
 # Utilities
 from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
-from utilities.setting_utilities import overwrite_from_master_settings
 
 from time import sleep
 
@@ -43,7 +42,6 @@ def main():
 
     # Config
     # overwrite config.yaml files 
-    overwrite_from_master_settings()
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
