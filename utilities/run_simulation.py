@@ -55,6 +55,10 @@ def main():
     driver3.planner.waypoint_velocity_factor = 0.5
     driver4.planner.waypoint_velocity_factor = 0.5
     driver5.planner.waypoint_velocity_factor = 0.5
+    driver2.save_recordings = False
+    driver3.save_recordings = False
+    driver4.save_recordings = False
+    driver5.save_recordings = False
 
 
     # second planner
@@ -219,7 +223,8 @@ def main():
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
-                driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
+                if(driver.save_recordings):
+                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
 
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
@@ -241,7 +246,8 @@ def main():
 
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
-                driver.recorder.save_data()
+                if(driver.save_recordings):
+                    driver.recorder.save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:

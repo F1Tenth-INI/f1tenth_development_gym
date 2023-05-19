@@ -315,8 +315,13 @@ class f1t_cost_function(cost_function_base):
 
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
         nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints[:,:,3])
+        nearest_waypoint_psi_rad_cos = tf.cos(nearest_waypoints[:,:,3])
+        
         car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
-        angle_difference = tf.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
-        return angle_difference_to_wp_cost_weight * angle_difference
+        car_angle_cos = s[:, :, POSE_THETA_COS_IDX]
+        
+        angle_difference_sin = tf.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
+        angle_difference_cos= tf.square(nearest_waypoint_psi_rad_cos - car_angle_cos)
+        return angle_difference_to_wp_cost_weight * (angle_difference_sin + angle_difference_cos)
         
         
