@@ -27,7 +27,7 @@ else:
 
 class CarSystem:
     
-    def __init__(self):
+    def __init__(self, controller=None):
         
         # Settings
         self.plot_lidar_data = False
@@ -55,23 +55,25 @@ class CarSystem:
         
         # Planner
         self.planner = None
-        if Settings.CONTROLLER == 'mpc':
+        if(controller is None):
+            controller = Settings.CONTROLLER
+        if controller == 'mpc':
             from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
             self.planner = mpc_planner()
-        elif Settings.CONTROLLER =='ftg':
+        elif controller =='ftg':
             from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
             self.planner =  FollowTheGapPlanner()
-        elif Settings.CONTROLLER == 'neural':
+        elif controller == 'neural':
             from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
             self.planner =  NeuralNetImitatorPlanner()
-        elif Settings.CONTROLLER == 'pp':
+        elif controller == 'pp':
             from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
             self.planner = PurePursuitPlanner()
-        elif Settings.CONTROLLER == 'manual':
+        elif controller == 'manual':
             from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
             self.planner = manual_planner()
         else:
-            NotImplementedError('{} is not a valid controller name for f1t'.format(Settings.CONTROLLER))
+            NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
             
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
