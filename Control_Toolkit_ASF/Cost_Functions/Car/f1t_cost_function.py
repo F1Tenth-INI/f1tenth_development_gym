@@ -179,9 +179,9 @@ class f1t_cost_function(cost_function_base):
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
-        a = 0.25
+        a = 0.5
         A = 100000.0  # y-intercept
-        B = 0.4  # x_intercet
+        B = 1.5  # x_intercet
         minima = tf.clip_by_value(minima, 0.0, B)
         cost_for_passing_close = a / (minima + (a / A)) - a / (B + (a / A))
 
@@ -278,8 +278,18 @@ class f1t_cost_function(cost_function_base):
         car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
         horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
-        velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
+        velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
+    
+    def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        waypoint_positions = nearest_waypoints[:,:, 1:3]
+
+        wp_car_vector = car_positions - waypoint_positions
+        wp_car_vector_norms = tf.norm(wp_car_vector, axis=2)
+        return 1.0 * wp_car_vector_norms
+        
     
     def get_speed_control_difference_to_wp_cost(self, u, s, waypoints, nearest_waypoint_indices):
         
@@ -296,7 +306,7 @@ class f1t_cost_function(cost_function_base):
 
         nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:,:,5]
 
-        nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
+        # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
         
         vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
         return vel_difference
@@ -306,7 +316,7 @@ class f1t_cost_function(cost_function_base):
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
         nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints[:,:,3])
         car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
-        angle_difference = tf.abs(nearest_waypoint_psi_rad_sin - car_angle_sin)
+        angle_difference = tf.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
         return angle_difference_to_wp_cost_weight * angle_difference
         
         

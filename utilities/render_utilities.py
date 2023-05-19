@@ -36,7 +36,7 @@ class RenderUtils:
     def __init__(self):
 
         self.draw_lidar_data = True
-        self.draw_position_history = True
+        self.draw_position_history = False
         self.draw_waypoints = True
         self.draw_next_waypoints = True
 
@@ -99,6 +99,7 @@ class RenderUtils:
         self.optimal_trajectory = optimal_trajectory
         
     def update_obstacles(self, obstacles):
+        return
         self.obstacles = obstacles
 
     def render(self, e):

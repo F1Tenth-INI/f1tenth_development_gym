@@ -210,9 +210,9 @@ class car_model:
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
-        min_vel_x = tf.reduce_min(v_x)
-        if(tf.less(min_vel_x, 0.5)):
-            return self._step_dynamics_ks(s,Q, params)
+        # min_vel_x = tf.reduce_min(v_x)
+        # if(tf.less(min_vel_x, 0.5)):
+        #     return self._step_dynamics_ks(s,Q, params)
 
 
         # Constaints

@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
 
+from utilities.waypoint_utils import *
+
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
     from git import Repo
@@ -27,7 +29,7 @@ waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
-ranges_forward_only = True # Only LIDAR scans in forward direction are saved
+ranges_forward_only = False # Only LIDAR scans in forward direction are saved
 
 rounding_decimals = 5
 
@@ -122,6 +124,7 @@ class Recorder:
         self.keys_control_inputs_calculated = None
         self.keys_next_x_waypoints = None
         self.keys_next_y_waypoints = None
+        self.keys_next_vx_waypoints = None
         self.keys_next_x_waypoints_rel = None
         self.keys_next_y_waypoints_rel = None
 
@@ -154,7 +157,7 @@ class Recorder:
             ranges_to_save = ranges_to_save[200:880]
 
         if self.ranges_decimate:
-            ranges_to_save = ranges_to_save[::10]
+            ranges_to_save = ranges_to_save[::25]
 
         if self.keys_ranges is None:
             #Initialise
@@ -187,20 +190,24 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:, 0]
-        waypoints_y_to_save = waypoints_to_save[:, 1]
+        waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
+        waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
+        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
 
 
+        # Initialise
         if self.keys_next_x_waypoints is None:
-            # Initialise
             self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
 
         if self.keys_next_y_waypoints is None:
-            # Initialise
             self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+            
+        if self.keys_next_vx_waypoints is None:
+            self.keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
 
         self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
         self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_vx_waypoints, waypoints_vel_to_save))
         
     def get_next_waypoints_relative(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
