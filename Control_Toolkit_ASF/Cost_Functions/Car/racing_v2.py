@@ -17,7 +17,7 @@ class racing_v2(f1t_cost_function):
 
     def get_stage_cost(self, s, u, u_prev):
 
-        waypoints = self.controller.next_waypoints
+        waypoints = self.variable_parameters.next_waypoints
         waypoint_positions = waypoints[:, 1:3]
 
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]

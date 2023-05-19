@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
 
+from utilities.waypoint_utils import *
+
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
     from git import Repo
@@ -27,7 +29,7 @@ waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
-ranges_forward_only = True # Only LIDAR scans in forward direction are saved
+ranges_forward_only = False # Only LIDAR scans in forward direction are saved
 
 rounding_decimals = 5
 
@@ -121,6 +123,9 @@ class Recorder:
         self.keys_control_inputs_calculated = None
         self.keys_next_x_waypoints = None
         self.keys_next_y_waypoints = None
+        self.keys_next_vx_waypoints = None
+        self.keys_next_x_waypoints_rel = None
+        self.keys_next_y_waypoints_rel = None
 
         self.csv_filepath = None
 
@@ -132,6 +137,7 @@ class Recorder:
         self.control_inputs_calculated_dict = {}
         self.dict_to_save = {}
         self.next_waypoints_dict = {}
+        self.next_waypoints_rel_dict = {}
 
         if create_header:
             self.csv_filepath = create_csv_header(
@@ -149,7 +155,7 @@ class Recorder:
             ranges_to_save = ranges_to_save[200:880]
 
         if self.ranges_decimate:
-            ranges_to_save = ranges_to_save[::10]
+            ranges_to_save = ranges_to_save[::25]
 
         if self.keys_ranges is None:
             #Initialise
@@ -182,20 +188,41 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
+        waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
+        waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
+        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
+
+
+        # Initialise
+        if self.keys_next_x_waypoints is None:
+            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+
+        if self.keys_next_y_waypoints is None:
+            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+            
+        if self.keys_next_vx_waypoints is None:
+            self.keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+
+        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_vx_waypoints, waypoints_vel_to_save))
+        
+    def get_next_waypoints_relative(self, next_waypoints):
+        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
         waypoints_x_to_save = waypoints_to_save[:, 0]
         waypoints_y_to_save = waypoints_to_save[:, 1]
 
 
-        if self.keys_next_x_waypoints is None:
+        if self.keys_next_x_waypoints_rel is None:
             # Initialise
-            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+            self.keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
 
-        if self.keys_next_y_waypoints is None:
+        if self.keys_next_y_waypoints_rel is None:
             # Initialise
-            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+            self.keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
 
-        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
-        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+        self.next_waypoints_rel_dict = dict(zip(self.keys_next_x_waypoints_rel, waypoints_x_to_save))
+        self.next_waypoints_rel_dict.update(zip(self.keys_next_y_waypoints_rel, waypoints_y_to_save))
 
     def get_state(self, state):
 
@@ -206,7 +233,7 @@ class Recorder:
 
         self.state_dict = dict(zip(self.keys_state, state_to_save))
 
-    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
+    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None, next_waypoints_relative=None):
         if time is not None:
             self.get_time(time)
         if control_inputs_applied is not None:
@@ -221,6 +248,8 @@ class Recorder:
             self.get_ranges(ranges=ranges)
         if next_waypoints is not None and len(next_waypoints) > 0:
             self.get_next_waypoints(next_waypoints=next_waypoints)
+        if next_waypoints_relative is not None and len(next_waypoints_relative) > 0:
+            self.get_next_waypoints_relative(next_waypoints_relative)
 
     def save_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
         self.get_data(control_inputs_applied, control_inputs_calculated, odometry, ranges, time, state, next_waypoints)
@@ -235,6 +264,7 @@ class Recorder:
         self.dict_to_save.update(self.state_dict)
         self.dict_to_save.update(self.ranges_dict)
         self.dict_to_save.update(self.next_waypoints_dict)
+        self.dict_to_save.update(self.next_waypoints_rel_dict)
 
 
 
@@ -316,5 +346,6 @@ class Recorder:
         self.control_inputs_applied_dict = None
         self.control_inputs_calculated_dict = None
         self.next_waypoints_dict = None
+        self.next_waypoints_rel_dict = None
         self.dict_to_save = {}
 

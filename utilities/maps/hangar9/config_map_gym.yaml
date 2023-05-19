@@ -1,8 +1,8 @@
 map_ext: '.png'
 
 # map paths
-map_path: 'utilities/maps/hangar3/hangar3'
-waypoint_path: 'utilities/maps/hangar3/hangar3_wp'
+map_path: 'utilities/maps/hangar9/hangar9'
+waypoint_path: 'utilities/maps/hangar9/hangar9_wp'
 
 # starting pose for map
 starting_positions: 

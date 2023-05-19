@@ -30,3 +30,8 @@ SI_Toolkit_ASF/Experiments/*
 
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
+
+
+utilities/maps/*
+!utilities/maps/hangar9
+!utilities/maps/hangar12

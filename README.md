@@ -1,4 +1,4 @@
-![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
+j![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
 
 # Notes by Florian
@@ -22,29 +22,43 @@ To set up he SI_Toolkit, pull all sub modules:
 git submodule update --init --recursive
 git submodule update --recursive --remote
 ```
-and then install the packages: 
+and then install the Toolkit packages: 
 ```bash
 python -m pip install --user -e ./SI_Toolkit
-python3 -m pip install --user -e ./SI_Toolkit_ASF/GlobalPackage
+```
+
+Finally copy Settings_Template.py.py to Settings.py, to have your own gitignored settings.
+```bash
+cp Settings_Template.py Settings.py
 ```
 ## Run
 
-Please run all python scripts from the root folder
 
-The  environment you should use is in the MultiAgents folder.
+
+
+Run the simulation
 ```bash
-python MultiAgents/run.py
+python run.py
 ```
 
-You can add one or multiple instances of driver classes to the drivers array:
+If you are running from terminal, please run all python scripts from the project's root folder. You might want to export the Python Path env variable:
+```bash
+export PYTHONPATH=./
+```
+##Environment, CarModel and Controller
+
+Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the planners array:
 ```python
 ##################### DEFINE DRIVERS HERE #####################    
 drivers = [planner1,planner2]
 ###############################################################   
 ```
 
+Have a look at [car_system.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/car_system.py). This file represents the car. Everyting that runs on this object can directly be applied on the physical car. Inside the carSystem, we can define a controller (planner).
+
+
 ### Settings
-Have a look at the MultiAgent's settings file: [Settings.py](https://github.com/Florian-Bolli/f1tenth_development_gym/blob/main/MultiAgents/Settings.py) 
+Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) 
 
  
  ## Develop
@@ -84,6 +98,62 @@ On the controller side, these structure are at [SI_Toolkit_ASF/car_model.py](SI_
 
 
 <!-- For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle. -->
+
+
+# Neural Imitator
+
+## Training
+Collect experiment recordings with a controller of choise (fe. MPC - MPPI).
+ - For a higher variance data, set control noise up to 0.5
+
+NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 
+NOISE_LEVEL_ANGULAR_CONTROL = 0.5  
+
+ - Tune the controller for robustness ( it needs to be able to complete laps reliably )
+ - Delete all old experiment recordings in ExperimentRecordings/
+ - Set EXPERIMENT_LENGTH such that the car completes more than 2 laps
+ - set NUMBER_OF_EXPERIMENTS >= 10 depending on how much data you want to have
+ - Run experiments
+
+ - Create the following folders: 
+    - SI_Toolkit_ASF/Experiments/[Controller Name]/Recordings/Train
+    - SI_Toolkit_ASF/Experiments/[Controller Name]/Recordings/Test
+    - SI_Toolkit_ASF/Experiments/[Controller Name]/Recordings/Validate
+ - Distribute the experiment's CSV files into these 3 folders ( each 80%, 10%, 10% of the data points)
+ - in config_training.yml set path_to_experiment to [Controller Name]
+
+ - Create normalization file:
+```bash
+python SI_Toolkit_ASF/run/Create_normalization_file.py
+```
+ - Check the histograms if training data makes sense
+ - in config_training.yml set NET_NAME, inputs and training settings
+ - Train Network:
+```bash
+ python SI_Toolkit_ASF/run/Train_Network.py 
+```
+ - create a file at SI_Toolkit_ASF/Experiments/[Controller Name]/Models/[Model Name]/notes.txt and write minimal documentation about the network (Maps, Controller, Settings, thoughts etc...)
+ Congratulations, the Neural Controller is now ready to use.
+
+ ## Run Neural Imitator
+- in Settings.py, select the neural controller and the model name
+- Deactivate the control noise
+- Deactivate control averaging (NN does not like it )
+```python
+CONTROLLER = 'neural'
+...
+PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/[Controller Name]/Models/'
+NET_NAME = '[Model Name]'
+...
+NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0
+NOISE_LEVEL_ANGULAR_CONTROL = 0.0  
+...
+CONTROL_AVERAGE_WINDOW = (1, 1)
+...
+```
+- Make sure that the control_inputs in config_training.yml and nni_planner.py match. (Otherwise correct them in nni_planner)
+- Run experiment
+Enjoy your realtime neural network MPPI imipator ( or how we call it: the INItator ).
 
 
 

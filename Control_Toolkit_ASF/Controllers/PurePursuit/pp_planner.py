@@ -5,13 +5,8 @@ import numpy as np
 import math
 
 from utilities.Settings import Settings
-if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
-else:
-    from utilities.waypoint_utils import WaypointUtils
-    from utilities.render_utilities import RenderUtils
 
+from utilities.waypoint_utils import *
 
 
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
@@ -28,20 +23,19 @@ class PurePursuitPlanner:
     def __init__(self):
     
         print("Initializing PP Planner")
+        car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
         
-        self.waypoint_utils = WaypointUtils()
-        self.Render = RenderUtils()
-        self.Render.waypoints = self.waypoint_utils.waypoint_positions
-        self.speed = 1
+        self.waypoints = None
+        self.speed = 1.
 
         
         # Controller settings
-        self.waypoint_velocity_factor = 0.76
-        self.lookahead_distance = 1.82461887897713965
-        self.wheelbase = 0.6
+        self.waypoint_velocity_factor = Settings.PP_WAYPOINT_VELOCITY_FACTOR
+        self.lookahead_distance =  Settings.PP_LOOKAHEAD_DISTANCE 
+        self.wheelbase = car_parameters['lf'] +  car_parameters['lr'] 
         self.max_reacquire = 20.
         
         self.simulation_index = 0
@@ -60,19 +54,12 @@ class PurePursuitPlanner:
         # self.max_reacquire = 20.
         # self.lookahead_distance = 1.82461887897713965
         # self.waypoint_velocity_factor = 0.80338203837889
-        
-
-    def render(self, e):
-        self.Render.render(e)
-        
     
     def _get_current_waypoint(self, waypoints, lookahead_distance, position, theta):
         """
         gets the current waypoint to follow
-        """
-        # wpts = np.vstack((self.waypoints[:, self.conf.wpt_xind], self.waypoints[:, self.conf.wpt_yind])).T
-        
-        wpts = self.waypoint_utils.next_waypoint_positions
+        """    
+        wpts = waypoints[:, 1:3]
         nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
         if nearest_dist < lookahead_distance:
             lookahead_point, i2, t2 = first_point_on_trajectory_intersecting_circle(position, lookahead_distance, wpts, i+t, wrap=True)
@@ -88,6 +75,13 @@ class PurePursuitPlanner:
             return np.append(wpts[i, :], waypoints[i, 5])
         else:
             return None
+    
+    def set_waypoints(self, waypoints):
+        self.waypoints = waypoints
+        
+    def set_car_state(self, car_state):
+        self.car_state = car_state
+        
         
     def process_observation(self, ranges=None, ego_odom=None):
         """
@@ -108,18 +102,16 @@ class PurePursuitPlanner:
         pose_theta = ego_odom['pose_theta']
         v_x = ego_odom['linear_vel_x']
         position = np.array([pose_x, pose_y])
+                
+        # Dynamic Lookahead distance
+        # self.lookahead_distance = 0.7 * self.speed
         
-        self.waypoint_utils.update_next_waypoints([pose_x, pose_y])
-        
-        self.lookahead_distance = 0.7 * self.speed
-        # lookahead_point = self.waypoint_utils.next_waypoints[3]
-        # lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
-        lookahead_point = self._get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
+        lookahead_point = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
         # print ("lookaheadpoints", lookahead_point)
         if lookahead_point is None:
             print("warning no lookahead point")
-            lookahead_point = self.waypoint_utils.next_waypoints[3]
-            lookahead_point = [lookahead_point[1],lookahead_point[2],lookahead_point[5]]
+            lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
+            lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
             # self.angular_control = 0.
             # self.translational_control = 1.
             # return 1.0, 0.0
@@ -127,11 +119,6 @@ class PurePursuitPlanner:
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
         self.speed = speed
-        s = odometry_dict_to_state(ego_odom)
-        self.Render.update(
-            next_waypoints= self.waypoint_utils.next_waypoint_positions,
-            car_state = s
-        )
 
         self.angular_control = steering_angle
         self.translational_control = speed
