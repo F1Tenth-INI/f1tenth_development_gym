@@ -6,7 +6,7 @@ mppi:
   num_rollouts: 9000                    # Number of Monte Carlo samples
   LBD: 0.01                            # Cost parameter lambda
   NU: 2000.0                            # Exploration variance
-  SQRTRHOINV: [ 0.3, 0.3 ]              # Sampling variance
+  SQRTRHOINV: [ 0.3, 0.9 ]              # Sampling variance
   period_interpolation_inducing_points: 1                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
 
   # Double check that the two values below are the same as in the cost function config!!!
