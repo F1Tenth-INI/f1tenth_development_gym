@@ -212,7 +212,7 @@ def main():
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
-                driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
+                driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
