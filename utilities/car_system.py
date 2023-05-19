@@ -28,6 +28,9 @@ else:
 class CarSystem:
     
     def __init__(self):
+
+        self.time = 0.0
+        self.time_increment = Settings.TIMESTEP_CONTROL
         
         # Settings
         self.plot_lidar_data = False
@@ -145,7 +148,7 @@ class CarSystem:
             car_state = car_state
         )
         self.render_utils.update_obstacles(obstacles)
-
+        self.time = self.control_index*self.time_increment
         if (Settings.SAVE_RECORDINGS):
             self.recorder.get_data(
                 control_inputs_calculated=(self.translational_control, self.angular_control),
@@ -154,8 +157,8 @@ class CarSystem:
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoint_positions,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                time=0 # TODO
-            )     
+                time=self.time
+            )
         
         self.control_index += 1
         return self.angular_control, self.translational_control
