@@ -113,8 +113,6 @@ class mpc_planner:
     def set_obstacles(self, obstacles):
 
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
-        # For Marcin ;)
-        print(self.obstacles)
 
 
     def process_observation(self, ranges=None, ego_odom=None):
