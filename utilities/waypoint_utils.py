@@ -104,7 +104,8 @@ class WaypointUtils:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)  
         else: # only look for next waypoint in the current waypoint cache
-            nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
+            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position,  self.waypoints)
+            # nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
 
         next_waypoints_including_ignored = []
         for j in range(self.look_ahead_steps + self.ignore_steps):

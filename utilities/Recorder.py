@@ -29,7 +29,7 @@ waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
-ranges_forward_only = True # Only LIDAR scans in forward direction are saved
+ranges_forward_only = False # Only LIDAR scans in forward direction are saved
 
 rounding_decimals = 5
 
@@ -155,7 +155,7 @@ class Recorder:
             ranges_to_save = ranges_to_save[200:880]
 
         if self.ranges_decimate:
-            ranges_to_save = ranges_to_save[::10]
+            ranges_to_save = ranges_to_save[::25]
 
         if self.keys_ranges is None:
             #Initialise
@@ -190,7 +190,7 @@ class Recorder:
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
         waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
         waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
-        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX] * Settings.waypoint_velocity_factor
+        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
 
 
         # Initialise

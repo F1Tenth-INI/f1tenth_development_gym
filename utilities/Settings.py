@@ -23,9 +23,9 @@ class Settings():
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
 
-    KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
+    KEYBOARD_INPUT_ENABLE = True  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = "human_fast" # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
-    CAMERA_AUTO_FOLLOW = False  # Automatically follow the first car on the map
+    CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
 
     DRAW_POSITION_HISTORY = True
     QUAD_VIZ = True  # Visualization, only for Quadruped
@@ -34,12 +34,12 @@ class Settings():
 
 
     ### Experiment Settings ###
-    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 10  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
-    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
 
     ### State Estimation ###
 
@@ -73,12 +73,12 @@ class Settings():
 
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
-    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10.0           #nni 2, mpc 10 [Float!]
 
-    CONTROL_AVERAGE_WINDOW = (3, 1)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     FOLLOW_RANDOM_TARGETS = False
 
