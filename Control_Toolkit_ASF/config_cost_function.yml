@@ -7,31 +7,29 @@ Car:
   racing:
 
     cc_weight: 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    # ccrc_weight: 1.5
-    ccrc_weight: 1.0
+    ccrc_weight: 0.001
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
+    distance_to_waypoints_cost_weight: 5.0
+    velocity_diff_to_waypoints_cost_weight: 0.5
     angular_velocity_cost_weight: 0.001
+    angle_difference_to_wp_cost_weight: 10.0
+    
     slipping_cost_weight: 0.01
     steering_cost_weight: 0.0
     terminal_speed_cost_weight: 0.0
-    velocity_diff_to_waypoints_cost_weight: 0.0
-    speed_control_diff_to_waypoints_cost_weight: 1.0  # Penalize difference between desired speed of control and the position's closest waypoint
-    distance_to_waypoints_cost_weight: 10.0
+    speed_control_diff_to_waypoints_cost_weight: 0.0  # Penalize difference between desired speed of control and the position's closest waypoint
     target_distance_cost_weight: 0.0            #only if you want to follow a target on an empty map
-    angle_difference_to_wp_cost_weight: 1.0
-    waypoint_velocity_factor : 0.65
+    waypoint_velocity_factor : 1.0 # Dont touch... adjust in maps/speed_scalling.yaml
+    acceleration_cost_weight: 0.0
+    max_acceleration: 9.2
+    desired_max_speed: 3.8             # desired max speed for the car [m/s]
 
     # Different optimizers works the best with different cost functions parameters
     mppi:
-      acceleration_cost_weight: 0.0
-      max_acceleration: 9.2
-      desired_max_speed: 3.8             # desired max speed for the car [m/s]
 
     rpgd-tf:
-      acceleration_cost_weight: 0.0
-      max_acceleration: 0.0
-      desired_max_speed: 3.8               # desired max speed for the car [m/s]
+
 
   following_target:
     # TODO: The parameters not set yet, same as for racing

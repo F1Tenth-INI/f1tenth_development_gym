@@ -39,10 +39,12 @@ class racing(f1t_cost_function):
             # Reuse, dont calculate twice...
             nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
 
+            # distance_to_wp_segments_cost = self.get_distance_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
+
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
@@ -56,23 +58,21 @@ class racing(f1t_cost_function):
 
 
         stage_cost = (
-                cc
-                + ccrc
-                + distance_to_wp_segments_cost
-                + steering_cost
-                + angular_velocity_cost
-                + acceleration_cost
+                distance_to_wp_segments_cost
                 + velocity_difference_to_wp_cost
-                + speed_control_difference_to_wp_cost
-                + slipping_cost
-                + 1.0 * angle_difference_to_wp_cost
-                # + crash_cost
-                # + cost_for_stopping
                 + crash_cost
-                # + distance_to_waypoints_cost
+                + cc
+                + ccrc
+                + angular_velocity_cost
+                + angle_difference_to_wp_cost
+                # + steering_cost
+                # + acceleration_cost
+                # + speed_control_difference_to_wp_cost
+                # + slipping_cost
+                # + cost_for_stopping
             )
 
-        discount_vector = self.lib.ones_like(s[0, :, 0])*0.95
+        discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
         discount_vector = self.lib.cumprod(discount_vector, 0)
 
         # Read out values for cost weight callibration: Uncomment for debugging

@@ -18,7 +18,6 @@ from f110_gym.envs.dynamic_models import pid
 # Utilities
 from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
-from utilities.setting_utilities import overwrite_from_master_settings
 
 from time import sleep
 
@@ -43,18 +42,26 @@ def main():
 
     # Config
     # overwrite config.yaml files 
-    overwrite_from_master_settings()
     map_config_file = Settings.MAP_CONFIG_FILE
 
     # First planner settings
-    driver1 = CarSystem()
+    driver1 = CarSystem(Settings.CONTROLLER)
+    
+    driver2 = CarSystem('pp')
+    driver3 = CarSystem('pp')
+    driver4 = CarSystem('pp')
+    driver5 = CarSystem('pp')
+    driver2.planner.waypoint_velocity_factor = 0.5
+    driver3.planner.waypoint_velocity_factor = 0.5
+    driver4.planner.waypoint_velocity_factor = 0.5
+    driver5.planner.waypoint_velocity_factor = 0.5
 
 
     # second planner
     # driver2 = CarSystem()
    
     ##################### DEFINE DRIVERS HERE #####################
-    drivers = [driver1]
+    drivers = [driver1, driver2, driver3, driver4, driver5]
     ###############################################################
 
     number_of_drivers = len(drivers)
