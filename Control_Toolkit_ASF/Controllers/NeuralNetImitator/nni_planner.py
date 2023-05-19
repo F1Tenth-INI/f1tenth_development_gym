@@ -8,7 +8,7 @@ import os
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import WaypointUtils
-
+import time
 
 from types import SimpleNamespace
 
@@ -43,8 +43,10 @@ class NeuralNetImitatorPlanner:
         self.simulation_index = 0
 
         self.car_state = None
-        self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
-                                               # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
+        self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
+        self.waypoints = None
+        # self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
+        #                                        # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
 
 
         a = SimpleNamespace()
@@ -66,43 +68,52 @@ class NeuralNetImitatorPlanner:
         self.net_input = None
         self.net_input_normed = tf.Variable(
             tf.zeros([len(self.net_info.inputs),], dtype=tf.float32))
+    
+        self.config_training_NN = yaml.load(open(os.path.join(PATH_TO_MODELS, NET_NAME, "config_training.yml")), Loader=yaml.FullLoader)
+
 
     def render(self, e):
         return
 
-
+    def set_waypoints(self, waypoints):
+        self.waypoints = waypoints
+        
+    def set_car_state(self, car_state):
+        self.car_state = np.array(car_state).astype(np.float32)
+        
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-
-        if Settings.ONLY_ODOMETRY_AVAILABLE:
-            s = odometry_dict_to_state(ego_odom)
-        else:
-            s = self.car_state
-
+        s = self.car_state
 
         #code for Lidar bounds and Lidar data reduction
         ranges = ranges[200:880]
         ranges = ranges[::10]
-
+      
+       
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
-        config_training_NN = yaml.load(open(os.path.join(PATH_TO_MODELS, NET_NAME, "config_training.yml")), Loader=yaml.FullLoader)
-        config_inputs = np.append(config_training_NN["training_default"]["state_inputs"], config_training_NN["training_default"]["control_inputs"])
+        config_inputs = np.append(self.config_training_NN["training_default"]["state_inputs"], self.config_training_NN["training_default"]["control_inputs"])
         number_of_next_waypoints = 0
         for element in config_inputs:
-            if "WYPT_X" in element:
+            if "WYPT_REL_X" in element:
                 number_of_next_waypoints += 1
 
 
         #Loading next n wypts using waypoint_utils.py
-        self.waypoint_utils.look_ahead_steps = number_of_next_waypoints
-        self.waypoint_utils.update_next_waypoints(s)
-        next_waypoints = self.waypoint_utils.next_waypoint_positions
+        self.waypoint_utils.look_ahead_steps = number_of_next_waypoints # Do at init? 
+        
+        # The NNI planner needs relativa waypoints in any case
+        next_waypoints = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
 
         #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
+        #Load Waypoint Velocities for next n (defined in config.yml) waypoints
+        next_waypoint_vx = self.waypoints[:,5] 
+
+        
+        
         #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
         #Example of all possible inputs in correct order:
         # Order has to stay the same: SAME AS IN Config_training
@@ -113,13 +124,13 @@ class NeuralNetImitatorPlanner:
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((next_waypoints_x, next_waypoints_y,
+        input_data = np.concatenate((next_waypoints_x, next_waypoints_y, next_waypoint_vx,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
-
 
         net_input = tf.convert_to_tensor(input_data, tf.float32)
 
         net_output = self.process_tf(net_input)
+
         net_output = net_output.numpy()
 
         angular_control = float(net_output[0])
@@ -131,16 +142,15 @@ class NeuralNetImitatorPlanner:
             self.simulation_index += 1
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
-            return self.translational_control, self.angular_control
+            return self.angular_control, self.translational_control,
 
-
-        self.translational_control = translational_control
+        self.translational_control = 1.5 * translational_control
         self.angular_control = angular_control
 
 
-        return translational_control, angular_control
+        return angular_control, translational_control 
 
-    @CompileTF
+    @CompileTF 
     def process_tf(self, net_input):
 
         self.net_input_normed.assign(self.normalize_inputs(

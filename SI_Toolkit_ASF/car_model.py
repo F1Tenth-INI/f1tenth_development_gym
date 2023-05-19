@@ -210,14 +210,10 @@ class car_model:
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         # v_x = tf.clip_by_value(v_x, 0.11, 1000)
-        min_vel_x = tf.reduce_min(v_x)
+        # min_vel_x = tf.reduce_min(v_x)
         # if(tf.less(min_vel_x, 0.5)):
         #     return self._step_dynamics_ks(s,Q, params)
 
-        """
-        if(tf.less(min_vel_x, 0.5)):
-            return self._step_dynamics_ks(s,Q, params)
-        """
 
         # Constaints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -230,7 +226,6 @@ class car_model:
 
         #speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
         speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
-
 
         # TODO: Use ks model for slow speed
 
@@ -275,7 +270,6 @@ class car_model:
         slip_angle = beta
         steering_angle = delta
 
-
         s_next_ks = self._step_dynamics_ks(s, Q, None)
         s_next_ts = self.next_step_output(angular_vel_z,
                                           linear_vel_x,
@@ -289,31 +283,32 @@ class car_model:
 
         speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(batch_size,1))
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
-        # next_step = s_next_ts # For ST only
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
         return next_step
 
 
     def steering_constraints(self, steering_angle, steering_velocity):
+
         s_min = self.lib.constant([self.car_parameters['s_min']], self.lib.float32)
         s_max = self.lib.constant([self.car_parameters['s_max']], self.lib.float32)
         sv_min = self.lib.constant([self.car_parameters['sv_min']], self.lib.float32)
         sv_max = self.lib.constant([self.car_parameters['sv_max']], self.lib.float32)
 
-        # Steering angle constraings
-        steering_angle_not_too_low_indices = self.lib.greater(steering_angle, s_min)
-        steering_angle_not_too_low_indices = self.lib.cast(steering_angle_not_too_low_indices, self.lib.float32)
+        steering_velocity_non_negative_indices = self.lib.greater_equal(steering_velocity, 0.0)
+        steering_velocity_non_positive_indices =  self.lib.less_equal(steering_velocity, 0.0)
 
-        steering_angle_not_too_high_indices = self.lib.less(steering_angle, s_max)
-        steering_angle_not_too_high_indices = self.lib.cast(steering_angle_not_too_high_indices, self.lib.float32)
+        steering_angle_too_low_indices = self.lib.less_equal(steering_angle, s_min)
+        steering_angle_too_high_indices = self.lib.greater_equal(steering_angle, s_max)
 
-        steering_velocity = steering_angle_not_too_low_indices * steering_velocity
-        steering_velocity = steering_angle_not_too_high_indices * steering_velocity
+        cond1 = self.lib.logical_and(steering_angle_too_low_indices, steering_velocity_non_positive_indices)
+        cond2 = self.lib.logical_and(steering_angle_too_high_indices, steering_velocity_non_negative_indices)
+        good_steering_velocity_indices = self.lib.cast(self.lib.logical_not(self.lib.logical_or(cond1, cond2)), self.lib.float32)
+
+        steering_velocity = good_steering_velocity_indices * steering_velocity
 
         # Steering velocity is constrainted
         steering_velocity = self.lib.clip(steering_velocity, sv_min, sv_max)
-
 
         return steering_velocity
 
@@ -396,17 +391,17 @@ class car_model:
 
         speed_difference = desired_speed - current_speed
 
-        forward_indices = tf.cast(tf.math.greater(tf.math.abs(current_speed), 0.0), tf.float32)
-        backward_indices = tf.cast(tf.math.less(tf.math.abs(current_speed), 0.0), tf.float32)
+        forward_indices = tf.cast(tf.math.greater(current_speed, 0.0), tf.float32)
+        backward_indices = tf.cast(tf.math.less_equal(current_speed, 0.0), tf.float32)
 
-        forward_accelerating_indices = forward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+        forward_accelerating_indices = forward_indices * tf.cast(tf.math.greater(speed_difference, 0.0),
                                                                  tf.float32)
-        forward_breaking_indices = forward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+        forward_breaking_indices = forward_indices * tf.cast(tf.math.less_equal(speed_difference, 0.0),
                                                              tf.float32)
 
-        backward_accelerating_indices = backward_indices * tf.cast(tf.math.less(tf.math.abs(speed_difference), 0.0),
+        backward_accelerating_indices = backward_indices * tf.cast(tf.math.less_equal(speed_difference, 0.0),
                                                                    tf.float32)
-        backward_breaking_indices = backward_indices * tf.cast(tf.math.greater(tf.math.abs(speed_difference), 0.0),
+        backward_breaking_indices = backward_indices * tf.cast(tf.math.greater(speed_difference, 0.0),
                                                                tf.float32)
 
         # fwd accl

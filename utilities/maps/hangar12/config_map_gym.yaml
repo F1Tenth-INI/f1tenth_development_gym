@@ -1,0 +1,17 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps/hangar12/hangar12'
+waypoint_path: 'utilities/maps/hangar12/hangar12_wp'
+
+# starting pose for map
+starting_positions: 
+ - [0., 0., 0.0]
+ - [2.378440,0.921101,-0.039476]
+ - [9.400626,-4.476907,-2.840866]
+ - [1.138679,-2.842762,3.105250]
+ - [-4.109233,-5.531894,-2.656031]
+
+waypoints:
+  decrease_resolution_factor: 1
+  ignore_waypoints: 1

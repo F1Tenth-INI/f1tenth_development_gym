@@ -31,7 +31,18 @@ waypoints_positions = waypoint_utils.next_waypoint_positions
 waypoints = waypoint_utils.next_waypoints
 
 '''
-     
+
+
+# Indices of waypoint
+WP_S_IDX = 0 # Distance since start
+WP_X_IDX = 1 # Position x
+WP_Y_IDX = 2 # Position y
+WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
+WP_KAPPA_IDX = 4 # Relative angle
+WP_VX_IDX = 5 # Suggested velocity 
+WP_A_X_IDX = 6 # Suggested acceleration
+
+
 class WaypointUtils:
     
     def __init__(self):
@@ -47,7 +58,8 @@ class WaypointUtils:
         self.original_waypoints = WaypointUtils.load_waypoints()
         
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
-        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.original_waypoints, self.interpolation_steps) #increased resolution
+        self.waypoints = WaypointUtils.correct_velocity(self.original_waypoints)
+        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoints, self.interpolation_steps) #increased resolution
         self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor) # decreased resolution
         self.waypoints = WaypointUtils.remove_duplicates(self.waypoints)
 
@@ -63,6 +75,7 @@ class WaypointUtils:
          # next waypoints considering ignored waypoints index offset
         self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
+        self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
 
         if(self.waypoints is None):
@@ -91,7 +104,8 @@ class WaypointUtils:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)  
         else: # only look for next waypoint in the current waypoint cache
-            nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
+            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position,  self.waypoints)
+            # nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
 
         next_waypoints_including_ignored = []
         for j in range(self.look_ahead_steps + self.ignore_steps):
@@ -103,29 +117,9 @@ class WaypointUtils:
         self.current_waypoint_cache = next_waypoints_including_ignored
         
         self.next_waypoint_positions = WaypointUtils.get_waypoint_positions(self.next_waypoints)
+        self.next_waypoint_positions_relative = WaypointUtils.get_relative_positions(self.next_waypoints, car_state)
+        
         self.nearest_waypoint_index = nearest_waypoint_index
-
-        next_waypoints_x_absolute = self.next_waypoint_positions[:,0]
-        next_waypoints_y_absolute = self.next_waypoint_positions[:,1]
-
-
-        if Settings.USE_WAYPOINTS == 'relative':
-            ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
-            # translation by x and y coordinate of car
-            next_waypoints_x_after_translation = next_waypoints_x_absolute - car_position[0]
-            next_waypoints_y_after_translation = next_waypoints_y_absolute - car_position[1]
-
-            # Rotation (counterclockwise):
-            next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_cos_theta + next_waypoints_y_after_translation * car_sin_theta, 4)
-            next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * -car_sin_theta + next_waypoints_y_after_translation * car_cos_theta, 4)
-
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
-
-        elif Settings.USE_WAYPOINTS == 'absolute':
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
-
-        else:
-            self.next_waypoint_positions = np.column_stack((next_waypoints_x_absolute, next_waypoints_y_absolute))
 
 
     @staticmethod
@@ -219,4 +213,45 @@ class WaypointUtils:
     
         unique_waypoints = waypoints[unique_indices, :]
         return np.array(unique_waypoints)
+    
+    @staticmethod
+    def get_relative_positions(waypoints, car_state):
+        waypoints_x_absolute = waypoints[:,WP_X_IDX]
+        waypoints_y_absolute = waypoints[:,WP_Y_IDX]
+     
+        ### Coordinate transformation to describe waypoint position relative to car position, x-axis points through windshield, y-axis to the left of the driver            # Translation:
+        # translation by x and y coordinate of car
+        next_waypoints_x_after_translation = waypoints_x_absolute - car_state[POSE_X_IDX]
+        next_waypoints_y_after_translation = waypoints_y_absolute - car_state[POSE_Y_IDX]
+
+        # Rotation (counterclockwise):
+        next_waypoints_x_relative = np.round( next_waypoints_x_after_translation * car_state[POSE_THETA_COS_IDX] + next_waypoints_y_after_translation *  car_state[POSE_THETA_SIN_IDX], 4)
+        next_waypoints_y_relative = np.round( next_waypoints_x_after_translation * - car_state[POSE_THETA_SIN_IDX] + next_waypoints_y_after_translation *  car_state[POSE_THETA_COS_IDX], 4)
+
+        next_waypoint_positions_relative = np.column_stack((next_waypoints_x_relative, next_waypoints_y_relative))
+        return next_waypoint_positions_relative
+    
+    @staticmethod
+    def correct_velocity(waypoints):
+        
+        speed_scaling_pth = os.path.join('utilities/maps/hangar12/speed_scaling.yaml')
+        speed_scaling_config = yaml.load(open(speed_scaling_pth, "r"), Loader=yaml.FullLoader)
+        
+        speed_scaling_array = np.zeros(waypoints.shape[0]+2)
+        
+        global_limit = speed_scaling_config['global_limit']
+        n_sectors = speed_scaling_config['n_sectors']
+        for i in range(n_sectors):
+            sector = speed_scaling_config['Sector'+str(i)]
+            for j in range(sector['start'], sector['end']+1):
+                speed_scaling_array[j] = sector['scaling']
+      
+        # TODO: Interpolate at edges
+        
+        speed_scaling_array = np.array(speed_scaling_array[:-2])
+        speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
+                
+        waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
+        return waypoints
+
          
