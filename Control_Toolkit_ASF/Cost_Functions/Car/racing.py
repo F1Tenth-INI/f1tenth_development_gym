@@ -64,6 +64,7 @@ class racing(f1t_cost_function):
                 + cc
                 + ccrc
                 + angular_velocity_cost
+                + angle_difference_to_wp_cost
                 # + steering_cost
                 # + acceleration_cost
                 # + speed_control_difference_to_wp_cost
