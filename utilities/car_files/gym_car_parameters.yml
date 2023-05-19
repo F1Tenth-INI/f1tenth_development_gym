@@ -1,4 +1,4 @@
-# Physical Car parameters
+# Simulator engine Car parameters
 mu: 1.0489    # friction coefficient  [-]
 C_Sf: 4.718   # cornering stiffness front [1/rad]
 C_Sr: 5.4562  # cornering stiffness rear [1/rad]
