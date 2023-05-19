@@ -8,6 +8,8 @@ def get_feature_label(feature):
         label = "Pole's Angular Velocity [deg/s]"
     elif feature == 'angle_cos':
         ...
+    elif feature == 'mu':
+        label = "Friction coefficient"
     else:
         label = feature
 
