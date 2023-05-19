@@ -32,6 +32,7 @@ class CarSystem:
         # Settings
         self.plot_lidar_data = False
         self.draw_lidar_data = True
+        self.save_recordings = Settings.SAVE_RECORDINGS
         self.lidar_visualization_color = (255, 0, 255)
                 
         # TODO: Move to a config file ( which one tho?)
@@ -148,7 +149,7 @@ class CarSystem:
         )
         self.render_utils.update_obstacles(obstacles)
 
-        if (Settings.SAVE_RECORDINGS):
+        if (self.save_recordings):
             self.recorder.get_data(
                 control_inputs_calculated=(self.translational_control, self.angular_control),
                 odometry=ego_odom, 
