@@ -68,8 +68,6 @@ class mpc_planner:
         self.target_point = np.array([0, 0], dtype=np.float32)
 
         if Settings.ENVIRONMENT_NAME == 'Car':
-            num_states = 9
-            num_control_inputs = 2
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
             else:  # MPC returns acceleration and steering velocity
@@ -88,8 +86,6 @@ class mpc_planner:
                     "target_point": self.target_point
 
                 },
-                num_states=num_states,
-                num_control_inputs=num_control_inputs,
                 control_limits=(control_limits_low, control_limits_high),
             )
         else:
