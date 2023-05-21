@@ -57,15 +57,20 @@ class LIDAR:
     def get_processed_lidar_distances(self, all_lidar_scans):
         self.processed_scans = all_lidar_scans[self.processed_scan_indices]
 
-    def get_lidar_points_in_map_coordinates_from_processed_scans(self, processed_lidar_scans, car_x, car_y, car_yaw):
-        p1 = car_x + processed_lidar_scans * np.cos(self.processed_angles_rad + car_yaw)
-        p2 = car_y + processed_lidar_scans * np.sin(self.processed_angles_rad + car_yaw)
-        self.points_map_coordinates[...] = np.stack((p1, p2), axis=1)
-        return self.points_map_coordinates
+    @staticmethod
+    def get_lidar_points_in_map_coordinates_from_processed_scans(
+            processed_lidar_scans,
+            processed_angles_rad,
+            car_x, car_y, car_yaw):
+        p1 = car_x + processed_lidar_scans * np.cos(processed_angles_rad + car_yaw)
+        p2 = car_y + processed_lidar_scans * np.sin(processed_angles_rad + car_yaw)
+        return np.stack((p1, p2), axis=1)
 
     def get_lidar_points_in_map_coordinates_from_all_scans(self, all_lidar_scans, car_x, car_y, car_yaw):
         self.get_processed_lidar_distances(all_lidar_scans)
-        self.get_lidar_points_in_map_coordinates_from_processed_scans(self.processed_scans, car_x, car_y, car_yaw)
+        self.points_map_coordinates[...] = self.get_lidar_points_in_map_coordinates_from_processed_scans(
+            self.processed_scans, self.processed_angles_rad, car_x, car_y, car_yaw
+        )
         return self.points_map_coordinates
 
     def reinitialized_LIDAR_with_custom_processed_scan_indices(self, processed_scan_indices):

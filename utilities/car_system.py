@@ -14,7 +14,7 @@ from f110_gym.envs.dynamic_models import pid
 from utilities.state_utilities import *
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 from utilities.obstacle_detector import ObstacleDetector
-from utilities.util import Utils
+from utilities.lidar_utils import LIDAR
 
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
@@ -36,6 +36,7 @@ class CarSystem:
         self.plot_lidar_data = False
         self.draw_lidar_data = True
         self.lidar_visualization_color = (255, 0, 255)
+        self.LIDAR = LIDAR()
                 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -112,7 +113,8 @@ class CarSystem:
         
         car_state = self.car_state
         ranges = np.array(ranges)
-        lidar_points = Utils.get_lidar_posisions(ranges, car_state)
+        lidar_points = self.LIDAR.get_lidar_points_in_map_coordinates_from_processed_scans(
+            ranges, self.LIDAR.scan_angles_all_rad, car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
         self.waypoint_utils.update_next_waypoints(car_state)
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
