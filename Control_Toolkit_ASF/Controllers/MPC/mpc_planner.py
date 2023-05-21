@@ -3,6 +3,7 @@ import numpy as np
 import math
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
+from utilities.lidar_utils import LIDAR
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -38,8 +39,6 @@ class mpc_planner:
         self.translational_control = None
         self.angular_control = None
 
-        self.lidar_live_points = []
-        self.lidar_scan_angles = np.linspace(-2.35, 2.35, 1080)
         self.simulation_index = 0
 
         self.largest_gap_middle_point = None
@@ -49,24 +48,15 @@ class mpc_planner:
 
         self.time = 0.0
 
-
         self.waypoint_utils=WaypointUtils()   # Only needed for initialization
         self.waypoints = self.waypoint_utils.next_waypoints
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
-        self.lidar_decimation = 25
-        if Settings.LOOK_FORWARD_ONLY:
-            self.lidar_range_min = 200
-            self.lidar_range_max = 880
-        else:
-            self.lidar_range_min = 0
-            self.lidar_range_max = -1
+        self.LIDAR = LIDAR()
+        self.lidar_points = self.LIDAR.points_map_coordinates
 
-        self.lidar_points = np.zeros((1080, 2), dtype=np.float32)
-        self.lidar_points = self.lidar_points[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]
         self.target_point = np.array([0, 0], dtype=np.float32)
-
         if Settings.ENVIRONMENT_NAME == 'Car':
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
@@ -123,14 +113,9 @@ class mpc_planner:
             self.angular_control = 0
             return self.angular_control, self.translational_control
 
-            
-        distances = ranges[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]  # Only use every 5th lidar point
-        angles = self.lidar_scan_angles[self.lidar_range_min:self.lidar_range_max:self.lidar_decimation]
-
-        p1 = s[POSE_X_IDX] + distances * np.cos(angles + s[POSE_THETA_IDX])
-        p2 = s[POSE_Y_IDX] + distances * np.sin(angles + s[POSE_THETA_IDX])
-        self.lidar_points = np.stack((p1, p2), axis=1)
-
+        self.lidar_points = self.LIDAR.get_lidar_points_in_map_coordinates_from_all_scans(
+            ranges, s[POSE_X_IDX], s[POSE_Y_IDX], s[POSE_THETA_IDX]
+        )
 
         self.target_point = [0, 0]  # don't need the target point for racing anymore
 
@@ -184,8 +169,6 @@ class mpc_planner:
         self.simulation_index += 1
 
         return angular_control, translational_control
-
-
 
 
 def get_control_limits(clip_control_input):

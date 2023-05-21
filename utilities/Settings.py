@@ -82,7 +82,11 @@ class Settings():
 
     FOLLOW_RANDOM_TARGETS = False
 
-    LOOK_FORWARD_ONLY = False # If false the max range of LIDAR is considered, otherwise only forward cone
+    LIDAR_MODE = 'decimation'  # possible: 'decimation', 'custom indices'
+    LIDAR_PROCESSED_ANGLE_DEG = 'max'  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
+    LIDAR_DECIMATION = 25  # Only taken into account if LIDAR_MODE is 'decimation'
+
+
 
     ## Pure Pursuit Controller ##
     PP_WAYPOINT_VELOCITY_FACTOR = 0.55
