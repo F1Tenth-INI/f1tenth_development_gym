@@ -93,7 +93,7 @@ class mpc_planner:
 
         self.mpc.configure()
         
-        self.car_state = [0,0,0,0,0,0,0]
+        self.car_state = None
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
