@@ -27,12 +27,15 @@ else:
 
 class CarSystem:
     
-    def __init__(self, controller=None):
-        
+    def __init__(self, controller=None, save_recording = True):
+
+        self.time = 0.0
+        self.time_increment = Settings.TIMESTEP_CONTROL
+
         # Settings
         self.plot_lidar_data = False
         self.draw_lidar_data = True
-        self.save_recordings = Settings.SAVE_RECORDINGS
+        self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
                 
         # TODO: Move to a config file ( which one tho?)
@@ -51,7 +54,9 @@ class CarSystem:
         self.waypoint_utils = WaypointUtils()
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
-        self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL)
+        self.save_recording = save_recording
+        if(save_recording):
+            self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL)
         self.obstacle_detector = ObstacleDetector()
         
         # Planner
@@ -149,7 +154,9 @@ class CarSystem:
         )
         self.render_utils.update_obstacles(obstacles)
 
-        if (self.save_recordings):
+        
+        self.time = self.control_index*self.time_increment
+        if (Settings.SAVE_RECORDINGS and self.save_recordings):
             self.recorder.get_data(
                 control_inputs_calculated=(self.translational_control, self.angular_control),
                 odometry=ego_odom, 
@@ -157,7 +164,7 @@ class CarSystem:
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                time=self.control_index * Settings.TIMESTEP_CONTROL
+                time=self.time
             )     
         
         self.control_index += 1
