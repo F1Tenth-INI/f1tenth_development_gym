@@ -14,6 +14,7 @@ from utilities.car_system import CarSystem
 import pandas as pd
 
 from f110_gym.envs.dynamic_models import pid
+from f110_gym.envs.base_classes import wrap_angle_rad
 
 # Utilities
 from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
@@ -65,6 +66,15 @@ def main():
 
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+
+    if Settings.REVERSE_DIRECTION:
+        new_starting_positions = []
+        starting_positions = conf_dict['starting_positions']
+        for starting_position in starting_positions:
+            starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
+            new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
+        conf_dict['starting_positions'] = new_starting_positions
+
     conf = Namespace(**conf_dict)
 
     ###Loading neural network for slip steer estimation -> specify net name in Settings

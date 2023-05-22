@@ -134,6 +134,10 @@ class WaypointUtils:
             return None
 
         path = map_config["waypoint_path"]
+
+        if Settings.REVERSE_DIRECTION:
+            path = path + '_reverse'
+
         file_path = path + '.csv'
         print(file_path)
         try: # Check if waypoint file exists
@@ -232,8 +236,12 @@ class WaypointUtils:
     
     @staticmethod
     def correct_velocity(waypoints):
-        
-        speed_scaling_pth = os.path.join('utilities/maps/'+Settings.MAP_NAME+'/speed_scaling.yaml')
+
+        if Settings.REVERSE_DIRECTION:
+            path_reverse = '_reverse'
+        else:
+            path_reverse  = ''
+        speed_scaling_pth = os.path.join('utilities/maps/'+Settings.MAP_NAME+'/speed_scaling'+path_reverse+'.yaml')
         speed_scaling_config = yaml.load(open(speed_scaling_pth, "r"), Loader=yaml.FullLoader)
         
         speed_scaling_array = np.zeros(waypoints.shape[0]+2)

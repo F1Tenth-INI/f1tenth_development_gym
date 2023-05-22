@@ -13,6 +13,7 @@ class Settings():
     MAP_NAME = "hangar14" # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
+    REVERSE_DIRECTION = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
