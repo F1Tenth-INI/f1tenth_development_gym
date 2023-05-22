@@ -87,8 +87,8 @@ class NeuralNetImitatorPlanner:
         s = self.car_state
 
         #code for Lidar bounds and Lidar data reduction
-        ranges = ranges[200:880]
-        ranges = ranges[::10]
+        # ranges = ranges[200:880]
+        ranges = ranges[::25]
       
        
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
@@ -109,7 +109,7 @@ class NeuralNetImitatorPlanner:
         next_waypoints_x = next_waypoints[:,0]
         next_waypoints_y = next_waypoints[:,1]
 
-        #Load Waypoint Velocities for next n (defined in config.yml) waypoints
+        #Load Waypoint Velocities for next n (defined in Settings) waypoints
         next_waypoint_vx = self.waypoints[:,5] 
 
         
@@ -124,7 +124,7 @@ class NeuralNetImitatorPlanner:
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((next_waypoints_x, next_waypoints_y, next_waypoint_vx,
+        input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y, next_waypoint_vx,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
         net_input = tf.convert_to_tensor(input_data, tf.float32)
@@ -144,7 +144,7 @@ class NeuralNetImitatorPlanner:
             self.angular_control = 0
             return self.angular_control, self.translational_control,
 
-        self.translational_control = 1.5 * translational_control
+        self.translational_control = 1.0 * translational_control
         self.angular_control = angular_control
 
 

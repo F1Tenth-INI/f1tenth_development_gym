@@ -65,6 +65,7 @@ class racing(f1t_cost_function):
                 + ccrc
                 + angular_velocity_cost
                 + angle_difference_to_wp_cost
+                + speed_control_difference_to_wp_cost
                 # + steering_cost
                 # + acceleration_cost
                 # + speed_control_difference_to_wp_cost
@@ -72,7 +73,7 @@ class racing(f1t_cost_function):
                 # + cost_for_stopping
             )
 
-        discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
+        discount_vector = self.lib.ones_like(s[0, :, 0])*0.98 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
         discount_vector = self.lib.cumprod(discount_vector, 0)
 
         # Read out values for cost weight callibration: Uncomment for debugging

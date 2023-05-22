@@ -1,13 +1,4 @@
 LIDAR:
   covered_angle_deg: 270  # covered angle in def, symmetrically around the centre of the car
   num_scans: 1080  # Number of lidar scanning the total covered angle; lidar resolution in deg is covered_angle/num_scans
-
-planner:
-  #CLIP_CONTROL_INPUT: [ 1.02, 20 ]         # How to clip control input, symmetric: use with PID
-  CLIP_CONTROL_INPUT: [3.2, 9.5 ]            # How to clip control input, symmetric: use without PID [angular_control, translational_control]
-
-waypoints:
-  LOOK_AHEAD_STEPS: 15                    # Number of original waypoints that are considered for cost
-  INTERPOLATION_STEPS: 1                  # >= 1 Interpolation steps to increase waypoint resolution
-  DECREASE_RESOLUTION_FACTOR: 4           # >= 1 Only take every n^th waypoint to decrease resolution
-  IGNORE_STEPS: 1                        # Number of interpolated waypoints to ignore starting at the closest one
+          # How to clip control input, symmetric: use without PID [angular_control, translational_control]
