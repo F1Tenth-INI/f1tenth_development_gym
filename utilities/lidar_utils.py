@@ -1,4 +1,3 @@
-import yaml
 import numpy as np
 from utilities.Settings import Settings
 
@@ -6,11 +5,10 @@ class LidarHelper:
     def __init__(self):
 
         # General information about lidar
-        config = yaml.load(open("config.yml"),
-                                         Loader=yaml.FullLoader)
-        self.covered_angle_deg = config['LIDAR']['covered_angle_deg']
+
+        self.covered_angle_deg = Settings.LIDAR_COVERED_ANGLE_DEG
         self.covered_angle_rad = np.deg2rad(self.covered_angle_deg)
-        self.num_scans_total = config['LIDAR']['num_scans']
+        self.num_scans_total = Settings.LIDAR_NUM_SCANS
 
         self.scan_angles_all_rad = np.linspace(
             -self.covered_angle_rad/2.0,
