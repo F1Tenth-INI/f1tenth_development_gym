@@ -48,6 +48,7 @@ class mpc_planner:
 
         self.time = 0.0
 
+
         self.waypoint_utils=WaypointUtils()   # Only needed for initialization
         self.waypoints = self.waypoint_utils.next_waypoints
 
