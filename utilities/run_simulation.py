@@ -21,6 +21,12 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 
 from time import sleep
 
+
+if Settings.DISABLE_GPU:
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
 Settings.ROS_BRIDGE = False # No ros bridge if this script is running
 
 # Noise Level can now be set in Settings.py
@@ -47,21 +53,26 @@ def main():
     # First planner settings
     driver1 = CarSystem(Settings.CONTROLLER)
     
-    driver2 = CarSystem('pp')
-    driver3 = CarSystem('pp')
-    driver4 = CarSystem('pp')
-    driver5 = CarSystem('pp')
-    driver2.planner.waypoint_velocity_factor = 0.5
-    driver3.planner.waypoint_velocity_factor = 0.5
-    driver4.planner.waypoint_velocity_factor = 0.5
-    driver5.planner.waypoint_velocity_factor = 0.5
+    # driver2 = CarSystem('pp')
+    # driver3 = CarSystem('pp')
+    # driver4 = CarSystem('pp')
+    # driver5 = CarSystem('pp')
+    # driver2.planner.waypoint_velocity_factor = 0.5
+    # driver3.planner.waypoint_velocity_factor = 0.5
+    # driver4.planner.waypoint_velocity_factor = 0.5
+    # driver5.planner.waypoint_velocity_factor = 0.5
+    # driver2.save_recordings = False
+    # driver3.save_recordings = False
+    # driver4.save_recordings = False
+    # driver5.save_recordings = False
 
 
     # second planner
     # driver2 = CarSystem()
    
     ##################### DEFINE DRIVERS HERE #####################
-    drivers = [driver1, driver2, driver3, driver4, driver5]
+    # drivers = [driver1, driver2, driver3, driver4, driver5]
+    drivers = [driver1]
     ###############################################################
 
     number_of_drivers = len(drivers)
@@ -219,7 +230,8 @@ def main():
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
-                driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
+                if(driver.save_recordings):
+                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
@@ -241,12 +253,14 @@ def main():
 
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
-                driver.recorder.save_data()
+                if(driver.save_recordings):
+                    driver.recorder.save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
-            driver.recorder.plot_data()
+            if(driver.save_recordings):
+                driver.recorder.plot_data()
     
     env.close()
 
