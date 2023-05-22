@@ -95,7 +95,11 @@ class mpc_planner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        super().process_observation(ranges, ego_odom)
+        self.LIDAR.load_lidar_measurement(ranges)
+
+        self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
+            self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
+        )
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
