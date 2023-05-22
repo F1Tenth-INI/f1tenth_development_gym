@@ -3,7 +3,7 @@ import numpy as np
 import math
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
-from utilities.lidar_utils import LIDAR
+from utilities.lidar_utils import LidarHelper
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -53,7 +53,7 @@ class mpc_planner:
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
-        self.LIDAR = LIDAR()
+        self.LIDAR = LidarHelper()
         self.lidar_points = self.LIDAR.points_map_coordinates
 
         self.target_point = np.array([0, 0], dtype=np.float32)
@@ -113,8 +113,9 @@ class mpc_planner:
             self.angular_control = 0
             return self.angular_control, self.translational_control
 
-        self.lidar_points = self.LIDAR.get_lidar_points_in_map_coordinates_from_all_scans(
-            ranges, s[POSE_X_IDX], s[POSE_Y_IDX], s[POSE_THETA_IDX]
+        self.LIDAR.load_lidar_measurement(ranges)
+        self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
+            s[POSE_X_IDX], s[POSE_Y_IDX], s[POSE_THETA_IDX]
         )
 
         self.target_point = [0, 0]  # don't need the target point for racing anymore

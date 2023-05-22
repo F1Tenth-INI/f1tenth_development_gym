@@ -27,10 +27,6 @@ gym_path = get_gym_path()
 config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
 waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
 
-
-ranges_decimate = True  # If true, saves only every tenth LIDAR scan
-ranges_forward_only = False # Only LIDAR scans in forward direction are saved
-
 rounding_decimals = 5
 
 path_to_experiment_recordings = 'ExperimentRecordings/'
@@ -98,12 +94,10 @@ def create_csv_header(path_to_recordings,
 
 
 class Recorder:
-    def __init__(self, controller_name=None, create_header=True, dt=None):
+    def __init__(self, controller_name=None, create_header=True, dt=None, lidar=None):
 
         self.dt = dt
 
-        self.ranges_decimate = ranges_decimate
-        self.ranges_forward_only = ranges_forward_only
         self.path_to_experiment_recordings = path_to_experiment_recordings
 
         if controller_name is None:
@@ -114,6 +108,8 @@ class Recorder:
         self.rounding_decimals = 3
 
         self.headers_already_saved = False
+
+        self.lidar = lidar
 
         self.keys_time = None
         self.keys_mu = None
@@ -150,20 +146,12 @@ class Recorder:
 
 
 #ToDo safe upper/lower bound of ranges and filter in config.yml
-    def get_ranges(self, ranges):
-
-        ranges_to_save = ranges
-        if ranges_forward_only:
-            ranges_to_save = ranges_to_save[200:880]
-
-        if self.ranges_decimate:
-            ranges_to_save = ranges_to_save[::25]
+    def get_ranges(self):
 
         if self.keys_ranges is None:
-            #Initialise
-            self.keys_ranges = ['LIDAR_'+str(i).zfill(4) for i in range(len(ranges_to_save))]
+            self.keys_ranges = ['LIDAR_'+str(i).zfill(4) for i in self.lidar.processed_scan_indices]
 
-        self.ranges_dict = dict(zip(self.keys_ranges, ranges_to_save))
+        self.ranges_dict = dict(zip(self.keys_ranges, self.lidar.processed_scans))
 
     def get_odometry(self, odometry_dict):
         self.odometry_dict = odometry_dict
@@ -252,8 +240,8 @@ class Recorder:
             self.get_odometry(odometry_dict=odometry)
         if state is not None:
             self.get_state(state=state)
-        if ranges is not None:
-            self.get_ranges(ranges=ranges)
+        if self.lidar is not None:
+            self.get_ranges()
         if next_waypoints is not None and len(next_waypoints) > 0:
             self.get_next_waypoints(next_waypoints=next_waypoints)
         if next_waypoints_relative is not None and len(next_waypoints_relative) > 0:
