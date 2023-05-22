@@ -1,4 +1,0 @@
-LIDAR:
-  covered_angle_deg: 270  # covered angle in def, symmetrically around the centre of the car
-  num_scans: 1080  # Number of lidar scanning the total covered angle; lidar resolution in deg is covered_angle/num_scans
-          # How to clip control input, symmetric: use without PID [angular_control, translational_control]

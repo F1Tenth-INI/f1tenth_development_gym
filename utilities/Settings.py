@@ -89,6 +89,9 @@ class Settings():
 
     FOLLOW_RANDOM_TARGETS = False
 
+    LIDAR_COVERED_ANGLE_DEG = 270
+    LIDAR_NUM_SCANS = 1080
+
     LIDAR_MODE = 'decimation'  # possible: 'decimation', 'custom indices'
     LIDAR_PROCESSED_ANGLE_DEG = 'max'  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
     LIDAR_DECIMATION = 25  # Only taken into account if LIDAR_MODE is 'decimation'
