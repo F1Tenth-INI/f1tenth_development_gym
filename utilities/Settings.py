@@ -15,6 +15,9 @@ class Settings():
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
+    NUMBER_OF_OPPONENTS = 4
+    OPPONENTS_CONTROLLER = 'pp'
+    OPPONENTS_VEL_FACTOR = 0.5
 
     DISABLE_AUTOMATIC_TIMEOUT = True
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
