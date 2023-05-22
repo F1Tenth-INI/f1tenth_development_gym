@@ -10,11 +10,11 @@ Car:
     ccrc_weight: 10.0
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
-    distance_to_waypoints_cost_weight: 1.0
+    distance_to_waypoints_cost_weight: 5.0
     velocity_diff_to_waypoints_cost_weight: 0.0
-    angular_velocity_cost_weight: 0.0005
-    angle_difference_to_wp_cost_weight: 2.5
-    speed_control_diff_to_waypoints_cost_weight: 10.0  # Penalize difference between desired speed of control and the position's closest waypoint
+    angular_velocity_cost_weight: 0.001
+    angle_difference_to_wp_cost_weight: 10.
+    speed_control_diff_to_waypoints_cost_weight: 100.0  # Penalize difference between desired speed of control and the position's closest waypoint
     
     slipping_cost_weight: 0.01
     steering_cost_weight: 0.0

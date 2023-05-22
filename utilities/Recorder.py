@@ -310,8 +310,8 @@ class Recorder:
         times = df['time'].to_numpy()[1:]
         pos_xs = df['pose_x'].to_numpy()[1:]
         pos_ys = df['pose_y'].to_numpy()[1:]
-        angular_controls = df['angular_control_applied'].to_numpy()[1:]
-        translational_controls = df['translational_control_applied'].to_numpy()[1:]   
+        angular_controls = df['angular_control_calculated'].to_numpy()[1:]
+        translational_controls = df['translational_control_calculated'].to_numpy()[1:]   
         
         # Plot position
         plt.title("Position")
