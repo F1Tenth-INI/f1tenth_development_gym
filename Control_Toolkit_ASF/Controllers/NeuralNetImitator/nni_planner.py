@@ -89,6 +89,13 @@ class NeuralNetImitatorPlanner:
         #code for Lidar bounds and Lidar data reduction
         # ranges = ranges[200:880]
         ranges = ranges[::25]
+        for index, range in enumerate(ranges):
+            if(range < 0.1): range = 10
+        ranges[0] = ranges[2]
+        ranges[1] = ranges[2]
+        ranges[-1] = ranges[-3]
+        ranges[-2] = ranges[-3]
+        
       
        
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
