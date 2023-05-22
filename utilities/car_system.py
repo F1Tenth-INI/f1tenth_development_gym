@@ -14,7 +14,7 @@ from f110_gym.envs.dynamic_models import pid
 from utilities.state_utilities import *
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 from utilities.obstacle_detector import ObstacleDetector
-from utilities.lidar_utils import LIDAR
+from utilities.lidar_utils import LidarHelper
 
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
@@ -36,7 +36,7 @@ class CarSystem:
         self.plot_lidar_data = False
         self.draw_lidar_data = True
         self.lidar_visualization_color = (255, 0, 255)
-        self.LIDAR = LIDAR()
+        self.LIDAR = LidarHelper()
                 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -54,7 +54,8 @@ class CarSystem:
         self.waypoint_utils = WaypointUtils()
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
-        self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL)
+
+        self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL, lidar=self.LIDAR)
         self.obstacle_detector = ObstacleDetector()
         
         # Planner
@@ -113,8 +114,9 @@ class CarSystem:
         
         car_state = self.car_state
         ranges = np.array(ranges)
-        lidar_points = self.LIDAR.get_lidar_points_in_map_coordinates_from_processed_scans(
-            ranges, self.LIDAR.scan_angles_all_rad, car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
+        self.LIDAR.load_lidar_measurement(ranges)
+        lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
+            car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
         self.waypoint_utils.update_next_waypoints(car_state)
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
@@ -156,8 +158,7 @@ class CarSystem:
         if (Settings.SAVE_RECORDINGS):
             self.recorder.get_data(
                 control_inputs_calculated=(self.translational_control, self.angular_control),
-                odometry=ego_odom, 
-                ranges=ranges, 
+                odometry=ego_odom,
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,

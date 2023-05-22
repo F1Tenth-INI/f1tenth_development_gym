@@ -2,7 +2,7 @@ import yaml
 import numpy as np
 from utilities.Settings import Settings
 
-class LIDAR:
+class LidarHelper:
     def __init__(self):
 
         # General information about lidar
@@ -49,29 +49,30 @@ class LIDAR:
 
         self.processed_number_of_scans = len(self.processed_scan_indices)
         self.processed_angles_rad = self.scan_angles_all_rad[self.processed_scan_indices]
+        self.all_lidar_scans = None
         self.processed_scans = None
 
         self.points_relative_to_car = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
         self.points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
 
-    def get_processed_lidar_distances(self, all_lidar_scans):
+    def load_lidar_measurement(self, all_lidar_scans):
+        self.all_lidar_scans = all_lidar_scans
         self.processed_scans = all_lidar_scans[self.processed_scan_indices]
 
     @staticmethod
-    def get_lidar_points_in_map_coordinates_from_processed_scans(
-            processed_lidar_scans,
-            processed_angles_rad,
+    def get_lidar_points_in_map_coordinates_from_scans(
+            lidar_scans,
+            angles_rad,
             car_x, car_y, car_yaw):
-        p1 = car_x + processed_lidar_scans * np.cos(processed_angles_rad + car_yaw)
-        p2 = car_y + processed_lidar_scans * np.sin(processed_angles_rad + car_yaw)
+        p1 = car_x + lidar_scans * np.cos(angles_rad + car_yaw)
+        p2 = car_y + lidar_scans * np.sin(angles_rad + car_yaw)
         return np.stack((p1, p2), axis=1)
 
-    def get_lidar_points_in_map_coordinates_from_all_scans(self, all_lidar_scans, car_x, car_y, car_yaw):
-        self.get_processed_lidar_distances(all_lidar_scans)
-        self.points_map_coordinates[...] = self.get_lidar_points_in_map_coordinates_from_processed_scans(
-            self.processed_scans, self.processed_angles_rad, car_x, car_y, car_yaw
-        )
-        return self.points_map_coordinates
+    def get_all_lidar_points_in_map_coordinates(self, car_x, car_y, car_yaw):
+        return self.get_lidar_points_in_map_coordinates_from_scans(self.all_lidar_scans, self.scan_angles_all_rad, car_x, car_y, car_yaw)
+
+    def get_processed_lidar_points_in_map_coordinates(self, car_x, car_y, car_yaw):
+        return self.get_lidar_points_in_map_coordinates_from_scans(self.processed_scans, self.processed_angles_rad, car_x, car_y, car_yaw)
 
     def reinitialized_LIDAR_with_custom_processed_scan_indices(self, processed_scan_indices):
         self.processed_scan_indices = processed_scan_indices
