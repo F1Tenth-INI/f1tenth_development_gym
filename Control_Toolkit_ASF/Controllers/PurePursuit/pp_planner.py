@@ -8,27 +8,28 @@ from utilities.Settings import Settings
 
 from utilities.waypoint_utils import *
 
-
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
+from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.state_utilities import *
 
 '''
 Example PP planner, adapted to our system
 '''
-class PurePursuitPlanner:
+class PurePursuitPlanner(template_planner):
     """
     Example Planner
     """
 
     def __init__(self):
+
+        super().__init__()
     
         print("Initializing PP Planner")
         car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
-        
-        self.waypoints = None
+
         self.speed = 1.
 
         
@@ -75,12 +76,6 @@ class PurePursuitPlanner:
             return np.append(wpts[i, :], waypoints[i, 5])
         else:
             return None
-    
-    def set_waypoints(self, waypoints):
-        self.waypoints = waypoints
-        
-    def set_car_state(self, car_state):
-        self.car_state = car_state
         
         
     def process_observation(self, ranges=None, ego_odom=None):

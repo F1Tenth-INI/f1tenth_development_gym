@@ -1,12 +1,15 @@
 from utilities.my_joystick import joystick_simple
 import pygame
+from Control_Toolkit_ASF.Controllers import template_planner
 
-class manual_planner:
+class manual_planner(template_planner):
     """
     Example Planner
     """
 
     def __init__(self):
+
+        super().__init__()
 
         pygame.init()
         self.joystick = joystick_simple()

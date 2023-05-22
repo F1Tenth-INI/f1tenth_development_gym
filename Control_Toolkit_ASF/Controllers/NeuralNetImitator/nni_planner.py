@@ -20,6 +20,8 @@ try:
 except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
 
+from Control_Toolkit_ASF.Controllers import template_planner
+
 from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
 from SI_Toolkit.Functions.TF.Compile import CompileTF
 
@@ -29,9 +31,11 @@ from SI_Toolkit.computation_library import TensorFlowLibrary
 NET_NAME = Settings.NET_NAME
 PATH_TO_MODELS = Settings.PATH_TO_MODELS
 
-class NeuralNetImitatorPlanner:
+class NeuralNetImitatorPlanner(template_planner):
 
     def __init__(self, speed_fraction=1, batch_size=1):
+
+        super().__init__()
 
         self.lib = TensorFlowLibrary
 
@@ -42,9 +46,8 @@ class NeuralNetImitatorPlanner:
 
         self.simulation_index = 0
 
-        self.car_state = None
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
-        self.waypoints = None
+
         # self.waypoint_utils = WaypointUtils()  #Necessary for the recording of Waypoints in the the CSV file
         #                                        # !!Attention!! same number of waypoints to ignore as in config.yml is used -> set config to what was used during data collection
 
@@ -70,16 +73,6 @@ class NeuralNetImitatorPlanner:
             tf.zeros([len(self.net_info.inputs),], dtype=tf.float32))
     
         self.config_training_NN = yaml.load(open(os.path.join(PATH_TO_MODELS, NET_NAME, "config_training.yml")), Loader=yaml.FullLoader)
-
-
-    def render(self, e):
-        return
-
-    def set_waypoints(self, waypoints):
-        self.waypoints = waypoints
-        
-    def set_car_state(self, car_state):
-        self.car_state = np.array(car_state).astype(np.float32)
         
 
     def process_observation(self, ranges=None, ego_odom=None):

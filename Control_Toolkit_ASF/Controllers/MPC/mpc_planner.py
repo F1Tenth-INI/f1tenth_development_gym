@@ -3,7 +3,6 @@ import numpy as np
 import math
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
-from utilities.lidar_utils import LidarHelper
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -21,16 +20,19 @@ else:
 
 
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
+from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
 
-class mpc_planner:
+class mpc_planner(template_planner):
     """
     Example Planner
     """
 
     def __init__(self):
+
+        super().__init__()
 
         print("MPC planner initialized")
         self.render_utils = RenderUtils()
@@ -54,10 +56,8 @@ class mpc_planner:
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
-        self.LIDAR = LidarHelper()
-        self.lidar_points = self.LIDAR.points_map_coordinates
-
         self.target_point = np.array([0, 0], dtype=np.float32)
+
         if Settings.ENVIRONMENT_NAME == 'Car':
             if not Settings.WITH_PID:  # MPC return velocity and steering angle
                 control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
@@ -88,15 +88,6 @@ class mpc_planner:
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
-    # def render(self, e):
-    #     self.render_utils.render(e)
-
-    def set_waypoints(self, waypoints):
-        self.waypoints =  np.array(waypoints).astype(np.float32)
-
-    def set_car_state(self, car_state):
-        self.car_state = np.array(car_state).astype(np.float32)
-
     def set_obstacles(self, obstacles):
 
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
@@ -104,7 +95,7 @@ class mpc_planner:
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        s = self.car_state
+        super().process_observation(ranges, ego_odom)
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"
@@ -114,18 +105,11 @@ class mpc_planner:
             self.angular_control = 0
             return self.angular_control, self.translational_control
 
-        self.LIDAR.load_lidar_measurement(ranges)
-        self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
-            s[POSE_X_IDX], s[POSE_Y_IDX], s[POSE_THETA_IDX]
-        )
-
-        self.target_point = [0, 0]  # don't need the target point for racing anymore
-
         if (Settings.FOLLOW_RANDOM_TARGETS):
-            self.target_point = self.TargetGenerator.step((s[POSE_X_IDX],  s[POSE_Y_IDX]), )
+            self.target_point = self.TargetGenerator.step((self.car_state[POSE_X_IDX],  self.car_state[POSE_Y_IDX]), )
 
 
-        angular_control, translational_control  = self.mpc.step(s,
+        angular_control, translational_control  = self.mpc.step(self.car_state,
                                                                self.time,
                                                                {
                                                                    "obstacles": self.obstacles,
