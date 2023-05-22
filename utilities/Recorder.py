@@ -10,8 +10,11 @@ import yaml
 import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
+import json
+from utilities.Settings import Settings
 
 from utilities.waypoint_utils import *
+
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -24,8 +27,7 @@ from utilities.state_utilities import FULL_STATE_VARIABLES
 from utilities.path_helper_ros import get_gym_path
 gym_path = get_gym_path()
 
-config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
-waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
+waypoint_interpolation_steps = Settings.INTERPOLATION_STEPS
 
 rounding_decimals = 5
 
@@ -294,8 +296,16 @@ class Recorder:
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
         times = df['time'].to_numpy()[1:]
+        pos_xs = df['pose_x'].to_numpy()[1:]
+        pos_ys = df['pose_y'].to_numpy()[1:]
         angular_controls = df['angular_control_applied'].to_numpy()[1:]
         translational_controls = df['translational_control_applied'].to_numpy()[1:]   
+        
+        # Plot position
+        plt.title("Position")
+        plt.plot(pos_xs, pos_ys, color="green")
+        plt.savefig(save_path+"/position.png")
+        plt.clf()
         
         # Plot Angular Control
         plt.title("Angular Control")
@@ -330,6 +340,11 @@ class Recorder:
         shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
         shutil.copy("utilities/Settings.py", config_sage_path) 
+        
+        with open(config_sage_path + '/Settings_applied.json', 'w') as f:
+            f.write(str(Settings.__dict__))
+    
+        shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
         
         
     def reset(self):

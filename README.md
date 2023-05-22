@@ -155,7 +155,13 @@ CONTROL_AVERAGE_WINDOW = (1, 1)
 - Run experiment
 Enjoy your realtime neural network MPPI imipator ( or how we call it: the INItator ).
 
-
+# Brunton Test
+Check config_testting.yml: 
+ - Select a file in experiment recordings for reference
+ - Select the network you want to test
+```bash
+python SI_Toolkit_ASF/run/Run_Brunton_Test.py 
+```
 
 
 
