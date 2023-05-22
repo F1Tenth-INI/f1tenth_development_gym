@@ -15,10 +15,10 @@ mppi:
 
 rpgd-tf:
   seed: null                            # If null, random seed based on datetime is used
-  mpc_horizon: 25                       # steps
+  mpc_horizon: 20                       # steps
   SAMPLING_DISTRIBUTION: uniform  # "normal" or "uniform"
   period_interpolation_inducing_points: 2                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
-  learning_rate: 0.1
+  learning_rate: 0.01
   adam_beta_1: 0.9
   adam_beta_2: 0.999
   adam_epsilon: 1.0e-08
@@ -26,7 +26,7 @@ rpgd-tf:
   rtol: 1.0e-3
   num_rollouts: 64
   opt_keep_k_ratio: 0.5
-  outer_its: 4
+  outer_its: 20
   resamp_per: 5
 #  sample_stdev: 0.2
 #  sample_mean: 0.0
