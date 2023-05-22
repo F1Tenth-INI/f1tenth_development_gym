@@ -22,6 +22,12 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 
 from time import sleep
 
+
+if Settings.DISABLE_GPU:
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
 Settings.ROS_BRIDGE = False # No ros bridge if this script is running
 
 # Noise Level can now be set in Settings.py

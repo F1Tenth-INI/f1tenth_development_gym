@@ -179,9 +179,9 @@ class f1t_cost_function(cost_function_base):
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
-        a = 0.5
+        a = 0.5 # Concaveness slope 
         A = 100000.0  # y-intercept
-        B = 1.5  # x_intercet
+        B = 0.3  # x_intercet
         minima = tf.clip_by_value(minima, 0.0, B)
         cost_for_passing_close = a / (minima + (a / A)) - a / (B + (a / A))
 
