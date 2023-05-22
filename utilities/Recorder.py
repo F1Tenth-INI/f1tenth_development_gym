@@ -10,8 +10,11 @@ import yaml
 import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
+import json
+from utilities.Settings import Settings
 
 from utilities.waypoint_utils import *
+
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -24,8 +27,7 @@ from utilities.state_utilities import FULL_STATE_VARIABLES
 from utilities.path_helper_ros import get_gym_path
 gym_path = get_gym_path()
 
-config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
-waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
+waypoint_interpolation_steps = Settings.INTERPOLATION_STEPS
 
 
 ranges_decimate = True  # If true, saves only every tenth LIDAR scan
@@ -116,6 +118,7 @@ class Recorder:
         self.headers_already_saved = False
 
         self.keys_time = None
+        self.keys_mu = None
         self.keys_ranges = None
         self.keys_odometry = None
         self.keys_state = None
@@ -130,6 +133,7 @@ class Recorder:
         self.csv_filepath = None
 
         self.time_dict = None
+        self.mu_dict = None
         self.ranges_dict = {}
         self.odometry_dict = {}
         self.state_dict = {}
@@ -224,6 +228,12 @@ class Recorder:
         self.next_waypoints_rel_dict = dict(zip(self.keys_next_x_waypoints_rel, waypoints_x_to_save))
         self.next_waypoints_rel_dict.update(zip(self.keys_next_y_waypoints_rel, waypoints_y_to_save))
 
+    def get_mu(self, mu):
+        self.mu_dict = {'mu': mu}
+        if self.keys_mu is None:
+            self.keys_mu = self.mu_dict.keys()
+
+
     def get_state(self, state):
 
         state_to_save = state
@@ -233,7 +243,7 @@ class Recorder:
 
         self.state_dict = dict(zip(self.keys_state, state_to_save))
 
-    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None, next_waypoints_relative=None):
+    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None, next_waypoints_relative=None, mu=None):
         if time is not None:
             self.get_time(time)
         if control_inputs_applied is not None:
@@ -250,6 +260,9 @@ class Recorder:
             self.get_next_waypoints(next_waypoints=next_waypoints)
         if next_waypoints_relative is not None and len(next_waypoints_relative) > 0:
             self.get_next_waypoints_relative(next_waypoints_relative)
+        if mu is not None:
+            self.get_mu(mu)
+
 
     def save_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
         self.get_data(control_inputs_applied, control_inputs_calculated, odometry, ranges, time, state, next_waypoints)
@@ -265,6 +278,7 @@ class Recorder:
         self.dict_to_save.update(self.ranges_dict)
         self.dict_to_save.update(self.next_waypoints_dict)
         self.dict_to_save.update(self.next_waypoints_rel_dict)
+        self.dict_to_save.update(self.mu_dict)
 
 
 
@@ -294,8 +308,16 @@ class Recorder:
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
         times = df['time'].to_numpy()[1:]
+        pos_xs = df['pose_x'].to_numpy()[1:]
+        pos_ys = df['pose_y'].to_numpy()[1:]
         angular_controls = df['angular_control_applied'].to_numpy()[1:]
         translational_controls = df['translational_control_applied'].to_numpy()[1:]   
+        
+        # Plot position
+        plt.title("Position")
+        plt.plot(pos_xs, pos_ys, color="green")
+        plt.savefig(save_path+"/position.png")
+        plt.clf()
         
         # Plot Angular Control
         plt.title("Angular Control")
@@ -330,6 +352,11 @@ class Recorder:
         shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
         shutil.copy("utilities/Settings.py", config_sage_path) 
+        
+        with open(config_sage_path + '/Settings_applied.json', 'w') as f:
+            f.write(str(Settings.__dict__))
+    
+        shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
         
         
     def reset(self):

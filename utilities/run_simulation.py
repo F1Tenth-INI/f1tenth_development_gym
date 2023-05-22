@@ -224,7 +224,7 @@ def main():
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
-                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise))
+                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
@@ -252,7 +252,8 @@ def main():
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
-            driver.recorder.plot_data()
+            if(driver.save_recordings):
+                driver.recorder.plot_data()
     
     env.close()
 
