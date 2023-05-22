@@ -99,6 +99,9 @@ class Settings():
     LIDAR_PROCESSED_ANGLE_DEG = 'max'  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
     LIDAR_DECIMATION = 25  # Only taken into account if LIDAR_MODE is 'decimation'
 
+    LIDAR_CORRUPT = True
+    LIDAR_MAX_CORRUPTED_RATIO = 0.5
+
     ## Pure Pursuit Controller ##
     PP_WAYPOINT_VELOCITY_FACTOR = 0.55
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
