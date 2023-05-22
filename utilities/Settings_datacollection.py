@@ -36,7 +36,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 800  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 4000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -53,8 +53,8 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.2 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.2  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0. # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.  # ftg: 0.05  # mppi: 3.0
     # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -71,15 +71,15 @@ class Settings():
     LOOK_AHEAD_STEPS = 15                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
-    IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
+    IGNORE_STEPS = 3                        # Number of interpolated waypoints to ignore starting at the closest one
 
 
-    CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'mpc'  # Optionsz: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
+    CONTROLLER = 'neural'  # Optionsz: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
 
