@@ -1,5 +1,10 @@
 import numpy as np
 from utilities.Settings import Settings
+import platform
+
+from matplotlib import pyplot as plt
+import matplotlib
+
 
 class LidarHelper:
     def __init__(self):
@@ -53,6 +58,23 @@ class LidarHelper:
         self.points_relative_to_car = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
         self.points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
 
+        # CORRUPT LIDAR
+        self.max_corrupted_ratio = Settings.LIDAR_MAX_CORRUPTED_RATIO
+        self.max_number_of_corrupted_indices = int(np.floor(self.max_corrupted_ratio*self.processed_number_of_scans))
+        self.corrupted_indices_of_processed_scans = None
+
+    def corrupt_lidar_set_indices(self):
+        number_of_corrupted_indices = np.random.randint(0, self.max_number_of_corrupted_indices+1)
+        self.corrupted_indices_of_processed_scans = np.random.choice(np.arange(self.processed_number_of_scans), (number_of_corrupted_indices,), replace=False)
+
+    def corrupt_scans(self):
+        """ MPC expect that corrupted lidar scans have high value - not to create crash cost """
+        self.processed_scans[self.corrupted_indices_of_processed_scans] = 70.0
+
+    def corrupted_scans_high2zero(self):
+        self.processed_scans[self.processed_scans > 15.0] = 0.0
+
+
     def load_lidar_measurement(self, all_lidar_scans):
         self.all_lidar_scans = all_lidar_scans
         self.processed_scans = all_lidar_scans[self.processed_scan_indices]
@@ -85,4 +107,13 @@ class LidarHelper:
 
     def get_custom_processed_scan_indices(self):
         raise NotImplementedError
+
+    def plot_lidar_data(self):
+        if platform.system() == 'Darwin':
+            matplotlib.use('MacOSX')
+
+        plt.ion()
+        plt.clf()
+        plt.plot(self.processed_scans)
+        plt.show()
 
