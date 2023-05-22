@@ -7,7 +7,7 @@ import yaml
 import os
 from utilities.Settings import Settings
 from utilities.state_utilities import *
-from utilities.waypoint_utils import WaypointUtils
+from utilities.waypoint_utils import *
 import time
 
 from types import SimpleNamespace
@@ -117,7 +117,7 @@ class NeuralNetImitatorPlanner:
         next_waypoints_y = next_waypoints[:,1]
 
         #Load Waypoint Velocities for next n (defined in Settings) waypoints
-        next_waypoint_vx = self.waypoints[:,5] 
+        next_waypoint_vx = self.waypoints[:,WP_VX_IDX] 
 
         
         
