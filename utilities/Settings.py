@@ -24,9 +24,9 @@ class Settings():
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
 
-    KEYBOARD_INPUT_ENABLE = True  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
-    # RENDER_MODE = None # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
+    # RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    RENDER_MODE = None # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     CAMERA_AUTO_FOLLOW = False  # Automatically follow the first car on the map
 
     DRAW_POSITION_HISTORY = True
@@ -36,7 +36,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 800  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 10000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -108,3 +108,4 @@ class Settings():
     ### Other Settings ###
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     ROS_BRIDGE = None # Automatically determined on program start
+    DISABLE_GPU = True

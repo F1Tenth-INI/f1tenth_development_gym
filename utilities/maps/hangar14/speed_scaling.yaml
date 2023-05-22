@@ -1,4 +1,4 @@
-global_limit: 0.3
+global_limit: 0.4
 n_sectors: 2
 Sector0:
   start: 0
