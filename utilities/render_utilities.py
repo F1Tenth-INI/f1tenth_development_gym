@@ -1,6 +1,8 @@
-from pyglet.gl import GL_POINTS
-import pyglet.gl as gl
-from pyglet import shapes
+from utilities.Settings import Settings
+if(Settings.RENDER_MODE is not None):
+    from pyglet.gl import GL_POINTS
+    import pyglet.gl as gl
+    from pyglet import shapes
 import numpy as np
 from utilities.state_utilities import *
 
