@@ -44,7 +44,7 @@ class CarSystem:
         self.translational_control_history = np.zeros(self.control_average_window[1], dtype=np.int32)
         
         # Initial values
-        self.car_state = [1,1,1,1,1,1,1,1,1]
+        self.car_state = np.ones(len(STATE_VARIABLES))
         car_index = 1
         self.scans = None
         self.control_index = 0
