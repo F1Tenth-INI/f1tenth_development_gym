@@ -54,11 +54,10 @@ def main():
         opponent.save_recordings = False
         opponents.append(opponent)
 
-    # second planner
-    # driver2 = CarSystem()
-   
     ##################### DEFINE DRIVERS HERE #####################
-    drivers = [driver1, driver2, driver3, driver4, driver5]
+
+    drivers = [driver] + opponents
+
     ###############################################################
 
     number_of_drivers = len(drivers)
