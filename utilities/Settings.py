@@ -27,7 +27,7 @@ class Settings():
     KEYBOARD_INPUT_ENABLE = True  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     # RENDER_MODE = None # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
-    CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
+    CAMERA_AUTO_FOLLOW = False  # Automatically follow the first car on the map
 
     DRAW_POSITION_HISTORY = True
     QUAD_VIZ = True  # Visualization, only for Quadruped
@@ -36,10 +36,10 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 4000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
-    SAVE_RECORDINGS = False
-    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
+    SAVE_RECORDINGS = True
+    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
 
     ### State Estimation ###
 
@@ -53,8 +53,8 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0. # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.  # ftg: 0.05  # mppi: 3.0
     # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -79,7 +79,7 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'mpc'  # Optionsz: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
+    CONTROLLER = 'neural'  # Optionsz: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
 
@@ -97,7 +97,7 @@ class Settings():
     ## Neural Controller ##
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
     PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/flo/Models/'
-    NET_NAME = 'Dense-93IN-64H1-64H2-2OUT-1'
+    NET_NAME = 'Dense-93IN-64H1-64H2-2OUT-3'
 
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model

@@ -246,6 +246,7 @@ class WaypointUtils:
                 speed_scaling_array[j] = sector['scaling']
       
         # TODO: Interpolate at edges
+        # TODO: Drop error when not all sectors are defined
         
         speed_scaling_array = np.array(speed_scaling_array[:-2])
         speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
