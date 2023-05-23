@@ -8,7 +8,9 @@ from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
-    odometry_dict_to_state
+    odometry_dict_to_state,
+    control_limits_low,
+    control_limits_high,
 )
 
 if(Settings.ROS_BRIDGE):
@@ -46,21 +48,12 @@ class mpc_planner(template_planner):
 
         self.time = 0.0
 
-
         self.waypoint_utils=WaypointUtils()   # Only needed for initialization
         self.waypoints = self.waypoint_utils.next_waypoints
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
         self.target_point = np.array([0, 0], dtype=np.float32)
-
-        if Settings.ENVIRONMENT_NAME == 'Car':
-            if not Settings.WITH_PID:  # MPC return velocity and steering angle
-                control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
-            else:  # MPC returns acceleration and steering velocity
-                control_limits_low, control_limits_high = get_control_limits([[-1.066, -1], [1.066, 8]])
-        else:
-            raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
 
         self.mpc = controller_mpc(
@@ -153,21 +146,7 @@ class mpc_planner(template_planner):
         self.translational_control = translational_control
         self.angular_control = angular_control
         
-        # print("translational_control", translational_control)
-        # print("angular_control", angular_control)
-        
         self.simulation_index += 1
 
         return angular_control, translational_control
-
-
-def get_control_limits(clip_control_input):
-    if isinstance(clip_control_input[0], list):
-        clip_control_input_low = np.array(clip_control_input[0])
-        clip_control_input_high = np.array(clip_control_input[1])
-    else:
-        clip_control_input_high = np.array(clip_control_input)
-        clip_control_input_low = -np.array(clip_control_input_high)
-
-    return clip_control_input_low, clip_control_input_high
 
