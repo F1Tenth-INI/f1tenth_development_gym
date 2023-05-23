@@ -66,21 +66,19 @@ class mpc_planner(template_planner):
         else:
             raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 
-        if Settings.CONTROLLER:
-            self.mpc = controller_mpc(
-                dt=Settings.TIMESTEP_CONTROL,
-                environment_name="Car",
-                initial_environment_attributes={
-                    "obstacles": self.obstacles,
-                    "lidar_points": self.lidar_points,
-                    "next_waypoints": self.waypoints,
-                    "target_point": self.target_point
 
-                },
-                control_limits=(control_limits_low, control_limits_high),
-            )
-        else:
-            raise NotImplementedError
+        self.mpc = controller_mpc(
+            dt=Settings.TIMESTEP_CONTROL,
+            environment_name="Car",
+            initial_environment_attributes={
+                "obstacles": self.obstacles,
+                "lidar_points": self.lidar_points,
+                "next_waypoints": self.waypoints,
+                "target_point": self.target_point
+
+            },
+            control_limits=(control_limits_low, control_limits_high),
+        )
 
         self.mpc.configure()
         
