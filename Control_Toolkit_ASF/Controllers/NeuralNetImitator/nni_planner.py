@@ -77,19 +77,22 @@ class NeuralNetImitatorPlanner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        s = self.car_state
-
-        #code for Lidar bounds and Lidar data reduction
-        # ranges = ranges[200:880]
-        ranges = ranges[::25]
-        for index, range in enumerate(ranges):
-            if(range < 0.1): range = 10
+        # FIXME: This stays as a reminder that you need to test LidarHelper for it and enforcing using this instead.
+        # for index, range in enumerate(ranges):
+        #     if(range < 0.1): range = 10
         ranges[0] = ranges[2]
         ranges[1] = ranges[2]
         ranges[-1] = ranges[-3]
         ranges[-2] = ranges[-3]
-        
-      
+
+        self.LIDAR.load_lidar_measurement(ranges)
+
+        if Settings.LIDAR_CORRUPT:
+            self.LIDAR.corrupt_lidar_set_indices()
+            self.LIDAR.corrupt_scans()
+            self.LIDAR.corrupted_scans_high2zero()
+
+        self.LIDAR.plot_lidar_data()
        
         #finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
         config_inputs = np.append(self.config_training_NN["training_default"]["state_inputs"], self.config_training_NN["training_default"]["control_inputs"])
@@ -124,7 +127,7 @@ class NeuralNetImitatorPlanner(template_planner):
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y, next_waypoint_vx,
+        input_data = np.concatenate((self.LIDAR.processed_scans, next_waypoints_x, next_waypoints_y, next_waypoint_vx,
                                       [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
         net_input = tf.convert_to_tensor(input_data, tf.float32)
