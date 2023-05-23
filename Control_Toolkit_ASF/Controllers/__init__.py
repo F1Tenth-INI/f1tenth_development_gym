@@ -6,6 +6,9 @@ from utilities.lidar_utils import LidarHelper
 class template_planner(ABC):
     def __init__(self):
 
+        self.translational_control = None
+        self.angular_control = None
+
         self.LIDAR = LidarHelper()
         self.lidar_points = self.LIDAR.points_map_coordinates
 
