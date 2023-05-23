@@ -151,7 +151,7 @@ class Recorder:
     def get_ranges(self):
 
         if self.keys_ranges is None:
-            self.keys_ranges = ['LIDAR_'+str(i).zfill(4) for i in self.lidar.processed_scan_indices]
+            self.keys_ranges = self.lidar.get_lidar_scans_names()
 
         self.ranges_dict = dict(zip(self.keys_ranges, self.lidar.processed_scans))
 
