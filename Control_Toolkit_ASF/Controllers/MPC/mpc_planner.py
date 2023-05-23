@@ -99,7 +99,7 @@ class mpc_planner(template_planner):
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
 
-        self.LIDAR.plot_lidar_data()
+        # self.LIDAR.plot_lidar_data()
 
         self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
             self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
