@@ -117,7 +117,7 @@ class PurePursuitPlanner(template_planner):
 
         if( abs(steering_angle) > 1.4):
             self.correcting_index+=1
-            if(self.correcting_index >= 4):
+            if(self.correcting_index >= 10):
                 steering_angle = -steering_angle
                 speed = -1
         else:
