@@ -41,9 +41,6 @@ class mpc_planner(template_planner):
 
         self.simulation_index = 0
 
-        self.largest_gap_middle_point = None
-        self.largest_gap_middle_point = None
-
         self.nearest_waypoint_index = None
 
         self.time = 0.0
@@ -140,9 +137,7 @@ class mpc_planner(template_planner):
             rollout_trajectory=rollout_trajectories,
             optimal_trajectory=optimal_trajectory,
         )
-        
 
-        self.last_steering = angular_control
         self.translational_control = translational_control
         self.angular_control = angular_control
         
