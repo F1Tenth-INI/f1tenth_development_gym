@@ -63,16 +63,45 @@ class LidarHelper:
         self.max_number_of_corrupted_indices = int(np.floor(self.max_corrupted_ratio*self.processed_number_of_scans))
         self.corrupted_indices_of_processed_scans = None
 
+        self.lidar_names = None
+
+    def indices_from_pandas(self, data):
+        lidar_col = [col for col in data if col.startswith('LIDAR')]
+        processed_scan_indices = [int(lidar_col[i][len('LIDAR_'):]) for i in range(len(lidar_col))]
+        return processed_scan_indices
+
+    def get_lidar_scans_names(self):
+        self.lidar_names = ['LIDAR_' + str(i).zfill(4) for i in self.processed_scan_indices]
+        return self.lidar_names
+
     def corrupt_lidar_set_indices(self):
         number_of_corrupted_indices = np.random.randint(0, self.max_number_of_corrupted_indices+1)
         self.corrupted_indices_of_processed_scans = np.random.choice(np.arange(self.processed_number_of_scans), (number_of_corrupted_indices,), replace=False)
 
     def corrupt_scans(self):
         """ MPC expect that corrupted lidar scans have high value - not to create crash cost """
+        self.processed_scans[self.processed_scans > 10.0] = 70.0
         self.processed_scans[self.corrupted_indices_of_processed_scans] = 70.0
 
     def corrupted_scans_high2zero(self):
         self.processed_scans[self.processed_scans > 15.0] = 0.0
+
+    def corrupt_datafile(self, data):
+
+        lidar_indices = self.indices_from_pandas(data)
+        self.reinitialized_LIDAR_with_custom_processed_scan_indices(lidar_indices)
+        lidar_col = self.get_lidar_scans_names()
+
+        df_data_lidar = data.loc[:, lidar_col]
+        df_data_lidar[df_data_lidar > 10.0] = 0.0
+        for k in range(len(df_data_lidar)):
+            self.corrupt_lidar_set_indices()
+            df_data_lidar.iloc[k, self.corrupted_indices_of_processed_scans] = 0.0
+
+        # count = (df_data_lidar == 0.0).sum() See how many scans are corrupted
+
+        data.loc[:, lidar_col] = df_data_lidar
+        return data
 
 
     def load_lidar_measurement(self, all_lidar_scans):
@@ -117,3 +146,9 @@ class LidarHelper:
         plt.plot(self.processed_scans)
         plt.show()
 
+if __name__ == '__main__':
+    import pandas as pd
+    df = pd.read_csv('./ExperimentRecordings/F1TENTH_Blank-MPPI-1__2023-05-22_13-55-34.csv', comment='#')
+    Lidar = LidarHelper()
+    df_new = Lidar.corrupt_datafile(df)
+    pass
