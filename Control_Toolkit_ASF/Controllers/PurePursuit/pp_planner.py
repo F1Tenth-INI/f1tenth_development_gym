@@ -39,6 +39,7 @@ class PurePursuitPlanner:
         self.max_reacquire = 20.
         
         self.simulation_index = 0
+        self.correcting_index = 0
 
         self.current_position = None
         self.curvature_integral = 0
@@ -104,7 +105,7 @@ class PurePursuitPlanner:
         position = np.array([pose_x, pose_y])
                 
         # Dynamic Lookahead distance
-        # self.lookahead_distance = 0.7 * self.speed
+        self.lookahead_distance = 0.7 * v_x
         
         lookahead_point = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
         # print ("lookaheadpoints", lookahead_point)
@@ -118,6 +119,15 @@ class PurePursuitPlanner:
 
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
+
+        if( abs(steering_angle) > 1.4):
+            self.correcting_index+=1
+            if(self.correcting_index >= 4):
+                steering_angle = -steering_angle
+                speed = -1
+        else:
+            self.correcting_index = 0
+
         self.speed = speed
 
         self.angular_control = steering_angle
