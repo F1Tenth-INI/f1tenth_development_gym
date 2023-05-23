@@ -41,9 +41,6 @@ class NeuralNetImitatorPlanner(template_planner):
 
         print('Loading NeuralNetImitatorPlanner')
 
-        self.translational_control = None
-        self.angular_control = None
-
         self.simulation_index = 0
 
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system

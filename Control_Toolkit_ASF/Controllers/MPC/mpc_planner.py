@@ -37,10 +37,6 @@ class mpc_planner(template_planner):
         print("MPC planner initialized")
         self.render_utils = RenderUtils()
 
-
-        self.translational_control = None
-        self.angular_control = None
-
         self.simulation_index = 0
 
         self.largest_gap_middle_point = None
