@@ -96,10 +96,10 @@ class Settings():
     LIDAR_NUM_SCANS = 1080
 
     LIDAR_MODE = 'decimation'  # possible: 'decimation', 'custom indices'
-    LIDAR_PROCESSED_ANGLE_DEG = 'max'  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
+    LIDAR_PROCESSED_ANGLE_DEG = 250  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
     LIDAR_DECIMATION = 25  # Only taken into account if LIDAR_MODE is 'decimation'
 
-    LIDAR_CORRUPT = True
+    LIDAR_CORRUPT = False
     LIDAR_MAX_CORRUPTED_RATIO = 0.5
 
     ## Pure Pursuit Controller ##
