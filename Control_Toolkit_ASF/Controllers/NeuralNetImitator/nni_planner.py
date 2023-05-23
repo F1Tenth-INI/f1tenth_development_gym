@@ -90,7 +90,7 @@ class NeuralNetImitatorPlanner(template_planner):
         if Settings.LIDAR_CORRUPT:
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
-            self.LIDAR.corrupted_scans_high2zero()
+        self.LIDAR.corrupted_scans_high2zero()
 
         self.LIDAR.plot_lidar_data()
        
