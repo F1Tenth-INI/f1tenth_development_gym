@@ -107,6 +107,11 @@ class Settings():
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
 
+    ## Neural Controller ##
+    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
+    PATH_TO_MODELS = './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
+    NET_NAME = 'Dense-89IN-64H1-64H2-2OUT-0'
+
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
