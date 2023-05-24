@@ -299,8 +299,12 @@ class F110Env(gym.Env):
         self._update_state(obs)
 
         # check done
-        done, toggle_list = self._check_done()
-        info = {'checkpoint_done': toggle_list}
+        if not Settings.DISABLE_AUTOMATIC_TERMINATION:
+            done, toggle_list = self._check_done()
+            info = {'checkpoint_done': toggle_list}
+        else:
+            done = False
+            info = {}
 
         return obs, reward, done, info
 
