@@ -57,7 +57,7 @@ class WaypointUtils:
         self.original_waypoints = WaypointUtils.load_waypoints()
         
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
-        self.waypoints = WaypointUtils.correct_velocity(self.original_waypoints)
+        self.waypoints, self.global_limit = WaypointUtils.correct_velocity(self.original_waypoints)
         self.waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoints, self.interpolation_steps) #increased resolution
         self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor) # decreased resolution
         self.waypoints = WaypointUtils.remove_duplicates(self.waypoints)
@@ -260,6 +260,6 @@ class WaypointUtils:
         speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
                 
         waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
-        return waypoints
+        return waypoints, global_limit
 
          
