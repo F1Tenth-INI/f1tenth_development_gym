@@ -21,6 +21,7 @@ class Settings():
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.5
 
+    DISABLE_AUTOMATIC_TERMINATION = True
     DISABLE_AUTOMATIC_TIMEOUT = True
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
