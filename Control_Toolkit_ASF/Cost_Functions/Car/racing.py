@@ -40,7 +40,7 @@ class racing(f1t_cost_function):
             nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
 
             # distance_to_wp_segments_cost = self.get_distance_to_wp_cost(s, waypoints, nearest_waypoint_indices)
-            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
+            # distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
@@ -56,16 +56,20 @@ class racing(f1t_cost_function):
         # else:
         #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
 
+        speed_control_difference_to_wp_cost = self.normed_discount(speed_control_difference_to_wp_cost, s[0, :, 0], 0.95)
+        # distance_to_wp_segments_cost = self.normed_discount(distance_to_wp_segments_cost, s[0, :, 0], 1.5)
+        # distance_final = self.lib.concat((self.lib.zeros_like(distance_to_wp_segments_cost)[:, :-1], distance_to_wp_segments_cost[:, -2:-1]), 1)
+        # distance_to_wp_segments_cost = distance_final
 
         stage_cost = (
-                distance_to_wp_segments_cost
-                + velocity_difference_to_wp_cost
+                velocity_difference_to_wp_cost
                 + crash_cost
                 + cc
                 + ccrc
                 + angular_velocity_cost
                 + angle_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
+                # + distance_to_wp_segments_cost
                 # + steering_cost
                 # + acceleration_cost
                 # + speed_control_difference_to_wp_cost
