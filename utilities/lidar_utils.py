@@ -145,6 +145,7 @@ class LidarHelper:
         plt.clf()
         plt.plot(self.processed_scans)
         plt.show()
+        plt.clf()
 
 if __name__ == '__main__':
     import pandas as pd
