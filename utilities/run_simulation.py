@@ -129,6 +129,21 @@ def main():
     racetrack = conf.map_path
     starting_positions =  conf.starting_positions[0:number_of_drivers]
     
+    # Starting from random position near a waypoint
+    if Settings.START_FROM_RANDOM_POSITION:
+        from utilities.waypoint_utils import WaypointUtils
+        import random
+        
+        wu = WaypointUtils()
+        random_wp = random.choice(wu.waypoints)[1:4]
+        random_wp[0] += random.uniform(0.3, 0.5)
+        random_wp[1] += random.uniform(0.3, 0.5)
+        random_wp[2] += random.uniform(0.0, 0.2)
+        
+        starting_positions[0] = random_wp
+        print("Starting position: ", random_wp)
+    
+        
     # Tobi: Place random obstacles on the track
     # For obstacle settings, look @ random_obstacles.yaml
     if(Settings.PLACE_RANDOM_OBSTACLES):
@@ -142,7 +157,6 @@ def main():
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-  
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
 

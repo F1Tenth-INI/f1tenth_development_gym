@@ -3,7 +3,7 @@ from tqdm import trange
 from time import sleep
 
 Lidar = LidarHelper()
-CORRUPT_LIDAR_FOR_TRAINING = True
+CORRUPT_LIDAR_FOR_TRAINING = False
 
 
 def augment_data(data, labels):
