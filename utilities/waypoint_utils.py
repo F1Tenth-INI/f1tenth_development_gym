@@ -260,6 +260,7 @@ class WaypointUtils:
         speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
                 
         waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
+        waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * Settings.GLOBAL_WAYPOINT_VEL_FACTOR
         return waypoints, global_limit
 
          
