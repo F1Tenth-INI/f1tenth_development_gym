@@ -51,13 +51,20 @@ class car_model:
     # region Various dynamical models for a car
 
     def set_model_of_car_dynamics(self, model_of_car_dynamics):
+
         if model_of_car_dynamics == 'ODE:simple':
-            self.step_dynamics = self._step_dynamics_simple
+            if self.with_pid:
+                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_simple)
+            else:
+                self.step_dynamics = self._step_dynamics_simple
         elif model_of_car_dynamics == 'ODE:ks':
-            self.step_dynamics = self._step_dynamics_ks
+            if self.with_pid:
+                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_ks)
+            else:
+                self.step_dynamics = self._step_dynamics_ks
         elif model_of_car_dynamics == 'ODE:st':
             if self.with_pid:
-                self.step_dynamics = self._step_st_with_servo_and_motor_pid
+                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_st)
             else:
                 self.step_dynamics = self._step_dynamics_st
         else:
@@ -424,21 +431,25 @@ class car_model:
 
         return total_acceleration
 
-    def _step_st_with_servo_and_motor_pid(self, s, Q, params):
-        
-        # Control Input (desired speed, desired steering angle)
-        desired_angle = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        desired_speed = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+    def _step_model_with_servo_and_motor_pid_(self, model):
 
-        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-        vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
+        def _step_model_with_servo_and_motor_pid(s, Q, params):
 
-        delta_dot = self.servo_proportional(desired_angle, delta)
-        vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+            # Control Input (desired speed, desired steering angle)
+            desired_angle = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+            desired_speed = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
-        Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot]))
+            delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+            vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
 
-        return self._step_dynamics_st(s, Q_pid, params)
+            delta_dot = self.servo_proportional(desired_angle, delta)
+            vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+
+            Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot]))
+
+            return model(s, Q_pid, params)
+
+        return _step_model_with_servo_and_motor_pid
 
 # endregion
 
