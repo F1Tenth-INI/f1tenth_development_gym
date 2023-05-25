@@ -25,6 +25,8 @@ R = config["Car"]["racing"]["R"]
 cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
+icdc_weight = config["Car"]["racing"]["icdc_weight"]
+
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
 velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
@@ -101,7 +103,7 @@ class f1t_cost_function(cost_function_base):
     # cost of changeing control to fast
     def get_control_change_rate_cost(self, u, u_prev):
         """
-        Compute penalty of instant control change, i.e. difference to previous control input
+        Compute penalty of instant control change, i.e. differences to previous control input
 
         We use absolute difference instead of relative one as we care for absolute change of control input ~ reaction time required by the car
         We use L2 norm as we want to penalize big changes and are fine with small ones - we want a gentle control in general
@@ -123,6 +125,16 @@ class f1t_cost_function(cost_function_base):
         ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
 
         return tf.math.reduce_sum(ccocrc_weight * ccocrc, axis=-1)
+
+
+    def get_immediate_control_discontinuity_cost(self, u, u_prev):
+
+        u_prev_vec = tf.ones((u.shape[0], u.shape[1], u.shape[-1])) * u_prev  # The vector is just to keep dimensions right and scaling with gr
+        icdc = (u_prev_vec-u[:, :1, :])**2
+
+        return tf.math.reduce_sum(icdc_weight * icdc, axis=-1)
+
+
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''

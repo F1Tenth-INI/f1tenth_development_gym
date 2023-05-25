@@ -19,6 +19,7 @@ class racing(f1t_cost_function):
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
         ccocrc = self.get_control_change_of_change_rate_cost(u, u_prev)
+        icdc = self.get_immediate_control_discontinuity_cost(u, u_prev)
 
         ## Crash cost: comment out for faster calculation...
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
@@ -68,6 +69,7 @@ class racing(f1t_cost_function):
                 + cc
                 + ccrc
                 + ccocrc
+                + icdc
                 + angular_velocity_cost
                 + angle_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
