@@ -30,8 +30,8 @@ class Settings():
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    # RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
-    RENDER_MODE = 'human_fast'  # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    # RENDER_MODE = None  # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
 
     DRAW_POSITION_HISTORY = True
@@ -58,8 +58,9 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.2 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.2  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
+    FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -104,7 +105,7 @@ class Settings():
     LIDAR_MAX_CORRUPTED_RATIO = 0.5
 
     ## Pure Pursuit Controller ##
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.55
+    PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
 
@@ -123,3 +124,7 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     ROS_BRIDGE = None # Automatically determined on program start
     DISABLE_GPU = True
+
+    # Settings for data collection
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
+    START_FROM_RANDOM_POSITION = True
