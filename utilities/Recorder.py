@@ -302,6 +302,7 @@ class Recorder:
         translational_controls = df['translational_control_calculated'].to_numpy()[1:]   
         
         # Plot position
+        plt.clf()
         plt.title("Position")
         plt.plot(pos_xs, pos_ys, color="green")
         plt.savefig(save_path+"/position.png")
@@ -341,10 +342,15 @@ class Recorder:
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
         shutil.copy("utilities/Settings.py", config_sage_path) 
         
+        
+        shutil.copy("utilities/Settings.py", config_sage_path) 
+        
         with open(config_sage_path + '/Settings_applied.json', 'w') as f:
             f.write(str(Settings.__dict__))
     
         shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
+        shutil.copy(os.path.join(Settings.MAP_PATH, "speed_scaling.yaml"), config_sage_path) 
+
         
         
     def reset(self):
