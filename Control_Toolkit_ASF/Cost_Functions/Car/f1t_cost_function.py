@@ -24,6 +24,7 @@ R = config["Car"]["racing"]["R"]
 
 cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
 velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
@@ -99,17 +100,29 @@ class f1t_cost_function(cost_function_base):
 
     # cost of changeing control to fast
     def get_control_change_rate_cost(self, u, u_prev):
-        """Compute penalty of control jerk, i.e. difference to previous control input"""
+        """
+        Compute penalty of instant control change, i.e. difference to previous control input
+
+        We use absolute difference instead of relative one as we care for absolute change of control input ~ reaction time required by the car
+        We use L2 norm as we want to penalize big changes and are fine with small ones - we want a gentle control in general
+        The weight of this cost should be in general small, it should help to eliminate sudden changes of big magnitude which the physical car might not handle correctly
+        """
         u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
-        ccrc = (u - u_prev_vec) ** 2
+        ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
-        # Discounts
-        gamma = 0.9 * self.lib.ones_like(ccrc)
-        gamma = self.lib.cumprod(gamma, 1)
-        ccrc = gamma * ccrc
-
-        ccrc = tf.convert_to_tensor([1,0], dtype=tf.float32)*ccrc
         return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
+
+    def get_control_change_of_change_rate_cost(self, u, u_prev):
+        """
+        Removing jerk, keeping change constant and penalizing |∆u(t)-∆u(t-1)|
+        We use L1 norm: We are fine with few big changes - e.g. when car accelerates.
+        We use absolute difference: the control input should stay smooth same for big and low control inputs
+        """
+        u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
+        u_next_vec = tf.concat((u[:, 1:, :], u[:, -1:, :]), axis=1)
+        ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
+
+        return tf.math.reduce_sum(ccocrc_weight * ccocrc, axis=-1)
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''

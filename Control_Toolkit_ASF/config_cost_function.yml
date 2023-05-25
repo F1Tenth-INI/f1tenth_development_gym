@@ -7,7 +7,9 @@ Car:
   racing:
 
     cc_weight: 0.0                        #check that cc, ccrc and R are the same as in config_optimizers.yml
-    ccrc_weight: 5.0
+    ccrc_weight: [1.0, 1.0]               # Steering and throttle
+    ccocrc_weight: [1.0, 1.0]               # Steering and throttle
+
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     distance_to_waypoints_cost_weight: 10.0
