@@ -128,3 +128,6 @@ class Settings():
     # Settings for data collection
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
     START_FROM_RANDOM_POSITION = True
+
+    WAYPOINTS_FROM_MPC = True
+    PLAN_EVERY_N_STEPS = 1
