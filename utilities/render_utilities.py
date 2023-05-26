@@ -99,6 +99,9 @@ class RenderUtils:
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
         self.optimal_trajectory = optimal_trajectory
+
+    def update_pp(self, target_point):
+        self.target_point = target_point
         
     def update_obstacles(self, obstacles):
         return
@@ -188,7 +191,7 @@ class RenderUtils:
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
 
-        if self.target_point is not None and Settings.FOLLOW_RANDOM_TARGETS:
+        if self.target_point is not None and (Settings.FOLLOW_RANDOM_TARGETS or Settings.CONTROLLER == 'pp'):
 
             scaled_target_point = RenderUtils.get_scaled_points(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()

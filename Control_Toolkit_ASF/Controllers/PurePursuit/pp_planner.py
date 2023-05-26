@@ -25,6 +25,9 @@ class PurePursuitPlanner(template_planner):
         super().__init__()
     
         print("Initializing PP Planner")
+
+        self.render_utils = RenderUtils()
+
         car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
@@ -127,6 +130,10 @@ class PurePursuitPlanner(template_planner):
 
         self.angular_control = steering_angle
         self.translational_control = speed
+
+        self.render_utils.update_pp(
+            target_point=lookahead_point,
+        )
         return steering_angle, speed
 
 
