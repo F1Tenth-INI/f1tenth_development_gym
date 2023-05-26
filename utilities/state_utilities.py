@@ -113,3 +113,5 @@ if Settings.ENVIRONMENT_NAME == 'Car':
         control_limits_low, control_limits_high = get_control_limits([[-1.066, -1], [1.066, 8]])
 else:
     raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
+
+control_limits_max_abs = np.max(np.vstack((np.abs(control_limits_low), np.abs(control_limits_high))), axis=0)

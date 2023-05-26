@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "hangar14" # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "hangar14"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
@@ -19,7 +19,7 @@ class Settings():
 
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.5
+    OPPONENTS_VEL_FACTOR = 0.2
 
     DISABLE_AUTOMATIC_TERMINATION = True
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -49,7 +49,7 @@ class Settings():
     ### State Estimation ###
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
 
 
 
@@ -85,7 +85,7 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
+    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
 
@@ -126,5 +126,8 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
-    START_FROM_RANDOM_POSITION = True
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    START_FROM_RANDOM_POSITION = False
+
+    WAYPOINTS_FROM_MPC = True
+    PLAN_EVERY_N_STEPS = 12
