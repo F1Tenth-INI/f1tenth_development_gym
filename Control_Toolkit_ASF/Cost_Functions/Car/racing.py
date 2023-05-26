@@ -42,7 +42,7 @@ class racing(f1t_cost_function):
             nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
 
             # distance_to_wp_segments_cost = self.get_distance_to_wp_cost(s, waypoints, nearest_waypoint_indices)
-            # distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
+            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
@@ -73,7 +73,7 @@ class racing(f1t_cost_function):
                 + angular_velocity_cost
                 + angle_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
-                # + distance_to_wp_segments_cost
+                + distance_to_wp_segments_cost
                 # + steering_cost
                 # + acceleration_cost
                 # + speed_control_difference_to_wp_cost
