@@ -262,7 +262,7 @@ class f1t_cost_function(cost_function_base):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:,1:3]
 
-        return self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
+        return distance_to_waypoints_cost_weight * self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
 
     def get_wp_segment_vectors(self, waypoint_positions, nearest_waypoint_indices):
         nearest_waypoints = tf.gather(waypoint_positions, nearest_waypoint_indices)
