@@ -16,6 +16,7 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
     from utilities.render_utilities_ros import RenderUtils
@@ -59,6 +60,15 @@ class CarSystem:
         if save_recording:
             self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL, lidar=self.LIDAR)
         self.obstacle_detector = ObstacleDetector()
+
+        self.waypoints_for_controller = None
+
+        self.waypoints_planner = None
+        self.waypoints_from_mpc = np.zeros((Settings.LOOK_AHEAD_STEPS, 7))
+        if Settings.WAYPOINTS_FROM_MPC:
+            from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
+            self.waypoints_planner = mpc_planner()
+            self.waypoints_planner.waypoint_utils = self.waypoint_utils
         
         # Planner
         self.planner = None
@@ -122,14 +132,25 @@ class CarSystem:
         self.waypoint_utils.update_next_waypoints(car_state)
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
-        # Pass data to the planner
-        if hasattr(self.planner, 'set_waypoints'):
-            self.planner.set_waypoints(self.waypoint_utils.next_waypoints)
-        if hasattr(self.planner, 'set_car_state'):
-            self.planner.set_car_state(car_state)
-        if hasattr(self.planner, 'set_obstacles'):
-            self.planner.set_obstacles(obstacles)
 
+        if Settings.WAYPOINTS_FROM_MPC:
+            if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
+                pass_data_to_planner(self.waypoints_planner, self.waypoint_utils.next_waypoints, car_state, obstacles)
+                self.waypoints_planner.process_observation(ranges, ego_odom)
+                optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
+                if optimal_trajectory is not None:
+                    self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]
+                    self.waypoints_from_mpc[:, WP_Y_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_Y_IDX]
+                    self.waypoints_from_mpc[:, WP_VX_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, LINEAR_VEL_X_IDX]
+                    # self.waypoints_from_mpc[:, WP_VX_IDX] = self.waypoint_utils.next_waypoints[:, WP_VX_IDX]
+                    self.waypoints_for_controller = self.waypoints_from_mpc
+                else:
+                    self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+
+        else:
+            self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+
+        pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 
         # Control step 
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
@@ -152,7 +173,7 @@ class CarSystem:
         # Rendering and recording
         self.render_utils.update(
             lidar_points= lidar_points,
-            next_waypoints= self.waypoint_utils.next_waypoint_positions,
+            next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)],
             car_state = car_state
         )
         self.render_utils.update_obstacles(obstacles)
@@ -172,3 +193,11 @@ class CarSystem:
 
             
             
+def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
+    # Pass data to the planner
+    if hasattr(planner, 'set_waypoints'):
+        planner.set_waypoints(next_waypoints)
+    if hasattr(planner, 'set_car_state'):
+        planner.set_car_state(car_state)
+    if hasattr(planner, 'set_obstacles'):
+        planner.set_obstacles(obstacles)
