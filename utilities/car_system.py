@@ -139,7 +139,6 @@ class CarSystem:
                 self.waypoints_planner.process_observation(ranges, ego_odom)
                 optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
                 if optimal_trajectory is not None:
-                    optimal_trajectory = optimal_trajectory[:, ::2, :]
                     self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]
                     self.waypoints_from_mpc[:, WP_Y_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_Y_IDX]
                     self.waypoints_from_mpc[:, WP_VX_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, LINEAR_VEL_X_IDX]
