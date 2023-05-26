@@ -72,6 +72,9 @@ class RenderUtils:
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
         self.optimal_trajectory = optimal_trajectory
+
+    def update_pp(self, target_point):
+        self.target_point = target_point
         
     def render(self, e):
         # Todo: Publish data for RVIZ
