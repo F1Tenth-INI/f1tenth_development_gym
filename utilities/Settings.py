@@ -87,7 +87,8 @@ class Settings():
 
     CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
