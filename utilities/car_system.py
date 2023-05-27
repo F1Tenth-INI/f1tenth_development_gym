@@ -86,6 +86,9 @@ class CarSystem:
         elif controller == 'pp':
             from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
             self.planner = PurePursuitPlanner()
+        elif controller == 'stanley':
+            from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
+            self.planner = StanleyPlanner()
         elif controller == 'manual':
             from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
             self.planner = manual_planner()
