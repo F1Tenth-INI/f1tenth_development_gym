@@ -53,6 +53,7 @@ class car_model:
         self.lwb = self.lib.constant(lf + lr, self.lib.float32)
       
         self.number_of_rollouts = self.lib.constant(batch_size, self.lib.int32)
+        self.zeros = self.lib.zeros([self.number_of_rollouts,], self.lib.float32)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
@@ -378,30 +379,31 @@ class car_model:
         
         speed_difference = desired_speed - current_speed
 
-        forward_indices = tf.cast(tf.math.greater(current_speed, 0.0), tf.float32)
-        backward_indices = 1.0 - forward_indices
+        forward_indices = current_speed > 0.0
+        backward_indices = ~forward_indices
 
-        positive_speed_difference = tf.cast(tf.math.greater(speed_difference, 0.0), tf.float32)
+        positive_speed_difference = speed_difference > 0.0
+        negative_speed_difference = ~positive_speed_difference
         
-        forward_accelerating_indices = forward_indices * positive_speed_difference
-        forward_breaking_indices = forward_indices * (1.0 - positive_speed_difference)
-        backward_accelerating_indices = backward_indices * (1.0 - positive_speed_difference)
-        backward_breaking_indices = backward_indices * positive_speed_difference
+        forward_accelerating_indices = forward_indices & positive_speed_difference
+        forward_breaking_indices = forward_indices & negative_speed_difference
+        backward_accelerating_indices = backward_indices & negative_speed_difference
+        backward_breaking_indices = backward_indices & positive_speed_difference
         
-        max_a_v = self.a_max / self.v_max
-        min_a_v = self.a_max / (-self.v_min)
+        max_a_v = self.a_max / self.v_max * speed_difference
+        min_a_v = self.a_max / (-self.v_min) * speed_difference
 
         # fwd accl
-        forward_acceleration = 10.0 * max_a_v * forward_accelerating_indices * speed_difference
+        forward_acceleration = self.lib.where(forward_accelerating_indices, 10.0 * max_a_v, self.zeros)
 
         # fwd break
-        forward_breaking = 10.0 * min_a_v * forward_breaking_indices * speed_difference
+        forward_breaking = self.lib.where(forward_breaking_indices, 10.0 * min_a_v, self.zeros)
 
         # bkw accl
-        backward_acceleration = 2.0 * min_a_v * backward_accelerating_indices * speed_difference
+        backward_acceleration = self.lib.where(backward_accelerating_indices, 2.0 * min_a_v, self.zeros)
 
         # bkw break
-        backward_breaking = 2.0 * max_a_v * backward_breaking_indices * speed_difference
+        backward_breaking = self.lib.where(backward_breaking_indices, 2.0 * max_a_v, self.zeros)
 
         total_acceleration = forward_acceleration + forward_breaking + backward_acceleration + backward_breaking
 
