@@ -60,6 +60,7 @@ def main():
         waypoint_velocity_factor = np.min((np.random.uniform(-0.05, 0.05)+Settings.OPPONENTS_VEL_FACTOR/driver.waypoint_utils.global_limit, 0.5))
         opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
         opponent.save_recordings = False
+        opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
         opponents.append(opponent)
 
     ##################### DEFINE DRIVERS HERE #####################
