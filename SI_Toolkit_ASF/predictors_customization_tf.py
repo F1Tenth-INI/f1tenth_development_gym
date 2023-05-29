@@ -29,6 +29,7 @@ class next_state_predictor_ODE_tf():
             self.env = car_model(
                 model_of_car_dynamics=model_of_car_dynamics,
                 with_pid=with_pid,
+                batch_size=batch_size,
                 car_parameter_file=car_parameter_file,
                 dt=dt,
                 intermediate_steps=intermediate_steps,
