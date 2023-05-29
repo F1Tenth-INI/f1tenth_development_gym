@@ -57,7 +57,10 @@ class PurePursuitPlanner(template_planner):
 
 
         self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
-        
+
+        self.f_max = 0.0
+        self.f_min = 1.0
+
         print('Initialization done.')
         # Original values 
         # self.wheelbase = 0.17145+0.15875        
@@ -126,6 +129,11 @@ class PurePursuitPlanner(template_planner):
 
         f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
 
+        if self.f_max < f:
+            self.f_max = f
+        elif self.f_min > f:
+            self.f_min = f
+
         # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
         if self.simulation_index % 20 == 0:
@@ -134,6 +142,8 @@ class PurePursuitPlanner(template_planner):
             print('Mean abs speed: {}'.format(v_abs_mean))
             print('Mean abs curvature {}'.format(kappa_abs_mean))
             print('Curvature factor: {}'.format(f))
+            print('Curvature factor max: {}'.format(self.f_max))
+            print('Curvature factor min: {}'.format(self.f_min))
             print('')
             pass
 
