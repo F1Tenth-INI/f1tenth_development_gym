@@ -130,7 +130,7 @@ class PurePursuitPlanner(template_planner):
             kappa_abs_mean = np.mean(np.abs(curvature))
             f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
 
-            f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
+            f = np.clip(1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), 0.0, 1.0)
 
             if self.f_max < f:
                 self.f_max = f
@@ -150,11 +150,8 @@ class PurePursuitPlanner(template_planner):
                 print('')
                 pass
 
-
-
-            curvature_slowdown_factor = np.clip(f, 0.0, 1.0)
-
-            self.lookahead_distance = self.lookahead_distance * curvature_slowdown_factor
+            curvature_slowdown_factor = f
+            self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         # print ("lookaheadpoints", lookahead_point)
