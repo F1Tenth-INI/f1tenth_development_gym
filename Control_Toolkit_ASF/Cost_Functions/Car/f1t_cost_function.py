@@ -42,6 +42,10 @@ max_acceleration = config["Car"]["racing"]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
 waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
+crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
+
 
 class f1t_cost_function(cost_function_base):
     def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]") -> None:
@@ -194,7 +198,8 @@ class f1t_cost_function(cost_function_base):
         squared_dist = tf.reduce_sum(squared_diff, axis=1)
         return squared_dist
 
-    def get_crash_cost_normed(self, trajectories, border_points):
+
+    def get_crash_cost(self, trajectories, border_points):
 
         trajectories_shape = tf.shape(trajectories)
 
@@ -204,19 +209,15 @@ class f1t_cost_function(cost_function_base):
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
-        a = 3.0 # Concaveness slope
-        A = 100000.0  # y-intercept
-        B = 0.45  # x_intercet
+        a = crash_cost_slope # Concaveness slope
+        A = crash_cost_max_cost  # y-intercept
+        B = crash_cost_safe_margin  # x_intercet
         minima = tf.clip_by_value(minima, 0.0, B)
         cost_for_passing_close = a / (minima + (a / A)) - a / (B + (a / A))
 
         # crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
 
         return cost_for_passing_close
-
-    def get_crash_cost(self, trajectories, border_points):
-        return self.get_crash_cost_normed(trajectories,
-                                     border_points)  # Disqualify trajectories too close to sensor points
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
