@@ -107,6 +107,8 @@ class Settings():
     LIDAR_CORRUPT = False
     LIDAR_MAX_CORRUPTED_RATIO = 0.5
 
+    LIDAR_PLOT_SCANS = False
+
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = True
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
