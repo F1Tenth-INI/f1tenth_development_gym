@@ -78,6 +78,7 @@ class Settings():
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
+    INTERPOLATE_LOCA_WP = 4
 
 
     CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]

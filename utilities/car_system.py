@@ -55,7 +55,7 @@ class CarSystem:
         # Utilities 
         self.waypoint_utils = WaypointUtils()
         self.render_utils = RenderUtils()
-        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
+        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
         self.save_recording = save_recording
         if save_recording:
             self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL, lidar=self.LIDAR)
@@ -152,7 +152,6 @@ class CarSystem:
                     self.waypoints_for_controller = self.waypoints_from_mpc
                 else:
                     self.waypoints_for_controller = self.waypoint_utils.next_waypoints
-
         else:
             self.waypoints_for_controller = self.waypoint_utils.next_waypoints
 
@@ -179,7 +178,7 @@ class CarSystem:
         # Rendering and recording
         self.render_utils.update(
             lidar_points= lidar_points,
-            next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)],
+            next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
             car_state = car_state
         )
         self.render_utils.update_obstacles(obstacles)
@@ -202,6 +201,7 @@ class CarSystem:
 def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
     # Pass data to the planner
     if hasattr(planner, 'set_waypoints'):
+        next_waypoints = WaypointUtils.get_interpolated_waypoints(next_waypoints, Settings.INTERPOLATE_LOCA_WP)
         planner.set_waypoints(next_waypoints)
     if hasattr(planner, 'set_car_state'):
         planner.set_car_state(car_state)
