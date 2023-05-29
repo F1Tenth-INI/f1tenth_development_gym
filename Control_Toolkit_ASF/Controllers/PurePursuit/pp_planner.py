@@ -56,7 +56,7 @@ class PurePursuitPlanner(template_planner):
         self.translational_control = 0.
 
 
-        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
+        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((1.0, 0.0), (0.0, 1.0), fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
 
         self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
 
@@ -125,7 +125,7 @@ class PurePursuitPlanner(template_planner):
                 if self.waypoints[idx, WP_VX_IDX] > 0:
                     index_switch =idx
                     break
-            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX]))
+            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX:WP_VX_IDX+1]))
 
         else:
             if self.pp_use_curvature_correction:
