@@ -85,7 +85,7 @@ class PurePursuitPlanner(template_planner):
             current_waypoint[0:2] = wpts[i2, :]
             # speed
             current_waypoint[2] =  waypoints[i, 5]
-            return current_waypoint, i, i2
+            return current_waypoint, i, np.maximum(i2, 8)
         elif nearest_dist < self.max_reacquire:
             return np.append(wpts[i, :], waypoints[i, 5]), i, i
         else:
