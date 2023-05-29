@@ -58,6 +58,8 @@ class PurePursuitPlanner(template_planner):
 
         self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
 
+        self.use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
+
         self.f_max = 0.0
         self.f_min = 1.0
 
@@ -117,41 +119,42 @@ class PurePursuitPlanner(template_planner):
         self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
-        # LOOKAHEAD_CURVATURE = 5
-        LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
-        curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
-        speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
+        if self.pp_use_curvature_correction:
+            # LOOKAHEAD_CURVATURE = 5
+            LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
+            curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
+            speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
 
-        v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
-        v_abs_mean = np.mean(np.abs(speeds))
-        kappa_abs_mean = np.mean(np.abs(curvature))
-        f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
+            v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
+            v_abs_mean = np.mean(np.abs(speeds))
+            kappa_abs_mean = np.mean(np.abs(curvature))
+            f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
 
-        f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
+            f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
 
-        if self.f_max < f:
-            self.f_max = f
-        elif self.f_min > f:
-            self.f_min = f
+            if self.f_max < f:
+                self.f_max = f
+            elif self.f_min > f:
+                self.f_min = f
 
-        # print('Lookahead distance: {}'.format(self.lookahead_distance))
+            # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
-        if self.simulation_index % 20 == 0:
-            print('')
-            print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
-            print('Mean abs speed: {}'.format(v_abs_mean))
-            print('Mean abs curvature {}'.format(kappa_abs_mean))
-            print('Curvature factor: {}'.format(f))
-            print('Curvature factor max: {}'.format(self.f_max))
-            print('Curvature factor min: {}'.format(self.f_min))
-            print('')
-            pass
+            if self.simulation_index % 20 == 0:
+                print('')
+                print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
+                print('Mean abs speed: {}'.format(v_abs_mean))
+                print('Mean abs curvature {}'.format(kappa_abs_mean))
+                print('Curvature factor: {}'.format(f))
+                print('Curvature factor max: {}'.format(self.f_max))
+                print('Curvature factor min: {}'.format(self.f_min))
+                print('')
+                pass
 
 
 
-        curvature_slowdown_factor = f
+            curvature_slowdown_factor = f
 
-        self.lookahead_distance = self.lookahead_distance * curvature_slowdown_factor
+            self.lookahead_distance = self.lookahead_distance * curvature_slowdown_factor
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         # print ("lookaheadpoints", lookahead_point)
