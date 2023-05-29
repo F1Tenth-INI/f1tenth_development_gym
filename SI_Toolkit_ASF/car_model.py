@@ -25,6 +25,7 @@ class car_model:
             self,
             model_of_car_dynamics: str,
             with_pid: bool,
+            batch_size: int,
             car_parameter_file: str, # file containing the car parameters
             dt: float = 0.03,
             intermediate_steps=1,
@@ -36,6 +37,18 @@ class car_model:
         gym_path = get_gym_path()
         # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
         self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
+        
+        self.s_min = self.lib.constant([self.car_parameters['s_min']], self.lib.float32)
+        self.s_max = self.lib.constant([self.car_parameters['s_max']], self.lib.float32)
+        self.sv_min = self.lib.constant([self.car_parameters['sv_min']], self.lib.float32)
+        self.sv_max = self.lib.constant([self.car_parameters['sv_max']], self.lib.float32)
+        
+        self.v_switch = self.lib.constant([self.car_parameters['v_switch']], self.lib.float32)
+        self.a_max = self.lib.constant([self.car_parameters['a_max']], self.lib.float32)
+        self.v_min = self.lib.constant([self.car_parameters['v_min']], self.lib.float32)
+        self.v_max = self.lib.constant([self.car_parameters['v_max']], self.lib.float32)
+      
+        self.number_of_rollouts = self.lib.constant(batch_size, self.lib.int32)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
@@ -84,8 +97,6 @@ class car_model:
         returns s_next: (batch_size, len(state)) all nexts states
         '''
 
-        number_of_rollouts = self.lib.shape(s)[0]
-
         pose_x = s[:, POSE_X_IDX]
         pose_y = s[:, POSE_Y_IDX]
         pose_theta = s[:, POSE_THETA_IDX]
@@ -98,15 +109,15 @@ class car_model:
             pose_x = pose_x + self.t_step * speed * self.lib.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * self.lib.sin(pose_theta)
 
-        angular_vel_z = self.lib.zeros([number_of_rollouts])
-        linear_vel_x = self.lib.zeros([number_of_rollouts])
+        angular_vel_z = self.lib.zeros([self.number_of_rollouts])
+        linear_vel_x = self.lib.zeros([self.number_of_rollouts])
         pose_theta = pose_theta
         pose_theta_cos = self.lib.cos(pose_theta)
         pose_theta_sin = self.lib.sin(pose_theta)
         pose_x = pose_x
         pose_y = pose_y
-        slip_angle = self.lib.zeros([number_of_rollouts])
-        steering_angle = self.lib.zeros([number_of_rollouts])
+        slip_angle = self.lib.zeros([self.number_of_rollouts])
+        steering_angle = self.lib.zeros([self.number_of_rollouts])
 
         return self.next_step_output(angular_vel_z,
                                      linear_vel_x,
@@ -120,7 +131,7 @@ class car_model:
 
     def _step_dynamics_ks(self, s, Q, params):
         '''
-        Parallaley executes steps frim initial state s[i] with control input Q[i] for every i
+        Parallely executes steps from initial state s[i] with control input Q[i] for every i
         @param s: (batch_size, len(state)) all initial states for every step
         @param s: (batch_size, len(control_input)) all control inputs for every step
         @param params: TODO: Parameters of the car
@@ -129,20 +140,11 @@ class car_model:
         lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
         lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
         lwb = lf + lr
-
-        # Dimensions
-        number_of_rollouts = self.lib.shape(s)[0]
-
-        s_x = s[:, POSE_X_IDX]  # Pose X
-        s_y = s[:, POSE_Y_IDX]  # Pose Y
-        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
-        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
-
-        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
-
-        # Constaints
+        
+        _, v_x, psi, _, _, s_x, s_y, _, delta = self.lib.unstack(s, 9, 1)
+        delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
+        
+        # Constraints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
         delta_dot = self.steering_constraints(delta, delta_dot)
 
@@ -167,7 +169,7 @@ class car_model:
         pose_theta_sin = self.lib.sin(pose_theta)
         pose_x = s_x
         pose_y = s_y
-        slip_angle = self.lib.zeros([number_of_rollouts])
+        slip_angle = self.lib.zeros([self.number_of_rollouts])
         steering_angle = delta
 
         return self.next_step_output(angular_vel_z,
@@ -210,7 +212,6 @@ class car_model:
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Variable utils, mbakka
-        batch_size = s.shape[0]
         state_len = s.shape[1]
         # Control Input
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
@@ -288,7 +289,7 @@ class car_model:
                                           slip_angle,
                                           steering_angle)
 
-        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(batch_size,1))
+        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(self.number_of_rollouts,1))
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
@@ -297,16 +298,11 @@ class car_model:
 
     def steering_constraints(self, steering_angle, steering_velocity):
 
-        s_min = self.lib.constant([self.car_parameters['s_min']], self.lib.float32)
-        s_max = self.lib.constant([self.car_parameters['s_max']], self.lib.float32)
-        sv_min = self.lib.constant([self.car_parameters['sv_min']], self.lib.float32)
-        sv_max = self.lib.constant([self.car_parameters['sv_max']], self.lib.float32)
-
         steering_velocity_non_negative_indices = self.lib.greater_equal(steering_velocity, 0.0)
         steering_velocity_non_positive_indices =  self.lib.less_equal(steering_velocity, 0.0)
 
-        steering_angle_too_low_indices = self.lib.less_equal(steering_angle, s_min)
-        steering_angle_too_high_indices = self.lib.greater_equal(steering_angle, s_max)
+        steering_angle_too_low_indices = self.lib.less_equal(steering_angle, self.s_min)
+        steering_angle_too_high_indices = self.lib.greater_equal(steering_angle, self.s_max)
 
         cond1 = self.lib.logical_and(steering_angle_too_low_indices, steering_velocity_non_positive_indices)
         cond2 = self.lib.logical_and(steering_angle_too_high_indices, steering_velocity_non_negative_indices)
@@ -315,26 +311,21 @@ class car_model:
         steering_velocity = good_steering_velocity_indices * steering_velocity
 
         # Steering velocity is constrainted
-        steering_velocity = self.lib.clip(steering_velocity, sv_min, sv_max)
+        steering_velocity = self.lib.clip(steering_velocity, self.sv_min, self.sv_max)
 
         return steering_velocity
 
     def accl_constraints(self, vel, accl):
-        v_switch = self.lib.constant([self.car_parameters['v_switch']], self.lib.float32)
-        a_max = self.lib.constant([self.car_parameters['a_max']], self.lib.float32)
-        v_min = self.lib.constant([self.car_parameters['v_min']], self.lib.float32)
-        v_max = self.lib.constant([self.car_parameters['v_max']], self.lib.float32)
-      
 
         # positive accl limit
-        velocity_too_high_indices = self.lib.greater(vel, v_switch)
+        velocity_too_high_indices = self.lib.greater(vel, self.v_switch)
         velocity_not_too_high_indices = self.lib.logical_not(velocity_too_high_indices)
         #mbakka commented
         #velocity_too_high_indices = self.lib.cast(velocity_too_high_indices, self.lib.float32)
         velocity_not_too_high_indices = self.lib.cast(velocity_not_too_high_indices, self.lib.float32)
 
         # mbakka
-        pos_limit = self.lib.where(velocity_too_high_indices, (a_max * v_switch) / vel, a_max)
+        pos_limit = self.lib.where(velocity_too_high_indices, (self.a_max * self.v_switch) / vel, self.a_max)
 
         # mbakka commented the following paragraph
         """
@@ -347,11 +338,11 @@ class car_model:
 
         # accl limit reached?
 
-        v_less_vmin = self.lib.less(vel,v_min)
+        v_less_vmin = self.lib.less(vel,self.v_min)
         accl_negative = self.lib.less(accl,0)
         v_less_vmin_and_accl_negative = self.lib.logical_and(v_less_vmin,accl_negative)
 
-        v_greater_vmax = self.lib.greater(vel, v_max)
+        v_greater_vmax = self.lib.greater(vel, self.v_max)
         accl_positive = self.lib.greater(accl, 0)
         v_greater_vmax_and_accl_positive = self.lib.logical_and(v_greater_vmax, accl_positive)
 
@@ -359,7 +350,7 @@ class car_model:
 
         accl = self.lib.where(condition, 0., accl)
 
-        accl = self.lib.clip(accl, -a_max, pos_limit)
+        accl = self.lib.clip(accl, -self.a_max, pos_limit)
 
         return accl
 
@@ -392,10 +383,6 @@ class car_model:
 
     def motor_controller_pid(self, desired_speed, current_speed):
         
-        a_max = tf.constant([self.car_parameters['a_max']], dtype=tf.float32)
-        v_min = tf.constant([self.car_parameters['v_min']], dtype=tf.float32)
-        v_max = tf.constant([self.car_parameters['v_max']], dtype=tf.float32)
-
         speed_difference = desired_speed - current_speed
 
         forward_indices = tf.cast(tf.math.greater(current_speed, 0.0), tf.float32)
@@ -412,19 +399,19 @@ class car_model:
                                                                tf.float32)
 
         # fwd accl
-        kp = 10.0 * a_max / v_max
+        kp = 10.0 * self.a_max / self.v_max
         forward_acceleration = kp * forward_accelerating_indices * speed_difference
 
         # fwd break
-        kp = 10.0 * a_max / (-v_min)
+        kp = 10.0 * self.a_max / (-self.v_min)
         forward_breaking = kp * forward_breaking_indices * speed_difference
 
         # bkw accl
-        kp = 2.0 * a_max / (-v_min)
+        kp = 2.0 * self.a_max / (-self.v_min)
         backward_acceleration = kp * backward_accelerating_indices * speed_difference
 
         # bkw break
-        kp = 2.0 * a_max / v_max
+        kp = 2.0 * self.a_max / self.v_max
         backward_breaking = kp * backward_breaking_indices * speed_difference
 
         total_acceleration = forward_acceleration + forward_breaking + backward_acceleration + backward_breaking
@@ -436,8 +423,7 @@ class car_model:
         def _step_model_with_servo_and_motor_pid(s, Q, params):
 
             # Control Input (desired speed, desired steering angle)
-            desired_angle = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-            desired_speed = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+            desired_angle, desired_speed = self.lib.unstack(Q, 2, 1)
 
             delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
             vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
