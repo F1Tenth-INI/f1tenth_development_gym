@@ -152,7 +152,7 @@ class PurePursuitPlanner(template_planner):
 
 
 
-            curvature_slowdown_factor = f
+            curvature_slowdown_factor = np.clip(f, 0.0, 1.0)
 
             self.lookahead_distance = self.lookahead_distance * curvature_slowdown_factor
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
