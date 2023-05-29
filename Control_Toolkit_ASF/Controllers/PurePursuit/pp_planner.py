@@ -119,49 +119,58 @@ class PurePursuitPlanner(template_planner):
         self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
-        if self.pp_use_curvature_correction:
-            # LOOKAHEAD_CURVATURE = 5
-            LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
-            curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
-            speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
+        if nearest_point[-1] < 0:
+            index_switch = 1
+            for idx in range(len(self.waypoints[i:])):
+                if self.waypoints[idx, WP_VX_IDX] > 0:
+                    index_switch =idx
+                    break
+            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX]))
 
-            v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
-            v_abs_mean = np.mean(np.abs(speeds))
-            kappa_abs_mean = np.mean(np.abs(curvature))
-            f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
+        else:
+            if self.pp_use_curvature_correction:
+                # LOOKAHEAD_CURVATURE = 5
+                LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
+                curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
+                speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
 
-            f = np.clip(1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), 0.0, 1.0)
+                v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
+                v_abs_mean = np.mean(np.abs(speeds))
+                kappa_abs_mean = np.mean(np.abs(curvature))
+                f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
 
-            if self.f_max < f:
-                self.f_max = f
-            elif self.f_min > f:
-                self.f_min = f
+                f = np.clip(1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), 0.0, 1.0)
 
-            # print('Lookahead distance: {}'.format(self.lookahead_distance))
+                if self.f_max < f:
+                    self.f_max = f
+                elif self.f_min > f:
+                    self.f_min = f
 
-            if self.simulation_index % 20 == 0:
-                print('')
-                print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
-                print('Mean abs speed: {}'.format(v_abs_mean))
-                print('Mean abs curvature {}'.format(kappa_abs_mean))
-                print('Curvature factor: {}'.format(f))
-                print('Curvature factor max: {}'.format(self.f_max))
-                print('Curvature factor min: {}'.format(self.f_min))
-                print('')
-                pass
+                # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
-            curvature_slowdown_factor = f
-            self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
-        lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+                if self.simulation_index % 20 == 0:
+                    print('')
+                    print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
+                    print('Mean abs speed: {}'.format(v_abs_mean))
+                    print('Mean abs curvature {}'.format(kappa_abs_mean))
+                    print('Curvature factor: {}'.format(f))
+                    print('Curvature factor max: {}'.format(self.f_max))
+                    print('Curvature factor min: {}'.format(self.f_min))
+                    print('')
+                    pass
 
-        # print ("lookaheadpoints", lookahead_point)
-        if lookahead_point is None:
-            print("warning no lookahead point")
-            lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
-            lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
-            # self.angular_control = 0.
-            # self.translational_control = 1.
-            # return 1.0, 0.0
+                curvature_slowdown_factor = f
+                self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
+            lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+
+            # print ("lookaheadpoints", lookahead_point)
+            if lookahead_point is None:
+                print("warning no lookahead point")
+                lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
+                lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
+                # self.angular_control = 0.
+                # self.translational_control = 1.
+                # return 1.0, 0.0
 
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
