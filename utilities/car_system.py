@@ -97,6 +97,8 @@ class CarSystem:
             
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
+
+        self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
             
 
     
@@ -136,7 +138,7 @@ class CarSystem:
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
 
-        if Settings.WAYPOINTS_FROM_MPC:
+        if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
                 pass_data_to_planner(self.waypoints_planner, self.waypoint_utils.next_waypoints, car_state, obstacles)
                 self.waypoints_planner.process_observation(ranges, ego_odom)
