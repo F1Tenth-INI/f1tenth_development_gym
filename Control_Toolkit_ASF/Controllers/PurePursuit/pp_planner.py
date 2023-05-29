@@ -134,6 +134,9 @@ class PurePursuitPlanner(template_planner):
         self.render_utils.update_pp(
             target_point=lookahead_point,
         )
+
+        self.simulation_index += 1
+
         return steering_angle, speed
 
 
