@@ -16,7 +16,7 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
     from utilities.render_utilities_ros import RenderUtils
@@ -145,7 +145,10 @@ class CarSystem:
                     self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]
                     self.waypoints_from_mpc[:, WP_Y_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_Y_IDX]
                     self.waypoints_from_mpc[:, WP_VX_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, LINEAR_VEL_X_IDX]
-                    # self.waypoints_from_mpc[:, WP_VX_IDX] = self.waypoint_utils.next_waypoints[:, WP_VX_IDX]
+                    angular_vel = optimal_trajectory[0, :, ANGULAR_VEL_Z_IDX]
+                    linear_vel = optimal_trajectory[0, :, LINEAR_VEL_X_IDX]
+                    curvature = np.divide(angular_vel, linear_vel, out=np.zeros_like(angular_vel), where=linear_vel != 0)
+                    self.waypoints_from_mpc[:, WP_KAPPA_IDX] = curvature[-len(self.waypoints_from_mpc):]
                     self.waypoints_for_controller = self.waypoints_from_mpc
                 else:
                     self.waypoints_for_controller = self.waypoint_utils.next_waypoints
