@@ -75,9 +75,9 @@ class PurePursuitPlanner(template_planner):
             current_waypoint[0:2] = wpts[i2, :]
             # speed
             current_waypoint[2] =  waypoints[i, 5]
-            return current_waypoint
+            return current_waypoint, i, i2
         elif nearest_dist < self.max_reacquire:
-            return np.append(wpts[i, :], waypoints[i, 5])
+            return np.append(wpts[i, :], waypoints[i, 5]), i, i
         else:
             return None
         
@@ -105,7 +105,7 @@ class PurePursuitPlanner(template_planner):
         # Dynamic Lookahead distance
         self.lookahead_distance = 0.7 * v_x
         
-        lookahead_point = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+        lookahead_point, _, _ = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
         # print ("lookaheadpoints", lookahead_point)
         if lookahead_point is None:
             print("warning no lookahead point")
