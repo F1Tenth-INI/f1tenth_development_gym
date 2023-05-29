@@ -69,7 +69,7 @@ class PurePursuitPlanner(template_planner):
         if nearest_dist < lookahead_distance:
             lookahead_point, i2, t2 = first_point_on_trajectory_intersecting_circle(position, lookahead_distance, wpts, i+t, wrap=True)
             if i2 == None:
-                return None
+                i2 = len(wpts)-1  # if waypoints end earlier than trajectory, use last waypoint
             current_waypoint = np.empty((3, ))
             # x, y
             current_waypoint[0:2] = wpts[i2, :]
