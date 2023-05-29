@@ -56,7 +56,7 @@ class PurePursuitPlanner(template_planner):
         self.translational_control = 0.
 
 
-        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=(0.8, 0.7))
+        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
         
         print('Initialization done.')
         # Original values 
@@ -111,7 +111,7 @@ class PurePursuitPlanner(template_planner):
         nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
 
         # Dynamic Lookahead distance
-        self.lookahead_distance = np.max((0.7 * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         # LOOKAHEAD_CURVATURE = 5
@@ -119,12 +119,12 @@ class PurePursuitPlanner(template_planner):
         curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
         speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
 
-        v_max = 10.0
+        v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
         v_abs_mean = np.mean(np.abs(speeds))
         kappa_abs_mean = np.mean(np.abs(curvature))
         f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
 
-        f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), 0.1))
+        f = np.max((1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
 
         # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
