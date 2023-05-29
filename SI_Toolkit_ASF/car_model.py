@@ -160,7 +160,7 @@ class car_model:
             v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
 
-        angular_vel_z = self.lib.zeros([number_of_rollouts])
+        angular_vel_z = psi_dot
         linear_vel_x = v_x
         pose_theta = psi
         pose_theta_cos = self.lib.cos(pose_theta)
