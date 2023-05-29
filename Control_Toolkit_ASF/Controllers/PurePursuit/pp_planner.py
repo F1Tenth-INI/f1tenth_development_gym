@@ -58,7 +58,7 @@ class PurePursuitPlanner(template_planner):
 
         self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function(1.0, 1.0, fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
 
-        self.use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
+        self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
 
         self.f_max = 0.0
         self.f_min = 1.0
