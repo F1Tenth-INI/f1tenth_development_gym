@@ -5,8 +5,12 @@ map_path: 'utilities/maps/london3_small/london3_small'
 waypoint_path: 'utilities/maps/london3_small/london3_small_wp'
 
 # starting pose for map
-starting_positions: 
- - [0., 0., -1.5]
+starting_positions:
+ - [-10.921217,5.149758,-2.220604]  # 285
+ - [6.196553,4.051835,-2.918496]  # 85
+ - [-1.892082,4.795311,-2.535196]  # 185
+ - [-4.063408,0.614880,-0.097146]  # 385
+ - [3.457477,0.893444,0.368592]  # 461
 
 waypoints:
   decrease_resolution_factor: 1
