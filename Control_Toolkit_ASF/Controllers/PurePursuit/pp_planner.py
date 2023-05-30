@@ -56,7 +56,7 @@ class PurePursuitPlanner(template_planner):
         self.translational_control = 0.
 
 
-        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((1.0, 0.0), (0.0, 1.0), fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
+        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((0.0, 1.0), (1.0, 0.0) , fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
 
         self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
 
@@ -139,7 +139,7 @@ class PurePursuitPlanner(template_planner):
                 kappa_abs_mean = np.mean(np.abs(curvature))
                 f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
 
-                f = np.clip(1.0-self.hyperbolic_function_for_curvature_factor(1.0-f), 0.0, 1.0)
+                f = np.clip(self.hyperbolic_function_for_curvature_factor(f), 0.0, 1.0)
 
                 if self.f_max < f:
                     self.f_max = f
