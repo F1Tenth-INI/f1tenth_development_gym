@@ -110,7 +110,7 @@ class Settings():
     LIDAR_PLOT_SCANS = False
 
     ## Pure Pursuit Controller ##
-    PP_USE_CURVATURE_CORRECTION = True
+    PP_USE_CURVATURE_CORRECTION = False
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.82461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.7
