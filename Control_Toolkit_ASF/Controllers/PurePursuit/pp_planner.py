@@ -143,7 +143,7 @@ class PurePursuitPlanner(template_planner):
 
                 # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
-                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is not False:
+                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is False:
                     if self.f_max < f:
                         self.f_max = f
                     elif self.f_min > f:
@@ -165,7 +165,7 @@ class PurePursuitPlanner(template_planner):
 
             # print ("lookaheadpoints", lookahead_point)
             if lookahead_point is None:
-                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is not False:
+                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is False:
                     print("warning no lookahead point")
                 lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
                 lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
