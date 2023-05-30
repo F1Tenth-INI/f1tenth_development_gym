@@ -141,3 +141,6 @@ class Settings():
 
     WAYPOINTS_FROM_MPC = True
     PLAN_EVERY_N_STEPS = 12
+
+    PRINTING_ON = False
+

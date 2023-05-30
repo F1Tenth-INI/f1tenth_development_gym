@@ -141,23 +141,23 @@ class PurePursuitPlanner(template_planner):
 
                 f = np.clip(self.hyperbolic_function_for_curvature_factor(f), 0.0, 1.0)
 
-                if self.f_max < f:
-                    self.f_max = f
-                elif self.f_min > f:
-                    self.f_min = f
-
                 # print('Lookahead distance: {}'.format(self.lookahead_distance))
 
-                if self.simulation_index % 20 == 0:
-                    print('')
-                    print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
-                    print('Mean abs speed: {}'.format(v_abs_mean))
-                    print('Mean abs curvature {}'.format(kappa_abs_mean))
-                    print('Curvature factor: {}'.format(f))
-                    print('Curvature factor max: {}'.format(self.f_max))
-                    print('Curvature factor min: {}'.format(self.f_min))
-                    print('')
-                    pass
+                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is not None:
+                    if self.f_max < f:
+                        self.f_max = f
+                    elif self.f_min > f:
+                        self.f_min = f
+                    if self.simulation_index % 20 == 0:
+                        print('')
+                        print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
+                        print('Mean abs speed: {}'.format(v_abs_mean))
+                        print('Mean abs curvature {}'.format(kappa_abs_mean))
+                        print('Curvature factor: {}'.format(f))
+                        print('Curvature factor max: {}'.format(self.f_max))
+                        print('Curvature factor min: {}'.format(self.f_min))
+                        print('')
+                        pass
 
                 curvature_slowdown_factor = f
                 self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
@@ -165,7 +165,8 @@ class PurePursuitPlanner(template_planner):
 
             # print ("lookaheadpoints", lookahead_point)
             if lookahead_point is None:
-                print("warning no lookahead point")
+                if Settings.PRINTING_ON or Settings.ROS_BRIDGE is not None:
+                    print("warning no lookahead point")
                 lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
                 lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
                 # self.angular_control = 0.
