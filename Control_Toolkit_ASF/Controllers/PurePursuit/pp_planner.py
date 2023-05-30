@@ -121,11 +121,11 @@ class PurePursuitPlanner(template_planner):
 
         if self.waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
-            for idx in range(len(self.waypoints[i:])):
-                if self.waypoints[idx, WP_VX_IDX] > 0:
-                    index_switch =idx
+            for idx in range(1, len(self.waypoints[i:])):
+                if self.waypoints[i+idx, WP_VX_IDX] > 0:
+                    index_switch = i + idx
                     break
-            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX]))
+            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX:WP_VX_IDX+1]))
 
         else:
             if self.pp_use_curvature_correction:
