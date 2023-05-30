@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from typing import Type
+from SI_Toolkit.computation_library import ComputationLibrary
 import tensorflow as tf
 
 from utilities.state_utilities import *
@@ -6,6 +9,11 @@ from Control_Toolkit_ASF.Cost_Functions.Car.f1t_cost_function import f1t_cost_fu
 
 
 class racing(f1t_cost_function):
+    def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: Type[ComputationLibrary]) -> None:
+        super().__init__(variable_parameters, ComputationLib)
+        self.waypoints_are_tensor = self.lib.constant(hasattr(self.variable_parameters.next_waypoints, 'shape'), self.lib.bool)
+        self.N = self.lib.constant(self.lib.shape(self.variable_parameters.next_waypoints)[0], self.lib.int32)
+        
 
     def get_terminal_cost(self, terminal_state):
         terminal_speed_cost = self.get_terminal_speed_cost(terminal_state)
@@ -30,10 +38,10 @@ class racing(f1t_cost_function):
 
         # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
-        slipping_cost = self.get_slipping_cost(s)
+        # slipping_cost = self.get_slipping_cost(s)
 
         # Costs related to waypoints 
-        if hasattr (self.variable_parameters.next_waypoints, 'shape'):
+        if self.waypoints_are_tensor:
             # TODO: calculate closest waypoints only once
             waypoints = self.variable_parameters.next_waypoints #np.array(self.controller.next_waypoints).astype(np.float32) #tf.constant(self.controller.next_waypoints, dtype=tf.float32)
             waypoint_positions = waypoints[:,1:3]
@@ -81,8 +89,8 @@ class racing(f1t_cost_function):
                 # + cost_for_stopping
             )
 
-        discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
-        discount_vector = self.lib.cumprod(discount_vector, 0)
+        # discount_vector = self.lib.ones(self.N, self.lib.float32)  # nth wypt has wheight factor^n, if no wheighting required use factor=1.00
+        # discount_vector = self.lib.cumprod(discount_vector, 0)
 
         # Read out values for cost weight callibration: Uncomment for debugging
 
@@ -94,4 +102,4 @@ class racing(f1t_cost_function):
         # ccrc_numpy= ccrc.numpy()[:20]
         # stage_cost_numpy= stage_cost.numpy()[:20]
 
-        return stage_cost*discount_vector
+        return stage_cost  # *discount_vector

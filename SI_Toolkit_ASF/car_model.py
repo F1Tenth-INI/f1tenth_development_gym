@@ -150,7 +150,7 @@ class car_model:
         delta_dot = self.steering_constraints(delta, delta_dot)
 
         # Euler stepping
-        for _ in range(self.intermediate_steps):
+        for _ in tf.range(self.intermediate_steps):
             s_x_dot = v_x * self.lib.cos(psi)
             s_y_dot = v_x * self.lib.sin(psi)
             # delta_dot = delta_dot
