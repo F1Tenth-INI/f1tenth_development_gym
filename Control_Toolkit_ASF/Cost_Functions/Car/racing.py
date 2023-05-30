@@ -11,8 +11,9 @@ from Control_Toolkit_ASF.Cost_Functions.Car.f1t_cost_function import f1t_cost_fu
 class racing(f1t_cost_function):
     def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: Type[ComputationLibrary]) -> None:
         super().__init__(variable_parameters, ComputationLib)
-        self.waypoints_are_tensor = self.lib.constant(hasattr(self.variable_parameters.next_waypoints, 'shape'), self.lib.bool)
-        self.N = self.lib.constant(self.lib.shape(self.variable_parameters.next_waypoints)[0], self.lib.int32)
+        self.waypoints = self.variable_parameters.next_waypoints #np.array(self.controller.next_waypoints).astype(np.float32) #tf.constant(self.controller.next_waypoints, dtype=tf.float32)
+        self.waypoints_are_tensor = self.lib.constant(hasattr(self.waypoints, 'shape'), self.lib.bool)
+        self.N = self.lib.constant(self.lib.shape(self.waypoints)[0], self.lib.int32)
         
 
     def get_terminal_cost(self, terminal_state):
@@ -39,26 +40,18 @@ class racing(f1t_cost_function):
         # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
         # slipping_cost = self.get_slipping_cost(s)
+        
+        # TODO: calculate closest waypoints only once
+        waypoint_positions = self.waypoints[:,1:3]
+
+        # Reuse, dont calculate twice...
+        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
 
         # Costs related to waypoints 
-        if self.waypoints_are_tensor:
-            # TODO: calculate closest waypoints only once
-            waypoints = self.variable_parameters.next_waypoints #np.array(self.controller.next_waypoints).astype(np.float32) #tf.constant(self.controller.next_waypoints, dtype=tf.float32)
-            waypoint_positions = waypoints[:,1:3]
-
-            # Reuse, dont calculate twice...
-            nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
-
-            # distance_to_wp_segments_cost = self.get_distance_to_wp_cost(s, waypoints, nearest_waypoint_indices)
-            distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
-            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
-            speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
-            angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
-
-        else:
-            distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
-            velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
-            speed_control_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
+        distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, self.waypoints, nearest_waypoint_indices)
+        velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, self.waypoints, nearest_waypoint_indices)
+        speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, self.waypoints, nearest_waypoint_indices)
+        angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, self.waypoints, nearest_waypoint_indices)
 
         ## Old waypoint cost function: only distance to nearest waypoint
         # if self.variable_parameters.next_waypoints.shape[0]:

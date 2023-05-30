@@ -295,7 +295,7 @@ class f1t_cost_function(cost_function_base):
 
         car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
-        horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
+        # horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
     
