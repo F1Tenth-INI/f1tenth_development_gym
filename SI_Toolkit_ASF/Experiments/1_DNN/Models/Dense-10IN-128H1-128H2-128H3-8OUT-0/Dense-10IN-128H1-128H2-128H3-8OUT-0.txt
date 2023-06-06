@@ -1,0 +1,50 @@
+CREATED:
+2023-05-24 at time 10:24:13
+
+WITH GIT REVISION:
+unknown
+
+LIBRARY:
+TF
+
+NET NAME:
+Dense-128H1-128H2-128H3
+
+NET FULL NAME:
+Dense-10IN-128H1-128H2-128H3-8OUT-0
+
+INPUTS:
+angular_control, translational_control, angular_vel_z, linear_vel_x, pose_theta_cos, pose_theta_sin, pose_x, pose_y, slip_angle, steering_angle
+
+OUTPUTS:
+angular_vel_z, linear_vel_x, pose_theta_cos, pose_theta_sin, pose_x, pose_y, slip_angle, steering_angle
+
+TYPE:
+Dense
+
+NORMALIZATION:
+./SI_Toolkit_ASF/Experiments/1_DNN/Models/Dense-10IN-128H1-128H2-128H3-8OUT-0/NI_2023-05-24_09-02-21.csv
+
+PARENT NET:
+Network trained from scratch
+
+WASH OUT LENGTH:
+0
+
+CONSTRUCT NETWORK:
+with cells
+
+TRAINING_FILES:
+./SI_Toolkit_ASF/Experiments/1_DNN//Recordings/Train/
+
+VALIDATION_FILES:
+./SI_Toolkit_ASF/Experiments/1_DNN//Recordings/Validate/
+
+TEST_FILES:
+./SI_Toolkit_ASF/Experiments/1_DNN//Recordings/Test/
+
+TIMESTEP MEAN:
+0.03999999910593033
+
+TIMESTEP STD:
+1.574180828356475e-06

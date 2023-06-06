@@ -8,9 +8,9 @@ predictors_specifications_testing: ['S:./SI_Toolkit_ASF/Experiments/flo/Models/D
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-1__2023-05-20_12-07-58.csv'
+test_file: 'F1TENTH_Blank-MPPI-1__2023-05-20_12-07-58.csv'=
 
-path_to_testfile: './ExperimentRecordings/'
+path_to_testfile: './SI_Toolkit_ASF/Experiments/1_DNN/Recordings/Test/'
 
 test_len: 'max'
 test_max_horizon: 50  # Indicates prediction horizon for testing
