@@ -3,8 +3,6 @@ from run_data_generator import run_data_generator
 # Automatically create new path to save everything in
 
 import yaml, os
-config_SI = yaml.load(open(os.path.join('SI_Toolkit_ASF', 'config_training.yml')), Loader=yaml.FullLoader)
-config_cartpole = yaml.load(open('config.yml'), Loader=yaml.FullLoader)
 
 def get_record_path():
     experiment_index = 1
@@ -20,13 +18,17 @@ def get_record_path():
     return record_path
 
 if __name__ == '__main__':
+    config_SI = yaml.load(open(os.path.join('SI_Toolkit_ASF', 'config_training.yml')), Loader=yaml.FullLoader)
+    config_f1t = yaml.load(open('DataGen/config_data_gen.yml'), Loader=yaml.FullLoader)
+    
     record_path = get_record_path()
 
     # Save copy of configs in experiment folder
     if not os.path.exists(record_path):
         os.makedirs(record_path)
-    yaml.dump(config_SI, open(record_path + "/SI_Toolkit_config_savefile.yml", "w"), default_flow_style=False)
-    yaml.dump(config_cartpole, open(record_path + "/CartPole_config_savefile.yml", "w"), default_flow_style=False)
+    
+    yaml.dump(config_SI, open(record_path + "/SI_Toolkit_config_savefile.yml", "w"), default_flow_style=False) 
+    yaml.dump(config_f1t, open(record_path + "/F1t_config_savefile.yml", "w"), default_flow_style=False)
 
     # Run data generator
     run_data_generator(run_for_ML_Pipeline=True, record_path=record_path)
