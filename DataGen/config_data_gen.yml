@@ -1,5 +1,5 @@
-path_save_to: './xxx/'  # Where to save experiment recording per default
-#path_save_to: './Experiment_Recordings/'
+#path_save_to: './xxx/'  # Where to save experiment recording per default
+path_save_to: './ExperimentRecordings/'
 seed:    # If not assign random seed based on datetime is used
 split: [0.8, 0.1]  # Train/Val/(Test) split - only matters if you run it in ML Pipeline mode
 initial_states:
@@ -9,25 +9,36 @@ initial_states:
     file_with_initial_states: './ExperimentRecordings/F1TENTH_Blank-MPPI-0__2022-11-29_10-19-19.csv'
   random:
     # Unassigned variables will be randomly initialized (see below)
-    position:
-    positionD:
-    angle:
-    angleD:
-    target_position:
+    yaw_rate: 
+    velocity_x: 0
+    yaw_angle:
+    x:
+    y:
+    slip_angle:
+    steering_angle:
     init_limits: # The initial state is randomly chosen from below range if above is not assigned
-      angle: [90.0, 180.0]  # degree, 0 is up, 180 down, set the range for right half plane, same will be applied to left
-      angleD: 40.0
-      position: 0.5  # Fraction of TrackHalfLength to each side
-      positionD: 0.01 # Fraction of TrackHalfLength to each side
-
+      yaw_rate: [0.0, 3.25] #[0.0, 3.25]
+      velocity_x: [-2.0, 20.0] #[-2.0, 20.0]
+      yaw_angle: [-3.1415, 3.1415] #[-3.1415, 3.1415]
+      x: [-50, 50] #[-50, 50]
+      y: [-50, 50] #[-50, 50]
+      slip_angle: [-2.0, 2.0] #[-2.0, 2.0]
+      steering_angle: [-0.5, 0.5] #[-0.5, 0.5]
 dt: 0.03
-number_of_initial_states: 1000
+number_of_initial_states: 500
 number_of_trajectories_per_initial_state: 1
-trajectory_length: 100
-#  number_of_experiments = number_of_initial_states * number_of_trajectories_per_initial_state # How many experiments will be generated
-#  experiment_length = trajectory_length * dt
+trajectory_length: 500
 save:
   singlefile: true
 control_inputs:
-  strategy: 'random input'  # Also possible 'constant input'
+  # Set usage of PID in utilities/Settings.py
+  strategy: 'constant'  # random/constant
+
+  # With PID:
+  angular_control_range: [0.0, 0.2] # [mu, sigma]
+  translational_control_range: [0, 20.0]
+
+  # Without PID:
+  # angular_control_range: [0.0, 1.1] # [mu, sigma]
+  # translational_control_range: [-9, 9]
 
