@@ -35,3 +35,9 @@ predictors:
     predictor_type: 'ODE'
     model_name:
     intermediate_steps: 10
+
+  Custom_DNN:
+    predictor_type: 'neural'
+    model_name: 'Dense-10IN-64H1-64H2-8OUT-0'
+    path_to_model: './SI_Toolkit_ASF/Experiments/1_DNN/Models'
+    update_before_predicting: True
