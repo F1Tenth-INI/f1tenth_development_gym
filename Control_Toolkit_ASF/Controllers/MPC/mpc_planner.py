@@ -26,6 +26,7 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
+from Control_Toolkit.Cost_Functions.cost_function_tester import CostFunctionTester
 
 class mpc_planner(template_planner):
     """
@@ -54,7 +55,7 @@ class mpc_planner(template_planner):
 
 
         self.mpc = controller_mpc(
-            dt=Settings.TIMESTEP_CONTROL*3.0,
+            dt=Settings.TIMESTEP_PLANNER,
             environment_name="Car",
             initial_environment_attributes={
                 "obstacles": self.obstacles,
@@ -72,6 +73,11 @@ class mpc_planner(template_planner):
         self.TargetGenerator = TargetGenerator()
         self.SpeedGenerator = SpeedGenerator()
 
+        if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
+            self.cost_function_tester = CostFunctionTester(
+                cost_function=self.mpc.cost_function
+            )
+
     def set_obstacles(self, obstacles):
 
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
@@ -85,7 +91,8 @@ class mpc_planner(template_planner):
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
 
-        # self.LIDAR.plot_lidar_data()
+        if Settings.LIDAR_PLOT_SCANS:
+            self.LIDAR.plot_lidar_data()
 
         self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
             self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
@@ -112,6 +119,11 @@ class mpc_planner(template_planner):
                                                                    "target_point": self.target_point,
 
                                                                })
+        if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
+            self.cost_function_tester.collect_costs()
+            if self.simulation_index % Settings.ANALYZE_COST_PERIOD == 0:
+                self.cost_function_tester.plot()
+
 
         # This is the very fast controller: steering proportional to angle to the target, speed random
         # steering_angle = np.clip(self.TargetGenerator.angle_to_target((pose_x, pose_y), pose_theta), -0.2, 0.2)

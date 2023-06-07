@@ -42,12 +42,19 @@ max_acceleration = config["Car"]["racing"]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
 waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
+crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
+
+from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
 class f1t_cost_function(cost_function_base):
     def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]") -> None:
         super(f1t_cost_function, self).__init__(variable_parameters, ComputationLib)
         self._P1 = None
         self._P2 = None
+
+        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
 
 
@@ -109,7 +116,8 @@ class f1t_cost_function(cost_function_base):
         We use L2 norm as we want to penalize big changes and are fine with small ones - we want a gentle control in general
         The weight of this cost should be in general small, it should help to eliminate sudden changes of big magnitude which the physical car might not handle correctly
         """
-        u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
+        s0, _, s2 = u.shape
+        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
         ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
         return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
@@ -120,7 +128,8 @@ class f1t_cost_function(cost_function_base):
         We use L1 norm: We are fine with few big changes - e.g. when car accelerates.
         We use absolute difference: the control input should stay smooth same for big and low control inputs
         """
-        u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
+        s0, _, s2 = u.shape
+        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
         u_next_vec = tf.concat((u[:, 1:, :], u[:, -1:, :]), axis=1)
         ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
 
@@ -128,9 +137,8 @@ class f1t_cost_function(cost_function_base):
 
 
     def get_immediate_control_discontinuity_cost(self, u, u_prev):
-
-        u_prev_vec = tf.ones((u.shape[0], u.shape[1], u.shape[-1])) * u_prev  # The vector is just to keep dimensions right and scaling with gr
-        icdc = (u_prev_vec-u[:, :1, :])**2
+        u_prev_vec = tf.ones_like(u) * u_prev  # The vector is just to keep dimensions right and scaling with gr
+        icdc = (u_prev_vec - u[:, :1, :])**2
 
         return tf.math.reduce_sum(icdc_weight * icdc, axis=-1)
 
@@ -194,7 +202,8 @@ class f1t_cost_function(cost_function_base):
         squared_dist = tf.reduce_sum(squared_diff, axis=1)
         return squared_dist
 
-    def get_crash_cost_normed(self, trajectories, border_points):
+
+    def get_crash_cost(self, trajectories, border_points):
 
         trajectories_shape = tf.shape(trajectories)
 
@@ -204,19 +213,12 @@ class f1t_cost_function(cost_function_base):
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
-        a = 3.0 # Concaveness slope
-        A = 100000.0  # y-intercept
-        B = 0.45  # x_intercet
-        minima = tf.clip_by_value(minima, 0.0, B)
-        cost_for_passing_close = a / (minima + (a / A)) - a / (B + (a / A))
 
-        # crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
+        minima = tf.clip_by_value(minima, 0.0, crash_cost_safe_margin)
+
+        cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
 
         return cost_for_passing_close
-
-    def get_crash_cost(self, trajectories, border_points):
-        return self.get_crash_cost_normed(trajectories,
-                                     border_points)  # Disqualify trajectories too close to sensor points
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
@@ -239,22 +241,13 @@ class f1t_cost_function(cost_function_base):
         # TODO: Cast both as float
         points1 = tf.cast(points1, tf.float32)
         points2 = tf.cast(points2, tf.float32)
-        
-        
-        length1 = tf.shape(points1)[0]
-        length2 = tf.shape(points2)[0]
-
-        points1 = tf.tile([points1], [1, 1, length2])
-        points1 = tf.reshape(points1, (length1 * length2, 2))
-
-        points2 = tf.tile([points2], [length1, 1, 1])
-        points2 = tf.reshape(points2, (length1 * length2, 2))
+    
+        points1 = tf.expand_dims(points1, 1)
+        points2 = tf.expand_dims(points2, 0)
 
         diff = points2 - points1
         squared_diff = tf.math.square(diff)
-        squared_dist = tf.reduce_sum(squared_diff, axis=1)
-
-        squared_dist = tf.reshape(squared_dist, [length1, length2])
+        squared_dist = tf.reduce_sum(squared_diff, axis=2)
 
         return squared_dist
 
@@ -338,9 +331,9 @@ class f1t_cost_function(cost_function_base):
     
     def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
 
-        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
-        nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints[:,:,3])
-        nearest_waypoint_psi_rad_cos = tf.cos(nearest_waypoints[:,:,3])
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)[:,:,3]
+        nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints)
+        nearest_waypoint_psi_rad_cos = tf.cos(nearest_waypoints)
         
         car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
         car_angle_cos = s[:, :, POSE_THETA_COS_IDX]

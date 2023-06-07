@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "london3_large"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "london3_small"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
@@ -20,6 +20,7 @@ class Settings():
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.2
+    OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
     DISABLE_AUTOMATIC_TERMINATION = True
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -78,7 +79,7 @@ class Settings():
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
-    INTERPOLATE_LOCA_WP = 4
+    INTERPOLATE_LOCA_WP = 1
 
 
     CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]
@@ -86,9 +87,10 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit)
+    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01
+    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
@@ -105,10 +107,17 @@ class Settings():
     LIDAR_CORRUPT = False
     LIDAR_MAX_CORRUPTED_RATIO = 0.5
 
+    LIDAR_PLOT_SCANS = False
+
     ## Pure Pursuit Controller ##
+    PP_USE_CURVATURE_CORRECTION = False
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
-    PP_LOOKAHEAD_DISTANCE = 1.82461887897713965 # lookahead distance [m]
-    PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1
+    PP_LOOKAHEAD_DISTANCE = 1.82461887897713965  # lookahead distance [m], Seems not used
+    PP_VEL2LOOKAHEAD = 0.7
+    PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
+    PP_NORMING_V_FOR_CURRVATURE = 10.0  # Bigger number - higher velocity required to have effect on shortening of lookahead horizon
+    PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
+    PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
     ## Neural Controller ##
     #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
@@ -131,4 +140,9 @@ class Settings():
     START_FROM_RANDOM_POSITION = False
 
     WAYPOINTS_FROM_MPC = True
-    PLAN_EVERY_N_STEPS = 12
+    PLAN_EVERY_N_STEPS = 4
+
+    PRINTING_ON = False
+
+    ANALYZE_COST = False
+    ANALYZE_COST_PERIOD = 100

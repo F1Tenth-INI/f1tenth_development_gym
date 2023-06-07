@@ -4,8 +4,41 @@ from utilities.state_utilities import *
 
 from Control_Toolkit_ASF.Cost_Functions.Car.f1t_cost_function import f1t_cost_function
 
+from types import SimpleNamespace
 
 class racing(f1t_cost_function):
+
+    def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]"):
+        super().__init__(variable_parameters=variable_parameters, ComputationLib=ComputationLib)
+        self.cost_components = SimpleNamespace()
+        self.cost_components.crash_cost = None
+        self.cost_components.cc = None
+        self.cost_components.ccrc = None
+        self.cost_components.ccocrc = None
+        self.cost_components.icdc = None
+        self.cost_components.angular_velocity_cost = None
+        self.cost_components.angle_difference_to_wp_cost = None
+        self.cost_components.speed_control_difference_to_wp_cost = None
+        self.cost_components.distance_to_wp_segments_cost = None
+
+
+    def configure(
+            self,
+            batch_size: int,
+            horizon: int,
+    ):
+        super().configure(batch_size=batch_size, horizon=horizon)
+        cost_vector = self.lib.zeros((batch_size, horizon))
+        self.cost_components.crash_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.cc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.ccrc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.ccocrc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.icdc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.angular_velocity_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.angle_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.speed_control_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.distance_to_wp_segments_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+
 
     def get_terminal_cost(self, terminal_state):
         terminal_speed_cost = self.get_terminal_speed_cost(terminal_state)
@@ -80,6 +113,18 @@ class racing(f1t_cost_function):
                 # + slipping_cost
                 # + cost_for_stopping
             )
+
+        if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
+            self.lib.assign(self.cost_components.crash_cost, crash_cost)
+            self.lib.assign(self.cost_components.cc, cc)
+            self.lib.assign(self.cost_components.ccrc, ccrc)
+            self.lib.assign(self.cost_components.ccocrc, ccocrc)
+            self.lib.assign(self.cost_components.icdc, icdc)
+            self.lib.assign(self.cost_components.angular_velocity_cost, angular_velocity_cost)
+            self.lib.assign(self.cost_components.angle_difference_to_wp_cost, angle_difference_to_wp_cost)
+            self.lib.assign(self.cost_components.speed_control_difference_to_wp_cost, speed_control_difference_to_wp_cost)
+            self.lib.assign(self.cost_components.distance_to_wp_segments_cost, distance_to_wp_segments_cost)
+
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
         discount_vector = self.lib.cumprod(discount_vector, 0)
