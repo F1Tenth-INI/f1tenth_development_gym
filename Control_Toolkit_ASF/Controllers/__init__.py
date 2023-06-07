@@ -13,7 +13,14 @@ class template_planner(ABC):
         self.lidar_points = self.LIDAR.points_map_coordinates
 
         self.waypoints = None
+        self.nearest_waypoint_index = None
+
         self.car_state = None
+
+        self.simulation_index = 0
+        self.time = 0.0
+
+
 
     def set_waypoints(self, waypoints):
         self.waypoints =  np.array(waypoints).astype(np.float32)
