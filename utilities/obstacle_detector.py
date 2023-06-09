@@ -1,6 +1,5 @@
 import math
 import numpy as np
-from utilities.render_utilities import RenderUtils
 from utilities.state_utilities import *
 # Obstcle is defined as array
 # [x, y]

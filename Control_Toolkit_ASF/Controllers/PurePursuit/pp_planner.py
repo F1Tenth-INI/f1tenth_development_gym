@@ -2,7 +2,7 @@ import sys
 sys.path.insert(1, 'FollowtheGap')
 
 import numpy as np
-import math
+import time
 
 from utilities.Settings import Settings
 
@@ -27,9 +27,7 @@ class PurePursuitPlanner(template_planner):
         super().__init__()
     
         print("Initializing PP Planner")
-
         self.render_utils = RenderUtils()
-
         car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
@@ -37,7 +35,8 @@ class PurePursuitPlanner(template_planner):
 
         self.speed = 1.
 
-        
+        self.waypoints = None
+                
         # Controller settings
         self.waypoint_velocity_factor = Settings.PP_WAYPOINT_VELOCITY_FACTOR
         self.lookahead_distance =  Settings.PP_LOOKAHEAD_DISTANCE 
@@ -62,6 +61,7 @@ class PurePursuitPlanner(template_planner):
 
         self.f_max = 0.0
         self.f_min = 1.0
+        
 
         print('Initialization done.')
         # Original values 
@@ -74,6 +74,8 @@ class PurePursuitPlanner(template_planner):
         """
         gets the current waypoint to follow
         """    
+        if waypoints is None:
+            return None, 0, 0
         wpts = waypoints[:, 1:3]
         nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
         if nearest_dist < lookahead_distance:
@@ -90,7 +92,9 @@ class PurePursuitPlanner(template_planner):
             return np.append(wpts[i, :], waypoints[i, 5]), i, i
         else:
             return None
-        
+    
+    def set_waypoints(self, waypoints):
+        self.waypoints = waypoints
         
     def process_observation(self, ranges=None, ego_odom=None):
         """
@@ -117,6 +121,10 @@ class PurePursuitPlanner(template_planner):
         self.lookahead_distance = np.maximum(Settings.PP_VEL2LOOKAHEAD * v_x, 0.5)
         # Dynamic Lookahead distance
         # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        
+        if self.waypoints is None: 
+            return
+        
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         if self.waypoints[i, WP_VX_IDX] < 0:
@@ -176,11 +184,8 @@ class PurePursuitPlanner(template_planner):
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
 
-        if( abs(steering_angle) > 1.4):
-            self.correcting_index+=1
-            if(self.correcting_index >= 10):
-                steering_angle = -steering_angle
-                speed = -1
+        if( speed < 0):
+            steering_angle = -steering_angle
         else:
             self.correcting_index = 0
 

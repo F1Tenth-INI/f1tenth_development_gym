@@ -67,8 +67,17 @@ class NeuralNetImitatorPlanner(template_planner):
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((self.LIDAR.processed_scans, waypoints_relative_x, waypoints_relative_y, next_waypoint_vx,
-                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
+        input_data = np.concatenate((
+            # self.LIDAR.processed_scans, 
+            waypoints_relative_x, 
+            waypoints_relative_y, 
+            next_waypoint_vx,
+            [
+                # self.car_state[ANGULAR_VEL_Z_IDX], 
+                self.car_state[LINEAR_VEL_X_IDX], 
+                # self.car_state[SLIP_ANGLE_IDX], 
+                # self.car_state[STEERING_ANGLE_IDX]
+            ]), axis=0)
 
 
         # input_data = np.concatenate((self.LIDAR.processed_scans,

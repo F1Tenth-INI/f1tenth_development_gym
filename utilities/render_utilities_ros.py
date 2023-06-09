@@ -7,7 +7,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 class RenderUtils:
     def __init__(self):
         
-        rospy.init_node('gym_bridge_driver', anonymous=True)
+        # rospy.init_node('gym_bridge_driver', anonymous=True)
         self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
 
 
@@ -80,44 +80,20 @@ class RenderUtils:
         # Todo: Publish data for RVIZ
         
         # Rollouts
-        if(self.rollout_trajectory is None): return
         rollout_markers = MarkerArray()        
         p = 0
         t = 0
         
-        rollout_trajectory = np.array(self.rollout_trajectory)
-        # print("HRERE", rollout_trajectory.shape)
-        rollout_points = rollout_trajectory[:,:,5:7]
-        rollout_points = rollout_points[:10]
-        
-        for trajectory in rollout_points:
-            alpha = 1 - 0.5
-            for point in trajectory:
-                # print("point shape", point.shape)
-                marker = Marker()
-                marker.header.frame_id = 'map'
-                marker.type = marker.SPHERE
-                marker.scale.x = 0.1
-                marker.scale.y = 0.1
-                marker.scale.z = 0.1
-                marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
-                marker.color.r = 1.0
-
-                marker.id = p
-                marker.pose.position.x = point[0]
-                marker.pose.position.y = point[1]
-                marker.pose.orientation.w = 1
-                rollout_markers.markers.append(marker)
-                p += 1
-            t += 1
+        if(self.rollout_trajectory is not None): 
+            rollout_trajectory = np.array(self.rollout_trajectory)
+            # print("HRERE", rollout_trajectory.shape)
+            rollout_points = rollout_trajectory[:,:,5:7]
+            rollout_points = rollout_points[:10]
             
-
-
-        # optimal trajectory
-        if(self.optimal_trajectory is not None):
-            optimal_trajectory = self.optimal_trajectory[0]
-            for point in optimal_trajectory:
-            
+            for trajectory in rollout_points:
+                alpha = 1 - 0.5
+                for point in trajectory:
+                    # print("point shape", point.shape)
                     marker = Marker()
                     marker.header.frame_id = 'map'
                     marker.type = marker.SPHERE
@@ -126,15 +102,62 @@ class RenderUtils:
                     marker.scale.z = 0.1
                     marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
                     marker.color.r = 1.0
-                    marker.color.b = 1.0
 
                     marker.id = p
-                    marker.pose.position.x = point[5]
-                    marker.pose.position.y = point[6]
+                    marker.pose.position.x = point[0]
+                    marker.pose.position.y = point[1]
                     marker.pose.orientation.w = 1
                     rollout_markers.markers.append(marker)
                     p += 1
+                t += 1
                 
+
+
+            # optimal trajectory
+            if(self.optimal_trajectory is not None):
+                optimal_trajectory = self.optimal_trajectory[0]
+                for point in optimal_trajectory:
+                
+                        marker = Marker()
+                        marker.header.frame_id = 'map'
+                        marker.type = marker.SPHERE
+                        marker.scale.x = 0.1
+                        marker.scale.y = 0.1
+                        marker.scale.z = 0.1
+                        marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
+                        marker.color.r = 1.0
+                        marker.color.b = 1.0
+
+                        marker.id = p
+                        marker.pose.position.x = point[5]
+                        marker.pose.position.y = point[6]
+                        marker.pose.orientation.w = 1
+                        rollout_markers.markers.append(marker)
+                        p += 1
+            
+            
+        # # PP parker
+        if(self.target_point is not None): 
+
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.type = marker.SPHERE
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+            marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+
+            marker.id = p
+            marker.pose.position.x = self.target_point[0]
+            marker.pose.position.y = self.target_point[1]
+            marker.pose.orientation.w = 1
+            rollout_markers.markers.append(marker)
+            p += 1
+        
+        
         self.pub_rollout.publish(rollout_markers)
         return
        

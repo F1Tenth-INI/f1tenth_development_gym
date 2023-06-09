@@ -44,20 +44,31 @@ waypoints = waypoint_utils.next_waypoints
      
 class WaypointUtils:
     
-    def __init__(self):
-        self.number_of_waypoints = None
+    def __init__(self, wp_topic = "/mpc/local_waypoints"):
+        self.number_of_waypoints = Settings.LOOK_AHEAD_STEPS
         
-        rospy.Subscriber('/local_waypoints', WpntArray, self.local_waypoints_cb)
-        rospy.wait_for_message("local_waypoints", WpntArray, timeout=10)
-        rospy.loginfo("Waypointutils: Got local waypoints")
-        rospy.sleep(0.5)
-
         self.waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
         self.next_waypoints = np.zeros((self.number_of_waypoints, 7), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
+        
+        rospy.Subscriber(wp_topic, WpntArray, self.local_waypoints_cb)
+        rospy.wait_for_message("local_waypoints", WpntArray, timeout=30)
+        rospy.loginfo("Waypointutils: Got local waypoints")
+        rospy.sleep(0.5)
 
 
-
+    @staticmethod
+    def get_interpolated_waypoints(waypoints, interpolation_steps):
+        if waypoints is None: return None
+        assert(interpolation_steps >= 1)
+        waypoints_interpolated = []
+        
+        for j in range(len(waypoints) - 1):
+            for i in range(interpolation_steps):
+                interpolated_waypoint = waypoints[j] + (float(i)/interpolation_steps)*(waypoints[j+1]-waypoints[j])
+                waypoints_interpolated.append(interpolated_waypoint)
+        waypoints_interpolated.append(waypoints[-1])
+        return np.array(waypoints_interpolated)
     
 
     def local_waypoints_cb(self, data):

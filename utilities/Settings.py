@@ -82,7 +82,7 @@ class Settings():
     INTERPOLATE_LOCA_WP = 1
 
 
-    CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
@@ -120,9 +120,6 @@ class Settings():
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
     ## Neural Controller ##
-    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    PATH_TO_MODELS = './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
-    NET_NAME = 'Dense-89IN-64H1-64H2-2OUT-0'
 
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
@@ -133,14 +130,14 @@ class Settings():
     ### Other Settings ###
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     ROS_BRIDGE = None # Automatically determined on program start
-    DISABLE_GPU = True
+    DISABLE_GPU = False
 
     # Settings for data collection
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     START_FROM_RANDOM_POSITION = False
 
     WAYPOINTS_FROM_MPC = True
-    PLAN_EVERY_N_STEPS = 4
+    PLAN_EVERY_N_STEPS = 8
 
     PRINTING_ON = False
 

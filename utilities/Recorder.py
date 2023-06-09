@@ -266,7 +266,7 @@ class Recorder:
         self.dict_to_save.update(self.ranges_dict)
         self.dict_to_save.update(self.next_waypoints_dict)
         self.dict_to_save.update(self.next_waypoints_rel_dict)
-        self.dict_to_save.update(self.mu_dict)
+        # self.dict_to_save.update(self.mu_dict)
 
 
 

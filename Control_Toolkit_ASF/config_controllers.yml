@@ -9,8 +9,8 @@ mpc:
   calculate_optimal_trajectory: true
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
-  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
-  net_name: 'Dense-89IN-64H1-64H2-2OUT-0'  # TF
+  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/London/Models/'
+  net_name: 'Dense-46IN-64H1-64H2-2OUT-0'  # TF
   controller_logging: True
   computation_library: tensorflow
   input_at_input: true  # If true the network input is provided to step function, if not, system state is provided and controller tries to get the remaining inputs from environment parameters

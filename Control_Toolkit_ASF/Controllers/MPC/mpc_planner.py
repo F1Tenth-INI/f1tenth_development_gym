@@ -14,10 +14,8 @@ from utilities.state_utilities import (
 )
 
 if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
     from utilities.render_utilities_ros import RenderUtils
 else:
-    from utilities.waypoint_utils import WaypointUtils
     from utilities.render_utilities import RenderUtils
 
 
@@ -45,8 +43,7 @@ class mpc_planner(template_planner):
 
         self.time = 0.0
 
-        self.waypoint_utils=WaypointUtils()   # Only needed for initialization
-        self.waypoints = self.waypoint_utils.next_waypoints
+        self.waypoints = np.zeros([Settings.LOOK_AHEAD_STEPS, 7]) 
 
         self.obstacles = np.zeros((ObstacleDetector.number_of_fixed_length_array, 2), dtype=np.float32)
 
@@ -78,7 +75,6 @@ class mpc_planner(template_planner):
 
 
     def process_observation(self, ranges=None, ego_odom=None):
-
         self.LIDAR.load_lidar_measurement(ranges)
 
         if Settings.LIDAR_CORRUPT:
