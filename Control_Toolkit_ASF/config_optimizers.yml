@@ -62,7 +62,10 @@ rpgd-pfi:
   #uniform_dist_min: [ -0.4, 2.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   warmup: false
   warmup_iterations: 250
-  visualize: True
+  visualize: True             # visualize rollout trajectories?
+  view_unoptimized: True     # if visualize rollout trajectories, visualize unoptimized inputs/outputs?
+  kpf_sample_stdev: 1.0     # KPF initial sampling standard deviation
+  kpf_sample_mean: 0.0     # KPF initial sampling mean
 
 
 

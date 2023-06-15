@@ -277,40 +277,8 @@ def main():
 
         # print("speed, steer ", noisy_control[0])
 
-
-
-
-
-        '''# VISUALIZE TRAJECTORIES-----------------------------------
-        fig, ax = plt.subplots()
-        tensor_zeros = tf.zeros((32, 2))
-        scatter = ax.scatter(tensor_zeros[:, 0], tensor_zeros[:, 1])
-        ax.set_xlim([-5, 5])
-        ax.set_ylim([-5, 5])
-        plt.show()
-        # -----------------------------------'''
-
-
-
-
-
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
-
-
-
-
-
-            '''#VISUALIZE TRAJECTORIES-----------------------------------
-            cars[0].state
-
-            #-----------------------------------'''
-
-
-
-
-
-
 
             for index, driver in enumerate(drivers):
                 translational_control_with_noise, angular_control_with_noise = noisy_control[index]
@@ -336,16 +304,6 @@ def main():
             recorders[index].plot_data()
     
     env.close()
-
-
-
-
-    '''# VISUALIZE TRAJECTORIES-----------------------------------
-   plt.close()
-    # -----------------------------------'''
-
-
-
 
     ###PRINT RESULTS FOR ESTIMATION
     if Settings.SLIP_STEER_PREDICTION:
