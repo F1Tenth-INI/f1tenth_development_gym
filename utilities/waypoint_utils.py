@@ -246,13 +246,18 @@ class WaypointUtils:
         
         speed_scaling_array = np.zeros(waypoints.shape[0]+2)
         
+        warn = False
+        
         global_limit = speed_scaling_config['global_limit']
         n_sectors = speed_scaling_config['n_sectors']
         for i in range(n_sectors):
             sector = speed_scaling_config['Sector'+str(i)]
             for j in range(sector['start'], sector['end']+1):
-                speed_scaling_array[j] = sector['scaling']
-      
+                if(len(speed_scaling_array) > j):
+                    speed_scaling_array[j] = sector['scaling']
+                else: warn = True
+
+        if warn: print("warning: invalid speed scaling")
         # TODO: Interpolate at edges
         # TODO: Drop error when not all sectors are defined
         
