@@ -44,7 +44,8 @@ class NeuralNetImitatorPlanner(template_planner):
             self.LIDAR.corrupt_scans()
         self.LIDAR.corrupted_scans_high2zero()
 
-        self.LIDAR.plot_lidar_data()
+        if Settings.LIDAR_PLOT_SCANS:
+            self.LIDAR.plot_lidar_data()
 
         # The NNI planner needs relativa waypoints in any case
         waypoints_relative = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)

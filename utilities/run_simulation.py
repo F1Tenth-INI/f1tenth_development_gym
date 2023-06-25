@@ -10,6 +10,7 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
+from utilities.waypoints_generator import WaypointsGenerator
 
 import pandas as pd
 
@@ -40,6 +41,11 @@ def main():
     """
     main entry point
     """
+    
+    if Settings.EXPORT_HANDDRAWN_WP:
+        waypoints_generator = WaypointsGenerator()
+        waypoints_generator.export_handdrawn_waypoints()
+        
     if Settings.FROM_RECORDING:
         state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
         time_axis = state_recording['time'].to_numpy()
@@ -55,11 +61,12 @@ def main():
     driver = CarSystem(Settings.CONTROLLER)
 
     opponents = []
+    waypoint_velocity_factor = np.min((np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR / driver.waypoint_utils.global_limit, 0.5))
     for i in range(Settings.NUMBER_OF_OPPONENTS):
         opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
-        waypoint_velocity_factor = np.min((np.random.uniform(-0.05, 0.05)+Settings.OPPONENTS_VEL_FACTOR/driver.waypoint_utils.global_limit, 0.5))
         opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
         opponent.save_recordings = False
+        opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
         opponents.append(opponent)
 
     ##################### DEFINE DRIVERS HERE #####################
