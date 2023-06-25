@@ -12,12 +12,12 @@ conda activate f1t
 ```
 
 
-Then install the gym inside the environment.
+Then install the gym inside the environment. Don't omit the trailing / on gym.
 ```bash
-pip3 install --user -e gym/
+pip install --user -e gym/
 ```
 
-To set up he SI_Toolkit, pull all sub modules:
+To set up the SI_Toolkit (System Identification Toolbox), pull all sub modules:
 ```bash
 git submodule update --init --recursive
 git submodule update --recursive --remote
@@ -27,10 +27,6 @@ and then install the Toolkit packages:
 python -m pip install --user -e ./SI_Toolkit
 ```
 
-Finally copy Settings_Template.py.py to Settings.py, to have your own gitignored settings.
-```bash
-cp Settings_Template.py Settings.py
-```
 ## Run
 
 
