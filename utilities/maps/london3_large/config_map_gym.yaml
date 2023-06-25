@@ -6,7 +6,11 @@ waypoint_path: 'utilities/maps/london3_large/london3_large_wp'
 
 # starting pose for map
 starting_positions: 
- - [0., 0., -1.5]
+ - [-10.946515,5.098865,-2.187796]  # 310
+ - [9.242765,0.485851,0.586932]  # 10
+ - [5.088863,5.947924,-2.738497]  # 110
+ - [-1.954510,4.771588,-2.515872] # 210
+ - [-4.008038,0.607928,-0.091220]  # 410
 
 waypoints:
   decrease_resolution_factor: 1

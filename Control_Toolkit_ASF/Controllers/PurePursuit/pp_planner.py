@@ -12,6 +12,8 @@ from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.state_utilities import *
 
+from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
+
 '''
 Example PP planner, adapted to our system
 '''
@@ -52,7 +54,15 @@ class PurePursuitPlanner(template_planner):
         
         self.angular_control = 0.
         self.translational_control = 0.
-        
+
+
+        self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((0.0, 1.0), (1.0, 0.0) , fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
+
+        self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
+
+        self.f_max = 0.0
+        self.f_min = 1.0
+
         print('Initialization done.')
         # Original values 
         # self.wheelbase = 0.17145+0.15875        
@@ -69,15 +79,15 @@ class PurePursuitPlanner(template_planner):
         if nearest_dist < lookahead_distance:
             lookahead_point, i2, t2 = first_point_on_trajectory_intersecting_circle(position, lookahead_distance, wpts, i+t, wrap=True)
             if i2 == None:
-                return None
+                i2 = len(wpts)-1  # if waypoints end earlier than trajectory, use last waypoint
             current_waypoint = np.empty((3, ))
             # x, y
             current_waypoint[0:2] = wpts[i2, :]
             # speed
             current_waypoint[2] =  waypoints[i, 5]
-            return current_waypoint
+            return current_waypoint, i, np.maximum(i2, 8)
         elif nearest_dist < self.max_reacquire:
-            return np.append(wpts[i, :], waypoints[i, 5])
+            return np.append(wpts[i, :], waypoints[i, 5]), i, i
         else:
             return None
         
@@ -101,19 +111,67 @@ class PurePursuitPlanner(template_planner):
         pose_theta = ego_odom['pose_theta']
         v_x = ego_odom['linear_vel_x']
         position = np.array([pose_x, pose_y])
-                
+        #
+        # wpts = self.waypoints[:, 1:3]
+        # nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
+        self.lookahead_distance = np.maximum(Settings.PP_VEL2LOOKAHEAD * v_x, 0.5)
         # Dynamic Lookahead distance
-        self.lookahead_distance = 0.7 * v_x
-        
-        lookahead_point = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
-        # print ("lookaheadpoints", lookahead_point)
-        if lookahead_point is None:
-            print("warning no lookahead point")
-            lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
-            lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
-            # self.angular_control = 0.
-            # self.translational_control = 1.
-            # return 1.0, 0.0
+        # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+
+        if self.waypoints[i, WP_VX_IDX] < 0:
+            index_switch = 1
+            for idx in range(1, len(self.waypoints[i:])):
+                if self.waypoints[i+idx, WP_VX_IDX] > 0:
+                    index_switch = i + idx
+                    break
+            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX:WP_VX_IDX+1]))
+
+        else:
+            if self.pp_use_curvature_correction:
+                # LOOKAHEAD_CURVATURE = 5
+                LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
+                curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
+                speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
+
+                v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
+                v_abs_mean = np.mean(np.abs(speeds))
+                kappa_abs_mean = np.mean(np.abs(curvature))
+                f = np.dot(np.abs(curvature), np.abs(speeds))/(v_max*LOOKAHEAD_CURVATURE)
+
+                f = np.clip(self.hyperbolic_function_for_curvature_factor(f), 0.0, 1.0)
+
+                # print('Lookahead distance: {}'.format(self.lookahead_distance))
+
+                if Settings.PRINTING_ON and Settings.ROS_BRIDGE is False:
+                    if self.f_max < f:
+                        self.f_max = f
+                    elif self.f_min > f:
+                        self.f_min = f
+                    if self.simulation_index % 20 == 0:
+                        print('')
+                        print('LOOKAHEAD_CURVATURE: {}'.format(LOOKAHEAD_CURVATURE))
+                        print('Mean abs speed: {}'.format(v_abs_mean))
+                        print('Mean abs curvature {}'.format(kappa_abs_mean))
+                        print('Curvature factor: {}'.format(f))
+                        print('Curvature factor max: {}'.format(self.f_max))
+                        print('Curvature factor min: {}'.format(self.f_min))
+                        print('')
+                        pass
+
+                curvature_slowdown_factor = f
+                self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
+                lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+
+            # print ("lookaheadpoints", lookahead_point)
+            if lookahead_point is None:
+                if Settings.PRINTING_ON and Settings.ROS_BRIDGE is False:
+                    print("warning no lookahead point")
+                lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
+                lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
+                # self.angular_control = 0.
+                # self.translational_control = 1.
+                # return 1.0, 0.0
 
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
@@ -134,6 +192,9 @@ class PurePursuitPlanner(template_planner):
         self.render_utils.update_pp(
             target_point=lookahead_point,
         )
+
+        self.simulation_index += 1
+
         return steering_angle, speed
 
 

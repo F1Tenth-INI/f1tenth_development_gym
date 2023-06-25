@@ -89,7 +89,8 @@ class NeuralNetImitatorPlanner(template_planner):
             self.LIDAR.corrupt_scans()
         self.LIDAR.corrupted_scans_high2zero()
 
-        self.LIDAR.plot_lidar_data()
+        if Settings.LIDAR_PLOT_SCANS:
+            self.LIDAR.plot_lidar_data()
 
         # finding number of next waypoints divided in WYPT_X and WYPT_Y as defined in config_training of Model.
         config_inputs = np.append(self.config_training_NN["training_default"]["state_inputs"],
