@@ -1,11 +1,11 @@
-import numpy as np
 import math
-import time
+from utilities.state_utilities import *
+
 
 def column(matrix, i):
         return [row[i] for row in matrix]
-        
 
+    
 def solveEuler(func, x0, t, args):
     history = np.empty([len(t), len(x0)])
     history[0] = x0

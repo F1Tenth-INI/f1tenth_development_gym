@@ -10,6 +10,11 @@ import yaml
 import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
+import json
+from utilities.Settings import Settings
+
+from utilities.waypoint_utils import *
+
 
 try:
     # Use gitpython to get a current revision number and use it in description of experimental data
@@ -22,12 +27,7 @@ from utilities.state_utilities import FULL_STATE_VARIABLES
 from utilities.path_helper_ros import get_gym_path
 gym_path = get_gym_path()
 
-config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
-waypoint_interpolation_steps = config["waypoints"]["INTERPOLATION_STEPS"]
-
-
-ranges_decimate = True  # If true, saves only every tenth LIDAR scan
-ranges_forward_only = True # Only LIDAR scans in forward direction are saved
+waypoint_interpolation_steps = Settings.INTERPOLATION_STEPS
 
 rounding_decimals = 5
 
@@ -96,12 +96,10 @@ def create_csv_header(path_to_recordings,
 
 
 class Recorder:
-    def __init__(self, controller_name=None, create_header=True, dt=None):
+    def __init__(self, controller_name=None, create_header=True, dt=None, lidar=None):
 
         self.dt = dt
 
-        self.ranges_decimate = ranges_decimate
-        self.ranges_forward_only = ranges_forward_only
         self.path_to_experiment_recordings = path_to_experiment_recordings
 
         if controller_name is None:
@@ -113,7 +111,10 @@ class Recorder:
 
         self.headers_already_saved = False
 
+        self.lidar = lidar
+
         self.keys_time = None
+        self.keys_mu = None
         self.keys_ranges = None
         self.keys_odometry = None
         self.keys_state = None
@@ -121,10 +122,14 @@ class Recorder:
         self.keys_control_inputs_calculated = None
         self.keys_next_x_waypoints = None
         self.keys_next_y_waypoints = None
+        self.keys_next_vx_waypoints = None
+        self.keys_next_x_waypoints_rel = None
+        self.keys_next_y_waypoints_rel = None
 
         self.csv_filepath = None
 
         self.time_dict = None
+        self.mu_dict = None
         self.ranges_dict = {}
         self.odometry_dict = {}
         self.state_dict = {}
@@ -132,6 +137,7 @@ class Recorder:
         self.control_inputs_calculated_dict = {}
         self.dict_to_save = {}
         self.next_waypoints_dict = {}
+        self.next_waypoints_rel_dict = {}
 
         if create_header:
             self.csv_filepath = create_csv_header(
@@ -142,20 +148,12 @@ class Recorder:
 
 
 #ToDo safe upper/lower bound of ranges and filter in config.yml
-    def get_ranges(self, ranges):
-
-        ranges_to_save = ranges
-        if ranges_forward_only:
-            ranges_to_save = ranges_to_save[200:880]
-
-        if self.ranges_decimate:
-            ranges_to_save = ranges_to_save[::10]
+    def get_ranges(self):
 
         if self.keys_ranges is None:
-            #Initialise
-            self.keys_ranges = ['LIDAR_'+str(i).zfill(4) for i in range(len(ranges_to_save))]
+            self.keys_ranges = self.lidar.get_lidar_scans_names()
 
-        self.ranges_dict = dict(zip(self.keys_ranges, ranges_to_save))
+        self.ranges_dict = dict(zip(self.keys_ranges, self.lidar.processed_scans))
 
     def get_odometry(self, odometry_dict):
         self.odometry_dict = odometry_dict
@@ -182,20 +180,47 @@ class Recorder:
 
     def get_next_waypoints(self, next_waypoints):
         waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
+        waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
+        waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
+        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
+
+
+        # Initialise
+        if self.keys_next_x_waypoints is None:
+            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+
+        if self.keys_next_y_waypoints is None:
+            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+            
+        if self.keys_next_vx_waypoints is None:
+            self.keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+
+        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+        self.next_waypoints_dict.update(zip(self.keys_next_vx_waypoints, waypoints_vel_to_save))
+        
+    def get_next_waypoints_relative(self, next_waypoints):
+        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
         waypoints_x_to_save = waypoints_to_save[:, 0]
         waypoints_y_to_save = waypoints_to_save[:, 1]
 
 
-        if self.keys_next_x_waypoints is None:
+        if self.keys_next_x_waypoints_rel is None:
             # Initialise
-            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+            self.keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
 
-        if self.keys_next_y_waypoints is None:
+        if self.keys_next_y_waypoints_rel is None:
             # Initialise
-            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+            self.keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
 
-        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
-        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
+        self.next_waypoints_rel_dict = dict(zip(self.keys_next_x_waypoints_rel, waypoints_x_to_save))
+        self.next_waypoints_rel_dict.update(zip(self.keys_next_y_waypoints_rel, waypoints_y_to_save))
+
+    def get_mu(self, mu):
+        self.mu_dict = {'mu': mu}
+        if self.keys_mu is None:
+            self.keys_mu = self.mu_dict.keys()
+
 
     def get_state(self, state):
 
@@ -206,7 +231,7 @@ class Recorder:
 
         self.state_dict = dict(zip(self.keys_state, state_to_save))
 
-    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
+    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None, next_waypoints_relative=None, mu=None):
         if time is not None:
             self.get_time(time)
         if control_inputs_applied is not None:
@@ -217,10 +242,15 @@ class Recorder:
             self.get_odometry(odometry_dict=odometry)
         if state is not None:
             self.get_state(state=state)
-        if ranges is not None:
-            self.get_ranges(ranges=ranges)
+        if self.lidar is not None:
+            self.get_ranges()
         if next_waypoints is not None and len(next_waypoints) > 0:
             self.get_next_waypoints(next_waypoints=next_waypoints)
+        if next_waypoints_relative is not None and len(next_waypoints_relative) > 0:
+            self.get_next_waypoints_relative(next_waypoints_relative)
+        if mu is not None:
+            self.get_mu(mu)
+
 
     def save_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
         self.get_data(control_inputs_applied, control_inputs_calculated, odometry, ranges, time, state, next_waypoints)
@@ -235,6 +265,8 @@ class Recorder:
         self.dict_to_save.update(self.state_dict)
         self.dict_to_save.update(self.ranges_dict)
         self.dict_to_save.update(self.next_waypoints_dict)
+        self.dict_to_save.update(self.next_waypoints_rel_dict)
+        self.dict_to_save.update(self.mu_dict)
 
 
 
@@ -264,8 +296,17 @@ class Recorder:
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
         times = df['time'].to_numpy()[1:]
-        angular_controls = df['angular_control_applied'].to_numpy()[1:]
-        translational_controls = df['translational_control_applied'].to_numpy()[1:]   
+        pos_xs = df['pose_x'].to_numpy()[1:]
+        pos_ys = df['pose_y'].to_numpy()[1:]
+        angular_controls = df['angular_control_calculated'].to_numpy()[1:]
+        translational_controls = df['translational_control_calculated'].to_numpy()[1:]   
+        
+        # Plot position
+        plt.clf()
+        plt.title("Position")
+        plt.plot(pos_xs, pos_ys, color="green")
+        plt.savefig(save_path+"/position.png")
+        plt.clf()
         
         # Plot Angular Control
         plt.title("Angular Control")
@@ -302,6 +343,16 @@ class Recorder:
         shutil.copy("utilities/Settings.py", config_sage_path) 
         
         
+        shutil.copy("utilities/Settings.py", config_sage_path) 
+        
+        with open(config_sage_path + '/Settings_applied.json', 'w') as f:
+            f.write(str(Settings.__dict__))
+    
+        shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
+        shutil.copy(os.path.join(Settings.MAP_PATH, "speed_scaling.yaml"), config_sage_path) 
+
+        
+        
     def reset(self):
         self.headers_already_saved = False
         self.keys_time = None
@@ -316,5 +367,6 @@ class Recorder:
         self.control_inputs_applied_dict = None
         self.control_inputs_calculated_dict = None
         self.next_waypoints_dict = None
+        self.next_waypoints_rel_dict = None
         self.dict_to_save = {}
 

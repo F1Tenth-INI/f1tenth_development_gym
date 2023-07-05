@@ -189,6 +189,8 @@ class F110Env(gym.Env):
         # stateful observations for rendering
         self.render_obs = None
 
+        self.obs_last = None
+
     def __del__(self):
         """
         Finalizer, does cleanup
@@ -299,8 +301,21 @@ class F110Env(gym.Env):
         self._update_state(obs)
 
         # check done
-        done, toggle_list = self._check_done()
-        info = {'checkpoint_done': toggle_list}
+        if not Settings.DISABLE_AUTOMATIC_TERMINATION:
+            done, toggle_list = self._check_done()
+            info = {'checkpoint_done': toggle_list}
+        else:
+            done = False
+            info = {}
+
+        for value in obs.values():
+            if np.any(np.isnan(value)):
+                done = True
+                if self.obs_last is not None:
+                    obs = self.obs_last
+                break
+            else:
+                self.obs_last = obs
 
         return obs, reward, done, info
 

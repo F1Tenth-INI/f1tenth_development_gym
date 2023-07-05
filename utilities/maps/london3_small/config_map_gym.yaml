@@ -1,0 +1,17 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps/london3_small/london3_small'
+waypoint_path: 'utilities/maps/london3_small/london3_small_wp'
+
+# starting pose for map
+starting_positions:
+ - [-11.077808,5.438334,-2.363920]  # 310
+ - [3.766414,0.273746,0.266703]  # 10
+ - [5.227018,3.820223,-3.023785]  # 110
+ - [-2.377215,4.211565,-2.396070]  # 210
+ - [-5.102865,1.388164,-0.000297]  # 410
+
+waypoints:
+  decrease_resolution_factor: 1
+  ignore_waypoints: 1

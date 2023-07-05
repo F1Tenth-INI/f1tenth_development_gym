@@ -2,12 +2,12 @@
 
 mppi:
   seed: null # Seed for rng, for MPPI  only, put null to set random seed (do it when you generate data for training!)
-  mpc_horizon: 10                       # steps
-  num_rollouts: 9000                    # Number of Monte Carlo samples
+  mpc_horizon: 15                       # steps
+  num_rollouts: 10000                    # Number of Monte Carlo samples
   LBD: 0.01                            # Cost parameter lambda
   NU: 2000.0                            # Exploration variance
-  SQRTRHOINV: [ 0.03, 0.02 ]              # Sampling variance
-  period_interpolation_inducing_points: 1                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
+  SQRTRHOINV: [ 0.03, 0.1 ]              # Sampling variance
+  period_interpolation_inducing_points: 5                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
 
   # Double check that the two values below are the same as in the cost function config!!!
   cc_weight: 0.0
@@ -15,57 +15,29 @@ mppi:
 
 rpgd-tf:
   seed: null                            # If null, random seed based on datetime is used
-  mpc_horizon: 10                       # steps
+  mpc_horizon: 15                      # steps
   SAMPLING_DISTRIBUTION: uniform  # "normal" or "uniform"
   period_interpolation_inducing_points: 2                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
-  learning_rate: 0.1
+  learning_rate: 0.01
   adam_beta_1: 0.9
   adam_beta_2: 0.999
   adam_epsilon: 1.0e-08
   gradmax_clip: 5
   rtol: 1.0e-3
-  num_rollouts: 32
-  opt_keep_k_ratio: 0.75
-  outer_its: 4
+  num_rollouts: 64
+  opt_keep_k_ratio: 0.5
+  outer_its: 20
   resamp_per: 5
 #  sample_stdev: 0.2
 #  sample_mean: 0.0
   sample_stdev: [ 0.3, 0.3 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
   sample_mean: [0.0, 3.8] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
-  #sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
-  #uniform_dist_max: [ 0.4, 3.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  #uniform_dist_min: [ -0.4, 2.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
+  uniform_dist_max: [ 0.8, -1 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  uniform_dist_min: [ -0.8, 5.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  shift_previous: 3
   warmup: false
   warmup_iterations: 250
-
-rpgd-pfi:
-  seed: null                            # If null, random seed based on datetime is used
-  mpc_horizon: 10                       # steps
-  SAMPLING_DISTRIBUTION: uniform  # "normal" or "uniform"
-  period_interpolation_inducing_points: 2                #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
-  learning_rate: 0.1
-  adam_beta_1: 0.9
-  adam_beta_2: 0.999
-  adam_epsilon: 1.0e-08
-  gradmax_clip: 5
-  rtol: 1.0e-3
-  num_rollouts: 32
-  opt_keep_k_ratio: 0.75
-  outer_its: 4
-  resamp_per: 5
-  #  sample_stdev: 0.2
-  #  sample_mean: 0.0
-  sample_stdev: [ 0.3, 0.3 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
-  sample_mean: [ 0.0, 3.8 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
-  #sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
-  #uniform_dist_max: [ 0.4, 3.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  #uniform_dist_min: [ -0.4, 2.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  warmup: false
-  warmup_iterations: 250
-  visualize: True             # visualize rollout trajectories?
-  view_unoptimized: True     # if visualize rollout trajectories, visualize unoptimized inputs/outputs?
-  kpf_sample_stdev: 1.0     # KPF initial sampling standard deviation
-  kpf_sample_mean: 0.0     # KPF initial sampling mean
 
 
 

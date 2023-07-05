@@ -6,6 +6,8 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 
+from Control_Toolkit_ASF.Controllers import template_planner
+
 from utilities.Settings import Settings
 
 LOOK_FORWARD_ONLY =True
@@ -18,7 +20,7 @@ else:
     lidar_range_max = -1
 
 
-class FollowTheGapPlanner:
+class FollowTheGapPlanner(template_planner):
     """
     Example Planner
     """
@@ -26,6 +28,8 @@ class FollowTheGapPlanner:
  
 
     def __init__(self, speed_fraction=1.0):
+
+        super().__init__()
     
         print("Controller initialized")
     

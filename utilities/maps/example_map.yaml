@@ -1,6 +1,0 @@
-image: example_map.png    # 1600 x 1600 px
-resolution: 0.062500 #m/px, i.e. 16 px/m
-origin: [-78.21853769831466,-44.37590462453829, 0.000000]
-negate: 0
-occupied_thresh: 0.45
-free_thresh: 0.196

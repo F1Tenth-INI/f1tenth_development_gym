@@ -13,7 +13,12 @@ car_parameter_file = Settings.MPC_CAR_PARAMETER_FILE
 
 class next_state_predictor_ODE_tf():
 
-    def __init__(self, dt, intermediate_steps, batch_size=1, disable_individual_compilation=False):
+    def __init__(self,
+                 dt,
+                 intermediate_steps,
+                 batch_size=1,
+                 variable_parameters=None,
+                 disable_individual_compilation=False):
         self.s = tf.convert_to_tensor(create_car_state())
 
         self.intermediate_steps = intermediate_steps
@@ -24,6 +29,7 @@ class next_state_predictor_ODE_tf():
             self.env = car_model(
                 model_of_car_dynamics=model_of_car_dynamics,
                 with_pid=with_pid,
+                batch_size=batch_size,
                 car_parameter_file=car_parameter_file,
                 dt=dt,
                 intermediate_steps=intermediate_steps,
@@ -31,14 +37,16 @@ class next_state_predictor_ODE_tf():
         else:
             raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
+        self.variable_parameters = variable_parameters
+
         if disable_individual_compilation:
             self.step = self._step
         else:
             self.step = CompileTF(self._step)
 
-    def _step(self, s, Q, params):
+    def _step(self, s, Q):
 
-        s_next = self.env.step_dynamics(s, Q, params)
+        s_next = self.env.step_dynamics(s, Q, None)
         return s_next
 
 

@@ -21,6 +21,8 @@ SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 main/maps/WithRandomObstacles/*
 Experimentrecordings/*
 ExperimentRecordings/*
+Quadruped/plots
+
 # Submodule specific config files
 SI_Toolkit/src/SI_Tooklit/SI_Toolkit.egg-info/*
 SI_Toolkit_ASF/GlobalPackage/src/SI_Toolkit_ASF_global.egg-info/*
@@ -30,3 +32,14 @@ SI_Toolkit_ASF/Experiments/*
 
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
+
+
+utilities/maps/*
+utilities/maps_files/*
+!utilities/maps/hangar9
+!utilities/maps/hangar12
+!utilities/maps/hangar14
+
+!utilities/maps/london3_original
+!utilities/maps/london3_small
+!utilities/maps/london3_large

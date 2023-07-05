@@ -1,6 +1,7 @@
 import yaml
 import os
 import tensorflow as tf
+from types import SimpleNamespace
 
 from Control_Toolkit.Cost_Functions import cost_function_base
 from Control_Toolkit.Controllers import template_controller
@@ -23,25 +24,37 @@ R = config["Car"]["racing"]["R"]
 
 cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
+icdc_weight = config["Car"]["racing"]["icdc_weight"]
+
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
 velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
 angular_velocity_cost_weight = config["Car"]["racing"]["angular_velocity_cost_weight"]
+angle_difference_to_wp_cost_weight = config["Car"]["racing"]["angle_difference_to_wp_cost_weight"]
+slipping_cost_weight = config["Car"]["racing"]["slipping_cost_weight"]
 terminal_speed_cost_weight = config["Car"]["racing"]["terminal_speed_cost_weight"]
 target_distance_cost_weight = config["Car"]["racing"]["target_distance_cost_weight"]
 
-acceleration_cost_weight = config["Car"]["racing"][mpc_type]["acceleration_cost_weight"]
-max_acceleration = config["Car"]["racing"][mpc_type]["max_acceleration"]
-desired_max_speed = config["Car"]["racing"][mpc_type]["desired_max_speed"]
-waypoint_velocity_factor = config["Car"]["racing"][mpc_type]["waypoint_velocity_factor"]
+acceleration_cost_weight = config["Car"]["racing"]["acceleration_cost_weight"]
+max_acceleration = config["Car"]["racing"]["max_acceleration"]
+desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
+waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
+crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
+
+from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
 class f1t_cost_function(cost_function_base):
-    def __init__(self, controller: template_controller, ComputationLib: "type[ComputationLibrary]") -> None:
-        super(f1t_cost_function, self).__init__(controller, ComputationLib)
+    def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]") -> None:
+        super(f1t_cost_function, self).__init__(variable_parameters, ComputationLib)
         self._P1 = None
         self._P2 = None
+
+        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
 
 
@@ -96,17 +109,40 @@ class f1t_cost_function(cost_function_base):
 
     # cost of changeing control to fast
     def get_control_change_rate_cost(self, u, u_prev):
-        """Compute penalty of control jerk, i.e. difference to previous control input"""
-        u_prev_vec = tf.concat((tf.ones((u.shape[0], 1, u.shape[-1])) * u_prev, u[:, :-1, :]), axis=1)
-        ccrc = (u - u_prev_vec) ** 2
+        """
+        Compute penalty of instant control change, i.e. differences to previous control input
 
-        # Discounts
-        gamma = 0.9 * self.lib.ones_like(ccrc)
-        gamma = self.lib.cumprod(gamma, 1)
-        ccrc = gamma * ccrc
+        We use absolute difference instead of relative one as we care for absolute change of control input ~ reaction time required by the car
+        We use L2 norm as we want to penalize big changes and are fine with small ones - we want a gentle control in general
+        The weight of this cost should be in general small, it should help to eliminate sudden changes of big magnitude which the physical car might not handle correctly
+        """
+        s0, _, s2 = u.shape
+        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
+        ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
-        ccrc = tf.convert_to_tensor([1,0], dtype=tf.float32)*ccrc
         return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
+
+    def get_control_change_of_change_rate_cost(self, u, u_prev):
+        """
+        Removing jerk, keeping change constant and penalizing |∆u(t)-∆u(t-1)|
+        We use L1 norm: We are fine with few big changes - e.g. when car accelerates.
+        We use absolute difference: the control input should stay smooth same for big and low control inputs
+        """
+        s0, _, s2 = u.shape
+        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
+        u_next_vec = tf.concat((u[:, 1:, :], u[:, -1:, :]), axis=1)
+        ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
+
+        return tf.math.reduce_sum(ccocrc_weight * ccocrc, axis=-1)
+
+
+    def get_immediate_control_discontinuity_cost(self, u, u_prev):
+        u_prev_vec = tf.ones_like(u) * u_prev  # The vector is just to keep dimensions right and scaling with gr
+        icdc = (u_prev_vec - u[:, :1, :])**2
+
+        return tf.math.reduce_sum(icdc_weight * icdc, axis=-1)
+
+
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''
@@ -130,6 +166,11 @@ class f1t_cost_function(cost_function_base):
         angula_velocity_cost = angular_velocity_cost_weight * tf.square(angular_velovities)
         return angula_velocity_cost
 
+    def get_slipping_cost(self, s):
+        slipping_angles = s[:, :, SLIP_ANGLE_IDX]
+        slipping_cost = slipping_cost_weight * tf.square(slipping_angles)
+        return slipping_cost
+    
     def get_distance_to_waypoints_per_rollout(self, trajectory_points, waypoints):
         trajectories_shape = tf.shape(trajectory_points)
         number_of_rollouts = trajectories_shape[0]
@@ -161,7 +202,8 @@ class f1t_cost_function(cost_function_base):
         squared_dist = tf.reduce_sum(squared_diff, axis=1)
         return squared_dist
 
-    def get_crash_cost_normed(self, trajectories, border_points):
+
+    def get_crash_cost(self, trajectories, border_points):
 
         trajectories_shape = tf.shape(trajectories)
 
@@ -170,17 +212,13 @@ class f1t_cost_function(cost_function_base):
 
         minima = tf.math.reduce_min(squared_distances, axis=1)
 
-        distance_threshold = tf.constant([0.36])  # 0.6 ^2
-        indices_too_close = tf.math.less(minima, distance_threshold)
-        crash_cost_normed = tf.cast(indices_too_close, tf.float32)
+        minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
 
-        crash_cost_normed = tf.reshape(crash_cost_normed, [trajectories_shape[0], trajectories_shape[1]])
+        minima = tf.clip_by_value(minima, 0.0, crash_cost_safe_margin)
 
-        return crash_cost_normed
+        cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
 
-    def get_crash_cost(self, trajectories, border_points):
-        return self.get_crash_cost_normed(trajectories,
-                                     border_points) * 1000000  # Disqualify trajectories too close to sensor points
+        return cost_for_passing_close
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
@@ -197,36 +235,27 @@ class f1t_cost_function(cost_function_base):
     def get_target_distance_cost(self, trajectories, target_points):
         return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
-    def get_distance_to_waypoints_cost(self, s, waypoint_positions):
-        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
-        return self.get_distances_from_trajectory_points_to_closest_target_point(car_positions, waypoint_positions) * distance_to_waypoints_cost_weight
 
     def distances_from_list_to_list_of_points(self, points1, points2):
 
-        length1 = tf.shape(points1)[0]
-        length2 = tf.shape(points2)[0]
-
-        points1 = tf.tile([points1], [1, 1, length2])
-        points1 = tf.reshape(points1, (length1 * length2, 2))
-
-        points2 = tf.tile([points2], [length1, 1, 1])
-        points2 = tf.reshape(points2, (length1 * length2, 2))
+        # TODO: Cast both as float
+        points1 = tf.cast(points1, tf.float32)
+        points2 = tf.cast(points2, tf.float32)
+    
+        points1 = tf.expand_dims(points1, 1)
+        points2 = tf.expand_dims(points2, 0)
 
         diff = points2 - points1
         squared_diff = tf.math.square(diff)
-        squared_dist = tf.reduce_sum(squared_diff, axis=1)
-
-        squared_dist = tf.reshape(squared_dist, [length1, length2])
+        squared_dist = tf.reduce_sum(squared_diff, axis=2)
 
         return squared_dist
 
-    def get_distance_to_wp_segments_cost(self, s, waypoints):
+    def get_distance_to_wp_segments_cost(self, s, waypoints, nearest_waypoint_indices):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:,1:3]
 
-        # Get nearest and the nearest_next waypoint for every position on the car's rollout
-        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
-        return self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
+        return distance_to_waypoints_cost_weight * self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
 
     def get_wp_segment_vectors(self, waypoint_positions, nearest_waypoint_indices):
         nearest_waypoints = tf.gather(waypoint_positions, nearest_waypoint_indices)
@@ -259,27 +288,30 @@ class f1t_cost_function(cost_function_base):
         distance_to_wp_segments_cost = distance_to_segment_square
         return distance_to_wp_segments_cost
     
-    def get_velocity_difference_to_wp_cost(self, s, waypoints):
+    def get_velocity_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
         
         # if (velocity_diff_to_waypoints_cost_weight == 0): # Don't calculate if cost is 0
         #     return tf.zeros_like(s[:,:,0])
 
-        # Get nearest and the nearest_next waypoint for every position on the car's rollout
-        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
-        waypoint_positions = waypoints[:, 1:3]
-        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
         car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
         horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
-        velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
+        velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
     
-    def get_speed_control_difference_to_wp_cost(self, u, s, waypoints):
+    def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        waypoint_positions = nearest_waypoints[:,:, 1:3]
+
+        wp_car_vector = car_positions - waypoint_positions
+        wp_car_vector_norms = tf.norm(wp_car_vector, axis=2)
+        return 1.0 * wp_car_vector_norms
+        
+    
+    def get_speed_control_difference_to_wp_cost(self, u, s, waypoints, nearest_waypoint_indices):
         
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
-        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
-        waypoint_positions = waypoints[:, 1:3]
-        nearest_waypoint_indices = self.get_nearest_waypoints_indices(car_positions, waypoint_positions[:-1])
         speed_control = u[:, :, TRANSLATIONAL_CONTROL_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(speed_control, waypoints, nearest_waypoint_indices)
         horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
@@ -292,9 +324,28 @@ class f1t_cost_function(cost_function_base):
 
         nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:,:,5]
 
-        nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
+        # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
         
         vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
         return vel_difference
+    
+    def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)[:,:,3]
+        nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints)
+        nearest_waypoint_psi_rad_cos = tf.cos(nearest_waypoints)
         
+        car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
+        car_angle_cos = s[:, :, POSE_THETA_COS_IDX]
         
+        angle_difference_sin = tf.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
+        angle_difference_cos= tf.square(nearest_waypoint_psi_rad_cos - car_angle_cos)
+        return angle_difference_to_wp_cost_weight * (angle_difference_sin + angle_difference_cos)
+        
+    def normed_discount(self, array_to_discount, model_array, discount_factor):
+        discount_vector = self.lib.ones_like(model_array) * discount_factor
+        discount_vector = self.lib.cumprod(discount_vector, 0)
+        norm_factor = self.lib.to_tensor(self.lib.sum(self.lib.ones_like(discount_vector), 0), self.lib.float32)/self.lib.sum(discount_vector, 0)
+        discount_vector = norm_factor*discount_vector
+        return array_to_discount*discount_vector
+
