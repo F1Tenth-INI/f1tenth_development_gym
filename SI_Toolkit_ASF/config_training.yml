@@ -52,7 +52,11 @@ training_default:
   EPOCHS: 15
   BATCH_SIZE: 20
   SEED: 1873
-  LR: 1.0e-3
+  LR:
+    INITIAL: 1.0e-3
+    MINIMAL: 1.0e-5
+    PATIENCE: 1
+    DECREASE_FACTOR: 0.316 # sqrt(0.1)
   WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
@@ -60,6 +64,7 @@ training_default:
   SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
+  VALIDATE_ALSO_ON_TRAINING_SET: true
 
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
