@@ -18,3 +18,12 @@ neural-imitator:
 stanley:
   controller_logging: False
   computation_library: numpy
+fpga:
+  seed: null                            # If null, random seed based on datetime is used
+  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
+  net_name: 'Dense-89IN-64H1-64H2-2OUT-0'  # TF
+#  net_name: 'GRU-6IN-32H1-32H2-1OUT-0'  # Pytorch
+  input_at_input: False
+  controller_logging: True
+  SERIAL_PORT: 3
+  SERIAL_BAUD: 115200
