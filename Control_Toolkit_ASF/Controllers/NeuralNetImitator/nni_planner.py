@@ -5,7 +5,15 @@ import sklearn # Don't touch
 from utilities.waypoint_utils import *
 
 from Control_Toolkit_ASF.Controllers import template_planner
-from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
+
+EVALUATION = 'PC'
+
+if EVALUATION == 'PC':
+    from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator as controller
+elif EVALUATION == 'FPGA':
+    from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller
+else:
+    raise ValueError('{} is not a recognized value of EVALUATION variable'.format(EVALUATION))
 
 class NeuralNetImitatorPlanner(template_planner):
 
@@ -22,7 +30,7 @@ class NeuralNetImitatorPlanner(template_planner):
 
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
-        self.nni = controller_neural_imitator(
+        self.nni = controller(
             dt=Settings.TIMESTEP_CONTROL,
             environment_name="Car",
             initial_environment_attributes={},
