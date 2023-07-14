@@ -50,7 +50,7 @@ rpgd-pfi:
   adam_epsilon: 1.0e-08
   gradmax_clip: 5
   rtol: 1.0e-3
-  num_rollouts: 64
+  num_rollouts: 32
   opt_keep_k_ratio: 0.5
   outer_its: 20
   resamp_per: 5
@@ -64,10 +64,11 @@ rpgd-pfi:
   shift_previous: 3
   warmup: false
   warmup_iterations: 250
-  visualize: True             # visualize rollout trajectories?
+  visualize: False             # visualize rollout trajectories?
   view_unoptimized: True     # if visualize rollout trajectories, visualize unoptimized inputs/outputs?
   kpf_sample_stdev: 1.0     # KPF initial sampling standard deviation
   kpf_sample_mean: 0.0     # KPF initial sampling mean
+  kpf_resample_ratio: 0.5   # KPF resampling ratio, what part is resampled
 
 
 
