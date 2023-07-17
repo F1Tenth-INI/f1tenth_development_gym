@@ -10,16 +10,16 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "london3_large"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "hangar12"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
 
-    ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
+    ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"  # Car parameters for simulated car
 
-    NUMBER_OF_OPPONENTS = 0
+    NUMBER_OF_OPPONENTS = 4
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.2
+    OPPONENTS_VEL_FACTOR = 1
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
     DISABLE_AUTOMATIC_TERMINATION = True
@@ -59,11 +59,11 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.2 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.2  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
-    NOISE_LEVEL_CAR_STATE = [0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
-    # NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
     # Nikita's Slip/Steer Predictor
@@ -133,7 +133,7 @@ class Settings():
     ### Other Settings ###
     GLOBALLY_DISABLE_COMPILATION = False    # Disable TF Compilation
     ROS_BRIDGE = None                       # Automatically determined on program start
-    DISABLE_GPU = True
+    DISABLE_GPU = False
 
     # Settings for data collection
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
@@ -144,5 +144,5 @@ class Settings():
 
     PRINTING_ON = False
 
-    ANALYZE_COST = False
+    ANALYZE_COST = True
     ANALYZE_COST_PERIOD = 100

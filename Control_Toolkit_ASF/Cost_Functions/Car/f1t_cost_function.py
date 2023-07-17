@@ -217,8 +217,9 @@ class f1t_cost_function(cost_function_base):
         minima = tf.clip_by_value(minima, 0.0, crash_cost_safe_margin)
 
         cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
+        cost_for_passing_close = tf.clip_by_value(cost_for_passing_close, 0.0, crash_cost_max_cost)
 
-        return cost_for_passing_close
+        return 100*cost_for_passing_close
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
@@ -298,6 +299,49 @@ class f1t_cost_function(cost_function_base):
         horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
+
+    def get_wrong_direction_cost(self, s, waypoints, nearest_waypoint_indices):
+        # car_vel = s[:, :, LINEAR_VEL_X_IDX]
+        car_dir = s[:, :, POSE_THETA_IDX]
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        wp_connecting_angles = nearest_waypoints[:, :, 3]
+        wrong_direction_cost = 1 - tf.cos(wp_connecting_angles - car_dir)
+
+        """wrong_direction_cost = tf.abs(car_dir - wp_connecting_angles)
+        wrong_direction_cost = tf.exp(wrong_direction_cost) - 1"""
+
+        """nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:, :, 5]
+        diff_vel = nearest_waypoint_vel_x - car_vel
+        # Only keep the negative velocities
+        wrong_direction_cost = tf.nn.relu(-diff_vel)
+        wrong_direction_cost = tf.exp(tf.square(wrong_direction_cost)) - 1"""
+
+        return 50*wrong_direction_cost
+
+    def get_slow_cost(self, s):
+        car_vel = s[:, :, LINEAR_VEL_X_IDX]
+        slow_cost = tf.exp(-tf.square(car_vel) / 2.0)
+        # slow_cost = -tf.exp(car_vel/3) + 100
+        return 50*slow_cost
+
+    def get_circle_cost(self, s):
+        car_pos_x = s[:, :, POSE_X_IDX]
+        car_pos_x_1 = car_pos_x[0, 0]
+        car_pos_y = s[:, :, POSE_Y_IDX]
+        car_pos_y_1 = car_pos_y[0, 0]
+        first_last_diff = tf.sqrt(
+                                tf.square(car_pos_x_1 - car_pos_x) +
+                                tf.square(car_pos_y_1 - car_pos_y)
+                            )
+        circle_cost = tf.exp(-tf.square(first_last_diff) / 2.0)
+
+        # get rid of first half of time steps since that doesn't constitute a circle
+        mid_index = tf.shape(circle_cost)[1] // 2
+        half_1 = tf.zeros_like(circle_cost[:, :mid_index])
+        half_2 = circle_cost[:, mid_index:]
+        circle_cost = tf.concat([half_1, half_2], axis=1)
+        return 100*circle_cost
+
     
     def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.

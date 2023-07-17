@@ -19,7 +19,7 @@ from utilities.state_utilities import (
 class car_model:
 
     num_actions = 2
-    num_states  = 9
+    num_states = 9
 
     def __init__(
             self,

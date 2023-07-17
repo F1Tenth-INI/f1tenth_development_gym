@@ -12,14 +12,14 @@ Car:
     icdc_weight: [0.0, 0.0]               # Steering and throttle; special penalty to discourage change at the very first control input
 
 
-    crash_cost_safe_margin: 0.55
+    crash_cost_safe_margin: 0.35
     crash_cost_max_cost: 100.0
     crash_cost_slope: 30.0
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
-    distance_to_waypoints_cost_weight: 20.0
+    distance_to_waypoints_cost_weight: 10.0
     velocity_diff_to_waypoints_cost_weight: 0.0
-    angular_velocity_cost_weight: 0.0
+    angular_velocity_cost_weight: 1.0
     angle_difference_to_wp_cost_weight: 1.
     speed_control_diff_to_waypoints_cost_weight: 50.0  # Penalize difference between desired speed of control and the position's closest waypoint
     

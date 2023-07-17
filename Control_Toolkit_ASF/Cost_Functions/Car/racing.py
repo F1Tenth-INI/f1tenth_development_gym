@@ -20,6 +20,9 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = None
         self.cost_components.speed_control_difference_to_wp_cost = None
         self.cost_components.distance_to_wp_segments_cost = None
+        self.cost_components.slow_cost = None
+        self.cost_components.wrong_direction_cost = None
+        self.cost_components.circle_cost = None
 
 
     def configure(
@@ -38,7 +41,9 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.speed_control_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.distance_to_wp_segments_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
-
+        self.cost_components.slow_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.wrong_direction_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.circle_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
 
     def get_terminal_cost(self, terminal_state):
         terminal_speed_cost = self.get_terminal_speed_cost(terminal_state)
@@ -64,6 +69,8 @@ class racing(f1t_cost_function):
         # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
         slipping_cost = self.get_slipping_cost(s)
+        slow_cost = self.get_slow_cost(s)
+        circle_cost = self.get_circle_cost(s)
 
         # Costs related to waypoints 
         if hasattr (self.variable_parameters.next_waypoints, 'shape'):
@@ -79,6 +86,8 @@ class racing(f1t_cost_function):
             velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
+            wrong_direction_cost = self.get_wrong_direction_cost(s, waypoints, nearest_waypoint_indices)
+
 
         else:
             distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
@@ -107,6 +116,9 @@ class racing(f1t_cost_function):
                 + angle_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
                 + distance_to_wp_segments_cost
+                + slow_cost
+                + wrong_direction_cost
+                + circle_cost
                 # + steering_cost
                 # + acceleration_cost
                 # + speed_control_difference_to_wp_cost
@@ -124,6 +136,9 @@ class racing(f1t_cost_function):
             self.lib.assign(self.cost_components.angle_difference_to_wp_cost, angle_difference_to_wp_cost)
             self.lib.assign(self.cost_components.speed_control_difference_to_wp_cost, speed_control_difference_to_wp_cost)
             self.lib.assign(self.cost_components.distance_to_wp_segments_cost, distance_to_wp_segments_cost)
+            self.lib.assign(self.cost_components.slow_cost, slow_cost)
+            self.lib.assign(self.cost_components.wrong_direction_cost, wrong_direction_cost)
+            self.lib.assign(self.cost_components.circle_cost, circle_cost)
 
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00

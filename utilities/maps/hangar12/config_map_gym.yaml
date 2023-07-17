@@ -5,8 +5,8 @@ map_path: 'utilities/maps/hangar12/hangar12'
 waypoint_path: 'utilities/maps/hangar12/hangar12_wp'
 
 # starting pose for map
-starting_positions: 
- - [0., 0., 0.0]
+starting_positions:
+ - [0., -0.8, 3.14]
  - [2.577980,0.912489,-0.046697]
  - [-2.293158,-3.703936,-2.556532]
  - [1.138679,-2.842762,3.105250]
