@@ -17,7 +17,7 @@ class Settings():
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"  # Car parameters for simulated car
 
-    NUMBER_OF_OPPONENTS = 4
+    NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 1
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
@@ -59,11 +59,11 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.1 # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.1  # ftg: 0.05  # mppi: 3.0
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
-    # NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    # NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
     # Nikita's Slip/Steer Predictor
@@ -144,5 +144,5 @@ class Settings():
 
     PRINTING_ON = False
 
-    ANALYZE_COST = True
+    ANALYZE_COST = False
     ANALYZE_COST_PERIOD = 100
