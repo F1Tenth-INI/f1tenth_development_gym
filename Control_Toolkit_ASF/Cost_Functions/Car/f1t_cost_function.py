@@ -219,7 +219,7 @@ class f1t_cost_function(cost_function_base):
         cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
         cost_for_passing_close = tf.clip_by_value(cost_for_passing_close, 0.0, crash_cost_max_cost)
 
-        return 100*cost_for_passing_close
+        return cost_for_passing_close
 
     def get_target_distance_cost_normed(self, trajectories, target_points):
 
@@ -322,7 +322,7 @@ class f1t_cost_function(cost_function_base):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
         slow_cost = tf.exp(-tf.square(car_vel) / 2.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
-        return 50*slow_cost
+        return 200*slow_cost
 
     def get_circle_cost(self, s):
         car_pos_x = s[:, :, POSE_X_IDX]

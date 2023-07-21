@@ -64,12 +64,19 @@ rpgd-pfi:
   shift_previous: 3
   warmup: true
   warmup_iterations: 250
+
   visualize: false             # visualize rollout trajectories?
   view_unoptimized: true     # if visualize rollout trajectories, visualize unoptimized inputs/outputs?
+  visualize_color_coded: false             # color coded rollout trajectories
+  visualize_control_distributions: false   # control input distributions
+  visualize_per: 100                      # standalone visualizer frequency
+
   kpf_sample_stdev: [ 0.3, 0.3 ]    # KPF initial sampling standard deviation
   kpf_sample_mean: [ 0.0, 3.5 ]     # KPF initial sampling mean
   kpf_keep_ratio: 0.5   # KPF resampling ratio, rest is resampled
   kpf_keep_best: 5      # how many of the trajectories with best cost to keep?
+  kpf_g_sigma: 2.0     # gaussian kernel sigma for distance
+  kpf_cdf_interp_num: 100   # number of interpolation points for cdf in kpf
 
 
 
