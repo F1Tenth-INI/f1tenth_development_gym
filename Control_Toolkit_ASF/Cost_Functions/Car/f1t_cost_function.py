@@ -1,3 +1,5 @@
+import math
+
 import yaml
 import os
 import tensorflow as tf
@@ -217,7 +219,7 @@ class f1t_cost_function(cost_function_base):
         minima = tf.clip_by_value(minima, 0.0, crash_cost_safe_margin)
 
         cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
-        cost_for_passing_close = tf.clip_by_value(cost_for_passing_close, 0.0, crash_cost_max_cost)
+        # cost_for_passing_close = tf.clip_by_value(cost_for_passing_close, 0.0, crash_cost_max_cost)
 
         return cost_for_passing_close
 
@@ -305,22 +307,27 @@ class f1t_cost_function(cost_function_base):
         car_dir = s[:, :, POSE_THETA_IDX]
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
         wp_connecting_angles = nearest_waypoints[:, :, 3]
-        wrong_direction_cost = 1 - tf.cos(wp_connecting_angles - car_dir)
 
-        """wrong_direction_cost = tf.abs(car_dir - wp_connecting_angles)
-        wrong_direction_cost = tf.exp(wrong_direction_cost) - 1"""
+        difference = tf.math.abs(wp_connecting_angles - car_dir)
 
-        """nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:, :, 5]
-        diff_vel = nearest_waypoint_vel_x - car_vel
-        # Only keep the negative velocities
-        wrong_direction_cost = tf.nn.relu(-diff_vel)
-        wrong_direction_cost = tf.exp(tf.square(wrong_direction_cost)) - 1"""
+        # ALT 0 - SIMPLE COS
+        # wrong_direction_cost = 1 - tf.cos(difference)
+
+        # ALT 1 - COST STARTS FROM 0 @ 90 DEG
+        cos_part = 1 - tf.cos(difference - math.pi/2)
+        step_part = tf.maximum(0.0, tf.math.sign(difference - math.pi / 2))
+        wrong_direction_cost = cos_part * step_part
+
+        # ALT 2 - COST STARTS NOT FROM 0 @ 90 DEG
+        """cos_part = 1 - tf.cos(difference / 2)
+        step_part = tf.maximum(0.0, tf.math.sign(difference - math.pi / 2))
+        wrong_direction_cost = cos_part * step_part"""
 
         return 50*wrong_direction_cost
 
     def get_slow_cost(self, s):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
-        slow_cost = tf.exp(-tf.square(car_vel) / 2.0)
+        slow_cost = tf.exp(-tf.square(car_vel) / 3.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
         return 200*slow_cost
 
@@ -370,7 +377,7 @@ class f1t_cost_function(cost_function_base):
 
         # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
         
-        vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
+        vel_difference = tf.abs(tf.nn.relu(nearest_waypoint_vel_x - car_vel))
         return vel_difference
     
     def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):

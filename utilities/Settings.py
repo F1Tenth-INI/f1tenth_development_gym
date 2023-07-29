@@ -145,4 +145,4 @@ class Settings():
     PRINTING_ON = False
 
     ANALYZE_COST = False
-    ANALYZE_COST_PERIOD = 100
+    ANALYZE_COST_PERIOD = 50
