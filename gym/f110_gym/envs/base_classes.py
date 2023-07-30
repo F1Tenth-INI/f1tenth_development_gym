@@ -244,7 +244,8 @@ class RaceCar(object):
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[3:] = 0.
+            # self.state[3:] = 0.  # Why would the angle be reset??????
+            self.state[2:] = 0.
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
