@@ -1,7 +1,7 @@
 random_obstacle_seed: 2 # random obstacles 0 to disable, positive int for fixed seed, -1 for random seed
-obstacle_dim_m: 0.5 # dimension in meters (car is 30cm wide and track is about 2m wide)
+obstacle_dim_m: 0.3 # dimension in meters (car is 30cm wide and track is about 2m wide)
 obstacle_min_space_m: 2 # min spacing bewtween obstacles
-obstacle_min_space_to_start_m: 5 # min spacing from starting line to obstacle
+obstacle_min_space_to_start_m: 0 # min spacing from starting line to obstacle, was 5
 obstacle_number: 300 # total number of obstacles scattered over entire map PNG, number on track will be much smaller
 obstacle_shape: 'square' # ignored for now
 

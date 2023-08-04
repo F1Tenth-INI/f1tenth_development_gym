@@ -135,7 +135,7 @@ def main():
                 driver.render(env_renderer)
 
     racetrack = conf.map_path
-    starting_positions =  conf.starting_positions[0:number_of_drivers]
+    starting_positions = conf.starting_positions[0:number_of_drivers]
     
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:

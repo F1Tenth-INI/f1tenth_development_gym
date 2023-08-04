@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "hangar12"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "hangar9"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
@@ -24,11 +24,11 @@ class Settings():
 
     DISABLE_AUTOMATIC_TERMINATION = True
     DISABLE_AUTOMATIC_TIMEOUT = True
-    PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
+    PLACE_RANDOM_OBSTACLES = True  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
 
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
-    WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
+    WITH_PID = True  # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human_fast' # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
@@ -45,7 +45,7 @@ class Settings():
     EXPERIMENT_LENGTH = 10000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
-    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = True  # Only possible when SAVE_RECORDINGS is True
 
     ### State Estimation ###
 
@@ -59,11 +59,13 @@ class Settings():
     # Noise Level for the controller's state estimation
     # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
     # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.1 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.1  # ftg: 0.05  # mppi: 3.0
+    # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.1  # ftg: 0.5  # mppi: 2.0
+    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0  # ftg: 0.5  # mppi: 2.0
+    # NOISE_LEVEL_ANGULAR_CONTROL = 0.1  # ftg: 0.05  # mppi: 3.0
+    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
-    NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    # NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
     # Nikita's Slip/Steer Predictor
@@ -145,4 +147,4 @@ class Settings():
     PRINTING_ON = False
 
     ANALYZE_COST = False
-    ANALYZE_COST_PERIOD = 50
+    ANALYZE_COST_PERIOD = 100

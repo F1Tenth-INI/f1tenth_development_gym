@@ -311,12 +311,12 @@ class f1t_cost_function(cost_function_base):
         difference = tf.math.abs(wp_connecting_angles - car_dir)
 
         # ALT 0 - SIMPLE COS
-        # wrong_direction_cost = 1 - tf.cos(difference)
+        wrong_direction_cost = 1 - tf.cos(difference)
 
         # ALT 1 - COST STARTS FROM 0 @ 90 DEG
-        cos_part = 1 - tf.cos(difference - math.pi/2)
+        """cos_part = 1 - tf.cos(difference - math.pi/2)
         step_part = tf.maximum(0.0, tf.math.sign(difference - math.pi / 2))
-        wrong_direction_cost = cos_part * step_part
+        wrong_direction_cost = cos_part * step_part"""
 
         # ALT 2 - COST STARTS NOT FROM 0 @ 90 DEG
         """cos_part = 1 - tf.cos(difference / 2)
@@ -325,11 +325,90 @@ class f1t_cost_function(cost_function_base):
 
         return 50*wrong_direction_cost
 
-    def get_slow_cost(self, s):
+    def get_curvature(self, s):
+        """x = s[:, :, POSE_X_IDX]
+        y = s[:, :, POSE_Y_IDX]"""
+
+        ang_vel_z = s[:, :, ANGULAR_VEL_Z_IDX]
+        lin_vel_x = s[:, :, LINEAR_VEL_X_IDX]
+
+        curvature = tf.abs(ang_vel_z / lin_vel_x)
+
+        # Calculate the mean curvature for each trajectory
+        """mean_curvature_per_trajectory = tf.reduce_mean(curvature, axis=1)
+        mean_curvature_per_trajectory = tf.reshape(mean_curvature_per_trajectory, (tf.shape(s)[0], 1))
+        mean_curvature_per_trajectory = tf.broadcast_to(mean_curvature_per_trajectory, (tf.shape(s)[0], tf.shape(s)[1]))"""
+
+        # INTERM = tf.reduce_mean(curvature), tf.reduce_min(curvature), tf.reduce_max(curvature)
+
+        curvature_final = tf.sigmoid(10 * (curvature - 1.0))  # 10, 1.0
+
+        return curvature_final
+
+    """def get_closest_distance_to_lidar(self, s, lidar_points):
+        # x_pos = tf.broadcast_to(tf.expand_dims(s[:, :, POSE_X_IDX], axis=2), (s.shape[0], s.shape[1], lidar_points.shape[0]))
+        # y_pos = tf.broadcast_to(tf.expand_dims(s[:, :, POSE_Y_IDX], axis=2), (s.shape[0], s.shape[1], lidar_points.shape[0]))
+
+        x_pos = s[:, :, POSE_X_IDX]
+        y_pos = s[:, :, POSE_Y_IDX]
+
+        x_lidar = tf.reshape(lidar_points[:, 0], (1, 1, lidar_points.shape[0]))
+        y_lidar = tf.reshape(lidar_points[:, 1], (1, 1, lidar_points.shape[0]))
+
+        d_x = tf.reduce_min(x_pos - x_lidar, axis=2)
+        d_y = tf.reduce_min(y_pos - y_lidar, axis=2)
+
+        closest_distance = tf.sqrt(tf.add(tf.square(d_x), tf.square(d_y)))
+
+        closest_distance = tf.sigmoid(5 * (closest_distance - 1.5))
+
+        return closest_distance"""
+
+    def get_slow_cost(self, s, lidar_points):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
-        slow_cost = tf.exp(-tf.square(car_vel) / 3.0)
+
+        # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
+
+        # slow_cost = tf.exp(-tf.square(car_vel) / 5.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
-        return 200*slow_cost
+        slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
+
+        # fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
+
+        # penalize high speed during curves and slow speed during straight trajectories
+        # return 200*(tf.multiply(slow_cost, 1 - curvature_coeff) + tf.multiply(fast_cost, curvature_coeff))
+
+        final_slow_cost = slow_cost
+
+        # don't penalize slower speeds at
+        curvature_coeff = self.get_curvature(s)
+        final_slow_cost = tf.multiply(slow_cost, 1 - curvature_coeff)
+
+        # TODO: don't penalize slower speeds at high proximity
+        """positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
+        positions = tf.reshape(positions, [positions.shape[0] * positions.shape[1], 2])
+        proximity_coeff = self.distances_from_list_to_list_of_points(positions, lidar_points)
+        proximity_coeff = tf.reshape(proximity_coeff, (s.shape[0], s.shape[1], s.shape[2]))
+        proximity_coeff = tf.reduce_min(proximity_coeff, axis=2)"""
+        proximity_coeff = 1
+        final_slow_cost = tf.multiply(final_slow_cost, proximity_coeff)
+
+        return 200 * final_slow_cost
+
+    def get_fast_curve_cost(self, s):
+        car_vel = s[:, :, LINEAR_VEL_X_IDX]
+
+        # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
+
+        fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
+
+        final_fast_cost = fast_cost
+
+        # penalize high speed at curve
+        curvature_coeff = self.get_curvature(s)
+        final_fast_cost = tf.multiply(fast_cost, curvature_coeff)
+
+        return 20 * final_fast_cost
 
     def get_circle_cost(self, s):
         car_pos_x = s[:, :, POSE_X_IDX]
@@ -347,7 +426,8 @@ class f1t_cost_function(cost_function_base):
         half_1 = tf.zeros_like(circle_cost[:, :mid_index])
         half_2 = circle_cost[:, mid_index:]
         circle_cost = tf.concat([half_1, half_2], axis=1)
-        return 100*circle_cost
+        curvature_coeff = self.get_curvature(s)
+        return 100*circle_cost*curvature_coeff
 
     
     def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
@@ -373,10 +453,11 @@ class f1t_cost_function(cost_function_base):
 
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
 
-        nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:,:,5]
+        nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:, :, 5]
 
         # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
-        
+
+        # vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
         vel_difference = tf.abs(tf.nn.relu(nearest_waypoint_vel_x - car_vel))
         return vel_difference
     

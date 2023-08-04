@@ -245,8 +245,10 @@ class RaceCar(object):
         # if in collision stop vehicle
         if in_collision:
             # self.state[3:] = 0.  # Why would the angle be reset??????
-            self.state[0] -= np.sign(self.state[3]) * np.cos(self.state[4])
-            self.state[1] -= np.sign(self.state[3]) * np.sin(self.state[4])
+            self.state[0] -= np.sign(self.state[3]) * np.cos(self.state[4]) / 10
+            self.state[1] -= np.sign(self.state[3]) * np.sin(self.state[4]) / 10
+
+            self.state[4] += 0.05
 
             self.state[2:4] = 0.
             self.state[5:7] = 0.
