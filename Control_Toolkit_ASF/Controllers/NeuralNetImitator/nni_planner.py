@@ -8,12 +8,9 @@ from Control_Toolkit_ASF.Controllers import template_planner
 
 EVALUATION = 'PC'
 
-if EVALUATION == 'PC':
-    from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator as controller
-elif EVALUATION == 'FPGA':
-    from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller
-else:
-    raise ValueError('{} is not a recognized value of EVALUATION variable'.format(EVALUATION))
+from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator as controller_pc
+from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller_fpga
+
 
 class NeuralNetImitatorPlanner(template_planner):
 
@@ -30,7 +27,7 @@ class NeuralNetImitatorPlanner(template_planner):
 
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
-        self.nni = controller(
+        self.nni = controller_pc(
             dt=Settings.TIMESTEP_CONTROL,
             environment_name="Car",
             initial_environment_attributes={},
@@ -38,6 +35,14 @@ class NeuralNetImitatorPlanner(template_planner):
         )
 
         self.nni.configure()
+
+        self.nni_fpga = controller_fpga(
+            dt=Settings.TIMESTEP_CONTROL,
+            environment_name="Car",
+            initial_environment_attributes={},
+            control_limits=(control_limits_low, control_limits_high),
+        )
+        self.nni_fpga.configure()
 
         number_of_next_waypoints_network = len([wp for wp in self.nni.net_info.inputs if wp.startswith("WYPT_REL_X")])
         if number_of_next_waypoints_network != Settings.LOOK_AHEAD_STEPS:
@@ -75,17 +80,18 @@ class NeuralNetImitatorPlanner(template_planner):
         #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
         
         #Current Input:
-        input_data = np.concatenate((self.LIDAR.processed_scans, waypoints_relative_x, waypoints_relative_y, next_waypoint_vx,
-                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
+        input_data = np.concatenate((waypoints_relative_x, waypoints_relative_y, next_waypoint_vx,
+                                      [self.car_state[LINEAR_VEL_X_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
 
         # input_data = np.concatenate((self.LIDAR.processed_scans,
         #                               [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
 
-        net_output = self.nni.step(input_data)
-
-        self.angular_control = net_output[0, 0, 0]
-        self.translational_control = net_output[0, 0, 1]
+        net_output_fpga = self.nni_fpga.step(input_data)
+        # net_output = self.nni.step(input_data)
+        net_output = net_output_fpga
+        self.angular_control = net_output[0]
+        self.translational_control = net_output[1]
 
         # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
         if self.simulation_index < Settings.ACCELERATION_TIME:

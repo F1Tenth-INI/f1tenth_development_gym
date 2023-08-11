@@ -1,9 +1,9 @@
-library: 'TF'  # TF or Pytorch
+library: 'Pytorch'  # TF or Pytorch
 modeling:
-  NET_NAME: 'Dense-93IN-64H1-64H2-2OUT-0'
+  NET_NAME: 'Dense-49IN-64H1-64H2-2OUT-0'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
-  path_to_experiment: 'flo/'
+  path_to_experiment: 'Obstacle_v1/Models/'
   PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/'  # Path where the experiments data is stored
 
 
@@ -49,7 +49,7 @@ training_default:
   setpoint_inputs: []
   outputs: ['translational_control_calculated', 'angular_control_calculated']
 
-  EPOCHS: 15
+  EPOCHS: 0
   BATCH_SIZE: 20
   SEED: 1873
   LR:
