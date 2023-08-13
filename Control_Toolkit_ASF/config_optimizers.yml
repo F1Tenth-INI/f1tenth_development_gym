@@ -32,7 +32,7 @@ rpgd-tf:
 #  sample_mean: 0.0
   sample_stdev: [ 0.3, 0.3 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
   sample_mean: [0.0, 3.8] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
-  sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
+  sample_whole_control_space: true # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
   uniform_dist_max: [ 0.8, -1 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   uniform_dist_min: [ -0.8, 5.2 ] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   shift_previous: 3
@@ -71,7 +71,7 @@ rpgd-pfi:
 
   # Standalone visualizers
   visualize_color_coded: false             # color coded rollout trajectories
-  visualize_color_coded_advanced: true    # color coded rollout trajectories with unoptimized and resampled kpf trajectories
+  visualize_color_coded_advanced: false    # color coded rollout trajectories with unoptimized and resampled kpf trajectories
   visualize_control_distributions: false   # control input distributions
   visualize_per: 10                      # standalone visualizer frequency
 

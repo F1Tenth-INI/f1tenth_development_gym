@@ -110,7 +110,7 @@ if Settings.ENVIRONMENT_NAME == 'Car':
     if not Settings.WITH_PID:  # MPC return velocity and steering angle
         control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
     else:  # MPC returns acceleration and steering velocity
-        control_limits_low, control_limits_high = get_control_limits([[-1.066, -1], [1.066, 8]])
+        control_limits_low, control_limits_high = get_control_limits([[-1.066, -2], [1.066, 8]])
 else:
     raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 

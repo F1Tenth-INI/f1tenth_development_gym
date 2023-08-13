@@ -10,21 +10,21 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "hangar9"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "london3_large"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"  # Car parameters for simulated car
 
-    NUMBER_OF_OPPONENTS = 0
+    NUMBER_OF_OPPONENTS = 5
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 1
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
     DISABLE_AUTOMATIC_TERMINATION = True
     DISABLE_AUTOMATIC_TIMEOUT = True
-    PLACE_RANDOM_OBSTACLES = True  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
+    PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
 
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]

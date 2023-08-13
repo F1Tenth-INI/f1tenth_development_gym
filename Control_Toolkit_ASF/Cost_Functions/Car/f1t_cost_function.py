@@ -341,7 +341,8 @@ class f1t_cost_function(cost_function_base):
 
         # INTERM = tf.reduce_mean(curvature), tf.reduce_min(curvature), tf.reduce_max(curvature)
 
-        curvature_final = tf.sigmoid(10 * (curvature - 1.0))  # 10, 1.0
+        #curvature_final = tf.sigmoid(10 * (curvature - 1.0))  # 10, 1.0
+        curvature_final = tf.maximum(tf.sign(curvature - 0.4), 0.0)
 
         return curvature_final
 
@@ -369,9 +370,9 @@ class f1t_cost_function(cost_function_base):
 
         # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
 
-        # slow_cost = tf.exp(-tf.square(car_vel) / 5.0)
+        slow_cost = tf.exp(-tf.square(car_vel) / 5.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
-        slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
+        # slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
 
         # fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
 
@@ -393,7 +394,7 @@ class f1t_cost_function(cost_function_base):
         proximity_coeff = 1
         final_slow_cost = tf.multiply(final_slow_cost, proximity_coeff)
 
-        return 200 * final_slow_cost
+        return 50 * final_slow_cost
 
     def get_fast_curve_cost(self, s):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
@@ -421,7 +422,7 @@ class f1t_cost_function(cost_function_base):
                             )
         circle_cost = tf.exp(-tf.square(first_last_diff) / 2.0)
 
-        # get rid of first half of time steps since that doesn't constitute a circle
+        # get rid of first half of time steps since that doesn't constitute a circle1
         mid_index = tf.shape(circle_cost)[1] // 2
         half_1 = tf.zeros_like(circle_cost[:, :mid_index])
         half_2 = circle_cost[:, mid_index:]
