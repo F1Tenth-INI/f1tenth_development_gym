@@ -38,6 +38,10 @@ predictors:
 
   Custom_DNN:
     predictor_type: 'neural'
-    model_name: 'Dense-10IN-64H1-64H2-8OUT-0'
-    path_to_model: './SI_Toolkit_ASF/Experiments/1_DNN/Models'
-    update_before_predicting: True
+
+  ActiveLearning:
+    predictor_type: 'neural'
+    model_name: 'Custom-11IN-ODE_module.py-STModel-9OUT-0'
+    # model_name: 'Custom-ODE_module.py-STModel'
+    path_to_model: './SI_Toolkit_ASF/Experiments/3-0_random_small/Models'
+    update_before_predicting: False
