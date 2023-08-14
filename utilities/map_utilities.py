@@ -184,12 +184,12 @@ class MapUtilities:
         writer.writerows(waypoints)
         file.close()
 
-    @staticmethod
+    """@staticmethod
     def save_waypoints(waypoints, map_name, path_to_waypoints = "utilities/maps_files/waypoints/"):
         file_name = map_name+"_wp.csv"
         file = open(path_to_waypoints+file_name, 'w')
         writer = csv.writer(file)
         writer.writerows(waypoints)
-        file.close()
+        file.close()"""
 
             

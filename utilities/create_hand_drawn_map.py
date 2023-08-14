@@ -16,10 +16,17 @@ Then adjust the map_name variable below and run this file: python utilities/crea
 Finally in config_Map.yaml (make sure you select in in Settings.py as map config) ), adjust the name of the maps and waypoint file to run it in the env
 '''
 
+# CHANGEABLE PARAMETERS:
 map_name = "circle1"
-path_to_map = "utilities/maps_files/handdrawn/"
-img = Image.open("utilities/maps_files/handdrawn/"+map_name+".png")
 scaling = 0.1
+width = 5.0
+
+# PATHS:
+path_to_map_img = 'maps_files/handdrawn/'+map_name+'.png'
+path_to_map_folder = "maps/"+map_name+"/"
+img = Image.open(path_to_map_img)
+
+# ---------------------------------------------------------------
 
 # PIL images into NumPy arrays
 image_array = asarray(img)
@@ -38,13 +45,10 @@ for i, row in enumerate(image_array):
 
 
 # Generate track data
-width = 5.0
 track_points = []
 for point in occupied:
     track_point = [float(point[0]), float(point[1]), width, width]
-    track_points.append(track_point)
-
-print("Track generated!")
+    track_points.append(track_point)    
 
 
 # Sort Trackpoints
@@ -59,34 +63,26 @@ while len(unsorted_track_points) > 0:
     
 track_points = np.array(sorted_track_points)
 
-print("Track sorted!")
-
 
 # decrease density
 track_points = np.array(track_points[::10])
     
 # Shift for min = 0
-min_x = np.min(np.array(track_points)[:,0])
-min_y = np.min(np.array(track_points)[:,1])
+min_x = np.min(np.array(track_points)[:, 0])
+min_y = np.min(np.array(track_points)[:, 1])
 track_points = MapUtilities.transform_track_data(track_points, scaling, -min_x, -min_y, 1.0)
 
 # Save trackpoints
-np.savetxt('utilities/maps/'+map_name+'/'+map_name+'.csv',track_points,delimiter=",")
-
-print("Trackpoints saved!")
+np.savetxt('maps_files/handdrawn/'+map_name+'.csv',track_points,delimiter=",")
     
 # Generate Waypoints from track centerline
 waypoints = []
 for track_point in track_points:
     waypoint = [0., track_point[0], -track_point[1], 0. ,0. ,0. ,0.]
     waypoints.append(waypoint)
-np.savetxt('utilities/maps/'+map_name+'/'+map_name+'_wp.csv',waypoints,delimiter=",")
-
-print("Waypoints saved!")
+np.savetxt('umaps_files/waypoints/'+map_name+'_wp.csv',waypoints,delimiter=",")
 
 
 offset_x, offset_y = MapUtilities.draw_map_and_create_yaml(map_name, path_to_map, image_margin=10)
 waypoints = MapUtilities.transform_waypoints(waypoints, scaling, offset_x= offset_x, offset_y=offset_y)
 MapUtilities.save_waypoints(waypoints, map_name)
-
-print("Done!")
