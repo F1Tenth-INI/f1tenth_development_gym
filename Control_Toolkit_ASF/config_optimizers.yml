@@ -52,7 +52,7 @@ rpgd-pfi:
   rtol: 1.0e-3
   num_rollouts: 32
   opt_keep_k_ratio: 0.5
-  outer_its: 20
+  outer_its: 10
   resamp_per: 1          # was 5
   #  sample_stdev: 0.2
   #  sample_mean: 0.0
@@ -70,16 +70,17 @@ rpgd-pfi:
   view_unoptimized: true     # if visualize rollout trajectories, visualize unoptimized inputs/outputs?
 
   # Standalone visualizers
-  visualize_color_coded: false             # color coded rollout trajectories
+  visualize_color_coded: true             # color coded rollout trajectories
   visualize_color_coded_advanced: false    # color coded rollout trajectories with unoptimized and resampled kpf trajectories
   visualize_control_distributions: false   # control input distributions
-  visualize_per: 10                      # standalone visualizer frequency
+  visualize_control_2d: false              # visualize
+  visualize_per: 100                      # standalone visualizer frequency
 
   kpf_sample_stdev: [ 0.3, 2 ]    # KPF initial sampling standard deviation
   kpf_sample_mean: [ 0.0, 3.5 ]     # KPF initial sampling mean
   kpf_keep_ratio: 0.5  # KPF resampling ratio, rest is resampled 0.5
   kpf_keep_best: 10      # how many of the trajectories with best cost to keep? 5
-  kpf_g_sigma: 2.0     # gaussian kernel sigma for distance 2.0
+  kpf_g_sigma: 3.0     # gaussian kernel sigma for distance 2.0
   kpf_cdf_interp_num: 20   # number of interpolation points for cdf in kpf
   kpf_perturb_best: 5         # how many best trajectories to perturb
 

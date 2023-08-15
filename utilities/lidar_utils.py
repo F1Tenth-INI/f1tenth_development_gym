@@ -2,6 +2,8 @@ import numpy as np
 from utilities.Settings import Settings
 import platform
 
+# from scipy.ndimage import gaussian_filter
+
 from matplotlib import pyplot as plt
 import matplotlib
 
@@ -44,6 +46,8 @@ class LidarHelper:
             self.decimation = Settings.LIDAR_DECIMATION
             self.processed_scan_indices = self.scan_indices_within_processed_angle[::self.decimation]
         elif Settings.LIDAR_MODE == 'custom indices':
+            self.decimation = Settings.LIDAR_DECIMATION
+            self.custom_sigma = Settings.LIDAR_CUSTOM_STDEV
             self.processed_scan_indices = self.get_custom_processed_scan_indices()
             self.decimation = self.num_scans_total/len(self.processed_scan_indices)
         else:
@@ -135,7 +139,16 @@ class LidarHelper:
 
 
     def get_custom_processed_scan_indices(self):
-        raise NotImplementedError
+        num_resample = len(self.scan_indices_within_processed_angle[::self.decimation])
+        min_index, max_index = self.scan_indices_within_processed_angle[0], self.scan_indices_within_processed_angle[-1]
+        sample_mean_index = int((max_index - min_index) / 2)
+        sample_sigma = self.custom_sigma / self.covered_angle_deg * (max_index - min_index)
+        samples = np.random.normal(sample_mean_index, sample_sigma, num_resample)
+        samples = np.round(samples).astype(int)
+
+        indices = np.clip(samples, min_index, max_index)
+        return indices
+        # raise NotImplementedError
 
     def plot_lidar_data(self):
         if platform.system() == 'Darwin':

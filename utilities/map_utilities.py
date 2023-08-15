@@ -32,7 +32,7 @@ class MapUtilities:
 
         for track_point in track_points:
             # transform and scale
-            track_point[0] =  track_point[0] + offset_x
+            track_point[0] = track_point[0] + offset_x
             track_point[1] = track_point[1] + offset_y
             
             # Adjust width
@@ -149,7 +149,7 @@ class MapUtilities:
 
 
         # img.show()
-        img.save("utilities/maps_files/maps/"+map_name+".png")
+        img.save(path_to_map+map_name+".png")
 
         # Write YAML file for map
         data = {
@@ -161,7 +161,7 @@ class MapUtilities:
             'free_thresh' : 0.196,
             }
 
-        with open(r"utilities/maps_files/maps/"+map_name+".yaml", 'w') as file:
+        with open(path_to_map+map_name+".yaml", 'w') as file:
             documents = yaml.dump(data, file)
         return wp_offset_x, wp_offset_y
             
@@ -170,14 +170,14 @@ class MapUtilities:
         waypoints = np.array(waypoints)
         for waypoint in waypoints:
             
-            waypoint[1] =  waypoint[1] + offset_x 
+            waypoint[1] = waypoint[1] + offset_x
             waypoint[2] = waypoint[2] + offset_y
             waypoint = waypoint * scaling
             
         return waypoints     
         
     @staticmethod
-    def save_waypoints(waypoints, map_name, path_to_waypoints = "utilities/maps_files/waypoints/"):
+    def save_waypoints(waypoints, map_name, path_to_waypoints="utilities/maps_files/waypoints/"):
         file_name = map_name+"_wp.csv"
         file = open(path_to_waypoints+file_name, 'w')
         writer = csv.writer(file)

@@ -342,7 +342,7 @@ class f1t_cost_function(cost_function_base):
         # INTERM = tf.reduce_mean(curvature), tf.reduce_min(curvature), tf.reduce_max(curvature)
 
         #curvature_final = tf.sigmoid(10 * (curvature - 1.0))  # 10, 1.0
-        curvature_final = tf.maximum(tf.sign(curvature - 0.4), 0.0)
+        curvature_final = tf.maximum(tf.sign(curvature - 0.3), 0.0)
 
         return curvature_final
 
@@ -369,8 +369,7 @@ class f1t_cost_function(cost_function_base):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
 
         # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
-
-        slow_cost = tf.exp(-tf.square(car_vel) / 5.0)
+        slow_cost = tf.exp(-car_vel**2 / 20.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
         # slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
 
@@ -383,7 +382,7 @@ class f1t_cost_function(cost_function_base):
 
         # don't penalize slower speeds at
         curvature_coeff = self.get_curvature(s)
-        final_slow_cost = tf.multiply(slow_cost, 1 - curvature_coeff)
+        # final_slow_cost = tf.multiply(slow_cost, 1 - curvature_coeff)
 
         # TODO: don't penalize slower speeds at high proximity
         """positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
@@ -394,22 +393,24 @@ class f1t_cost_function(cost_function_base):
         proximity_coeff = 1
         final_slow_cost = tf.multiply(final_slow_cost, proximity_coeff)
 
-        return 50 * final_slow_cost
+        return 100 * final_slow_cost
 
     def get_fast_curve_cost(self, s):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
 
         # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
 
-        fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
+        # fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
+        # fast_cost = tf.exp(tf.square(car_vel)) - 1
+        fast_cost = tf.square(tf.maximum(tf.abs(car_vel) - 3, 0))
 
         final_fast_cost = fast_cost
 
         # penalize high speed at curve
         curvature_coeff = self.get_curvature(s)
-        final_fast_cost = tf.multiply(fast_cost, curvature_coeff)
+        final_fast_cost = tf.multiply(final_fast_cost, curvature_coeff)
 
-        return 20 * final_fast_cost
+        return 50 * final_fast_cost
 
     def get_circle_cost(self, s):
         car_pos_x = s[:, :, POSE_X_IDX]

@@ -9,11 +9,11 @@ Car:
     cc_weight: 0.0                        # control cost; for mppi, to concord with theory, check that cc, ccrc and R are the same as in config_optimizers.yml
     ccrc_weight: [3.0, 0.0]               # Steering and throttle; penalty of instant control change
     ccocrc_weight: [0.0, 0.0]             # Steering and throttle; penalizing |∆u(t)-∆u(t-1)|
-    icdc_weight: [0.0, 0.0]               # Steering and throttle; special penalty to discourage change at the very first control input
+    icdc_weight: [0.1, 0.1]               # Steering and throttle; special penalty to discourage change at the very first control input was 0,0
 
 
     crash_cost_safe_margin: 0.45
-    crash_cost_max_cost: 300.0
+    crash_cost_max_cost: 500.0
     crash_cost_slope: 150.0
 
     R: 1.0                                # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
@@ -21,7 +21,7 @@ Car:
     velocity_diff_to_waypoints_cost_weight: 0.0
     angular_velocity_cost_weight: 0.   #1.0
     angle_difference_to_wp_cost_weight: 1.   #1.0
-    speed_control_diff_to_waypoints_cost_weight: 50.0  # Penalize difference between desired speed of control and the position's closest waypoint, was 50.0
+    speed_control_diff_to_waypoints_cost_weight: 0.0  # Penalize difference between desired speed of control and the position's closest waypoint, was 50.0
     
     slipping_cost_weight: 0.0  # was 0.01
     steering_cost_weight: 0.0
