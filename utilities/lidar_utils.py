@@ -141,14 +141,20 @@ class LidarHelper:
     def get_custom_processed_scan_indices(self):
         num_resample = len(self.scan_indices_within_processed_angle[::self.decimation])
         min_index, max_index = self.scan_indices_within_processed_angle[0], self.scan_indices_within_processed_angle[-1]
-        sample_mean_index = int((max_index - min_index) / 2)
-        sample_sigma = self.custom_sigma / self.covered_angle_deg * (max_index - min_index)
-        samples = np.random.normal(sample_mean_index, sample_sigma, num_resample)
-        samples = np.round(samples).astype(int)
+        sample_mean_index = int((max_index + min_index) / 2)
+        sample_sigma = self.custom_sigma / self.processed_angle_deg * (max_index - min_index)
 
-        indices = np.clip(samples, min_index, max_index)
+        unique_samples = set()
+        while len(unique_samples) < num_resample:
+            sample = int(np.round(np.random.normal(sample_mean_index, sample_sigma)))
+            sample = np.clip(sample, min_index, max_index)
+            unique_samples.add(sample)
+
+        """samples = np.random.normal(sample_mean_index, sample_sigma, num_resample)
+        samples = np.round(samples).astype(int)"""
+
+        indices = np.array(sorted(unique_samples))
         return indices
-        # raise NotImplementedError
 
     def plot_lidar_data(self):
         if platform.system() == 'Darwin':

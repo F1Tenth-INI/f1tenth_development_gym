@@ -24,6 +24,7 @@ class racing(f1t_cost_function):
         self.cost_components.wrong_direction_cost = None
         self.cost_components.circle_cost = None
         self.cost_components.fast_curve_cost = None
+        self.cost_components.indecisive_cost = None
 
 
     def configure(
@@ -46,6 +47,7 @@ class racing(f1t_cost_function):
         self.cost_components.wrong_direction_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.circle_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.fast_curve_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.indecisive_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
 
     def get_terminal_cost(self, terminal_state):
         terminal_speed_cost = self.get_terminal_speed_cost(terminal_state)
@@ -90,6 +92,7 @@ class racing(f1t_cost_function):
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             wrong_direction_cost = self.get_wrong_direction_cost(s, waypoints, nearest_waypoint_indices)  # NEW!
+            indecisive_cost = self.get_indecisive_cost(s, waypoints, nearest_waypoint_indices)  # NEW!
 
 
         else:
@@ -121,6 +124,7 @@ class racing(f1t_cost_function):
                 + distance_to_wp_segments_cost
                 + slow_cost
                 + wrong_direction_cost
+                + indecisive_cost
                 # + circle_cost
                 # + fast_curve_cost
                 # + steering_cost
@@ -144,6 +148,7 @@ class racing(f1t_cost_function):
             self.lib.assign(self.cost_components.wrong_direction_cost, wrong_direction_cost)
             self.lib.assign(self.cost_components.circle_cost, circle_cost)
             self.lib.assign(self.cost_components.fast_curve_cost, fast_curve_cost)
+            self.lib.assign(self.cost_components.indecisive_cost, indecisive_cost)
 
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00

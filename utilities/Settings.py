@@ -104,8 +104,8 @@ class Settings():
 
     LIDAR_MODE = 'custom indices'  # possible: 'decimation', 'custom indices'
     LIDAR_PROCESSED_ANGLE_DEG = 250  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
-    LIDAR_DECIMATION = 1  # Only taken into account if LIDAR_MODE is 'decimation', also in custom to determine #to keep
-    LIDAR_CUSTOM_STDEV = 45  # If custom lidar, what standard deviation to sample from?
+    LIDAR_DECIMATION = 25  # Only taken into account if LIDAR_MODE is 'decimation', also in custom to determine #to keep
+    LIDAR_CUSTOM_STDEV = 20  # If custom lidar, what standard deviation to sample from?
 
     LIDAR_CORRUPT = False
     LIDAR_MAX_CORRUPTED_RATIO = 0.5

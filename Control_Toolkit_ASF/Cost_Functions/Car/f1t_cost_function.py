@@ -431,11 +431,37 @@ class f1t_cost_function(cost_function_base):
         curvature_coeff = self.get_curvature(s)
         return 100*circle_cost*curvature_coeff
 
+    # This is a static cost, simply for preferring trajectories when costs are close/equal, hence when car indecisive:
+    def get_indecisive_cost(self, s, waypoints, nearest_waypoint_indices):
+        # VER 1 - simply give cost for steering right in the first half of timesteps. Prefers going left in equal cost.
+        """pick_right = True  # If true - tax left, vice versa
+        half_timesteps = tf.cast(tf.math.ceil(tf.shape(s)[1] / 2), dtype=tf.int32)
+        car_steering_angles = s[:, :half_timesteps, STEERING_ANGLE_IDX]
+        average_steering_angle = tf.reduce_mean(car_steering_angles, axis=1, keepdims=True)
+        average_steering_angle_tiled = tf.tile(average_steering_angle, (1, tf.shape(s)[1]))
+        indecisive_cost = tf.maximum(tf.sign((-1)**pick_right * average_steering_angle_tiled), 0.0)"""
+
+        # VER 2 - VER 1 but prefer path steering in same direction as waypoints
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        waypoint_relative_angles = nearest_waypoints[:, :, 4]
+        average_waypoint_relative_angles = tf.reduce_mean(waypoint_relative_angles, axis=1, keepdims=True)
+        waypoint_sign = tf.sign(average_waypoint_relative_angles)
+
+        half_timesteps = tf.cast(tf.math.ceil(tf.shape(s)[1] / 2), dtype=tf.int32)
+        car_steering_angles = s[:, :half_timesteps, STEERING_ANGLE_IDX]
+        average_steering_angle = tf.reduce_mean(car_steering_angles, axis=1, keepdims=True)
+        steering_sign = tf.sign(average_steering_angle)
+        indecisive_cost = tf.maximum(-tf.sign(waypoint_sign * steering_sign), 0.0)
+
+        indecisive_cost_tiled = tf.tile(indecisive_cost, (1, tf.shape(s)[1]))
+
+        return 3*indecisive_cost_tiled
+
     
     def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
-        waypoint_positions = nearest_waypoints[:,:, 1:3]
+        waypoint_positions = nearest_waypoints[:, :, 1:3]
 
         wp_car_vector = car_positions - waypoint_positions
         wp_car_vector_norms = tf.norm(wp_car_vector, axis=2)
