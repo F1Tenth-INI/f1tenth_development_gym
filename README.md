@@ -159,6 +159,49 @@ Check config_testting.yml:
 python SI_Toolkit_ASF/run/Run_Brunton_Test.py 
 ```
 
+# Neural Predictor
+In this section we look at how to train a neural predictor.
+
+## Data Generation
+There are different ways to generate data to use for training:
+
+1. Track data: Gather data from the car running on a track in simulation.
+2. Data Generator: Simulate the data using tensorflow. Note that this uses a slightly different model implementation than the simulation at the moment, which can lead to bad behavior when training.
+3. Random controller: Gather data using the simulation with random inputs on an empty map.
+
+The recommended way is to use step 3. You can do this by setting MAP_NAME = 'empty_map' and CONTROLLER = 'random' in Settings.py.
+
+Mehdi Bakka found in his Semester Thesis, that directly predicting the next state does not work. Instead, predicting the derivative at a given state works best. For training, we need to add these values to our dataset:
+
+1. Open the file `SI_Toolkit_ASF/run/Add_derivative_to_csv.py`
+2. Specify the desired experiment
+3. Run the script (`python3 -m SI_Toolkit_ASF.run.Add_derivative_to_csv`)
+
+## Training
+To train, we first need to rename the columns of our training data. Use your IDE to rename all instances of `[translational]/[angular]_control_applied` in your dataset to `[translational]/[angular]_control`.
+
+Then we need to create the normalization file. Open `SI_Toolkit_ASF/config_training.yml` and specify the desired `path_to_experiments`. Then run
+
+```bash
+python3 -m SI_Toolkit_ASF.run.Create_normalization_file
+```
+
+Then set the desired model in `config_training.yml`. Settings that worked well are:
+
+- Dense: `NET_NAME: 'Dense-128H1-128H2'`, 20 epochs, batch size of 32, wash out length 0, post wash out length 1, shift_labels 1 (important!).
+- LSTM: `NET_NAME: 'Dense-128H1-128H2'`, 20 epochs, batch size of 32, wash out length 10, post wash out length 1, shift_labels 1.
+
+Then run 
+```bash
+python3 -m SI_Toolkit_ASF.run.Train_Network
+```
+
+## Evaluation
+To check that your predictor works, specify the necessary fields in `SI_Toolkit_ASF/config_testing.py` and then run the Brunton test using 
+
+```bash
+python3 -m SI_Toolkit_ASF.run.Run_Brunton_Test
+```
 
 
 # The F1TENTH Gym environment
