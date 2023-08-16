@@ -1,0 +1,8 @@
+map_ext: '.png'
+
+# map paths
+map_path: 'utilities/maps/empty_map/empty_map'
+waypoint_path: 'utilities/maps/empty_map/empty_map_wp'
+
+starting_positions:
+- [50, 50, 0]

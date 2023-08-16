@@ -92,6 +92,9 @@ class CarSystem:
         elif controller == 'manual':
             from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
             self.planner = manual_planner()
+        elif controller == 'random':
+            from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
+            self.planner = random_planner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
             
