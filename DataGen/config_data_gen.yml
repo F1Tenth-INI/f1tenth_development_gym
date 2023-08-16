@@ -24,18 +24,18 @@ initial_states:
       y: [-50, 50] #[-50, 50]
       slip_angle: [-2.0, 2.0] #[-2.0, 2.0]
       steering_angle: [-0.5, 0.5] #[-0.5, 0.5]
-dt: 0.03
-number_of_initial_states: 500
+dt: 0.04
+number_of_initial_states: 10
 number_of_trajectories_per_initial_state: 1
-trajectory_length: 500
+trajectory_length: 10000
 save:
   singlefile: true
 control_inputs:
   # Set usage of PID in utilities/Settings.py
-  strategy: 'constant'  # random/constant
+  strategy: 'random'  # random/constant
 
   # With PID:
-  angular_control_range: [0.0, 0.2] # [mu, sigma]
+  angular_control_range: [0.0, 0.7] # [mu, sigma]
   translational_control_range: [0, 20.0]
 
   # Without PID:
