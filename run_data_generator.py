@@ -138,6 +138,22 @@ def get_initial_state_configuration(config):
 
     return (initial_states_from_file_features, file_with_initial_states)
 
+def add_state_noise(df):
+    noise_levels = {
+       'angular_vel_z': 0.01,
+       'linear_vel_x': 0.01,
+       'pose_theta': 0.01,
+       'pose_theta_cos': 0.01,
+       'pose_theta_sin': 0.01,
+       'pose_x': 0.1,
+       'pose_y': 0.1,
+       'slip_angle': 0.01,
+       'steering_angle': 0.01
+    }
+    for column in ['angular_vel_z', 'linear_vel_x', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']:
+        df[column] += np.random.normal(scale=noise_levels[column])
+
+    return df
 
 def run_data_generator(run_for_ML_Pipeline=False, record_path=None):
 
@@ -176,6 +192,7 @@ def run_data_generator(run_for_ML_Pipeline=False, record_path=None):
     df = prediction_to_df(predictions, controls, config, total_number_of_trajectories, trajectory_length)
 
     df = remove_outliers(df)
+    df = add_state_noise(df)
 
     save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_number_of_trajectories)
     print('Finished data generation')
