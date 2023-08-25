@@ -256,21 +256,19 @@ def main():
                 if(driver.save_recordings):
                     driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
+        controlls = []
+        for index, driver in enumerate(drivers):
+            translational_control_with_noise, angular_control_with_noise = noisy_control[index]
+            if Settings.WITH_PID:
+                accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
+                                cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+            else:
+                accl, sv = translational_control_with_noise, angular_control_with_noise
+            
+            controlls.append([sv, accl]) # Steering velocity, acceleration
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
-            controlls = []
-
-            for index, driver in enumerate(drivers):
-                translational_control_with_noise, angular_control_with_noise = noisy_control[index]
-                if Settings.WITH_PID:
-                    accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
-                                   cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                   cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-                else:
-                    accl, sv = translational_control_with_noise, angular_control_with_noise
-                
-                controlls.append([sv, accl]) # Steering velocity, acceleration
-
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward
 
