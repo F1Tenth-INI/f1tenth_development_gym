@@ -52,8 +52,6 @@ class car_model:
         lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
         self.lwb = self.lib.constant(lf + lr, self.lib.float32)
       
-        self.number_of_rollouts = self.lib.constant(batch_size, self.lib.int32)
-        self.zeros = self.lib.zeros([self.number_of_rollouts,], self.lib.float32)
         self.model_of_car_dynamics = model_of_car_dynamics
         self.with_pid = with_pid
         self.step_dynamics = None
@@ -121,8 +119,10 @@ class car_model:
         pose_theta_sin = self.lib.sin(pose_theta)
         pose_x = pose_x
         pose_y = pose_y
-        slip_angle = self.lib.zeros([self.number_of_rollouts])
-        steering_angle = self.lib.zeros([self.number_of_rollouts])
+        angular_vel_z = self.lib.zeros_like(pose_x)
+        linear_vel_x = self.lib.zeros_like(pose_x)
+        slip_angle = self.lib.zeros_like(pose_x)
+        steering_angle = self.lib.zeros_like(pose_x)
 
         return self.next_step_output(angular_vel_z,
                                      linear_vel_x,
@@ -173,7 +173,7 @@ class car_model:
         pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = s_x
         pose_y = s_y
-        slip_angle = self.lib.zeros([self.number_of_rollouts])
+        slip_angle = self.lib.zeros_like(pose_x)
         steering_angle = delta
 
         return self.next_step_output(angular_vel_z,
@@ -216,7 +216,7 @@ class car_model:
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Variable utils, mbakka
-        state_len = s.shape[1]
+        state_len = self.lib.shape(s)[1]
         # Control Input
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
@@ -293,7 +293,7 @@ class car_model:
                                           slip_angle,
                                           steering_angle)
 
-        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices,(self.number_of_rollouts,1))
+        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices, (-1, 1))
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
@@ -396,17 +396,18 @@ class car_model:
         max_a_v = self.a_max / self.v_max * speed_difference
         min_a_v = self.a_max / (-self.v_min) * speed_difference
 
+        zeros = self.lib.zeros_like(speed_difference)
         # fwd accl
-        forward_acceleration = self.lib.where(forward_accelerating_indices, 10.0 * max_a_v, self.zeros)
+        forward_acceleration = self.lib.where(forward_accelerating_indices, 10.0 * max_a_v, zeros)
 
         # fwd break
-        forward_breaking = self.lib.where(forward_breaking_indices, 10.0 * min_a_v, self.zeros)
+        forward_breaking = self.lib.where(forward_breaking_indices, 10.0 * min_a_v, zeros)
 
         # bkw accl
-        backward_acceleration = self.lib.where(backward_accelerating_indices, 2.0 * min_a_v, self.zeros)
+        backward_acceleration = self.lib.where(backward_accelerating_indices, 2.0 * min_a_v, zeros)
 
         # bkw break
-        backward_breaking = self.lib.where(backward_breaking_indices, 2.0 * max_a_v, self.zeros)
+        backward_breaking = self.lib.where(backward_breaking_indices, 2.0 * max_a_v, zeros)
 
         total_acceleration = forward_acceleration + forward_breaking + backward_acceleration + backward_breaking
 
