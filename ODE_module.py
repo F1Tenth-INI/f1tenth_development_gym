@@ -28,14 +28,9 @@ class STModel(tf.keras.Model):
         return (x_new - x_old) / dt
 
     def call(self, x, training=None, mask=None):
-        # print(f'x: {x}')
         Q = x[:, 0, 0:2]
         s = x[:, 0, 2:]
-        # print(f's: {s}')
-        # print(f'Q: {Q}')
 
-        # output = self.predictor.predict_tf(s, Q)
-        # output = self.next_step_predictor.step(s, Q)
         output = self.car_model.step_dynamics(s, Q, None)  # Third argument params not implemented
 
         # output = self.calculate_derivative(s, output, self.dt)
