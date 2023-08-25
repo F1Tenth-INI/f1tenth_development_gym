@@ -11,6 +11,17 @@ mpc:
   computation_library: tensorflow  # One of "numpy", "tensorflow", "pytorch". Defaults to "numpy" if none given.
   controller_logging: false
   calculate_optimal_trajectory: true
+
+  online_learning:
+    normalize: false
+    activated: true
+    optimizer: 'SGD'  # SGD or Adam
+    optimizers:
+      adam:
+        lr: 0.001
+      SGD:
+        lr: 0.0001
+
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
   PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
