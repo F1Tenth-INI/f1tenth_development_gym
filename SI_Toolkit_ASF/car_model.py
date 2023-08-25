@@ -142,7 +142,7 @@ class car_model:
         @param params: TODO: Parameters of the car
         returns s_next: (batch_size, len(state)) all nexts states
         '''
-        _, v_x, psi, _, _, s_x, s_y, _, delta = self.lib.unstack(s, 9, 1)
+        angular_vel_z, v_x, psi, _, _, s_x, s_y, _, delta = self.lib.unstack(s, 9, 1)
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
         
         # Constraints
@@ -156,18 +156,21 @@ class car_model:
             # delta_dot = delta_dot
             # v_x_dot = v_x_dot
             psi_dot = (v_x / self.lwb) * self.lib.tan(delta)
+            psi_dot_dot = (v_x_dot * self.lib.tan(delta) / self.lwb) \
+                + v_x * delta_dot / (self.lwb * self.lib.square(self.lib.cos(delta)))
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
             delta = delta + self.t_step * delta_dot
             v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
+            angular_vel_z = angular_vel_z + self.t_step * psi_dot_dot
 
-        angular_vel_z = psi_dot
+        angular_vel_z = angular_vel_z
         linear_vel_x = v_x
-        pose_theta = psi
-        pose_theta_cos = self.lib.cos(pose_theta)
-        pose_theta_sin = self.lib.sin(pose_theta)
+        pose_theta_cos = self.lib.cos(psi)
+        pose_theta_sin = self.lib.sin(psi)
+        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = s_x
         pose_y = s_y
         slip_angle = self.lib.zeros([self.number_of_rollouts])
