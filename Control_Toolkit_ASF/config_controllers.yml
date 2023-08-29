@@ -16,8 +16,8 @@ mpc:
     normalize: false
     activated: true
     buffer_length: 100  # Number of datapoints to train on
-    train_every_n_steps: 100
-    epochs_per_training: 20
+    train_every_n_steps: 20
+    epochs_per_training: 1
     batch_size: 100
     optimizer: 'adam'  # SGD or Adam
     optimizers:
@@ -26,6 +26,16 @@ mpc:
       SGD:
         lr: 0.001  # Default 0.01
         momentum: 0.0001  # Default 0.0
+    exponential_lr_decay:
+      activated: false
+      decay_rate: 0.95  # lr = lr_0 * decay_rate^(training_step)
+    reduce_lr_on_plateau:  # Does not work for multiple epochs
+      activated: true
+      factor: 0.75  # Updated as lr = lr * factor
+      patience: 1  # How many steps to wait until lr is adjusted when higher loss is detected
+      min_lr: 0.00001
+      min_delta: 0.001
+
 
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
