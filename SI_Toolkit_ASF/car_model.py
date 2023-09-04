@@ -112,11 +112,9 @@ class car_model:
             pose_x = pose_x + self.t_step * speed * self.lib.cos(pose_theta)
             pose_y = pose_y + self.t_step * speed * self.lib.sin(pose_theta)
 
-        angular_vel_z = self.lib.zeros([self.number_of_rollouts])
-        linear_vel_x = self.lib.zeros([self.number_of_rollouts])
-        pose_theta = pose_theta
         pose_theta_cos = self.lib.cos(pose_theta)
         pose_theta_sin = self.lib.sin(pose_theta)
+        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = pose_x
         pose_y = pose_y
         angular_vel_z = self.lib.zeros_like(pose_x)
@@ -227,10 +225,6 @@ class car_model:
         #     return self._step_dynamics_ks(s,Q, params)
 
 
-        # Constaints
-        v_x_dot = self.accl_constraints(v_x, v_x_dot)
-        delta_dot = self.steering_constraints(delta, delta_dot)
-
         # switch to kinematic model for small velocities
         min_speed_st = self.car_parameters['min_speed_st']
         speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
@@ -242,6 +236,10 @@ class car_model:
         # TODO: Use ks model for slow speed
 
         for _ in range(self.intermediate_steps):
+            # Constaints
+            v_x_dot = self.accl_constraints(v_x, v_x_dot)
+            delta_dot = self.steering_constraints(delta, delta_dot)
+
 
             # In case speed dropy to < 0.2 during rollout
             # ST model needs a lin_vel_x of > 0.1 to work
@@ -274,9 +272,9 @@ class car_model:
 
         angular_vel_z = psi_dot
         linear_vel_x = v_x
-        pose_theta = psi
-        pose_theta_cos = self.lib.cos(pose_theta)
-        pose_theta_sin = self.lib.sin(pose_theta)
+        pose_theta_cos = self.lib.cos(psi)
+        pose_theta_sin = self.lib.sin(psi)
+        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = s_x
         pose_y = s_y
         slip_angle = beta
@@ -373,8 +371,13 @@ class car_model:
         steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), steering_diff_low)
         steering_angle_difference_not_too_low_indices = tf.cast(steering_angle_difference_not_too_low_indices,
                                                                 tf.float32)
-
+        # Original
         steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference * servo_p)
+
+        # As in f1tenth
+        # steering_velocity = 3.2 * self.lib.divide(steering_angle_difference, self.lib.abs(steering_angle_difference))  # Probably normalizing would be better suited
+        # steering_velocity = 3.2 * self.lib.sign(steering_angle_difference)  # Should be equivalent to f1tenth implementation
+        # steering_velocity = steering_angle_difference_not_too_low_indices * steering_velocity
 
         return steering_velocity
 
