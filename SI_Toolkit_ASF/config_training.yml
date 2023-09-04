@@ -74,7 +74,13 @@ training_default:
   SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
-  INITIALIZE_BATCH_SIZE: True # Pass batch_size to net during network generation
+
+  REDUCE_LR_ON_PLATEAU:
+    ACTIVATED: True
+    FACTOR: 0.316  # Factor to reduce learning rate by
+    PATIENCE: 1
+    MIN_LR: 0.00001
+    MIN_DELTA: 0.01
 
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
