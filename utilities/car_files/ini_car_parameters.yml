@@ -11,6 +11,7 @@ g: 9.81       # Gravitation Constant [m/s^2]
 width: 0.31   # Width of the car [m]
 length: 0.58  # Length of the car [m]
 
+
 # Steering Constraints
 s_min: -0.4189
 s_max: 0.4189

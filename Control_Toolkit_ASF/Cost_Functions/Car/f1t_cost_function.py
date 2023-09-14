@@ -303,7 +303,6 @@ class f1t_cost_function(cost_function_base):
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
 
     def get_wrong_direction_cost(self, s, waypoints, nearest_waypoint_indices):
-        # car_vel = s[:, :, LINEAR_VEL_X_IDX]
         car_dir = s[:, :, POSE_THETA_IDX]
         nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
         wp_connecting_angles = nearest_waypoints[:, :, 3]
@@ -323,7 +322,7 @@ class f1t_cost_function(cost_function_base):
         step_part = tf.maximum(0.0, tf.math.sign(difference - math.pi / 2))
         wrong_direction_cost = cos_part * step_part"""
 
-        return 50*wrong_direction_cost
+        return 0*wrong_direction_cost
 
     def get_curvature(self, s):
         """x = s[:, :, POSE_X_IDX]
@@ -359,7 +358,7 @@ class f1t_cost_function(cost_function_base):
         d_x = tf.reduce_min(x_pos - x_lidar, axis=2)
         d_y = tf.reduce_min(y_pos - y_lidar, axis=2)
 
-        closest_distance = tf.sqrt(tf.add(tf.square(d_x), tf.square(d_y)))
+        closest_distance = tf.sqrt(tf.add(tf.square(d_x), tf.square(d_y)))F
 
         closest_distance = tf.sigmoid(5 * (closest_distance - 1.5))
 
@@ -369,7 +368,7 @@ class f1t_cost_function(cost_function_base):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
 
         # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
-        slow_cost = tf.exp(-car_vel**2 / 20.0)
+        slow_cost = tf.exp(-car_vel**2 / 6.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
         # slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
 
@@ -393,7 +392,7 @@ class f1t_cost_function(cost_function_base):
         proximity_coeff = 1
         final_slow_cost = tf.multiply(final_slow_cost, proximity_coeff)
 
-        return 100 * final_slow_cost
+        return 50 * final_slow_cost
 
     def get_fast_curve_cost(self, s):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
@@ -402,7 +401,8 @@ class f1t_cost_function(cost_function_base):
 
         # fast_cost = tf.sigmoid(tf.abs(5*(car_vel - 3)))
         # fast_cost = tf.exp(tf.square(car_vel)) - 1
-        fast_cost = tf.square(tf.maximum(tf.abs(car_vel) - 3, 0))
+        # fast_cost = tf.square(tf.maximum(tf.abs(car_vel) - 3, 0))
+        fast_cost = 1 - tf.exp(-tf.square(car_vel) / 10)
 
         final_fast_cost = fast_cost
 
@@ -442,7 +442,7 @@ class f1t_cost_function(cost_function_base):
         indecisive_cost = tf.maximum(tf.sign((-1)**pick_right * average_steering_angle_tiled), 0.0)"""
 
         # VER 2 - VER 1 but prefer path steering in same direction as waypoints
-        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
+        """nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)
         waypoint_relative_angles = nearest_waypoints[:, :, 4]
         average_waypoint_relative_angles = tf.reduce_mean(waypoint_relative_angles, axis=1, keepdims=True)
         waypoint_sign = tf.sign(average_waypoint_relative_angles)
@@ -451,7 +451,10 @@ class f1t_cost_function(cost_function_base):
         car_steering_angles = s[:, :half_timesteps, STEERING_ANGLE_IDX]
         average_steering_angle = tf.reduce_mean(car_steering_angles, axis=1, keepdims=True)
         steering_sign = tf.sign(average_steering_angle)
-        indecisive_cost = tf.maximum(-tf.sign(waypoint_sign * steering_sign), 0.0)
+        indecisive_cost = tf.maximum(-tf.sign(waypoint_sign * steering_sign), 0.0)"""
+
+        car_steering_angles = s[:, :, STEERING_ANGLE_IDX]
+        indecisive_cost = tf.square(tf.reduce_mean(car_steering_angles, axis=1, keepdims=True))
 
         indecisive_cost_tiled = tf.tile(indecisive_cost, (1, tf.shape(s)[1]))
 
@@ -485,8 +488,8 @@ class f1t_cost_function(cost_function_base):
 
         # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
 
-        # vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
-        vel_difference = tf.abs(tf.nn.relu(nearest_waypoint_vel_x - car_vel))
+        vel_difference = tf.abs(nearest_waypoint_vel_x - car_vel)
+        # vel_difference = tf.abs(tf.nn.relu(nearest_waypoint_vel_x - car_vel))
         return vel_difference
     
     def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):

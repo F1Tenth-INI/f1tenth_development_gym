@@ -27,10 +27,11 @@ Finally in config_Map.yaml (make sure you select in in Settings.py as map config
 '''
 
 # CHANGEABLE PARAMETERS:
-map_name = "custom1"
+map_name = "circle1"
 scaling = 0.02
-width = 20.0
+width = 40.0
 default_speed = 5.0
+default_acceleration = 1.0
 reverse_direction = True
 
 convolution_window_size = 4
@@ -151,7 +152,7 @@ for i, track_point in enumerate(track_points):
         absolute_angle,
         relative_angle,
         default_speed,
-        0.
+        default_acceleration
     ]
     waypoints.append(waypoint)
 
@@ -178,10 +179,10 @@ print("\nWaypoints saved!\n")
 # Create data for speed_scaling.yaml
 speed_scaling_data = {
     "global_limit": 0.5,
-    "n_sectors": 0,
+    "n_sectors": 1,
     "Sector0": {
         "start": 0,
-        "end": 414,
+        "end": len(track_points),
         "scaling": 0.5,
         "only_FTG": False,
         "no_FTG": False

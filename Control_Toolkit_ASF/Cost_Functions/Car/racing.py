@@ -123,9 +123,9 @@ class racing(f1t_cost_function):
                 + speed_control_difference_to_wp_cost
                 + distance_to_wp_segments_cost
                 + slow_cost
-                + wrong_direction_cost
-                + indecisive_cost
-                # + circle_cost
+                # + wrong_direction_cost
+                # + indecisive_cost
+                + circle_cost
                 # + fast_curve_cost
                 # + steering_cost
                 # + acceleration_cost

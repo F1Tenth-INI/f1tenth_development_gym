@@ -1,4 +1,11 @@
-
+# ISECKIN LOGGING ############################################################
+import csv
+import tkinter as tk
+root = tk.Tk()
+root.title("Communications Window")
+text_widget = tk.Text(root)
+text_widget.pack()
+##############################################################################
 
 import time
 import yaml
@@ -198,6 +205,42 @@ def main():
     else:
         experiment_length = Settings.EXPERIMENT_LENGTH
 
+
+
+
+
+    # ISECKIN LOGGING ################################################################
+    # Configuration
+    measurement_index = 1
+    tick = 1
+    num_laps = 50
+    plus_minus = 0.3
+    start_wp_ref = [-2.703420, -4.807789]
+    collision_threshold = 0.3
+
+    # Laps
+    iseckin_laptime_list = []
+    iseckin_laptime = 0.0
+    time_start = -1
+    time_end = 0
+    current_lap_index = 1
+    wp_last_x = 0
+    wp_last_y = 0
+
+    # Collisions
+    iseckin_collision_list = []
+    iseckin_collision = 0
+    lidar_last_min = 0.0
+
+    # For Logging
+    increment = 2 * plus_minus * tick / num_laps
+    current_log = measurement_index - plus_minus * tick
+    ###################################################################################
+
+
+
+
+
     for simulation_index in trange(experiment_length):
         if done:
             break
@@ -239,7 +282,7 @@ def main():
             angular_control, translational_control = driver.process_observation(ranges[index], odom)
             end = time.time()-start_control
             # print("time for 1 step:", end)
-        
+
 
         if Settings.RENDER_MODE is not None:
             env.render(mode=Settings.RENDER_MODE)
@@ -280,6 +323,78 @@ def main():
                     driver.recorder.save_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+
+
+
+
+        # ISECKIN LOGGING ################################################################
+        # Get data
+        wp_x = drivers[0].waypoints_for_controller[0][1]
+        wp_y = drivers[0].waypoints_for_controller[0][2]
+        lidar_measurements = drivers[0].LIDAR.all_lidar_scans
+
+        # Collision Check
+        lidar_min = np.amin(lidar_measurements)
+        if lidar_min < collision_threshold and lidar_last_min > lidar_min and lidar_last_min > collision_threshold:
+            iseckin_collision += 1
+            # Communication
+            if time_start != -1:
+                text_widget.insert(tk.END, f"COLLISION: {iseckin_collision}\n")
+                text_widget.update_idletasks()
+        lidar_last_min = lidar_min
+
+        # If WP matches and is different from previous timestep
+        if wp_x == start_wp_ref[0] and wp_y == start_wp_ref[1] and wp_last_x != wp_x and wp_last_y != wp_y:
+            # if encounter wp first time, start timing
+            if time_start == -1:
+                time_start = simulation_index
+                # Communication
+                text_widget.insert(tk.END, f"NEW LAP {current_lap_index} -----------------------------\n")
+                text_widget.update_idletasks()
+            # if not first time, record lap time, start timing
+            else:
+                # Lap stuff:
+                time_end = simulation_index
+                iseckin_laptime = time_end - time_start
+                time_start = time_end
+                current_log += increment
+                current_lap_index += 1
+                # Logging stuff:
+                iseckin_laptime_list.append([iseckin_laptime, current_log])
+                iseckin_collision_list.append([iseckin_collision, current_log])
+                # Communication
+                text_widget.insert(tk.END, f"LAP TIME {iseckin_laptime}\n\n" +
+                                           f"NEW LAP {current_lap_index} -----------------------------\n")
+                text_widget.update_idletasks()
+            # Collision reset:
+            iseckin_collision = 0
+
+        # If requested number of laps reached, stop simulation
+        if current_lap_index > num_laps:
+            done = True
+
+        # Assign old waypoint values and update window
+        wp_last_x = wp_x
+        wp_last_y = wp_y
+        root.update()
+        ###################################################################################
+
+
+
+
+    # ISECKIN LOGGING ################################################################
+    with open("iseckin_experiment\laptime.csv", "w", newline="") as csvfile:
+        csvwriter = csv.writer(csvfile, delimiter=" ")
+        csvwriter.writerows(iseckin_laptime_list)
+    with open("iseckin_experiment\collision.csv", "w", newline="") as csvfile:
+        csvwriter = csv.writer(csvfile, delimiter=" ")
+        csvwriter.writerows(iseckin_collision_list)
+    ###################################################################################
+
+
+
+
+
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):

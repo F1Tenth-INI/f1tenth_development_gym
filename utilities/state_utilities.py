@@ -108,7 +108,7 @@ def get_control_limits(clip_control_input):
 
 if Settings.ENVIRONMENT_NAME == 'Car':
     if not Settings.WITH_PID:  # MPC return velocity and steering angle
-        control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
+        control_limits_low, control_limits_high = get_control_limits([[-1.066, -2], [1.066, 8]])  #was+-9.5 ad 3.2
     else:  # MPC returns acceleration and steering velocity
         control_limits_low, control_limits_high = get_control_limits([[-1.066, -2], [1.066, 8]])
 else:

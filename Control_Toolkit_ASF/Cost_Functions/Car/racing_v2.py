@@ -51,12 +51,17 @@ class racing_v2(f1t_cost_function):
 
         cost_for_stopping = tf.cast(tf.less(v_parallel, 0.5), dtype=tf.float32) * 1000.0
 
+        crash = 10*self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+        slow = self.get_slow_cost(s, self.variable_parameters.lidar_points)
+
 
         stage_cost = (
                 distance_to_wp_segments_cost
                 + velocity_difference_to_wp_cost
                 + v_perpendicular_cost
                 + cost_for_stopping
+                + crash
+                + slow
             )
 
         # AAA = distance_to_wp_segments_cost.numpy()
