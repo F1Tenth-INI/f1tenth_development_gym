@@ -18,21 +18,23 @@ def load_initial_states_from_file(file_path, initial_states_from_file, number_of
     return position, number_of_initial_states
 
 
-def get_state(value, limit, length):
+def get_state(value, limit, length, distribution='uniform'):
     if value is not None:
         return np.repeat(value, length)
     else:
-        return np.random.uniform(limit[0], limit[1], length)
+        if distribution == 'uniform':
+            return np.random.uniform(limit[0], limit[1], length)
+        elif distribution == 'normal':
+            return np.random.normal(limit[0], limit[1], length)
 
 
 def get_initial_states(number_of_initial_states, initial_states,
                        file_with_initial_states=None, initial_states_from_file=None):
-    
     init_limits = initial_states.pop('init_limits')
 
     if file_with_initial_states is not None:
         initial_states_from_file = []
-        pose_x_y, number_of_initial_states = load_initial_states_from_file(file_with_initial_states,initial_states_from_file, number_of_initial_states)
+        pose_x_y, number_of_initial_states = load_initial_states_from_file(file_with_initial_states, initial_states_from_file, number_of_initial_states)
         x_dist = pose_x_y[:, 0]
         y_dist = pose_x_y[:, 1]
     else:
@@ -50,7 +52,7 @@ def get_initial_states(number_of_initial_states, initial_states,
     # Order to follow for the network
     #states = np.column_stack((x_dist,y_dist,yaw_dist,v_dist,yaw_rate_dist,yaw_cos, yaw_sin, slip_angle_dist, steering_dist))
     # Order the predictor needs
-    states = np.column_stack((yaw_rate_dist,v_dist,yaw_dist, yaw_cos, yaw_sin, x_dist, y_dist, slip_angle_dist, steering_dist))
+    states = np.column_stack((yaw_rate_dist, v_dist, yaw_dist, yaw_cos, yaw_sin, x_dist, y_dist, slip_angle_dist, steering_dist))
 
     return states, number_of_initial_states
 

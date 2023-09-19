@@ -9,36 +9,37 @@ initial_states:
     file_with_initial_states: './ExperimentRecordings/F1TENTH_Blank-MPPI-0__2022-11-29_10-19-19.csv'
   random:
     # Unassigned variables will be randomly initialized (see below)
-    yaw_rate: 
-    velocity_x: 0
-    yaw_angle:
-    x:
-    y:
-    slip_angle:
-    steering_angle:
+    yaw_rate: 0
+    velocity_x: 5 
+    yaw_angle: 0
+    x: 0
+    y: 0
+    slip_angle: 0
+    steering_angle: 0
     init_limits: # The initial state is randomly chosen from below range if above is not assigned
-      yaw_rate: [0.0, 3.25] #[0.0, 3.25]
-      velocity_x: [-2.0, 20.0] #[-2.0, 20.0]
+      yaw_rate: [-4.0, 4.0] #[0.0, 3.25]
+      velocity_x: [0, 10.0] #[-2.0, 20.0]
       yaw_angle: [-3.1415, 3.1415] #[-3.1415, 3.1415]
       x: [-50, 50] #[-50, 50]
       y: [-50, 50] #[-50, 50]
-      slip_angle: [-2.0, 2.0] #[-2.0, 2.0]
-      steering_angle: [-0.5, 0.5] #[-0.5, 0.5]
+      slip_angle: [-0.3, 0.3] #[-2.0, 2.0]
+      steering_angle: [-0.4189, 0.4189] #[-0.5, 0.5]
 dt: 0.04
-number_of_initial_states: 10
+number_of_initial_states: 40
 number_of_trajectories_per_initial_state: 1
 trajectory_length: 10000
-save:
-  singlefile: true
+save_single_file: false
 control_inputs:
-  # Set usage of PID in utilities/Settings.py
-  strategy: 'random'  # random/constant
+  steering:
+    # Set usage of PID in utilities/Settings.py
+    strategy: 'mixed'  # random/constant/mixed
+    generate_around_state: false  # Set the inputs to be around the current state
+    hold_constant_input: 10  # For mixed strategy, how long to hold a constant input
+    control_range: [0.0, 0.5] # [mu, sigma]
 
-  # With PID:
-  angular_control_range: [0.0, 0.7] # [mu, sigma]
-  translational_control_range: [0, 20.0]
-
-  # Without PID:
-  # angular_control_range: [0.0, 1.1] # [mu, sigma]
-  # translational_control_range: [-9, 9]
-
+    # With PID:
+  velocity:
+    strategy: 'mixed'
+    generate_around_state: false
+    hold_constant_input: nan
+    control_range: [0, 10.0]
