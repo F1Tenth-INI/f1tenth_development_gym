@@ -211,11 +211,11 @@ def main():
 
     # ISECKIN LOGGING ################################################################
     # Configuration
-    measurement_index = 1
-    tick = 1
-    num_laps = 50
+    measurement_index = 0.5
+    tick = 0.1
+    num_laps = 30
     plus_minus = 0.3
-    start_wp_ref = [-2.703420, -4.807789]
+    start_wp_ref = [7.97,-6.3900003]
     collision_threshold = 0.3
 
     # Laps

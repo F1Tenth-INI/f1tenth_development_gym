@@ -368,7 +368,10 @@ class f1t_cost_function(cost_function_base):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]
 
         # INTERM = tf.reduce_mean(car_vel), tf.reduce_min(car_vel), tf.reduce_max(car_vel)
-        slow_cost = tf.exp(-car_vel**2 / 6.0)
+        slow_cost = tf.exp(-car_vel**2 / 20.0)
+        slow_cost2 = 2*tf.exp(-car_vel ** 2 / 0.5)
+        slow_cost3 = 0.005 * tf.exp(-1.0 * (car_vel - 5))
+        # slow_cost3 = 0.01*tf.where(car_vel < 5, tf.exp(-1.0 * (car_vel - 5)), 0.0)
         # slow_cost = -tf.exp(car_vel/3) + 100
         # slow_cost = tf.minimum(tf.exp(-car_vel), tf.abs(-car_vel) + 1)
 
@@ -377,7 +380,7 @@ class f1t_cost_function(cost_function_base):
         # penalize high speed during curves and slow speed during straight trajectories
         # return 200*(tf.multiply(slow_cost, 1 - curvature_coeff) + tf.multiply(fast_cost, curvature_coeff))
 
-        final_slow_cost = slow_cost
+        final_slow_cost = slow_cost + slow_cost2 + slow_cost3
 
         # don't penalize slower speeds at
         curvature_coeff = self.get_curvature(s)
@@ -392,7 +395,7 @@ class f1t_cost_function(cost_function_base):
         proximity_coeff = 1
         final_slow_cost = tf.multiply(final_slow_cost, proximity_coeff)
 
-        return 50 * final_slow_cost
+        return 20 * final_slow_cost
 
     def get_fast_curve_cost(self, s):
         car_vel = s[:, :, LINEAR_VEL_X_IDX]

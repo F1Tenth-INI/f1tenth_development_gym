@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = 'hangar'  # "circle1"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben, circleXX, customXX
+    MAP_NAME = 'hangar9'  # "circle1"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben, circleXX, customXX
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, "config_map_gym.yaml")
     REVERSE_DIRECTION = False
@@ -31,7 +31,7 @@ class Settings():
     WITH_PID = True  # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
 
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    RENDER_MODE = 'human_fast' # None # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
+    RENDER_MODE = 'human_fast'  # None # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     # RENDER_MODE = None  # slow rendering (human) and fast rendering (human_fast) an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
 
@@ -42,7 +42,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 10000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 100000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = False
     SAVE_PLOTS = False  # Only possible when SAVE_RECORDINGS is True
@@ -102,9 +102,9 @@ class Settings():
     LIDAR_COVERED_ANGLE_DEG = 270
     LIDAR_NUM_SCANS = 1080
 
-    LIDAR_MODE = 'decimation'  # possible: 'decimation', 'custom indices'
+    LIDAR_MODE = 'custom indices'  # possible: 'decimation', 'custom indices'
     LIDAR_PROCESSED_ANGLE_DEG = 250  # number or 'max'; 170 corresponds to old "LOOK_FORWARD" option
-    LIDAR_DECIMATION = 5  # Only taken into account if LIDAR_MODE is 'decimation', also in custom to determine #to keep was 15
+    LIDAR_DECIMATION = 15  # Only taken into account if LIDAR_MODE is 'decimation', also in custom to determine #to keep was 15
     LIDAR_CUSTOM_STDEV = 50  # If custom lidar, what standard deviation to sample from?
 
     LIDAR_CORRUPT = False
@@ -130,7 +130,7 @@ class Settings():
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"
-    NUM_TRAJECTORIES_TO_PLOT = 20
+    NUM_TRAJECTORIES_TO_PLOT = 10
     OPTIMIZE_EVERY_N_STEPS = 1
     
     ### Other Settings ###
