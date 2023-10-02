@@ -24,54 +24,44 @@ except:
 
 
 def generate_random_inputs(config, total_number_of_trajectories, trajectory_length, initial_states=None):
-    # ----> Angular control
-    mu_ac, sigma_ac = config['control_inputs']['angular_control_range']  # mean and standard deviation
-    # ----> Translational control
-    # mu_tc, sigma_tc = 0, 0.5  # mean and standard deviation
-    min_tc, max_tc = config['control_inputs']['translational_control_range']
-    strategy = config['control_inputs']['strategy']
+    controls = []
+    for control_input in ['steering', 'velocity']:
+        distribution = config['control_inputs'][control_input]['distribution']
+        if distribution == 'normal':
+            distribution_func = np.random.normal
+        elif distribution == 'uniform':
+            distribution_func = np.random.uniform
 
-    if initial_states is None:
-        if strategy == 'constant':
-            # ---------------Constant input control for each trajectory-------------------------
-            # u_angular = np.random.normal(mu_ac, sigma_ac, total_number_of_trajectories)
-            u_angular = np.random.uniform(mu_ac, sigma_ac, total_number_of_trajectories)
-            u_translational = np.random.uniform(min_tc, max_tc, total_number_of_trajectories)
-            # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
-            controls = np.column_stack((u_angular, u_translational))  # dim = [initial_states, 2]
-            controls = np.expand_dims(controls, 1)
-            # In the following 2 line, we duplicate each control input (in rows direction, axis=0)
-            control = np.repeat(controls, trajectory_length, axis=1)
+        strategy = config['control_inputs'][control_input]['strategy']
+        control_range = config['control_inputs'][control_input]['control_range']
 
-        elif strategy == 'random':
-            # ----------------Random input control for each trajectory-------------------------
-            u_angular = np.random.normal(mu_ac, sigma_ac, total_number_of_trajectories * trajectory_length)
-            u_translational = np.random.uniform(min_tc, max_tc, total_number_of_trajectories * trajectory_length)
+        if config['control_inputs'][control_input]['generate_around_state']:
+            state_index = {'steering': -1, 'velocity': 1}
 
-            # Each row of controls is a control input to be followed along a trajectory for the corresponding initial state
-            controls = np.column_stack((u_angular, u_translational))  # dim = [initial_states, 2]
-            control = controls.reshape(total_number_of_trajectories, trajectory_length, 2)  # dim = [initial_states,trajectory_length,2]
-
-        elif strategy == 'mixed':
-            number_of_inputs_per_trajectory = int(config['trajectory_length'] / config['control_inputs']['hold_constant_input'])
-
-            u_angular = np.random.normal(mu_ac, sigma_ac, (total_number_of_trajectories, number_of_inputs_per_trajectory))
-            u_angular = np.repeat(u_angular, config['control_inputs']['hold_constant_input'], axis=1)
-            u_translational = np.random.uniform(min_tc, max_tc, (total_number_of_trajectories, number_of_inputs_per_trajectory))
-            u_translational = np.repeat(u_translational, config['control_inputs']['hold_constant_input'], axis=1)
-
-            control = np.stack((u_angular, u_translational), axis=2)
+            if strategy == 'constant':
+                u = distribution_func(initial_states[:, state_index[control_input]], control_range[1])
+                u = np.repeat(controls, trajectory_length, axis=1)
+            else:
+                raise NotImplementedError(f'The strategy {strategy} is not yet implemented for generation around the initial state')
 
         else:
-            raise Exception('{} is not a valid strategy for generating control inputs'.format(strategy))
-    else:
-        if strategy == 'constant':
-            u_angular = np.random.normal(initial_states[:, -1], 0.2)
-            u_translational = np.random.normal(initial_states[:, 1], 2)
+            if strategy == 'constant':
+                u = distribution_func(control_range[0], control_range[1], total_number_of_trajectories)
+                u = np.repeat(u, trajectory_length, axis=1)
+            elif strategy == 'random':
+                u = distribution_func(control_range[0], control_range[1], (total_number_of_trajectories, trajectory_length))
+            elif strategy == 'mixed':
+                hold_constant_input = config['control_inputs'][control_input]['hold_constant_input']
+                number_of_inputs_per_trajectory = int(config['trajectory_length'] / hold_constant_input) + 1
+                u = distribution_func(control_range[0], control_range[1], (total_number_of_trajectories, number_of_inputs_per_trajectory))
+                u = np.repeat(u, config['control_inputs'][control_input]['hold_constant_input'], axis=1)
+                u = u[:, 0:trajectory_length]
+            else:
+                raise Exception(f'{strategy} is not a valid strategy for generating control inputs')
 
-            controls = np.column_stack((u_angular, u_translational))  # dim = [initial_states, 2]
-            controls = np.expand_dims(controls, 1)
-            control = np.repeat(controls, trajectory_length, axis=1)
+        controls.append(u)
+
+    control = np.stack(controls, axis=2)
     return control
 
 
@@ -84,7 +74,6 @@ def save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_nu
     else:
         path = record_path
 
-    strategy = config['control_inputs']['strategy']
     dt = config['dt']
 
     print('Saving data...')
@@ -95,12 +84,12 @@ def save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_nu
             indices_split = np.split(experiment_indices, [int(split[0] * len(experiment_indices)), int((split[0] + split[1]) * len(experiment_indices))])
             for i, dataset_type in enumerate(['Train', 'Test', 'Validate']):
                 path = f'{record_path}/{dataset_type}/'
-                csv_path = f'{path}/Trajectories_{strategy}.csv'
-                csv_path = create_csv_header(path, controller_name=strategy, dt=dt, csv_name=csv_path)
+                csv_path = f'{path}/Trajectories.csv'
+                csv_path = create_csv_header(path, controller_name='data_generator', dt=dt, csv_name=csv_path)
                 df[df.experiment_index.isin(indices_split[i])].to_csv(csv_path, index=False, mode='a')
         else:
-            csv_path = f'{record_path}/Trajectories_{strategy}.csv'
-            csv_path = create_csv_header(record_path, controller_name=strategy, dt=dt, csv_name=csv_path)
+            csv_path = f'{record_path}/Trajectories.csv'
+            csv_path = create_csv_header(record_path, controller_name='data_generator', dt=dt, csv_name=csv_path)
             df[df.experiment_index.isin(indices_split[i])].to_csv(csv_path, index=False, mode='a')
     else:
         for experiment in trange(len(experiment_indices)):
@@ -118,7 +107,7 @@ def save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_nu
                 except:
                     pass
 
-            csv_path = f'{path}Trajectory_{strategy}-{str(index)}.csv'
+            csv_path = f'{path}Trajectory-{str(index)}.csv'
             if not df[df.experiment_index == experiment_indices[experiment]].empty:
                 csv_path = create_csv_header(path, controller_name='Random input', dt=dt, csv_name=csv_path)
                 df[df.experiment_index == experiment_indices[experiment]].to_csv(csv_path, index=False, mode='a')
@@ -243,10 +232,7 @@ def run_data_generator(run_for_ML_Pipeline=False, record_path=None):
                                                           file_with_initial_states, initial_states_from_file_features)
     states = np.repeat(states, repeats=number_of_trajectories_per_initial_state, axis=0)
 
-    if config['control_inputs']['inputs_around_state']:
-        controls = generate_random_inputs(config, total_number_of_trajectories, trajectory_length, initial_states=states)
-    else:
-        controls = generate_random_inputs(config, total_number_of_trajectories, trajectory_length, initial_states=None)
+    controls = generate_random_inputs(config, total_number_of_trajectories, trajectory_length, initial_states=states)
 
     print('Generating data...')
 

@@ -10,7 +10,7 @@ initial_states:
   random:
     # Unassigned variables will be randomly initialized (see below)
     yaw_rate: 0
-    velocity_x: 5 
+    velocity_x: 5
     yaw_angle: 0
     x: 0
     y: 0
@@ -25,21 +25,23 @@ initial_states:
       slip_angle: [-0.3, 0.3] #[-2.0, 2.0]
       steering_angle: [-0.4189, 0.4189] #[-0.5, 0.5]
 dt: 0.04
-number_of_initial_states: 40
+number_of_initial_states: 4
 number_of_trajectories_per_initial_state: 1
 trajectory_length: 10000
 save_single_file: false
 control_inputs:
   steering:
     # Set usage of PID in utilities/Settings.py
-    strategy: 'mixed'  # random/constant/mixed
+    strategy: 'random'  # random/constant/mixed
     generate_around_state: false  # Set the inputs to be around the current state
-    hold_constant_input: 10  # For mixed strategy, how long to hold a constant input
+    hold_constant_input: nan  # For mixed strategy, how long to hold a constant input
+    distribution: 'normal'
     control_range: [0.0, 0.5] # [mu, sigma]
 
     # With PID:
   velocity:
     strategy: 'mixed'
     generate_around_state: false
-    hold_constant_input: nan
+    hold_constant_input: 20
+    distribution: 'uniform'
     control_range: [0, 10.0]
