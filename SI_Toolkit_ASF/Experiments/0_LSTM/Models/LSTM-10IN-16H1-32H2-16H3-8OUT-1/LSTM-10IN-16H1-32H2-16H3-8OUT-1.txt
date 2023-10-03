@@ -1,0 +1,62 @@
+CREATED:
+2023-09-26 at time 10:03:37
+
+WITH GIT REVISION:
+unknown
+
+LIBRARY:
+TF
+
+NET NAME:
+LSTM-16H1-32H2-16H3
+
+NET FULL NAME:
+LSTM-10IN-16H1-32H2-16H3-8OUT-1
+
+INPUTS:
+angular_control, translational_control, angular_vel_z, linear_vel_x, pose_theta_cos, pose_theta_sin, pose_x, pose_y, slip_angle, steering_angle
+
+OUTPUTS:
+D_angular_vel_z, D_linear_vel_x, D_pose_theta_cos, D_pose_theta_sin, D_pose_x, D_pose_y, D_slip_angle, D_steering_angle
+
+TRANSLATION INVARIANT VARIABLES:
+
+
+TYPE:
+LSTM
+
+NORMALIZATION:
+./SI_Toolkit_ASF/Experiments//0_LSTM//Models/LSTM-10IN-16H1-32H2-16H3-8OUT-1/NI_2023-09-20_15-43-14.csv
+
+NORMALIZE:
+True
+
+PARENT NET:
+Network trained from scratch
+
+WASH OUT LENGTH:
+25
+
+POST WASH OUT LENGTH:
+1
+
+SHIFT LABELS:
+1
+
+CONSTRUCT NETWORK:
+with cells
+
+TRAINING_FILES:
+./SI_Toolkit_ASF/Experiments//0_LSTM//Recordings_preprocessed/Train/
+
+VALIDATION_FILES:
+./SI_Toolkit_ASF/Experiments//0_LSTM//Recordings_preprocessed/Validate/
+
+TEST_FILES:
+./SI_Toolkit_ASF/Experiments//0_LSTM//Recordings_preprocessed/Test/
+
+TIMESTEP MEAN:
+0.10750514268875122
+
+TIMESTEP STD:
+0.9033278226852417

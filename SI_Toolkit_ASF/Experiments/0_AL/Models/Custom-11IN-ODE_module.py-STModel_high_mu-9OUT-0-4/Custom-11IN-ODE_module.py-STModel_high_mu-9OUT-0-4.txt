@@ -1,0 +1,62 @@
+CREATED:
+2023-10-03 at time 00:35:48
+
+WITH GIT REVISION:
+unknown
+
+LIBRARY:
+TF
+
+NET NAME:
+Custom-ODE_module.py-STModel_high_mu
+
+NET FULL NAME:
+Custom-11IN-ODE_module.py-STModel_high_mu-9OUT-0-4
+
+INPUTS:
+angular_control, translational_control, angular_vel_z, linear_vel_x, pose_theta, pose_theta_cos, pose_theta_sin, pose_x, pose_y, slip_angle, steering_angle
+
+OUTPUTS:
+angular_vel_z, linear_vel_x, pose_theta, pose_theta_cos, pose_theta_sin, pose_x, pose_y, slip_angle, steering_angle
+
+TRANSLATION INVARIANT VARIABLES:
+
+
+TYPE:
+Custom
+
+NORMALIZATION:
+SI_Toolkit_ASF/Experiments/0_AL/Models/Custom-11IN-ODE_module.py-STModel_high_mu-9OUT-0/NI_2023-10-02_22-42-26.csv
+
+NORMALIZE:
+False
+
+PARENT NET:
+Custom-11IN-ODE_module.py-STModel_high_mu-9OUT-0
+
+WASH OUT LENGTH:
+0
+
+POST WASH OUT LENGTH:
+1
+
+SHIFT LABELS:
+1
+
+CONSTRUCT NETWORK:
+with cells
+
+TRAINING_FILES:
+Continual Learning
+
+VALIDATION_FILES:
+Continual Learning
+
+TEST_FILES:
+Continual Learning
+
+TIMESTEP MEAN:
+0.04
+
+TIMESTEP STD:
+0.0
