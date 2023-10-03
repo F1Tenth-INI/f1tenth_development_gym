@@ -102,7 +102,7 @@ class RaceCar(object):
 
         self.state = np.zeros((7, ))
         if self.ode_implementation == 'ODE_TF':
-            self.car_model = car_model('ODE:st', Settings.WITH_PID, 1, Settings.ENV_CAR_PARAMETER_FILE, self.time_step)
+            self.car_model = car_model('ODE:st', Settings.WITH_PID, 1, Settings.ENV_CAR_PARAMETER_FILE, 4 * self.time_step, 4) # TODO: Do not hardcode
         elif self.ode_implementation != 'f1tenth':
             raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
 
@@ -115,7 +115,7 @@ class RaceCar(object):
 
         # steering delay buffer
         self.steer_buffer = np.empty((0, ))
-        self.steer_buffer_size = 2
+        self.steer_buffer_size = 1
 
         # collision identifier
         self.in_collision = False
@@ -277,14 +277,15 @@ class RaceCar(object):
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
 
         # steering delay
-        steer = 0.
-        if self.steer_buffer.shape[0] < self.steer_buffer_size:
-            steer = 0.
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-        else:
-            steer = self.steer_buffer[-1]
-            self.steer_buffer = self.steer_buffer[:-1]
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
+        # steer = 0.
+        # if self.steer_buffer.shape[0] < self.steer_buffer_size:
+        #     steer = 0.
+        #     self.steer_buffer = np.append(raw_steer, self.steer_buffer)
+        # else:
+        #     steer = self.steer_buffer[-1]
+        #     self.steer_buffer = self.steer_buffer[:-1]
+        #     self.steer_buffer = np.append(raw_steer, self.steer_buffer)
+        steer = raw_steer
 
         # print("RaceCar before", self.state)
         
