@@ -52,6 +52,7 @@ class Settings():
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    ODE_IMPLEMENTATION = 'f1tenth'  # Use the implementation of f1tenth or ODE_TF
 
 
 
@@ -92,6 +93,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.04      # For model based planner (MPC) timestep of simulation, can be arbitrary number
+    TIMESTEP_ENVIRONMENT = 0.01  # The timestep used for the simulation, can be arbitrary, default 0.01 --> Do not use
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
