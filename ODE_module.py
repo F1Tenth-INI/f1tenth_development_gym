@@ -2,23 +2,25 @@ import tensorflow as tf
 import numpy as np
 
 from SI_Toolkit_ASF.car_model import car_model
+from utilities import Settings
 
 
 class STModel(tf.keras.Model):
     def __init__(self, horizon, batch_size, name=None, **kwargs):
         super().__init__(**kwargs)
 
-        self.dt = 0.04
+        self.dt = Settings.TIMESTEP_PLANNER
+        self.intermediate_steps = 1
         self.batch_size = batch_size
 
     def setup_car_model(self, car_parameter_file):
         self.car_model = car_model(
-            model_of_car_dynamics='ODE:st',
+            model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
             with_pid=True,
             batch_size=self.batch_size,
             car_parameter_file=car_parameter_file,
             dt=self.dt,
-            intermediate_steps=4
+            intermediate_steps=self.intermediate_steps
         )
 
         self.car_parameters_tf = {}
