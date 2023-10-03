@@ -140,7 +140,7 @@ class car_model:
         @param params: TODO: Parameters of the car
         returns s_next: (batch_size, len(state)) all nexts states
         '''
-        angular_vel_z, v_x, psi, _, _, s_x, s_y, _, delta = self.lib.unstack(s, 9, 1)
+        angular_vel_z, v_x, psi, _, _, s_x, s_y, beta, delta = self.lib.unstack(s, 9, 1)
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
         
         # Constraints
@@ -171,7 +171,7 @@ class car_model:
         pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = s_x
         pose_y = s_y
-        slip_angle = self.lib.zeros_like(pose_x)
+        slip_angle = beta  # Same as in simulation environment
         steering_angle = delta
 
         return self.next_step_output(angular_vel_z,
@@ -214,7 +214,6 @@ class car_model:
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
 
         # Variable utils, mbakka
-        state_len = self.lib.shape(s)[1]
         # Control Input
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
@@ -224,22 +223,10 @@ class car_model:
         # if(tf.less(min_vel_x, 0.5)):
         #     return self._step_dynamics_ks(s,Q, params)
 
-
-        # switch to kinematic model for small velocities
-        min_speed_st = self.car_parameters['min_speed_st']
-        speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
-        speed_not_too_low_for_st_indices = self.lib.logical_not(speed_too_low_for_st_indices)
-
-        #speed_too_low_for_st_indices = self.lib.cast(speed_too_low_for_st_indices, self.lib.float32)
-        speed_not_too_low_for_st_indices = self.lib.cast(speed_not_too_low_for_st_indices, self.lib.float32)
-
-        # TODO: Use ks model for slow speed
-
         for _ in range(self.intermediate_steps):
             # Constaints
             v_x_dot = self.accl_constraints(v_x, v_x_dot)
             delta_dot = self.steering_constraints(delta, delta_dot)
-
 
             # In case speed dropy to < 0.2 during rollout
             # ST model needs a lin_vel_x of > 0.1 to work
@@ -291,7 +278,11 @@ class car_model:
                                           slip_angle,
                                           steering_angle)
 
+        # switch to kinematic model for small velocities
+        min_speed_st = self.car_parameters['min_speed_st']
+        speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
         speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices, (-1, 1))
+        state_len = self.lib.shape(s)[1]
         ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 

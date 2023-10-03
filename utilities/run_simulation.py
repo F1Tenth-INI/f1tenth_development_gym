@@ -260,7 +260,7 @@ def main():
         controlls = []
         for index, driver in enumerate(drivers):
             translational_control_with_noise, angular_control_with_noise = noisy_control[index]
-            if Settings.WITH_PID:
+            if Settings.WITH_PID and Settings.ODE_IMPLEMENTATION == 'f1tenth':
                 accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
                                 cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
                                 cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
@@ -269,9 +269,14 @@ def main():
             
             controlls.append([sv, accl]) # Steering velocity, acceleration
 
-        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
+        if Settings.ODE_IMPLEMENTATION == 'ODE_TF':
             obs, step_reward, done, info = env.step(np.array(controlls))
-            laptime += step_reward
+            laptime += intermediate_steps * step_reward
+        else:
+            for i in range(intermediate_steps):
+                obs, step_reward, done, info = env.step(np.array(controlls))
+                laptime += step_reward
 
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
