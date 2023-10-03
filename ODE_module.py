@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 from SI_Toolkit_ASF.car_model import car_model
-from utilities import Settings
+from utilities.Settings import Settings
 
 
 class STModel(tf.keras.Model):
