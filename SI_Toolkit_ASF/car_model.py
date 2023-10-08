@@ -237,6 +237,7 @@ class car_model:
             # delta_dot = delta_dot
             # v_x_dot = v_x_dot
 
+            v_x = self.lib.where(v_x == 0.0, 1e-10, v_x)  # Add small value zero values to avoid division by zero
             psi_dot_dot = -mu * m / (v_x * I * (lr + lf)) * (
                     lf ** 2 * C_Sf * (g * lr - v_x_dot * h) + lr ** 2 * C_Sr * (g * lf + v_x_dot * h)) * psi_dot \
                           + mu * m / (I * (lr + lf)) * (lr * C_Sr * (g * lf + v_x_dot * h) - lf * C_Sf * (
