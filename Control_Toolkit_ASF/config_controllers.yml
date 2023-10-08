@@ -15,8 +15,8 @@ mpc:
 
   online_learning:
     activated: True
-    normalize: False
-    save_net_every_n_training_steps: 25
+    save_net_history_every_n_training_steps: 100
+    controller_load_net_every_n_steps: 10
     buffer_length: 1  # Number of datapoints to train on
     train_every_n_steps: 1
     epochs_per_training: 1
