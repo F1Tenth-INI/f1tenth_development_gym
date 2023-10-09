@@ -134,8 +134,23 @@ def main():
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)
 
-    racetrack = conf.map_path
-    starting_positions =  conf.starting_positions[0:number_of_drivers]
+    racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
+    
+
+    # Determine Starting positions
+    if hasattr(conf, 'starting_positions'):
+        starting_positions =  conf.starting_positions[0:number_of_drivers]
+    else:
+        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        starting_positions = [[0,0,0]]
+
+    if(len(starting_positions) < number_of_drivers):
+        print("No starting positions found")
+        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+        print("You can also let oponents start at random waypoint positions")
+        exit()
+        
+            
     
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:
@@ -160,7 +175,7 @@ def main():
 
 
     env = gym.make('f110_gym:f110-v0', map=racetrack,
-                   map_ext=conf.map_ext, num_agents=number_of_drivers)
+                   map_ext=".png", num_agents=number_of_drivers)
     env.add_render_callback(render_callback)
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
