@@ -5,7 +5,7 @@ def get_gym_path ():
     if ".ros" in abs_path:
         import rospkg
         rospack = rospkg.RosPack()
-        path = rospack.get_path('autonomous_driving') #/home/racecar/catkin_ws/src/autonomous_driving
+        path = rospack.get_path('gym') #/home/racecar/catkin_ws/src/autonomous_driving
         gym_path = path+"/f1tenth_development_gym"
         
     return gym_path
