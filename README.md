@@ -4,6 +4,13 @@ j![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.y
 # Notes by Florian
 
 ## Setup
+
+Clone the repo including submodules
+```bash
+git clone --recurse-submodules git@github.com:F1Tenth-INI/f1tenth_development_gym.git
+cd f1tenth_development_gym/
+```
+
 I highly recommend using Conda for virtual environments.
 First create a conda environment. 
 ```bash
@@ -17,7 +24,7 @@ Then install the gym inside the environment. Don't omit the trailing / on gym.
 pip install --user -e gym/
 ```
 
-To set up the SI_Toolkit (System Identification Toolbox), pull all sub modules:
+Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit should not be empty. If they are empty, run:
 ```bash
 git submodule update --init --recursive
 git submodule update --recursive --remote
