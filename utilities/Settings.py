@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "london3_small"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "hangar12"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     REVERSE_DIRECTION = False
@@ -75,6 +75,7 @@ class Settings():
     ### Driver Settings
     
     # waypoints:
+    MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 15                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
@@ -82,7 +83,7 @@ class Settings():
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
@@ -139,7 +140,7 @@ class Settings():
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     START_FROM_RANDOM_POSITION = False
 
-    WAYPOINTS_FROM_MPC = True
+    WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4
 
     PRINTING_ON = False
