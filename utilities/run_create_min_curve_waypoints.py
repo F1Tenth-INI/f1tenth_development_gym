@@ -5,7 +5,6 @@ import numpy as np
 import csv
 import sys 
 import yaml
-sys.path.insert(0,"/Users/Florian/Documents/INI/F1TENTH/f1tenth_development_gym")
 
 from skimage.morphology import skeletonize
 from skimage.segmentation import watershed
