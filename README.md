@@ -168,6 +168,19 @@ python SI_Toolkit_ASF/run/Run_Brunton_Test.py
 
 
 
+# Generate miminum Curvature Waypoints
+- Select the map yopu want to create the waypoints in Settings.py => MAP_NAME
+- Make sure there is a valid MAP_NAME.yaml and MAP_NAME_wp_min_curve.png file in the map folder
+- If there is no  MAP_NAME_wp_min_curve, you can just copy and rename the original map PNG
+- In the MAP_NAME_wp_min_curve.png, you can draw corrections, do deliver a nice closed contour.
+- Set the MIN_CURV_SAFETY_WIDTH in Settings.py. Note that the car's width is included. It should not be < 0.8m. 
+- Run the script: 
+```bash
+python utilities/run_create_min_curve_waypoints.py
+```
+The waypoints (and additional data) will be saved in the map folder.
+
+
 # The F1TENTH Gym environment
 
 This is the repository of the F1TENTH Gym environment.
