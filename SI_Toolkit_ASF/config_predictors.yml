@@ -56,6 +56,6 @@ predictors:
 
   ActiveLearning:
     predictor_type: 'neural'
-    model_name: 'Custom-11IN-ODE_module.py-STModel_high_mu-9OUT-0'
+    model_name: 'Custom-11IN-ODE_module.py-STModel-9OUT-0'
     path_to_model: './SI_Toolkit_ASF/Experiments/0_AL/Models/'
     update_before_predicting: False
