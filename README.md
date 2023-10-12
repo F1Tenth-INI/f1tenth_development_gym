@@ -4,6 +4,13 @@ j![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.y
 # Notes by Florian
 
 ## Setup
+
+Clone the repo including submodules
+```bash
+git clone --recurse-submodules git@github.com:F1Tenth-INI/f1tenth_development_gym.git
+cd f1tenth_development_gym/
+```
+
 I highly recommend using Conda for virtual environments.
 First create a conda environment. 
 ```bash
@@ -17,7 +24,7 @@ Then install the gym inside the environment. Don't omit the trailing / on gym.
 pip install --user -e gym/
 ```
 
-To set up the SI_Toolkit (System Identification Toolbox), pull all sub modules:
+Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit should not be empty. If they are empty, run:
 ```bash
 git submodule update --init --recursive
 git submodule update --recursive --remote
@@ -202,6 +209,19 @@ To check that your predictor works, specify the necessary fields in `SI_Toolkit_
 ```bash
 python3 -m SI_Toolkit_ASF.run.Run_Brunton_Test
 ```
+
+
+# Generate miminum Curvature Waypoints
+- Select the map yopu want to create the waypoints in Settings.py => MAP_NAME
+- Make sure there is a valid MAP_NAME.yaml and MAP_NAME_wp_min_curve.png file in the map folder
+- If there is no  MAP_NAME_wp_min_curve, you can just copy and rename the original map PNG
+- In the MAP_NAME_wp_min_curve.png, you can draw corrections, do deliver a nice closed contour.
+- Set the MIN_CURV_SAFETY_WIDTH in Settings.py. Note that the car's width is included. It should not be < 0.8m. 
+- Run the script: 
+```bash
+python utilities/run_create_min_curve_waypoints.py
+```
+The waypoints (and additional data) will be saved in the map folder.
 
 
 # The F1TENTH Gym environment
