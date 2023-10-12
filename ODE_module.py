@@ -12,6 +12,7 @@ class STModel(tf.keras.Model):
         self.dt = Settings.TIMESTEP_PLANNER
         self.intermediate_steps = 1
         self.batch_size = batch_size
+        self.setup_car_model('utilities/car_files/custom_car_parameters.yml')
 
     def setup_car_model(self, car_parameter_file):
         self.car_model = car_model(
@@ -40,18 +41,6 @@ class STModel(tf.keras.Model):
         # output = self.calculate_derivative(s, output, self.dt)
         output = tf.expand_dims(output, 1)
         return output
-
-
-class STModel_high_mu(STModel):
-    def __init__(self, horizon, batch_size, name=None, **kwargs):
-        super().__init__(horizon, batch_size, name, **kwargs)
-        self.setup_car_model('utilities/car_files/custom_car_parameters.yml')
-
-
-class STModel_low_mu(STModel):
-    def __init__(self, horizon, batch_size, name=None, **kwargs):
-        super().__init__(horizon, batch_size, name, **kwargs)
-        self.setup_car_model('utilities/car_files/custom_car_parameters_lower_mu.yml')
 
 
 if __name__ == '__main__':
