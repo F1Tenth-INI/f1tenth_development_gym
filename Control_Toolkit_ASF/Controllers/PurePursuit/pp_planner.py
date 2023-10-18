@@ -1,8 +1,4 @@
-import sys
-sys.path.insert(1, 'FollowtheGap')
-
 import numpy as np
-import math
 
 from utilities.Settings import Settings
 
@@ -111,12 +107,14 @@ class PurePursuitPlanner(template_planner):
         pose_theta = ego_odom['pose_theta']
         v_x = ego_odom['linear_vel_x']
         position = np.array([pose_x, pose_y])
-        #
-        # wpts = self.waypoints[:, 1:3]
-        # nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
-        self.lookahead_distance = np.maximum(Settings.PP_VEL2LOOKAHEAD * v_x, 0.5)
+        
+        # static lookahead distance
+        # self.lookahead_distance = 1.5 # np.maximum(Settings.PP_VEL2LOOKAHEAD * v_x, 0.5)
+        
         # Dynamic Lookahead distance
-        # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        wpts = self.waypoints[:, 1:3]
+        nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
+        self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         if self.waypoints[i, WP_VX_IDX] < 0:
@@ -172,7 +170,9 @@ class PurePursuitPlanner(template_planner):
                 # self.angular_control = 0.
                 # self.translational_control = 1.
                 # return 1.0, 0.0
-
+        
+       
+        
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
 
