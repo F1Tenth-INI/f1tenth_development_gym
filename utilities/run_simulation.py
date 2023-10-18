@@ -13,6 +13,7 @@ from utilities.car_system import CarSystem
 from utilities.waypoints_generator import WaypointsGenerator
 
 import pandas as pd
+import os
 
 from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
