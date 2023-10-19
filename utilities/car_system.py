@@ -102,8 +102,13 @@ class CarSystem:
         self.planner.waypoint_utils = self.waypoint_utils
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
-            
 
+        self.config_controller = self.planner.mpc.config_controller
+        self.online_learning_activated = self.config_controller.get('online_learning', {}).get('activated', False)
+        if self.online_learning_activated:
+            from Control_Toolkit.OnlineLearning import OnlineLearning
+            self.online_learning = OnlineLearning(self.planner.mpc.predictor,
+                                                  self.config_controller['dt'], self.config_controller['online_learning'])
     
     def set_car_state(self, car_state):
         self.car_state = car_state
@@ -179,7 +184,12 @@ class CarSystem:
         self.angular_control = np.average(self.angular_control_history)
         self.translational_control = np.average(self.translational_control_history)
 
-        
+        # Do online learning step
+        if self.online_learning_activated:
+            u = np.array([self.angular_control, self.translational_control])
+            self.online_learning.step(car_state, u)
+            self.steps_since_last_model_update += 1
+
         # Rendering and recording
         self.render_utils.update(
             lidar_points= lidar_points,
