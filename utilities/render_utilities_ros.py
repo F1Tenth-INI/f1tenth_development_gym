@@ -77,27 +77,29 @@ class RenderUtils:
 
     def update_pp(self, target_point):
         self.target_point = target_point
-        print("Rendering target point in rosrendering: ", target_point)
         
     def render(self, e):
-        # Todo: Publish data for RVIZ
-        # PP lookahead point
-        marker = Marker()
-        marker.header.frame_id = 'map'
-        marker.type = marker.SPHERE
-        marker.scale.x = 0.5
-        marker.scale.y = 0.5
-        marker.scale.z = 0.5
-        marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
-        marker.color.r = 1.0
-        marker.color.g = 1.0
-
-        marker.id = 1444444
-        marker.pose.position.x = self.target_point[0]
-        marker.pose.position.y = self.target_point[1]
+        #  Publish data for RVIZ
         
-        marker.pose.orientation.w = 1
-        self.pub_target_point.publish(marker)
+        
+        # PP lookahead point
+        if(self.target_point is not None):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.type = marker.SPHERE
+            marker.scale.x = 0.5
+            marker.scale.y = 0.5
+            marker.scale.z = 0.5
+            marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+
+            marker.id = 1444444
+            marker.pose.position.x = self.target_point[0]
+            marker.pose.position.y = self.target_point[1]
+            
+            marker.pose.orientation.w = 1
+            self.pub_target_point.publish(marker)
         
         # Rollouts
         if(self.rollout_trajectory is None): return
