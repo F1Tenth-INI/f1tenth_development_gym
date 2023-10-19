@@ -1,10 +1,18 @@
 import os
+import sys 
+import inspect
+
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir) 
+
+
 import cv2
 import math
 import numpy as np
 import csv
-import sys 
 import yaml
+import shutil
 
 from skimage.morphology import skeletonize
 from skimage.segmentation import watershed
@@ -72,14 +80,18 @@ class GlobalPlanner:
         ################################################################################################################
     
         img_path = os.path.join(self.map_dir, self.map_name + '_wp_min_curve.png')
+        img_path_original = os.path.join(self.map_dir, self.map_name + '.png')
         
-        if(not os.path.join(self.map_dir,'data')):
+        if(not os.path.isdir(os.path.join(self.map_dir,'data'))):
             os.makedirs(os.path.join(self.map_dir,'data' ))
-        
         # check if file exists
         if(not os.path.isfile(img_path)):
-            print("No valid map file found. Make sure there exists an image of the track including a closed contour at utilities/maps/" + Settings.MAP_NAME + "/" + Settings.MAP_NAME + "_wp_min_curve.png")
-            exit()
+            if(not os.path.isfile(img_path_original)):
+                print("No valid map file found. Make sure there exists an image of the track including a closed contour at utilities/maps/" + Settings.MAP_NAME + "/" + Settings.MAP_NAME + ".png")
+                exit()
+            
+            print("No map file found at utilities/maps/" + Settings.MAP_NAME + "/" + Settings.MAP_NAME + "wp_min_curve.png... Creating copy from original imgage. Use wp_min_curve for editing")
+            shutil.copyfile(img_path_original, img_path)  
             
         bw = cv2.flip(cv2.imread(img_path, 0), 0)
 
@@ -142,7 +154,6 @@ class GlobalPlanner:
             plt.plot(centerline_meter_int[min_dist_ind, 0], centerline_meter_int[min_dist_ind, 1], 'bo',
                      label='Second point')
             plt.legend()
-            plt.savefig("test.png")
             plt.show()
             
      
@@ -236,6 +247,23 @@ class GlobalPlanner:
         # self.wpnt_global_iqp_pub.publish(global_traj_wpnts_iqp)
         path = os.path.join(self.map_dir, self.map_name+'_wp.csv')
         np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2')
+        
+        # Save image of track including waypoints
+        plt.clf()
+        x,y = bound_r_iqp.T
+        plt.scatter(x, y, color='black')
+        x,y = bound_l_iqp.T
+        plt.scatter(x, y ,color='black')
+        
+        x = global_trajectory_iqp[:,1]
+        y = global_trajectory_iqp[:,2]
+        plt.scatter(x, y ,color='red')
+
+        plt.axis('equal')
+        
+        
+        plt.savefig(os.path.join(self.map_dir, 'data', 'waypoints.png'))
+        
         
         print("Done. Waypouints saved. Drive carefully :)")
         exit()
