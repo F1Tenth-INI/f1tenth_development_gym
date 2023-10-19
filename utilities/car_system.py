@@ -94,6 +94,7 @@ class CarSystem:
             self.planner = manual_planner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+            exit()
             
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
