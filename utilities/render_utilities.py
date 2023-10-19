@@ -80,6 +80,8 @@ class RenderUtils:
         self.obstacles = None
         
         if(Settings.ROS_BRIDGE):
+            print("initialising render utilities for ROS")
+
             rospy.init_node('gym_bridge_driver', anonymous=True)
             self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
             self.pub_target_point = rospy.Publisher('/pp/lookahead', Marker, queue_size=1)
@@ -119,8 +121,9 @@ class RenderUtils:
         return
         self.obstacles = obstacles
     def render(self, e = None):
+
         if(Settings.ROS_BRIDGE):
-            self.render_ros
+            self.render_ros()
         else:
             self.render_gym(e)
             
@@ -228,25 +231,26 @@ class RenderUtils:
             #     self.obstacle_vertices.vertices = scaled_points_flat
 
     
-    def render_ros():
+    def render_ros(self):
         # Todo: Publish data for RVIZ
         # PP lookahead point
-        marker = Marker()
-        marker.header.frame_id = 'map'
-        marker.type = marker.SPHERE
-        marker.scale.x = 0.5
-        marker.scale.y = 0.5
-        marker.scale.z = 0.5
-        marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
-        marker.color.r = 1.0
-        marker.color.g = 1.0
+        if(self.target_point is not None):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.type = marker.SPHERE
+            marker.scale.x = 0.5
+            marker.scale.y = 0.5
+            marker.scale.z = 0.5
+            marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
+            marker.color.r = 1.0
+            marker.color.g = 1.0
 
-        marker.id = 1444444
-        marker.pose.position.x = self.target_point[0]
-        marker.pose.position.y = self.target_point[1]
-        
-        marker.pose.orientation.w = 1
-        self.pub_target_point.publish(marker)
+            marker.id = 1444444
+            marker.pose.position.x = self.target_point[0]
+            marker.pose.position.y = self.target_point[1]
+            
+            marker.pose.orientation.w = 1
+            self.pub_target_point.publish(marker)
         
         # Rollouts
         if(self.rollout_trajectory is None): return

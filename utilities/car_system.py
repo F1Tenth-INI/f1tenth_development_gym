@@ -17,12 +17,11 @@ from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX
+from utilities.render_utilities import RenderUtils
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
-    from utilities.render_utilities import RenderUtils
 
 
 
