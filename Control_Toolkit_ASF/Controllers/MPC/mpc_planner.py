@@ -15,10 +15,9 @@ from utilities.state_utilities import (
 
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
-    from utilities.render_utilities import RenderUtils
+from utilities.render_utilities import RenderUtils
 
 
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
