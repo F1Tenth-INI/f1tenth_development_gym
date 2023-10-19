@@ -27,7 +27,6 @@ pip install --user -e gym/
 Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit should not be empty. If they are empty, run:
 ```bash
 git submodule update --init --recursive
-git submodule update --recursive --remote
 ```
 and then install the Toolkit packages: 
 ```bash
@@ -35,8 +34,6 @@ python -m pip install --user -e ./SI_Toolkit
 ```
 
 ## Run
-
-
 
 
 Run the simulation
@@ -48,23 +45,84 @@ If you are running from terminal, please run all python scripts from the project
 ```bash
 export PYTHONPATH=./
 ```
-##Environment, CarModel and Controller
-
-Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the planners array:
-```python
-##################### DEFINE DRIVERS HERE #####################    
-drivers = [planner1,planner2]
-###############################################################   
-```
-
-Have a look at [car_system.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/car_system.py). This file represents the car. Everyting that runs on this object can directly be applied on the physical car. Inside the carSystem, we can define a controller (planner).
 
 
 ### Settings
-Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) 
+Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) This file gives you an idea of what can be adjusted at the GYM.
 
- 
- ## Develop
+# Wording & Conventions
+##Environment
+Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the drivers array:
+```python
+drivers = [planner1,planner2]
+```
+
+## Car System
+Have a look at [car_system.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/car_system.py).
+This is a representation of the physical car. A car system fetches information and sensor data from the environment and will deliver it to the Planner.
+The car system consists of everything that all cars (independent of the planner/controller) have in common. Features of the Car System are the following:
+ - Perceive the car's state
+ - Load global Waypoints
+ - Determine Local waypoints (dep. on position)
+ - Render data ( Lidar, Position history etc.)
+ - Record data from experiments
+ - An instance of a planner
+ - process_observation function that receives lidar data and returns a control command
+
+Note that every feature of the Car System is also implemented on the Physical car in the f1tenth_gym_bridge.
+
+## Planner
+The next layer of abstraction is the planner. The planner is still system specific (resp. designed for the car/car environment) but it handles features that not all controllers have in common.
+- process_observation function that receives lidar data and returns a control command
+
+- (Optional) A controller 
+  - If we use a system agnostic controller from the [Control Toolkit](https://github.com/SensorsINI/Control_Toolkit/tree/7398fdf5c7c5a6d8615e68b9dc153b116d52564b), we use the planner to gather data to deliver it to the controller in the right format. See [mpc_planner.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/Controllers/MPC/mpc_planner.py)
+  - If we use car specific controllers, the controller might already be implemented in the planner instance -> See [pp_planner.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/Controllers/PurePursuit/pp_planner.py)
+- Everything else the controller needs ( fe. a cost function )
+  
+
+## Controller
+A controller is system agnostic. That means it does not know (and care) about which system is controlled. It will only try to fullfil the objective delivere by the planner.
+That's why [Control Toolkit](https://github.com/SensorsINI/Control_Toolkit/tree/7398fdf5c7c5a6d8615e68b9dc153b116d52564b) is a sub repository. In fact the same code will run to control the Car and also the CartPole f.e..
+It you think of a PID controller, it only gets an objective (error) and will try to reach it (error -> 0) but has no information about the system.
+
+## Car State
+We have implemented different car models. But within the environment_gym, we basically stick to the following definition for a car state. It is an array of 9 variables:
+- angular_vel_z: yaw rate
+- linear_vel_x: velocity in x direction
+- pose_theta: yaw angle
+- pose_theta_cos- pose_theta_sin- pose_x: x position in global coordinates
+- pose_y: y position in global coordinates
+- slip_angle: slip angle at vehicle center
+- steering_angle: steering angle of front wheels
+
+Check the [TUM CommonRoad Vehiclemodels](https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/blob/master/vehicleModels_commonRoad.pdf?ref_type=heads) for further information. Attention: The state variable indices are not the same in our system, we sort the alphabetically!
+
+Please access the state variables only by name, for example:
+pos_x = s[POSE_X_IDX]
+You can import the index names from utilities/[state_utilities.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/state_utilities.py) 
+
+## Waypoint
+A waypoint is defined as an array of the following properties:
+- Distance since start
+- Position x
+- Position y
+- Absolute angle of vector connecting to next wp
+- Relative angle
+- Suggested velocity 
+- Suggested acceleration
+
+Every waypoint describes a desired position, desired velocity and other features, that the car has to follow. 
+The waypoints are saved in the map folder under map_name_wp.csv
+Please access the waypoint properties only by name, for example:
+pos_x = wp[WP_S_IDX]
+
+You can import the index names from utilities/[waypoint_utils.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/waypoint_utils.py) 
+
+For a new map, you can either calculate the waypoints with "minimum curvature optimization" (fast-driving) or with "draw by hand" (uncompliated)
+
+
+ # Develop
  Please work on your own branches and do pull requests to the main branch. 
  If possible, seperate your code into your own folders.
 
@@ -92,10 +150,30 @@ def process_observation(self, ranges=None, ego_odom=None):
 ```
 The function should return the desired speed and the desired angle
 
-## Controllers
-### Cost functions
+## Control Toolkit
+Control Toolkit is a system agnostic sub-repository, which provides the cores of the most important controllers.
+It is used on multiple projects (f.e. [CartPole](https://github.com/SensorsINI/CartPoleSimulation)). 
+
+In the gym we have implemented controllers from the Control Toolkit. Every **Application Specific File** (which are specifically meant for controlling the car in the GYM environment) are in the folder Control_Toolkit_ASF
+
+The Control Toolkit's config files are called 
+- [config_controllers.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_controllers.yml),
+- [config_optimizers.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_optimizers.yml) 
+- [config_cost_function.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_cost_function.yml)
+
+Have a look at them and see how the controllers can be tuned.
+### MPC Controller
+The MPC controller is implemented in the GYM with two optimizers:
+- MPPI
+- RPGD
+#### Cost functions
 The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/Cost_Functions).
 The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/Cost_Functions/f1t_cost_function.py), lines 63-72.
+
+## SI Toolkit
+Control Toolkit is a system agnostic sub-repository, which provides the cores for neural system identification and brunton plotting.
+Like Control Toolkit, is used on multiple projects (f.e. [CartPole](https://github.com/SensorsINI/CartPoleSimulation)). 
+ Every **Application Specific File** related to the SI Toolkit is in the folder SI_Toolkit_ASF.
 
 On the controller side, these structure are at [SI_Toolkit_ASF/car_model.py](SI_Toolkit_ASF/car_model.py), lines 113-190.
 
@@ -224,35 +302,13 @@ python utilities/run_create_min_curve_waypoints.py
 The waypoints (and additional data) will be saved in the map folder.
 
 
-# The F1TENTH Gym environment
+# Info by the original authors
 
 This is the repository of the F1TENTH Gym environment.
 
 This project is still under heavy developement.
 
 You can find the [documentation](https://f1tenth-gym.readthedocs.io/en/latest/) of the environment here.
-
-## Quickstart
-You can install the environment by running:
-
-```bash
-git clone https://github.com/f1tenth/f1tenth_gym.git
-cd f1tenth_gym
-pip3 install --user -e gym/
-```
-
-Then you can run a quick waypoint follow example by:
-```bash
-cd examples
-python3 waypoint_follow.py
-```
-
-A Dockerfile is also provided with support for the GUI with nvidia-docker (nvidia GPU required):
-```bash
-docker build -t f1tenth_gym_container -f Dockerfile .
-docker run --gpus all -it -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix f1tenth_gym_container
-````
-Then the same example can be ran.
 
 ## Known issues
 - Library support issues on Windows. You must use Python 3.8 as of 10-2021
