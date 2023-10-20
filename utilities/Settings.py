@@ -40,9 +40,9 @@ class Settings():
 
 
     ### Experiment Settings ###
-    NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
+    NUMBER_OF_EXPERIMENTS = 20  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 10000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 1500  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -82,14 +82,14 @@ class Settings():
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (2, 2)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -120,8 +120,8 @@ class Settings():
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
     ## Neural Controller ##
-    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    PATH_TO_MODELS = './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
+    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neural)
+    PATH_TO_MODELS = 'SI_Toolkit_ASF/Experiments/MPPI-Imitator/Models/'
     NET_NAME = 'Dense-89IN-64H1-64H2-2OUT-0'
 
     ## MPC Controller ##
