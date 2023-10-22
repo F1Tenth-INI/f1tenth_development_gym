@@ -30,9 +30,11 @@ class car_model:
             dt: float = 0.03,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary,
+            wrap_angle=False,
             **kwargs
     ):
         self.lib = computation_lib
+        self.wrap_angle = wrap_angle
 
         gym_path = get_gym_path()
         # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
@@ -114,7 +116,8 @@ class car_model:
 
         pose_theta_cos = self.lib.cos(pose_theta)
         pose_theta_sin = self.lib.sin(pose_theta)
-        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        if self.wrap_angle:
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         pose_x = pose_x
         pose_y = pose_y
         angular_vel_z = self.lib.zeros_like(pose_x)
@@ -168,7 +171,10 @@ class car_model:
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
         pose_theta_sin = self.lib.sin(psi)
-        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        if self.wrap_angle:
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        else:
+            pose_theta = psi
         pose_x = s_x
         pose_y = s_y
         slip_angle = beta  # Same as in simulation environment
@@ -262,7 +268,10 @@ class car_model:
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
         pose_theta_sin = self.lib.sin(psi)
-        pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        if self.wrap_angle:
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        else:
+            pose_theta = psi
         pose_x = s_x
         pose_y = s_y
         slip_angle = beta
