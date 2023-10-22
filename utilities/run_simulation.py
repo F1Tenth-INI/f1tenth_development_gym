@@ -242,10 +242,11 @@ def main():
                 
                 driver.set_car_state(car_state_with_noise)
 
-            real_slip_vec.append(driver.car_state[7])
-            real_steer_vec.append(driver.car_state[8])
-
+            
             if Settings.SLIP_STEER_PREDICTION:
+                real_slip_vec.append(driver.car_state[7])
+                real_steer_vec.append(driver.car_state[8])
+
                 print("state before: ", driver.car_state)
                 driver.car_state = steer_estimator.get_slip_steer_car_state(slip_estimator, odom, translational_control, angular_control)
                 print("state after: ", driver.car_state)
