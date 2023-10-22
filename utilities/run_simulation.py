@@ -236,6 +236,9 @@ def main():
                 car_state_with_noise = np.zeros(9)
                 for state_index in range(9):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
+                # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta
+                car_state_with_noise[3] = np.cos(car_state_with_noise[2])
+                car_state_with_noise[4] = np.sin(car_state_with_noise[2])
                 
                 driver.set_car_state(car_state_with_noise)
 
