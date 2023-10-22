@@ -10,7 +10,7 @@ class STModel(tf.keras.Model):
         super().__init__(**kwargs)
 
         self.dt = Settings.TIMESTEP_PLANNER
-        self.intermediate_steps = 1
+        self.intermediate_steps = 4
         self.batch_size = batch_size
         self.setup_car_model('utilities/car_files/custom_car_parameters.yml')
 
@@ -59,13 +59,12 @@ if __name__ == '__main__':
     # test_output = tf.constant([[-0.275381585802276, 8.479332989676983, 0.895299420766293, 0.625285177553879, 0.780396339516924, 512.7821999988048, 506.13832858067695, -0.069763924785444, -0.075033997920816]])
 
     # Test out delta
-    test_input = tf.constant([[[ -0.55795187,  14.047229  ,   0.5890474 ,   1.0044736 ,
-          0.0147171 ,   0.9998917 ,   0.01471657, 500.05103   ,
-        500.00018   ,   0.        ,   0.20852426]]])
-    test_output = tf.constant([[-26.41,   9.01,   0.59,  -0.01,   0.59,   1.,     0.01,   4.25,  -3.2 ]])
+    test_input = tf.constant([[[0.7550099, 2.4880269, 0.3517977 , 0.00001, -27.664394 , -0.81968266, -0.57281786, 10.473948 , -0.43939328, 0.12072103, 0.42284077]]])
+    test_output = tf.constant([[0.84293735, 0.3915766 , -27.654863 , -0.814186 ,-0.58060414, 10.468228 , -0.44341734, 0.12072103, 0.42284077]])
 
     np.set_printoptions(suppress=True, precision=5, linewidth=100)
     print(test_input.numpy())
+    print('___________________')
     output = model(test_input)
     print(output.numpy())
     print(test_output.numpy())
