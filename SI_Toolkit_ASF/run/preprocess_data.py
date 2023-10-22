@@ -6,10 +6,11 @@ import numpy as np
 from SI_Toolkit.load_and_normalize import load_data, append_derivatives
 
 base_path = 'SI_Toolkit_ASF/Experiments/'
-folder = 'Experiment-1/Recordings'
+folder = '0_DNN_tiv/Recordings'
 path = f'./{base_path}/{folder}/**/*.csv'
 csv_files = glob.glob(path)
 file_paths = [os.path.relpath(file, f'{base_path}/{folder}') for file in csv_files]
+dt = 0.04
 
 
 save_to = f'{base_path}/{folder}_preprocessed'
@@ -34,12 +35,21 @@ dfs = load_data(csv_files)
 # dfs, paths_with_derivative = append_derivatives(dfs, variables_for_derivative, derivative_algorithm, csv_files)
 
 datapoints_removed = 0
+
 for i, df in enumerate(dfs):
+    # Fix delta values where there is a big jump in pose_theta
+    df.D_pose_theta = df.D_pose_theta * dt
+    df.D_pose_theta = np.where(df.D_pose_theta < 5.0, df.D_pose_theta, 2 * np.pi - df.D_pose_theta)  
+    df.D_pose_theta = np.where(df.D_pose_theta > -5.0, df.D_pose_theta, 2 * np.pi + df.D_pose_theta)
+    df.D_pose_theta = df.D_pose_theta / dt
+
+    df = df.assign(D_car_pose_x=df.pose_theta_cos * df.D_pose_x + df.pose_theta_sin * df.D_pose_y)
+    dfs[i] = df.assign(D_car_pose_y=-df.pose_theta_sin * df.D_pose_x + df.pose_theta_cos * df.D_pose_y)
+
+for i, df in enumerate(dfs):
+
     start_size = len(df)
-    threshold_violated = ((abs(df.slip_angle) >= np.pi / 4)
-                          | (abs(df.D_angular_vel_z) > 50)
-                          | (abs(df.D_slip_angle) > 3.0)
-                          )
+    threshold_violated = ((abs(df.slip_angle) >= np.pi / 4) | (abs(df.D_angular_vel_z) > 50) | (abs(df.D_slip_angle) > 3.0) | (abs(df.D_car_pose_y) > 4))
 
     # Set experiment index
     diff = threshold_violated.diff()
