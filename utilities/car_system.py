@@ -57,7 +57,7 @@ class CarSystem:
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
         self.save_recording = save_recording
         if save_recording:
-            self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL, lidar=self.LIDAR)
+            self.recorder = Recorder(name='Blank-MPPI-{}'.format(str(car_index)))
         self.obstacle_detector = ObstacleDetector()
 
         self.waypoints_for_controller = None
@@ -186,13 +186,16 @@ class CarSystem:
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
         if (Settings.SAVE_RECORDINGS and self.save_recordings):
-            self.recorder.get_data(
+                    
+            self.recorder.set_data(
+                time=self.time,
                 control_inputs_calculated=(self.translational_control, self.angular_control),
                 odometry=ego_odom,
+                lidar_ranges = self.LIDAR.processed_scans,
+                lidar_indices = self.LIDAR.processed_scan_indices,
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                time=self.time
             )     
         
         self.control_index += 1

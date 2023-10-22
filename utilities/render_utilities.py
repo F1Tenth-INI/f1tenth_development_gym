@@ -118,8 +118,9 @@ class RenderUtils:
         self.target_point = target_point
         
     def update_obstacles(self, obstacles):
-        return
         self.obstacles = obstacles
+        return
+    
     def render(self, e = None):
 
         if(Settings.ROS_BRIDGE):
@@ -232,7 +233,8 @@ class RenderUtils:
 
     
     def render_ros(self):
-        # Todo: Publish data for RVIZ
+        #  Publish data for RVIZ
+        
         # PP lookahead point
         if(self.target_point is not None):
             marker = Marker()
