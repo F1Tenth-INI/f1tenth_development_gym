@@ -27,7 +27,7 @@ class TIVModel(tf.keras.Model):
         
     def setup_net(self, net_specification):
         nn_net_info = copy.deepcopy(self.net_info)
-        nn_net_info.net_name = 'Dense-64H1-128H2-64H3'
+        nn_net_info.net_name = net_specification
         nn_net_info.inputs = ['angular_control', 'translational_control', 'angular_vel_z', 'linear_vel_x', 'slip_angle', 'steering_angle']
         nn_net_info.outputs = ['D_angular_vel_z', 'D_linear_vel_x', 'D_pose_theta', 'D_pose_x', 'D_pose_y', 'D_slip_angle', 'D_steering_angle']
 
@@ -93,7 +93,7 @@ class TIVModel(tf.keras.Model):
 class TIVModelDNN(TIVModel):
     def __init__(self, time_series_length, batch_size, net_info=None, name=None, **kwargs):
         super().__init__(time_series_length, batch_size, net_info, name, **kwargs)
-        self.setup_net('Dense-64H1-128H2-64H3')
+        self.setup_net('Dense-128H1-128H2')
 
 
 class TIVModelLSTM(TIVModel):
