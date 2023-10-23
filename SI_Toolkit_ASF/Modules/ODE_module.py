@@ -5,18 +5,19 @@ from SI_Toolkit_ASF.car_model import car_model
 from utilities.Settings import Settings
 
 
-class STModel(tf.keras.Model):
+class ODEModel(tf.keras.Model):
     def __init__(self, horizon, batch_size, name=None, **kwargs):
         super().__init__(**kwargs)
 
         self.dt = Settings.TIMESTEP_PLANNER
         self.intermediate_steps = 4
         self.batch_size = batch_size
-        self.setup_car_model('utilities/car_files/custom_car_parameters.yml')
+        self.car_parameter_file = 'utilities/car_files/custom_car_parameters.yml'
+        self.setup_car_model(self.car_parameter_file, Settings.ODE_MODEL_OF_CAR_DYNAMICS)
 
-    def setup_car_model(self, car_parameter_file):
+    def setup_car_model(self, car_parameter_file, model_of_car_dynamics):
         self.car_model = car_model(
-            model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+            model_of_car_dynamics=model_of_car_dynamics,
             with_pid=True,
             batch_size=self.batch_size,
             car_parameter_file=car_parameter_file,
@@ -30,7 +31,6 @@ class STModel(tf.keras.Model):
         self.car_model.car_parameters = self.car_parameters_tf
 
     def calculate_derivative(self, x_old, x_new, dt):
-        # It needs to be s - s_previous!
         return (x_new - x_old) / dt
 
     def call(self, x, training=None, mask=None):
@@ -41,6 +41,18 @@ class STModel(tf.keras.Model):
         # output = self.calculate_derivative(s, output, self.dt)
         output = tf.expand_dims(output, 1)
         return output
+
+
+class STModel(ODEModel):
+    def __init__(self, horizon, batch_size, name=None, **kwargs):
+        super().__init__(horizon, batch_size, name=None, **kwargs)
+        self.setup_car_model(self.car_parameter_file, 'ODE:st')
+
+
+class KSModel(ODEModel):
+    def __init__(self, horizon, batch_size, name=None, **kwargs):
+        super().__init__(horizon, batch_size, name=None, **kwargs)
+        self.setup_car_model(self.car_parameter_file, 'ODE:ks')
 
 
 if __name__ == '__main__':
@@ -59,8 +71,8 @@ if __name__ == '__main__':
     # test_output = tf.constant([[-0.275381585802276, 8.479332989676983, 0.895299420766293, 0.625285177553879, 0.780396339516924, 512.7821999988048, 506.13832858067695, -0.069763924785444, -0.075033997920816]])
 
     # Test out delta
-    test_input = tf.constant([[[0.7550099, 2.4880269, 0.3517977 , 0.00001, -27.664394 , -0.81968266, -0.57281786, 10.473948 , -0.43939328, 0.12072103, 0.42284077]]])
-    test_output = tf.constant([[0.84293735, 0.3915766 , -27.654863 , -0.814186 ,-0.58060414, 10.468228 , -0.44341734, 0.12072103, 0.42284077]])
+    test_input = tf.constant([[[0.7550099, 2.4880269, 0.3517977, 0.00001, -27.664394, -0.81968266, -0.57281786, 10.473948, -0.43939328, 0.12072103, 0.42284077]]])
+    test_output = tf.constant([[0.84293735, 0.3915766, -27.654863, -0.814186, -0.58060414, 10.468228, -0.44341734, 0.12072103, 0.42284077]])
 
     np.set_printoptions(suppress=True, precision=5, linewidth=100)
     print(test_input.numpy())
