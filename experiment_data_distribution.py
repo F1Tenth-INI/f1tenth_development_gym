@@ -4,6 +4,34 @@ import shutil
 import zipfile
 from datetime import datetime
 
+# Create the ZIP archive
+def csv_comprimisation(folder_path):
+    
+    # Zip up old trainingsdata
+    timestamp = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
+    zip_filename = os.path.join(folder_path, f"csv_files_{timestamp}.zip")
+    
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Iterate through all CSV files in the input folder and add them to the ZIP archive
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                if file.endswith(".csv"):
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, folder_path)
+                    zipf.write(file_path, arcname)
+
+    # Delete all generated CSV files
+    for root, _, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith(".csv"):
+                file_path = os.path.join(root, file)
+                os.remove(file_path)
+
+    print(f"CSV files have been compressed to {zip_filename}.")
+    
+    
+
+# Initalizing distribution probability
 train_distribution = 0.8
 test_distribution = 0.1
 validate_distribution = 0.1
@@ -15,6 +43,11 @@ input_folder = "./ExperimentRecordings"
 output_folder_train = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Train"
 output_folder_test = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Test"
 output_folder_validate = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Validate"
+
+# Compremising older csvs
+csv_comprimisation(output_folder_test)
+csv_comprimisation(output_folder_train)
+csv_comprimisation(output_folder_validate)
 
 # List all CSV files in the input folder
 csv_files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
@@ -43,24 +76,4 @@ for i, file in enumerate(csv_files):
 
 print("Files have been distributed successfully.")
 
-timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-zip_filename = os.path.join(input_folder, f"csv_files_{timestamp}.zip")
-
-# Create the ZIP archive
-with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    # Iterate through all CSV files in the input folder and add them to the ZIP archive
-    for root, _, files in os.walk(input_folder):
-        for file in files:
-            if file.endswith(".csv"):
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, input_folder)
-                zipf.write(file_path, arcname)
-
-# Delete all generated CSV files
-for root, _, files in os.walk(input_folder):
-    for file in files:
-        if file.endswith(".csv"):
-            file_path = os.path.join(root, file)
-            os.remove(file_path)
-
-print(f"CSV files have been compressed to {zip_filename}.")
+csv_comprimisation(input_folder)
