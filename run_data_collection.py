@@ -17,7 +17,7 @@ Settings.EXPERIMENT_LENGTH = 750
 Settings.NUMBER_OF_EXPERIMENTS = 1 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 2
+runs_without_obstacles = 5
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.8, 0.4,]
 reverse_direction_values = [False]
