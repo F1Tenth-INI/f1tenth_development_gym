@@ -212,5 +212,5 @@ class RenderUtils:
     @staticmethod
     def get_scaled_points(points):
         if(points == [] or points is None): return np.array([])
-        print(points)
+        # print(points)
         return 50.*np.array(points)
