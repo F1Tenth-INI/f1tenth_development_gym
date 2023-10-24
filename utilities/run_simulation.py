@@ -275,7 +275,14 @@ def main():
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
-                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
+                    driver.recorder.set_data(
+                        custom_dict={
+                            'translational_control_applied':translational_control_with_noise,
+                            'angular_control_applied':angular_control_with_noise,
+                            'mu': env.params['mu']
+                        }
+                    )
+                    # driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
         controlls = []
         for index, driver in enumerate(drivers):
@@ -301,9 +308,14 @@ def main():
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
                 if(driver.save_recordings):
-                    driver.recorder.save_data()
+                    driver.recorder.push_on_buffer()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+    if (Settings.SAVE_RECORDINGS):
+        for index, driver in enumerate(drivers):
+            if(driver.save_recordings):
+                driver.recorder.save_csv()
+
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
