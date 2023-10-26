@@ -1,10 +1,10 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'Dense-89IN-64H1-64H2-2OUT'
+  NET_NAME: 'Dense-64H1-64H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ''
-  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/'  # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/PP-Imitator/'  # Path where the experiments data is stored
 
 
 training_default:
