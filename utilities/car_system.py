@@ -188,7 +188,6 @@ class CarSystem:
         if self.online_learning_activated:
             u = np.array([self.angular_control, self.translational_control])
             self.online_learning.step(car_state, u)
-            self.steps_since_last_model_update += 1
 
         # Rendering and recording
         self.render_utils.update(
