@@ -1,5 +1,5 @@
-#path_save_to: './xxx/'  # Where to save experiment recording per default
-path_save_to: './ExperimentRecordings/'
+# path_save_to: './ExperimentRecordings/'
+path_save_to: './SI_Toolkit_ASF/Experiments/0_tryout/Recording'
 seed:    # If not assign random seed based on datetime is used
 split: [0.8, 0.1]  # Train/Val/(Test) split - only matters if you run it in ML Pipeline mode
 initial_states:
@@ -25,23 +25,23 @@ initial_states:
       slip_angle: [-0.3, 0.3] #[-2.0, 2.0]
       steering_angle: [-0.4189, 0.4189] #[-0.5, 0.5]
 dt: 0.04
-number_of_initial_states: 4
+number_of_initial_states: 40
 number_of_trajectories_per_initial_state: 1
-trajectory_length: 10000
+trajectory_length: 7500
 save_single_file: false
 control_inputs:
   steering:
     # Set usage of PID in utilities/Settings.py
-    strategy: 'random'  # random/constant/mixed
+    strategy: 'mixed'  # random/constant/mixed
     generate_around_state: false  # Set the inputs to be around the current state
-    hold_constant_input: nan  # For mixed strategy, how long to hold a constant input
+    hold_constant_input: 6  # For mixed strategy, how long to hold a constant input
     distribution: 'normal'
-    control_range: [0.0, 0.5] # [mu, sigma]
+    control_range: [0.0, 0.20] # [mu, sigma]
 
     # With PID:
   velocity:
     strategy: 'mixed'
     generate_around_state: false
-    hold_constant_input: 20
+    hold_constant_input: 10
     distribution: 'uniform'
-    control_range: [0, 10.0]
+    control_range: [1.0, 8.0]
