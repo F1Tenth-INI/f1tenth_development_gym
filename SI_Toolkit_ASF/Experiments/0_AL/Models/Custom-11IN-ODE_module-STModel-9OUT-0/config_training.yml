@@ -5,7 +5,7 @@ modeling:
   # NET_NAME: 'LSTM-16H1-32H2-16H3'
   # NET_NAME: 'LSTM-10IN-32H1-32H2-8OUT-0'
   # NET_NAME: 'GRU-32H1-32H2-32H3'
-  NET_NAME: 'Custom-ODE_module-STModelMu'
+  NET_NAME: 'Custom-ODE_module-STModel'
   # NET_NAME: 'Custom-tiv_module-TIVModelDNN'
   # NET_NAME: 'Custom-tiv_module-TIVModelLSTM'
   # NET_NAME: 'Custom-ODE_NN_module-ODE_DNN'
