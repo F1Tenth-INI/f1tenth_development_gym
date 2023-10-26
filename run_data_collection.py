@@ -5,19 +5,17 @@ import time
 
 # Speed scalling is globally set here... make sure its 1.0 everywhere in speed_scaling.yaml
 
-# Overwrite Global Settings (for every recording)
-Settings.MAP_NAME = 'hangar12'
+# Global Settings (for every recording)
+Settings.MAP_NAME = 'hangar9'
 Settings.SAVE_RECORDINGS = True # Dont touch
 Settings.SAVE_PLOTS = True
 Settings.RENDER_MODE = None
 
-Settings.APPLY_SPEED_SCALING_FROM_YAML = False
-
-Settings.EXPERIMENT_LENGTH = 750  
+Settings.EXPERIMENT_LENGTH = 2000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 10
+runs_without_obstacles = 20
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.3, 0.4, 0.5, 0.6, 0.7]
 reverse_direction_values = (False, True)
