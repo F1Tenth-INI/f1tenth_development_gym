@@ -114,7 +114,7 @@ class Recorder:
         self.csv_filepath = create_csv_header(
                 self.path_to_experiment_recordings,
                 self.name,
-                0.1,
+                Settings.TIMESTEP_CONTROL,
             )
 
     def set_global_data(self, global_dict):
