@@ -241,49 +241,50 @@ class WaypointUtils:
             path_reverse = '_reverse'
         else:
             path_reverse  = ''
-        
-        
-        speed_scaling_pth = os.path.join(self.map_path,'speed_scaling'+path_reverse+'.yaml')
+        global_limit = 1
+        if Settings.APPLY_SPEED_SCALING_FROM_YAML:
+            speed_scaling_pth = os.path.join(self.map_path,'speed_scaling'+path_reverse+'.yaml')
 
-        if(not os.path.isfile(speed_scaling_pth)):
-            # Create default speed scaling file
-            print("No Speed scaling file defined. Creating new speed_scaling.yaml with default values")
-            data = {
-                'global_limit' : 1.0,
-                'n_sectors' : 1,
-                'Sector0': {
-                    'start': 0,
-                    'end': len(waypoints)-1,
-                    'scaling': 0.5
+            if(not os.path.isfile(speed_scaling_pth)):
+                # Create default speed scaling file
+                print("No Speed scaling file defined. Creating new speed_scaling.yaml with default values")
+                data = {
+                    'global_limit' : 1.0,
+                    'n_sectors' : 1,
+                    'Sector0': {
+                        'start': 0,
+                        'end': len(waypoints)-1,
+                        'scaling': 0.5
+                        }
                     }
-                }
 
-            with open( os.path.join(speed_scaling_pth), 'w') as file:
-                documents = yaml.dump(data, file)
-            
-        speed_scaling_config = yaml.load(open(speed_scaling_pth, "r"), Loader=yaml.FullLoader)
-        
-        speed_scaling_array = np.zeros(waypoints.shape[0]+2)
-        
-        warn = False
-        
-        global_limit = speed_scaling_config['global_limit']
-        n_sectors = speed_scaling_config['n_sectors']
-        for i in range(n_sectors):
-            sector = speed_scaling_config['Sector'+str(i)]
-            for j in range(sector['start'], sector['end']+1):
-                if(len(speed_scaling_array) > j):
-                    speed_scaling_array[j] = sector['scaling']
-                else: warn = True
-
-        if warn: print("warning: invalid speed scaling")
-        # TODO: Interpolate at edges
-        # TODO: Drop error when not all sectors are defined
-        
-        speed_scaling_array = np.array(speed_scaling_array[:-2])
-        speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
+                with open( os.path.join(speed_scaling_pth), 'w') as file:
+                    documents = yaml.dump(data, file)
                 
-        waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
+            speed_scaling_config = yaml.load(open(speed_scaling_pth, "r"), Loader=yaml.FullLoader)
+            
+            speed_scaling_array = np.zeros(waypoints.shape[0]+2)
+            
+            warn = False
+            
+            global_limit = speed_scaling_config['global_limit']
+            n_sectors = speed_scaling_config['n_sectors']
+            for i in range(n_sectors):
+                sector = speed_scaling_config['Sector'+str(i)]
+                for j in range(sector['start'], sector['end']+1):
+                    if(len(speed_scaling_array) > j):
+                        speed_scaling_array[j] = sector['scaling']
+                    else: warn = True
+
+            if warn: print("warning: invalid speed scaling")
+            # TODO: Interpolate at edges
+            # TODO: Drop error when not all sectors are defined
+            
+            speed_scaling_array = np.array(speed_scaling_array[:-2])
+            speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
+            waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
+        
+        
         waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * Settings.GLOBAL_WAYPOINT_VEL_FACTOR
         return waypoints, global_limit
 
