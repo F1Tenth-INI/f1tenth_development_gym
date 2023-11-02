@@ -254,7 +254,9 @@ class Recorder:
     def plot_data(self):
         
         save_path = self.csv_filepath[:-4]+"_data"
-        os.mkdir(save_path)
+        
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
         times = df['time'].to_numpy()[1:]
@@ -298,7 +300,9 @@ class Recorder:
         
         # Copy Settings and configs
         config_sage_path = os.path.join(save_path, "configs")
-        os.mkdir(config_sage_path)
+        
+        if not os.path.exists(config_sage_path):
+            os.mkdir(config_sage_path)
         shutil.copy("Control_Toolkit_ASF/config_controllers.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
