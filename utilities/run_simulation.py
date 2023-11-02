@@ -300,6 +300,11 @@ def main():
             for index, driver in enumerate(drivers):
                 if(driver.save_recordings):
                     driver.recorder.push_on_buffer()
+                    if(simulation_index %500 == 0):
+                        driver.recorder.save_csv()
+                        driver.recorder.plot_data()
+
+
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     if (Settings.SAVE_RECORDINGS):
