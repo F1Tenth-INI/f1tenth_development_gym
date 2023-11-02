@@ -36,6 +36,7 @@ SI_Toolkit_ASF/Experiments/*
 
 utilities/maps/*
 utilities/maps_files/*
+utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/hangar9
 !utilities/maps/hangar12
 !utilities/maps/hangar14

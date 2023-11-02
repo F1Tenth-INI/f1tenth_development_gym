@@ -42,10 +42,10 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 100  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 100  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
-    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
 
     ### State Estimation ###
 
@@ -75,6 +75,7 @@ class Settings():
     ### Driver Settings
     
     # waypoints:
+    MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 15                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
@@ -139,7 +140,7 @@ class Settings():
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     START_FROM_RANDOM_POSITION = False
 
-    WAYPOINTS_FROM_MPC = True
+    WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4
 
     PRINTING_ON = False
