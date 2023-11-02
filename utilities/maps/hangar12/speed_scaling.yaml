@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-global_limit: 0.5
-=======
 global_limit: 0.2
->>>>>>> main
 n_sectors: 3
 Sector0:
   start: 0
