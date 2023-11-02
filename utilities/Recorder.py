@@ -96,195 +96,157 @@ def create_csv_header(path_to_recordings,
 
 
 class Recorder:
-    def __init__(self, controller_name=None, create_header=True, dt=None, lidar=None):
+    def __init__(self, name=""):
 
-        self.dt = dt
-
+        # Settings
+        self.name = name
         self.path_to_experiment_recordings = path_to_experiment_recordings
-
-        if controller_name is None:
-            self.controller_name = ''
-        else:
-            self.controller_name = controller_name
-
         self.rounding_decimals = 3
 
+        # Init
         self.headers_already_saved = False
-
-        self.lidar = lidar
-
-        self.keys_time = None
-        self.keys_mu = None
-        self.keys_ranges = None
-        self.keys_odometry = None
-        self.keys_state = None
-        self.keys_control_inputs_applied = None
-        self.keys_control_inputs_calculated = None
-        self.keys_next_x_waypoints = None
-        self.keys_next_y_waypoints = None
-        self.keys_next_vx_waypoints = None
-        self.keys_next_x_waypoints_rel = None
-        self.keys_next_y_waypoints_rel = None
-
         self.csv_filepath = None
-
-        self.time_dict = None
-        self.mu_dict = None
-        self.ranges_dict = {}
-        self.odometry_dict = {}
-        self.state_dict = {}
-        self.control_inputs_applied_dict = {}
-        self.control_inputs_calculated_dict = {}
-        self.dict_to_save = {}
-        self.next_waypoints_dict = {}
-        self.next_waypoints_rel_dict = {}
-
-        if create_header:
-            self.csv_filepath = create_csv_header(
+        
+        self.global_dict= dict()
+        self.dict_to_save =dict()
+        self.dict_buffer = [] # Buffer to save dicts on RAM instead of disk
+        
+        self.csv_filepath = create_csv_header(
                 self.path_to_experiment_recordings,
-                self.controller_name,
-                self.dt,
+                self.name,
+                0.1,
             )
 
-
-#ToDo safe upper/lower bound of ranges and filter in config.yml
-    def get_ranges(self):
-
-        if self.keys_ranges is None:
-            self.keys_ranges = self.lidar.get_lidar_scans_names()
-
-        self.ranges_dict = dict(zip(self.keys_ranges, self.lidar.processed_scans))
-
-    def get_odometry(self, odometry_dict):
-        self.odometry_dict = odometry_dict
-        if self.keys_odometry is None:
-            self.keys_odometry = self.odometry_dict.keys()
-
-    def get_time(self, time):
-        self.time_dict = {'time': time}
-        if self.keys_time is None:
-            self.keys_time = self.time_dict.keys()
-
-    def get_control_inputs_applied(self, control_inputs):
-        translational_control, angular_control = control_inputs
-        self.control_inputs_applied_dict = {'translational_control_applied': translational_control, 'angular_control_applied': angular_control}
-        if self.keys_control_inputs_applied is None:
-            self.keys_control_inputs_applied = self.control_inputs_applied_dict.keys()
-
-    def get_control_inputs_calculated(self, control_inputs):
-        translational_control, angular_control = control_inputs
-        self.control_inputs_calculated_dict = {'translational_control_calculated': translational_control, 'angular_control_calculated': angular_control}
-        if self.keys_control_inputs_calculated is None:
-            self.keys_control_inputs_calculated = self.control_inputs_calculated_dict.keys()
-
-
-    def get_next_waypoints(self, next_waypoints):
-        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:, WP_X_IDX]
-        waypoints_y_to_save = waypoints_to_save[:, WP_Y_IDX]
-        waypoints_vel_to_save = waypoints_to_save[:, WP_VX_IDX]
-
-
-        # Initialise
-        if self.keys_next_x_waypoints is None:
-            self.keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
-
-        if self.keys_next_y_waypoints is None:
-            self.keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
-            
-        if self.keys_next_vx_waypoints is None:
-            self.keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
-
-        self.next_waypoints_dict = dict(zip(self.keys_next_x_waypoints, waypoints_x_to_save))
-        self.next_waypoints_dict.update(zip(self.keys_next_y_waypoints, waypoints_y_to_save))
-        self.next_waypoints_dict.update(zip(self.keys_next_vx_waypoints, waypoints_vel_to_save))
+    def set_global_data(self, global_dict):
+        self.global_dict.update(global_dict)
+        self.dict_to_save.update(global_dict)        
+    
+    '''
+    Pass data to the recorder:
+    The recorder builds up a dictionary, which is saved every timestep.
+    For some complex or required data types, the creation uf the dict is already implemented ( time, state, next_waypoints, etc)
+    For non pre defined data, you can use custom_dict.
+    @param custom_dict: dictionary, is appended at the end of the recording
+    
+    Note: set_data will not save the data. Make sure you call Recorder.push_on_buffer() after set_data
+    Note: Also make sure to call save_csv at the end of the simulation
+    '''
+    def set_data(
+            self, 
+            time=None,                          # float32
+            control_inputs_applied=None,        # Control Input (float32)[2]
+            control_inputs_calculated=None,     # Control Input (float32)[2]
+            odometry=None,                      # Dict???
+            lidar_ranges=None,                  # Lidar Ranges (float32)[0:1080]
+            lidar_indices=None,                 # Lidar Indices between 0 and 1080 (int32)[0:1080]
+            state=None,                         # Car State (float32)[9]
+            next_waypoints=None, 
+            next_waypoints_relative=None,
+            custom_dict = None):                # Custom Dictionary appended to the recording data
         
-    def get_next_waypoints_relative(self, next_waypoints):
-        waypoints_to_save = np.array(next_waypoints[::waypoint_interpolation_steps])
-        waypoints_x_to_save = waypoints_to_save[:, 0]
-        waypoints_y_to_save = waypoints_to_save[:, 1]
+        data_dict = dict() 
+        
+        if(time is not None):
+            data_dict['time'] = time
+            
+        if(state is not None):
+            for index, state_variable in enumerate(FULL_STATE_VARIABLES):
+                data_dict[state_variable] = state[index]
+        
+        if(control_inputs_applied is not None):
+            data_dict['angular_control_applied'] = control_inputs_applied[ANGULAR_CONTROL_IDX]
+            data_dict['translational_control_applied'] = control_inputs_applied[TRANSLATIONAL_CONTROL_IDX]
+            
+        if(control_inputs_calculated is not None):
+            data_dict['angular_control_calculated'] = control_inputs_calculated[ANGULAR_CONTROL_IDX]
+            data_dict['translational_control_calculated'] = control_inputs_calculated[TRANSLATIONAL_CONTROL_IDX]
+        
+        if(next_waypoints is not None):
+            waypoint_dict = self.get_next_waypoints_dict(next_waypoints)
+            data_dict.update(waypoint_dict)
+        
+        if(next_waypoints_relative is not None):
+            waypoint_relative_dict = self.get_next_waypoints_relative_dict(next_waypoints_relative)
+            data_dict.update(waypoint_relative_dict)
 
+        if(lidar_ranges is not None and lidar_indices is not None):
+            lidar_names = ['LIDAR_' + str(i).zfill(4) for i in lidar_indices]
+            lidar_dict = dict(zip(lidar_names, lidar_ranges))
+            data_dict.update(lidar_dict)
+        
+        if(custom_dict is not None):
+            data_dict.update(custom_dict)
+        
+        data_dict.update(self.global_dict)        
+        self.dict_to_save.update(data_dict)
 
-        if self.keys_next_x_waypoints_rel is None:
-            # Initialise
-            self.keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+    
+    '''
+    Push data passed by Recorder.set_data() to the data buffer on RAM (very fast)
+    '''
+    def push_on_buffer(self,): # Do at every control stel
+        self.dict_buffer.append(self.dict_to_save.copy())
 
-        if self.keys_next_y_waypoints_rel is None:
-            # Initialise
-            self.keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
-
-        self.next_waypoints_rel_dict = dict(zip(self.keys_next_x_waypoints_rel, waypoints_x_to_save))
-        self.next_waypoints_rel_dict.update(zip(self.keys_next_y_waypoints_rel, waypoints_y_to_save))
-
-    def get_mu(self, mu):
-        self.mu_dict = {'mu': mu}
-        if self.keys_mu is None:
-            self.keys_mu = self.mu_dict.keys()
-
-
-    def get_state(self, state):
-
-        state_to_save = state
-
-        if self.keys_state is None:
-            self.keys_state = FULL_STATE_VARIABLES
-
-        self.state_dict = dict(zip(self.keys_state, state_to_save))
-
-    def get_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None, next_waypoints_relative=None, mu=None):
-        if time is not None:
-            self.get_time(time)
-        if control_inputs_applied is not None:
-            self.get_control_inputs_applied(control_inputs=control_inputs_applied)
-        if control_inputs_calculated is not None:
-            self.get_control_inputs_calculated(control_inputs=control_inputs_calculated)
-        if odometry is not None:
-            self.get_odometry(odometry_dict=odometry)
-        if state is not None:
-            self.get_state(state=state)
-        if self.lidar is not None:
-            self.get_ranges()
-        if next_waypoints is not None and len(next_waypoints) > 0:
-            self.get_next_waypoints(next_waypoints=next_waypoints)
-        if next_waypoints_relative is not None and len(next_waypoints_relative) > 0:
-            self.get_next_waypoints_relative(next_waypoints_relative)
-        if mu is not None:
-            self.get_mu(mu)
-
-
-    def save_data(self, control_inputs_applied=None, control_inputs_calculated=None, odometry=None, ranges=None, time=None, state=None, next_waypoints=None):
-        self.get_data(control_inputs_applied, control_inputs_calculated, odometry, ranges, time, state, next_waypoints)
-        self.save_csv()
-
+        
+    '''
+    Save data buffer array to CSV
+    Please only call once in a while but not every timestep
+    Dont forget to call at the end of simulation
+    '''
     def save_csv(self):
-
-        self.dict_to_save.update(self.time_dict)
-        self.dict_to_save.update(self.control_inputs_applied_dict)
-        self.dict_to_save.update(self.control_inputs_calculated_dict)
-        self.dict_to_save.update(self.odometry_dict)
-        self.dict_to_save.update(self.state_dict)
-        self.dict_to_save.update(self.ranges_dict)
-        self.dict_to_save.update(self.next_waypoints_dict)
-        self.dict_to_save.update(self.next_waypoints_rel_dict)
-        self.dict_to_save.update(self.mu_dict)
-
-
 
         # Save this dict
         with open(self.csv_filepath, "a") as outfile:
             writer = csv.writer(outfile)
 
             if not self.headers_already_saved:
-                writer.writerow(self.dict_to_save.keys())
-                self.headers_already_saved = True
+                
+                if(len(self.dict_buffer) > 0):
+                    writer.writerow(self.dict_buffer[-1].keys())
+                    self.headers_already_saved = True
 
-            if self.rounding_decimals == np.inf:
-                pass
-            else:
-                self.dict_to_save = {key: np.around(value, self.rounding_decimals)
-                                     for key, value in self.dict_to_save.items()}
+            for dict in self.dict_buffer:
+                dict = {key: np.around(value, self.rounding_decimals)
+                                        for key, value in dict.items()}
+                writer.writerow([float(x) for x in dict.values()])
+        self.dict_buffer = []
+        
+        
+    def get_next_waypoints_dict(self, next_waypoints):
+        
+        waypoints_x_to_save = next_waypoints[:, WP_X_IDX]
+        waypoints_y_to_save = next_waypoints[:, WP_Y_IDX]
+        waypoints_vel_to_save = next_waypoints[:, WP_VX_IDX]
 
-            writer.writerow([float(x) for x in self.dict_to_save.values()])
+        # Initialise
+        next_waypoints_dict = dict()
+        keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+        keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+        keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+
+        next_waypoints_dict = dict(zip(keys_next_x_waypoints, waypoints_x_to_save))
+        next_waypoints_dict.update(zip(keys_next_y_waypoints, waypoints_y_to_save))
+        next_waypoints_dict.update(zip(keys_next_vx_waypoints, waypoints_vel_to_save))
+        
+        return next_waypoints_dict
+        
+    def get_next_waypoints_relative_dict(self, next_waypoints_relative):
+        
+        waypoints_to_save = np.array(next_waypoints_relative[::waypoint_interpolation_steps])
+        waypoints_x_to_save = waypoints_to_save[:, 0]
+        waypoints_y_to_save = waypoints_to_save[:, 1]
+
+        # Initialise
+        next_waypoints_dict = dict()
+        keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
+        keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+
+        next_waypoints_dict = dict(zip(keys_next_x_waypoints_rel, waypoints_x_to_save))
+        next_waypoints_dict.update(zip(keys_next_y_waypoints_rel, waypoints_y_to_save))
+        
+        return next_waypoints_dict
+    
+   
 
     '''
     Generate plots from the csv file of the recording
@@ -354,19 +316,6 @@ class Recorder:
         
         
     def reset(self):
-        self.headers_already_saved = False
-        self.keys_time = None
-        self.keys_ranges = None
-        self.keys_odometry = None
-        self.keys_control_inputs_applied = None
-        self.keys_control_inputs_calculated = None
-        self.csv_filepath = None
-        self.time_dict = None
-        self.ranges_dict = None
-        self.odometry_dict = None
-        self.control_inputs_applied_dict = None
-        self.control_inputs_calculated_dict = None
-        self.next_waypoints_dict = None
-        self.next_waypoints_rel_dict = None
+        self.dict_buffer=[]
         self.dict_to_save = {}
 

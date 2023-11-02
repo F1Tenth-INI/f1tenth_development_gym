@@ -17,12 +17,11 @@ from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX
+from utilities.render_utilities import RenderUtils
 if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
-    from utilities.render_utilities_ros import RenderUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
-    from utilities.render_utilities import RenderUtils
 
 
 
@@ -58,7 +57,7 @@ class CarSystem:
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
         self.save_recording = save_recording
         if save_recording:
-            self.recorder = Recorder(controller_name='Blank-MPPI-{}'.format(str(car_index)), dt=Settings.TIMESTEP_CONTROL, lidar=self.LIDAR)
+            self.recorder = Recorder(name='Blank-MPPI-{}'.format(str(car_index)))
         self.obstacle_detector = ObstacleDetector()
 
         self.waypoints_for_controller = None
@@ -94,6 +93,7 @@ class CarSystem:
             self.planner = manual_planner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+            exit()
             
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
@@ -186,13 +186,16 @@ class CarSystem:
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
         if (Settings.SAVE_RECORDINGS and self.save_recordings):
-            self.recorder.get_data(
+                    
+            self.recorder.set_data(
+                time=self.time,
                 control_inputs_calculated=(self.translational_control, self.angular_control),
                 odometry=ego_odom,
+                lidar_ranges = self.LIDAR.processed_scans,
+                lidar_indices = self.LIDAR.processed_scan_indices,
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                time=self.time
             )     
         
         self.control_index += 1

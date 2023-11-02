@@ -13,6 +13,7 @@ from utilities.car_system import CarSystem
 from utilities.waypoints_generator import WaypointsGenerator
 
 import pandas as pd
+import os
 
 from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
@@ -269,7 +270,14 @@ def main():
             noisy_control.append([translational_control_with_noise, angular_control_with_noise])
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
-                    driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
+                    driver.recorder.set_data(
+                        custom_dict={
+                            'translational_control_applied':translational_control_with_noise,
+                            'angular_control_applied':angular_control_with_noise,
+                            'mu': env.params['mu']
+                        }
+                    )
+                    # driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
 
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
@@ -288,13 +296,17 @@ def main():
 
             obs, step_reward, done, info = env.step(np.array(controlls))
             laptime += step_reward
-
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
                 if(driver.save_recordings):
-                    driver.recorder.save_data()
+                    driver.recorder.push_on_buffer()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+    if (Settings.SAVE_RECORDINGS):
+        for index, driver in enumerate(drivers):
+            if(driver.save_recordings):
+                driver.recorder.save_csv()
+
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):

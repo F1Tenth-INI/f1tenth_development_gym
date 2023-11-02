@@ -1,10 +1,17 @@
 from utilities.Settings import Settings
-if(Settings.RENDER_MODE is not None):
-    from pyglet.gl import GL_POINTS
-    import pyglet.gl as gl
-    from pyglet import shapes
 import numpy as np
 from utilities.state_utilities import *
+
+# Imports depending on ROS/Gym
+if(Settings.ROS_BRIDGE):
+    import rospy
+    from visualization_msgs.msg import Marker, MarkerArray
+else:
+    if(Settings.RENDER_MODE is not None):
+        from pyglet.gl import GL_POINTS
+        import pyglet.gl as gl
+        from pyglet import shapes
+
 
 
 '''
@@ -72,6 +79,13 @@ class RenderUtils:
         self.car_state = None
         self.obstacles = None
         
+        if(Settings.ROS_BRIDGE):
+            print("initialising render utilities for ROS")
+
+            rospy.init_node('gym_bridge_driver', anonymous=True)
+            self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
+            self.pub_target_point = rospy.Publisher('/pp/lookahead', Marker, queue_size=1)
+        
 
     # Pass all data that is updated during simulation
     def update(self, 
@@ -104,10 +118,18 @@ class RenderUtils:
         self.target_point = target_point
         
     def update_obstacles(self, obstacles):
-        return
         self.obstacles = obstacles
+        return
+    
+    def render(self, e = None):
 
-    def render(self, e):
+        if(Settings.ROS_BRIDGE):
+            self.render_ros()
+        else:
+            self.render_gym(e)
+            
+
+    def render_gym(self, e):
         
         # Waypoints
         gl.glPointSize(1)
@@ -209,6 +231,91 @@ class RenderUtils:
             # else:
             #     self.obstacle_vertices.vertices = scaled_points_flat
 
+    
+    def render_ros(self):
+        #  Publish data for RVIZ
+        
+        # PP lookahead point
+        if(self.target_point is not None):
+            marker = Marker()
+            marker.header.frame_id = 'map'
+            marker.type = marker.SPHERE
+            marker.scale.x = 0.5
+            marker.scale.y = 0.5
+            marker.scale.z = 0.5
+            marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+
+            marker.id = 1444444
+            marker.pose.position.x = self.target_point[0]
+            marker.pose.position.y = self.target_point[1]
+            
+            marker.pose.orientation.w = 1
+            self.pub_target_point.publish(marker)
+        
+        # Rollouts
+        if(self.rollout_trajectory is None): return
+        rollout_markers = MarkerArray()        
+        p = 0
+        t = 0
+        t = 0
+        
+        t = 0        
+        
+        rollout_trajectory = np.array(self.rollout_trajectory)
+        rollout_points = rollout_trajectory[:,:,5:7]
+        rollout_points = rollout_points[:10]
+        
+        for trajectory in rollout_points:
+            alpha = 1 - 0.5
+            for point in trajectory:
+                # print("point shape", point.shape)
+                marker = Marker()
+                marker.header.frame_id = 'map'
+                marker.type = marker.SPHERE
+                marker.scale.x = 0.1
+                marker.scale.y = 0.1
+                marker.scale.z = 0.1
+                marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
+                marker.color.r = 1.0
+
+                marker.id = p
+                marker.pose.position.x = point[0]
+                marker.pose.position.y = point[1]
+                marker.pose.orientation.w = 1
+                rollout_markers.markers.append(marker)
+                p += 1
+            t += 1
+            
+
+
+        # optimal trajectory
+        if(self.optimal_trajectory is not None):
+            optimal_trajectory = self.optimal_trajectory[0]
+            for point in optimal_trajectory:
+            
+                    marker = Marker()
+                    marker.header.frame_id = 'map'
+                    marker.type = marker.SPHERE
+                    marker.scale.x = 0.1
+                    marker.scale.y = 0.1
+                    marker.scale.z = 0.1
+                    marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
+                    marker.color.r = 1.0
+                    marker.color.b = 1.0
+
+                    marker.id = p
+                    marker.pose.position.x = point[5]
+                    marker.pose.position.y = point[6]
+                    marker.pose.orientation.w = 1
+                    rollout_markers.markers.append(marker)
+                    p += 1
+                
+        self.pub_rollout.publish(rollout_markers)
+        return
+       
+       
     @staticmethod
     def get_scaled_points(points):
         if(points == [] or points is None): return np.array([])
