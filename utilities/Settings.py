@@ -124,11 +124,6 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
-    ## Neural Controller ##
-    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    PATH_TO_MODELS = './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
-    NET_NAME = 'Dense-89IN-64H1-64H2-2OUT-0'
-
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
@@ -142,6 +137,7 @@ class Settings():
 
     # Settings for data collection
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    APPLY_SPEED_SCALING_FROM_YAML = True
     START_FROM_RANDOM_POSITION = False
 
     WAYPOINTS_FROM_MPC = False

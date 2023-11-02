@@ -320,7 +320,9 @@ class Recorder:
         
         # Copy Settings and configs
         config_sage_path = os.path.join(save_path, "configs")
-        os.mkdir(config_sage_path)
+        
+        if not os.path.exists(config_sage_path):
+            os.mkdir(config_sage_path)
         shutil.copy("Control_Toolkit_ASF/config_controllers.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 
