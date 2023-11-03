@@ -30,6 +30,11 @@ class NeuralNetImitatorPlanner(template_planner):
         )
 
         self.nni.configure()
+        self.nn_inputs = self.nni.net_info.inputs
+        
+        if 'GRU' in self.nni.config_controller['net_name']:
+            Settings.ACCELERATION_TIME = 10 # GRU needs a little whashout 
+            print("GRU detected... set acceleration time to 10")
 
         number_of_next_waypoints_network = len([wp for wp in self.nni.net_info.inputs if wp.startswith("WYPT_REL_X")])
         if number_of_next_waypoints_network != Settings.LOOK_AHEAD_STEPS:
@@ -42,38 +47,54 @@ class NeuralNetImitatorPlanner(template_planner):
         if Settings.LIDAR_CORRUPT:
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
+
         self.LIDAR.corrupted_scans_high2zero()
 
         if Settings.LIDAR_PLOT_SCANS:
             self.LIDAR.plot_lidar_data()
 
-        # The NNI planner needs relativa waypoints in any case
-        waypoints_relative = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
+        # Build a dict data_dict, to store all environment and sensor data that we have access to
+        # The NNI will then extract the data it needs from this dict
+        # If you have access to more data than waypoints, state, etc, add it to the dict
+        
+        # About timing: Building the lidar dict takes 1ms, bulding the whole dict takes 1.3ms
+        # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
-        #Split up Waypoint Tuples into WYPT_X and WYPT_Y because Network used this format in training from CSV
+        # Lidar dict
+        lidar_keys = self.LIDAR.get_all_lidar_scans_names()
+        lidar_values = self.LIDAR.all_lidar_scans
+        lidar_dict = dict(zip(lidar_keys, lidar_values))
+
+        # Waypoint dict
+        waypoints_relative = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
         waypoints_relative_y = waypoints_relative[:, 1]
-
-        #Load Waypoint Velocities for next n (defined in Settings) waypoints
         next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
         
-        #In training all inputs are ordered alphabetically according to their index -> first LIDAR, then WYPTS, then States (because not capital letters)
-        #Example of all possible inputs in correct order:
-        # Order has to stay the same: SAME AS IN Config_training
-        # If we want to change, look at recording
-        #input_data = np.concatenate((ranges, next_waypoints_x, next_waypoints_y,
-        #                              [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX],
-        #                              self.car_state[POSE_THETA_COS_IDX], self.car_state[POSE_THETA_SIN_IDX],
-        #                              self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]]), axis=0)
+        keys_next_x_waypoints = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_relative_x))]
+        keys_next_y_waypoints = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_relative_y))]
+        keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(next_waypoint_vx))]
+        waypoints_dict = {
+            **dict(zip(keys_next_x_waypoints, waypoints_relative_x)),
+            **dict(zip(keys_next_y_waypoints, waypoints_relative_y)),
+            **dict(zip(keys_next_vx_waypoints, next_waypoint_vx))
+        }
+
+        # Carstate dict
+        state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in FULL_STATE_VARIABLES}
         
-        #Current Input:
-        input_data = np.concatenate((self.LIDAR.processed_scans, waypoints_relative_x, waypoints_relative_y, next_waypoint_vx,
-                                      [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
-
-
-        # input_data = np.concatenate((self.LIDAR.processed_scans,
-        #                               [self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[SLIP_ANGLE_IDX], self.car_state[STEERING_ANGLE_IDX]]), axis=0)
-
+        # Combine all dictionaries into one
+        data_dict = {**waypoints_dict, **state_dict, **lidar_dict}
+        
+        # Check if every key in self.nn_inputs is present in data_dict
+        if not all(key in data_dict for key in self.nn_inputs):
+            missing_keys = [key for key in self.nn_inputs if key not in data_dict]
+            raise Exception(f"Not all data the NN needs for input are present. The following keys are missing from data_dict: {missing_keys}")
+        
+        # Extract all data from dict that NN needs as input
+        input_data = [data_dict[key] for key in self.nn_inputs if key in data_dict]
+        
+        # NN prediction step 
         net_output = self.nni.step(input_data)
 
         self.angular_control = net_output[0, 0, 0]
