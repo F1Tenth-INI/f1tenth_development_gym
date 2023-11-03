@@ -22,8 +22,11 @@ class Settings():
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
-    DISABLE_AUTOMATIC_TERMINATION = True
+    STOP_TIMER_AFTER_N_LAPS = 2
+    DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
+    
+    # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
 
@@ -42,10 +45,11 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 100  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 100  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
-    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_REVORDING_EVERY_NTH_STEP = None # Save recordings also during the simulation (slow down, every Nth step, None for no saving during sim)
 
     ### State Estimation ###
 
