@@ -277,9 +277,8 @@ def main():
                             'mu': env.params['mu']
                         }
                     )
-                    # driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
-
+        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             controlls = []
 
@@ -295,18 +294,32 @@ def main():
                 controlls.append([sv, accl]) # Steering velocity, acceleration
 
             obs, step_reward, done, info = env.step(np.array(controlls))
+            
             laptime += step_reward
+            
+            # Collision ends simulation
+            if obs['collisions'][0] == 1:
+                # Save all recordings
+                driver.recorder.push_on_buffer()
+                driver.recorder.save_csv()
+                driver.recorder.plot_data()
+                driver.recorder.move_csv_to_crash_folder()
+                raise Exception("The car has crashed.")
+
+        # End of controller time step
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
                 if(driver.save_recordings):
                     driver.recorder.push_on_buffer()
-                    if(simulation_index %500 == 0):
-                        driver.recorder.save_csv()
-                        driver.recorder.plot_data()
-
-
+                    
+                    if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
+                        if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
+                            driver.recorder.save_csv()
+                            driver.recorder.plot_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+        
+    # End of similation
     if (Settings.SAVE_RECORDINGS):
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):

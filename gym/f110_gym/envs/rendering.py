@@ -35,6 +35,8 @@ from pyglet.gl import *
 import numpy as np
 from PIL import Image
 import yaml
+from utilities.Settings import Settings
+
 
 # helpers
 from f110_gym.envs.collision_models import get_vertices
@@ -339,7 +341,7 @@ class EnvRenderer(pyglet.window.Window):
 
     
         state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
-        self.score_label.text = '2-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
+        self.score_label.text = '{number_of_laps: .0f}-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(number_of_laps=Settings.STOP_TIMER_AFTER_N_LAPS, laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
         self.score_label.text +=  "\n" + state_text
 
         
