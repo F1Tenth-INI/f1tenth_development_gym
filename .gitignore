@@ -33,14 +33,21 @@ SI_Toolkit_ASF/Experiments/*
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
 
+AnalyseData
 
 utilities/maps/*
 utilities/maps_files/*
 utilities/minimum_curvature_optimization/inputs/tracks/
+!utilities/maps/hangar3
 !utilities/maps/hangar9
 !utilities/maps/hangar12
 !utilities/maps/hangar14
-
+!utilities/maps/icra2022
+!utilities/maps/icra2023
 !utilities/maps/london3_original
 !utilities/maps/london3_small
 !utilities/maps/london3_large
+!utilities/maps/ETF1
+!utilities/maps/ini10
+
+
