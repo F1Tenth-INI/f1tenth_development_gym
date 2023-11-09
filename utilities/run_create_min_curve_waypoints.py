@@ -56,7 +56,7 @@ class GlobalPlanner:
         
         print("Global Planner initialized")
 
-    def compute_global_trajectory(self, cent_length) -> bool:
+    def compute_global_trajectory(self, reverse=False) -> bool:
         """
         Compute the global optimized trajectory of a map.
 
@@ -78,7 +78,9 @@ class GlobalPlanner:
         ################################################################################################################
         # Create a filtered black and white image of the map
         ################################################################################################################
-    
+
+        if reverse: self.initial_position=[0.,0., math.pi]
+        
         img_path = os.path.join(self.map_dir, self.map_name + '_wp_min_curve.png')
         img_path_original = os.path.join(self.map_dir, self.map_name + '.png')
         
@@ -109,7 +111,7 @@ class GlobalPlanner:
         # Extract centerline from filtered occupancy grid map
         ################################################################################################################
         try:
-            centerline = self.extract_centerline(skeleton=skeleton, cent_length=cent_length)
+            centerline = self.extract_centerline(skeleton=skeleton, cent_length=0)
         except IOError:
             print("No closed contours found! Check and edit image...")
             return False
@@ -245,7 +247,13 @@ class GlobalPlanner:
         # publish global trajectory markers and waypoints
         # self.vis_wpnt_global_iqp_pub.publish(global_traj_markers_iqp)
         # self.wpnt_global_iqp_pub.publish(global_traj_wpnts_iqp)
-        path = os.path.join(self.map_dir, self.map_name+'_wp.csv')
+        
+        # Save as _wp.csv or _wp_reverse.csv
+        suffix = '_wp_reverse.csv' if reverse else '_wp.csv'
+        path = os.path.join(self.map_dir, self.map_name + suffix)
+        
+        # global_trajectory_iqp[:,3] += 0.5 * np.pi
+        
         np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2')
         
         # Save image of track including waypoints
@@ -266,7 +274,6 @@ class GlobalPlanner:
         
         
         print("Done. Waypouints saved. Drive carefully :)")
-        exit()
         
     
     def extract_centerline(self, skeleton, cent_length: float) -> np.ndarray:
@@ -813,4 +820,5 @@ class GlobalPlanner:
     
     
 global_planner = GlobalPlanner()
-global_planner.compute_global_trajectory(cent_length=0)
+global_planner.compute_global_trajectory( reverse=False)
+global_planner.compute_global_trajectory( reverse=True)

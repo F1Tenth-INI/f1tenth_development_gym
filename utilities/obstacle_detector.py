@@ -82,7 +82,8 @@ class ObstacleDetector:
     def get_fixed_length_obstacle_array(obstacles):
         obstacles_fixed_length =np.full((ObstacleDetector.number_of_fixed_length_array, 2), 10000, dtype=np.float32)
         for i, obstacle in enumerate(obstacles):
-            obstacles_fixed_length[i] = obstacle
+            if(i < obstacles_fixed_length.shape[0]):
+                obstacles_fixed_length[i] = obstacle
             
         return obstacles_fixed_length
             

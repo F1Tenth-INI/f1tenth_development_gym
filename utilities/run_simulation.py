@@ -82,15 +82,28 @@ def main():
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
 
+    conf = Namespace(**conf_dict)
+    
+    # Determine Starting positions
+    if hasattr(conf, 'starting_positions'):
+        starting_positions =  conf.starting_positions[0:number_of_drivers]
+    else:
+        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        starting_positions = [[0,0,0]]
+
+    if(len(starting_positions) < number_of_drivers):
+        print("No starting positions found")
+        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+        print("You can also let oponents start at random waypoint positions")
+        exit()
+        
     if Settings.REVERSE_DIRECTION:
         new_starting_positions = []
-        starting_positions = conf_dict['starting_positions']
         for starting_position in starting_positions:
             starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
             new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-        conf_dict['starting_positions'] = new_starting_positions
+        starting_positions = new_starting_positions
 
-    conf = Namespace(**conf_dict)
 
     ###Loading neural network for slip steer estimation -> specify net name in Settings
     if Settings.SLIP_STEER_PREDICTION:
@@ -137,19 +150,6 @@ def main():
 
     racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
     
-
-    # Determine Starting positions
-    if hasattr(conf, 'starting_positions'):
-        starting_positions =  conf.starting_positions[0:number_of_drivers]
-    else:
-        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
-        starting_positions = [[0,0,0]]
-
-    if(len(starting_positions) < number_of_drivers):
-        print("No starting positions found")
-        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-        print("You can also let oponents start at random waypoint positions")
-        exit()
         
             
     
@@ -160,6 +160,7 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)[1:4]
+        random_wp[0] += 0.5 * np.pi
         random_wp[0] += random.uniform(0.3, 0.5)
         random_wp[1] += random.uniform(0.3, 0.5)
         random_wp[2] += random.uniform(0.0, 0.2)
