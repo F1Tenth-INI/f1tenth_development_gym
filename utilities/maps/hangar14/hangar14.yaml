@@ -7,6 +7,5 @@ origin:
 - -23.767261
 - 0
 resolution: 0.05000000074505806
-
-starting_positions: 
- - [0., 0., 3.0]
+starting_positions:
+- [0., 0., .0]
