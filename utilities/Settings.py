@@ -10,10 +10,10 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "hangar12"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
+    MAP_NAME = "london3_small"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
-    REVERSE_DIRECTION = False
+    REVERSE_DIRECTION = True
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
@@ -45,7 +45,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -54,7 +54,7 @@ class Settings():
     ### State Estimation ###
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
 
 
 
@@ -80,19 +80,19 @@ class Settings():
     
     # waypoints:
     MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
-    LOOK_AHEAD_STEPS = 15                    # Number of original waypoints that are considered for cost
+    LOOK_AHEAD_STEPS = 20                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
@@ -136,8 +136,8 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
-    APPLY_SPEED_SCALING_FROM_YAML = True
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.9
+    APPLY_SPEED_SCALING_FROM_YAML = False
     START_FROM_RANDOM_POSITION = False
 
     WAYPOINTS_FROM_MPC = False

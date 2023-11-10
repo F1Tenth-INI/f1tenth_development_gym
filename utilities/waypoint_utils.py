@@ -149,6 +149,9 @@ class WaypointUtils:
             return None
         
         waypoints = pd.read_csv(file_path, header=1).to_numpy()
+        
+        # Original Psi is the normal angle but we want the translational one
+        waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
      
     @staticmethod
