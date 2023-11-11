@@ -47,7 +47,7 @@ def create_csv_header(path_to_recordings,
 
     # Set path where to save the data
     if csv_name is None or csv_name == '':
-        csv_filepath = path_to_recordings + 'F1TENTH_' + controller_name + '_' + str(
+        csv_filepath = path_to_recordings + 'F1TENTH_' + Settings.DATASET_NAME + '_' + str(
             datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '.csv'
     else:
         csv_filepath = csv_name
