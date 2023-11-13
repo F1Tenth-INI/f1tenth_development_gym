@@ -27,7 +27,7 @@ for reverse_direction in reverse_direction_values:
     print("reverse_direction", reverse_direction)
     for global_waypoint_velocity_factor in global_waypoint_velocity_factors:
         Settings.GLOBAL_WAYPOINT_VEL_FACTOR = global_waypoint_velocity_factor
-        print("global_waypoint_velocity_factor", global_waypoint_velocity_factor)
+        # print("global_waypoint_velocity_factor", global_waypoint_velocity_factor)
 
         
         for i in range(runs_with_obstacles):
@@ -42,6 +42,7 @@ for reverse_direction in reverse_direction_values:
         for i in range(runs_without_obstacles):
             Settings.PLACE_RANDOM_OBSTACLES = False
             print("runs_without_obstacles", i)
+            print("Speedfator: ", global_waypoint_velocity_factor)
             time.sleep(1)
             
             try:
