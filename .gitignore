@@ -20,7 +20,6 @@ SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 # Experiment data
 main/maps/WithRandomObstacles/*
 Experimentrecordings/*
-ExperimentRecordings/*
 Quadruped/plots
 
 # Submodule specific config files

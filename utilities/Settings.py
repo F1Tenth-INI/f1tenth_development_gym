@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "hangar9"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
+    MAP_NAME = "hangar14"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     REVERSE_DIRECTION = True
@@ -138,7 +138,8 @@ class Settings():
     # Settings for data collection
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.9
     APPLY_SPEED_SCALING_FROM_YAML = False
-    START_FROM_RANDOM_POSITION = False
+    START_FROM_RANDOM_POSITION = True
+    STARTING_POSITION = [0.0, 0.0, 0.0]
     DATASET_NAME = MAP_NAME + '_' + CONTROLLER + '_' + str(1/TIMESTEP_CONTROL) + 'Hz'
 
     WAYPOINTS_FROM_MPC = False

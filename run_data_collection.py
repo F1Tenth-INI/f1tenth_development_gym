@@ -6,7 +6,7 @@ import time
 # Speed scalling is globally set here... make sure its 1.0 everywhere in speed_scaling.yaml
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'hangar9'
+Settings.MAP_NAME = 'hangar14' # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, london3_large
 Settings.SAVE_RECORDINGS = True # Dont touch
 Settings.SAVE_PLOTS = True
 Settings.RENDER_MODE = None
@@ -33,6 +33,7 @@ for reverse_direction in reverse_direction_values:
         for i in range(runs_with_obstacles):
             Settings.PLACE_RANDOM_OBSTACLES = True
             print("runs_with_obstacles", i)
+            print("Speedfator: ", global_waypoint_velocity_factor)
             time.sleep(1)
             try:
                 run_experiments()
