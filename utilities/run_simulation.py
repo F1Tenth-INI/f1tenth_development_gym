@@ -85,11 +85,12 @@ def main():
     conf = Namespace(**conf_dict)
     
     # Determine Starting positions
+    
     if hasattr(conf, 'starting_positions'):
         starting_positions =  conf.starting_positions[0:number_of_drivers]
     else:
         print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
-        starting_positions = [[0,0,0]]
+        starting_positions = Settings.STARTING_POSITION
 
     if(len(starting_positions) < number_of_drivers):
         print("No starting positions found")
@@ -184,6 +185,10 @@ def main():
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
+    
+    # Set Starting position for Settings
+    
+    Settings.STARTING_POSITION = starting_positions
 
     if Settings.RENDER_MODE is not None:
         env.render()

@@ -80,7 +80,7 @@ def create_csv_header(path_to_recordings,
         writer.writerow(['# ' + 'Done with git-revision: {}'
                         .format(git_revision)])
 
-        writer.writerow(['#'])
+        writer.writerow(['# Starting position :',*np.array(Settings.STARTING_POSITION).tolist()])
 
         writer.writerow(['# Saving: {} s'.format(dt)])
 
