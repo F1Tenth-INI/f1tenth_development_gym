@@ -37,7 +37,7 @@ class NeuralNetImitatorPlanner(template_planner):
             print("GRU detected... set acceleration time to 10")
 
         number_of_next_waypoints_network = len([wp for wp in self.nni.net_info.inputs if wp.startswith("WYPT_REL_X")])
-        if number_of_next_waypoints_network != Settings.LOOK_AHEAD_STEPS:
+        if number_of_next_waypoints_network > Settings.LOOK_AHEAD_STEPS:
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
     def process_observation(self, ranges=None, ego_odom=None):
