@@ -5,12 +5,12 @@ import zipfile
 from datetime import datetime
 
 # Create the ZIP archive
-def csv_comprimisation(folder_path):
+def csv_comprimisation(folder_path, save_folder):
     
     # Zip up old trainingsdata
     ending = os.path.basename(folder_path)
     timestamp = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")
-    zip_filename = os.path.join(folder_path, f"csv_files_{ending}_{timestamp}.zip")
+    zip_filename = os.path.join(save_folder, f"csv_files_{ending}_{timestamp}.zip")
     
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
         # Iterate through all CSV files in the input folder and add them to the ZIP archive
@@ -67,6 +67,7 @@ validate_distribution = 0.1
 
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
+past_recordings = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Past_trainings"
 
 # Output folders for distribution
 output_folder_train = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Train"
@@ -77,9 +78,10 @@ output_folder_validate = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/
 create_directory(output_folder_validate)
 
 # Compremising older csvs and metadata
-csv_comprimisation(output_folder_train)
-csv_comprimisation(output_folder_test)
-csv_comprimisation(output_folder_validate)
+csv_comprimisation(output_folder_train, past_recordings)
+csv_comprimisation(output_folder_test, past_recordings)
+csv_comprimisation(output_folder_validate, past_recordings)
+
 subfolder_data_compression(input_folder)
 
 # List all CSV files in the input folder
@@ -107,6 +109,7 @@ for i, file in enumerate(csv_files):
     destination_path = os.path.join(destination_folder, file)
     shutil.copy(source_path, destination_path)
 
+csv_comprimisation(input_folder, input_folder)
+
 print("Files have been distributed successfully.")
 
-csv_comprimisation(input_folder)
