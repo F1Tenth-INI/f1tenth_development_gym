@@ -84,7 +84,7 @@ def create_csv_header(path_to_recordings,
 
         writer.writerow(['# Saving: {} s'.format(dt)])
 
-        writer.writerow(['#'])
+        writer.writerow(['# Speedfactor {}'.format(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)])
 
         writer.writerow(['# Controller: {}'.format(controller_name)])
 
