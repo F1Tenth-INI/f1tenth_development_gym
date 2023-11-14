@@ -102,7 +102,7 @@ class RaceCar(object):
 
         self.state = np.zeros((7, ))
         if self.ode_implementation == 'ODE_TF':
-            self.car_model = car_model('ODE:st', Settings.WITH_PID, 1, Settings.ENV_CAR_PARAMETER_FILE, 4 * self.time_step, 4) # TODO: Do not hardcode
+            self.car_model = car_model('ODE:st', Settings.WITH_PID, 1, Settings.ENV_CAR_PARAMETER_FILE, Settings.TIMESTEP_CONTROL, int(Settings.TIMESTEP_CONTROL / self.time_step))
         elif self.ode_implementation != 'f1tenth':
             raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
 
