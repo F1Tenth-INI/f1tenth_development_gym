@@ -6,7 +6,8 @@ import numpy as np
 from SI_Toolkit.load_and_normalize import load_data, append_derivatives
 
 base_path = 'SI_Toolkit_ASF/Experiments/'
-folder = '0_DNN_tiv/Recordings'
+# folder = '0_DNN_tiv/Recordings'
+folder = 'Experiment-0_real_car/Recordings_dungeon'
 path = f'./{base_path}/{folder}/**/*.csv'
 csv_files = glob.glob(path)
 file_paths = [os.path.relpath(file, f'{base_path}/{folder}') for file in csv_files]
@@ -37,10 +38,10 @@ dfs = load_data(csv_files)
 datapoints_removed = 0
 
 for i, df in enumerate(dfs):
-    # Fix delta values where there is a big jump in pose_theta
+    # Fix delta values where pose_theta is wrapped
     df.D_pose_theta = df.D_pose_theta * dt
-    df.D_pose_theta = np.where(df.D_pose_theta < 5.0, df.D_pose_theta, 2 * np.pi - df.D_pose_theta)  
-    df.D_pose_theta = np.where(df.D_pose_theta > -5.0, df.D_pose_theta, 2 * np.pi + df.D_pose_theta)
+    df.D_pose_theta = np.where(df.D_pose_theta > 3.0, df.D_pose_theta - 2 * np.pi, df.D_pose_theta)  
+    df.D_pose_theta = np.where(df.D_pose_theta < -3.0, 2 * np.pi + df.D_pose_theta, df.D_pose_theta)
     df.D_pose_theta = df.D_pose_theta / dt
 
     df = df.assign(D_car_pose_x=df.pose_theta_cos * df.D_pose_x + df.pose_theta_sin * df.D_pose_y)
@@ -49,7 +50,7 @@ for i, df in enumerate(dfs):
 for i, df in enumerate(dfs):
 
     start_size = len(df)
-    threshold_violated = ((abs(df.slip_angle) >= np.pi / 4) | (abs(df.D_angular_vel_z) > 50) | (abs(df.D_slip_angle) > 3.0) | (abs(df.D_car_pose_y) > 4))
+    threshold_violated = ((abs(df.slip_angle) >= np.pi / 4) | (abs(df.D_angular_vel_z) > 30) | (abs(df.D_car_pose_y) > 4))
 
     # Set experiment index
     diff = threshold_violated.diff()
@@ -57,13 +58,20 @@ for i, df in enumerate(dfs):
     df['experiment_index'] = np.floor(diff.cumsum() / 2)
     df = df[~threshold_violated]
 
-    # Remove experiments with only little slipping
-    no_slip = df[df.slip_angle.between(-0.005, 0.005)].groupby('experiment_index').size()
-    no_slip_percentage = (no_slip / df.groupby('experiment_index').size().reindex(no_slip.index) * 100).sort_values(ascending=False)
-    df = df[~df.experiment_index.isin(no_slip_percentage.iloc[0:50].index)]
+    #Remove experiments with only little slipping
+    # no_slip = df[df.slip_angle.between(-0.005, 0.005)].groupby('experiment_index').size()
+    # no_slip_percentage = (no_slip / df.groupby('experiment_index').size().reindex(no_slip.index) * 100).sort_values(ascending=False)
+    # df = df[~df.experiment_index.isin(no_slip_percentage.iloc[0:30].index)]
 
     # Remove datapoints
-    dfs[i] = df.groupby('experiment_index').filter(lambda x: len(x) >= 30)
+    df = df.groupby('experiment_index').filter(lambda x: len(x) >= 30)
+
+    #Remove experiments with no change in velocity
+    # no_vel_change = df[df.D_linear_vel_x.between(-0.005, 0.005)].groupby('experiment_index').size()
+    # no_vel_change_percentage = (no_vel_change / df.groupby('experiment_index').size().reindex(no_vel_change.index) * 100).sort_values(ascending=False)
+    # df = df[~df.experiment_index.isin(no_vel_change_percentage.iloc[0:30].index)]
+
+    dfs[i] = df
     datapoints_removed += start_size - len(dfs[i])
 
 print(f'Removed {datapoints_removed} datapoints')
