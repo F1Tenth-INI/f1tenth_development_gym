@@ -7,6 +7,34 @@ mpc:
   computation_library: tensorflow  # One of "numpy", "tensorflow", "pytorch". Defaults to "numpy" if none given.
   controller_logging: false
   calculate_optimal_trajectory: true
+
+  online_learning:
+    activated: False
+    save_net_history_every_n_training_steps: 100
+    controller_load_net_every_n_steps: 10
+    buffer_length: 1  # Number of datapoints to train on
+    train_every_n_steps: 1
+    epochs_per_training: 1
+    batch_size: 1
+    optimizer: 'adam'  # SGD or Adam
+    optimizers:
+      adam:
+        lr: 1.0e-4  # Default: 0.001
+        # lr: 0.0
+      SGD:
+        lr: 0.001  # Default 0.01
+        momentum: 0.0001  # Default 0.0
+    data_filter: 'None'  # None, butterworth or averaging
+    exponential_lr_decay:
+      activated: false
+      decay_rate: 0.95  # lr(t) = lr(0) * decay_rate^(t)
+    reduce_lr_on_plateau:  # Does not work for multiple epochs
+      activated: false
+      factor: 0.1  # Updated as lr *= factor
+      patience: 0  # How many steps to wait until lr is adjusted when higher loss is detected
+      min_lr: 1.0e-6
+      min_delta: 0.0
+
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
   PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/PP-Imitator/Models/'

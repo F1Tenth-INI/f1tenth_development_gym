@@ -5,6 +5,7 @@ paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ''
   PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/'  # Path where the experiments data is stored
+  DATA_FOLDER: 'Recordings/'
 
 
 training_default:
