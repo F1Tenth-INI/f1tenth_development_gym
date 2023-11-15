@@ -177,7 +177,7 @@ def main():
 
 
     env = gym.make('f110_gym:f110-v0', map=racetrack,
-                   map_ext=".png", num_agents=number_of_drivers, timestep=Settings.TIMESTEP_ENVIRONMENT,
+                   map_ext=".png", num_agents=number_of_drivers,
                    ode_implementation=Settings.ODE_IMPLEMENTATION)
     env.add_render_callback(render_callback)
     assert(env.timestep == 0.01)
