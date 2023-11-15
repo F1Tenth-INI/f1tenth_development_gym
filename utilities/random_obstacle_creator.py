@@ -134,8 +134,7 @@ def save_map(map_img, map_template_path, path_where_to_save_the_map=path_where_t
 
 
     overwrite_value_yaml(temp_yaml_filename, 'image', random_obstacle_map_filename+'.png')
-    overwrite_value_yaml(os.path.join(dir, 'config_map_gym.yaml'), 'map_path', new_map_path)
-    overwrite_value_yaml(os.path.join(dir, 'config_map_gym.yaml'), 'waypoint_path', os.path.join(dir, trackname+'_wp'))
+    overwrite_value_yaml(os.path.join(Settings.MAP_CONFIG_FILE), 'map_path', new_map_path)
 
 
     return os.path.join(dir, random_obstacle_map_filename)

@@ -56,7 +56,7 @@ class racing(f1t_cost_function):
 
         ## Crash cost: comment out for faster calculation...
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
-        crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+        # crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
@@ -85,11 +85,6 @@ class racing(f1t_cost_function):
             velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
             speed_control_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
 
-        ## Old waypoint cost function: only distance to nearest waypoint
-        # if self.variable_parameters.next_waypoints.shape[0]:
-        #     distance_to_waypoints_cost = self.get_distance_to_waypoints_cost(s, self.controller.next_waypoints)
-        # else:
-        #     distance_to_waypoints_cost = tf.zeros_like(acceleration_cost)
 
         speed_control_difference_to_wp_cost = self.normed_discount(speed_control_difference_to_wp_cost, s[0, :, 0], 0.95)
         # distance_to_wp_segments_cost = self.normed_discount(distance_to_wp_segments_cost, s[0, :, 0], 1.5)
@@ -98,7 +93,7 @@ class racing(f1t_cost_function):
 
         stage_cost = (
                 velocity_difference_to_wp_cost
-                + crash_cost
+                # + crash_cost
                 + cc
                 + ccrc
                 + ccocrc
