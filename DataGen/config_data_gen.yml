@@ -1,5 +1,5 @@
 # path_save_to: './ExperimentRecordings/'
-path_save_to: './SI_Toolkit_ASF/Experiments/0_tryout/Recording'
+path_save_to: './SI_Toolkit_ASF/Experiments/0_tryout/Recording'  # Not considered when running in ML pipeline. Then a new experiment is created in SI_Toolkit_ASF
 seed:    # If not assign random seed based on datetime is used
 split: [0.8, 0.1]  # Train/Val/(Test) split - only matters if you run it in ML Pipeline mode
 initial_states:
@@ -12,8 +12,8 @@ initial_states:
     yaw_rate: 0
     velocity_x: 5
     yaw_angle: 0
-    x: 0
-    y: 0
+    x:
+    y:
     slip_angle: 0
     steering_angle: 0
     init_limits: # The initial state is randomly chosen from below range if above is not assigned
