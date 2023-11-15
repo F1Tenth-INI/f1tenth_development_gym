@@ -162,7 +162,7 @@ class car_model:
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
-            delta = delta + self.t_step * delta_dot
+            delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max)
             v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
             angular_vel_z = angular_vel_z + self.t_step * psi_dot_dot
@@ -177,7 +177,7 @@ class car_model:
             pose_theta = psi
         pose_x = s_x
         pose_y = s_y
-        slip_angle = beta  # Same as in simulation environment
+        slip_angle = self.lib.zeros_like(beta)
         steering_angle = delta
 
         return self.next_step_output(angular_vel_z,
@@ -258,7 +258,7 @@ class car_model:
 
             s_x = s_x + self.t_step * s_x_dot
             s_y = s_y + self.t_step * s_y_dot
-            delta = delta + self.t_step * delta_dot
+            delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max)
             v_x = v_x + self.t_step * v_x_dot
             psi = psi + self.t_step * psi_dot
             psi_dot = psi_dot + self.t_step * psi_dot_dot
