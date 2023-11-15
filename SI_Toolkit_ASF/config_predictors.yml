@@ -21,7 +21,7 @@ predictors:
   ODE_TF_default:
     predictor_type: 'ODE_TF'
     model_name:
-    intermediate_steps: 4
+    intermediate_steps: 2
 
   # ADD YOUR PREDICTORS BELOW
 
@@ -35,27 +35,3 @@ predictors:
     predictor_type: 'ODE'
     model_name:
     intermediate_steps: 10
-
-  Tryout:
-    predictor_type: 'neural'
-    model_name: 'Dense-10IN-64H1-128H2-64H3-8OUT-0'
-    path_to_model: './SI_Toolkit_ASF/Experiments/0_tryout/Models'
-    update_before_predicting: False 
-
-  DNN:
-    predictor_type: 'neural'
-    model_name: 'Dense-10IN-64H1-128H2-64H3-8OUT-0'
-    path_to_model: './SI_Toolkit_ASF/Experiments/0_DNN/Models'
-    update_before_predicting: False 
-
-  LSTM:
-    predictor_type: 'neural'
-    model_name: 'LSTM-10IN-16H1-32H2-16H3-8OUT-1'
-    path_to_model: './SI_Toolkit_ASF/Experiments/0_LSTM/Models'
-    update_before_predicting: True 
-
-  ActiveLearning:
-    predictor_type: 'neural'
-    model_name: 'Custom-11IN-ODE_module.py-STModel-9OUT-0'
-    path_to_model: './SI_Toolkit_ASF/Experiments/0_AL/Models/'
-    update_before_predicting: False

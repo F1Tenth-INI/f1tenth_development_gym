@@ -1,9 +1,0 @@
-# Note: This is just the speed scaling from Hangar. Not used for random controller
-global_limit: 0.5
-n_sectors: 1
-Sector0:
-  start: 0
-  end: 414
-  scaling: 0.5
-  only_FTG: false
-  no_FTG: false

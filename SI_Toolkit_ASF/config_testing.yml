@@ -1,73 +1,4 @@
-# Testing
-# predictors_specifications_testing: [
-#   'ODE_TF',
-# ]
-
-# General models
-predictors_specifications_testing: [
-  # 'ODE_TF',
-
-  # 'SI_Toolkit_ASF/Experiments/0_AL/Models/',
-  # 'SI_Toolkit_ASF/Experiments/0_AL/Models/Custom-11IN-ODE_module.py-STModel_high_mu-9OUT-0',
-
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-8IN-64H1-128H2-64H3-8OUT-0',
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-10IN-64H1-128H2-64H3-8OUT-0',  # Best one
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-10IN-64H1-128H2-64H3-8OUT-0-0',  # 1e-4
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-10IN-64H1-128H2-64H3-8OUT-0-1',  # 1e-5
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-10IN-64H1-128H2-64H3-8OUT-0-2',  # Batch size 24, lr 1e-4
-  'SI_Toolkit_ASF/Experiments/0_DNN/Models/Dense-10IN-64H1-128H2-64H3-8OUT-0-3',  # Batch size 24, lr 1e-4
-
-  # 'SI_Toolkit_ASF/Experiments/0_LSTM/Models/LSTM-10IN-16H1-32H2-16H3-8OUT-1',  # Best one
-
-  # 'SI_Toolkit_ASF/Experiments/0_GRU/Models/GRU-10IN-16H1-32H2-16H3-8OUT-0',
-  # 'SI_Toolkit_ASF/Experiments/0_GRU/Models/GRU-10IN-32H1-32H2-32H3-8OUT-0',
-]
-
-# Random retrained DENSE
-# predictors_specifications_testing: [
-#   'ODE_TF',
-#   'SI_Toolkit_ASF/Experiments/2_hangar12/Models/Dense-10IN-128H1-128H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/3_random/Models/Dense-10IN-128H1-128H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/4_random_retrain_lower_mu/Models/Dense-10IN-128H1-128H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/5_random_retrain_hangar12/Models/Dense-10IN-128H1-128H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/6_random_retrain_hangar12_lower_mu/Models/Dense-10IN-128H1-128H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/10_random_retrain_mixed5050_random/Models/Dense-10IN-128H1-128H2-8OUT-0-0',
-#   # 'SI_Toolkit_ASF/Experiments/10_random_retrain_mixed5050/Models/Dense-10IN-128H1-128H2-8OUT-2',
-# ]
-
-# Random retrained LSTM
-# predictors_specifications_testing: [
-#   'ODE_TF',
-#   'SI_Toolkit_ASF/Experiments/2_hangar12/Models/LSTM-10IN-64H1-64H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/3_random/Models/LSTM-10IN-64H1-64H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/4_random_retrain_lower_mu/Models/LSTM-10IN-64H1-64H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/5_random_retrain_hangar12/Models/LSTM-10IN-64H1-64H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/6_random_retrain_hangar12_lower_mu/Models/LSTM-10IN-64H1-64H2-8OUT-0-0',
-#   'SI_Toolkit_ASF/Experiments/10_random_retrain_mixed5050_random/Models/LSTM-10IN-64H1-64H2-8OUT-0-0',
-#   # 'SI_Toolkit_ASF/Experiments/10_random_retrain_mixed5050/Models/LSTM-10IN-64H1-64H2-8OUT-2',
-# ]
-
-# Retrain random with hangar12 evolution DENSE
-# predictors_specifications_testing: [
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-1',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-2',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-3',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-4',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-5',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-6',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/Dense-10IN-128H1-128H2-8OUT-7',
-# ]
-
-# Retrain random with hangar12 evolution LSTM
-# predictors_specifications_testing: [
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-0',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-1',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-2',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-3',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-4',
-#   'SI_Toolkit_ASF/Experiments/7_random_retrain_hangar12_delta/Models/LSTM-10IN-64H1-64H2-8OUT-5',
-# ]
+predictors_specifications_testing: ['./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Models/Dense-89IN-64H1-64H2-2OUT-0'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -77,24 +8,13 @@ predictors_specifications_testing: [
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-path_to_testfile: './ExperimentRecordings/00_Test_ODE'
-# test_file: 'new_pid.csv'
-# test_file: 'original_pid.csv'
-# test_file: 'pid_as_predictor.csv'
-# test_file: 'F1TENTH_Blank-MPPI-1__2023-08-23_16-51-02.csv'
+test_file: 'F1TENTH_Blank-MPPI-1__2023-10-19_18-36-05.csv'
 
-test_file: 'track_high_mu.csv'
-# test_file: 'track_low_mu.csv'
-# test_file: 'track_high_mu_bw.csv'
-# test_file: 'track_low_mu_bw.csv'
-# test_file: 'ss_high_mu.csv'
-# test_file: 'ss_low_mu.csv'
+path_to_testfile: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Test/'
 
-
-# test_len: 'max'
-test_len: 600
-test_max_horizon: 40  # Indicates prediction horizon for testing
-test_start_idx: 1  # Indicates starting point from which data from test file should be taken
+test_len: 'max'
+test_max_horizon: 50  # Indicates prediction horizon for testing
+test_start_idx: 0  # Indicates starting point from which data from test file should be taken
 
 decimation: 1  # If your dataset has sampling frequency being multiple of your network's sampling frequency
 
