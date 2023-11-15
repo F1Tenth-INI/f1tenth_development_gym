@@ -1,10 +1,10 @@
 from SI_Toolkit.load_and_normalize import add_derivatives_to_csv_files
 
 for folder in ['Test', 'Validate', 'Train']:
-    experiment_folder = '99_tryout'
-    data_folder = 'sim_0.04'
+    experiment_folder = '0_AL'
+    data_folder = 'Recordings_dungeon'
     get_files_from = f'SI_Toolkit_ASF/Experiments/{experiment_folder}/{data_folder}/{folder}'
-    save_files_to = f'SI_Toolkit_ASF/Experiments/{experiment_folder}/{data_folder}/{folder}'
+    save_files_to = f'SI_Toolkit_ASF/Experiments/{experiment_folder}/{data_folder}_delta/{folder}'
     variables_for_derivative = ['pose_x',
                                 'pose_y',
                                 'pose_theta',
