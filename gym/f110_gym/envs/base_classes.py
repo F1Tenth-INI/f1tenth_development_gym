@@ -277,15 +277,14 @@ class RaceCar(object):
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
 
         # steering delay
-        # steer = 0.
-        # if self.steer_buffer.shape[0] < self.steer_buffer_size:
-        #     steer = 0.
-        #     self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-        # else:
-        #     steer = self.steer_buffer[-1]
-        #     self.steer_buffer = self.steer_buffer[:-1]
-        #     self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-        steer = raw_steer
+        steer = 0.
+        if self.steer_buffer.shape[0] < self.steer_buffer_size:
+            steer = 0.
+            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
+        else:
+            steer = self.steer_buffer[-1]
+            self.steer_buffer = self.steer_buffer[:-1]
+            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
 
         # print("RaceCar before", self.state)
         

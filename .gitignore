@@ -37,7 +37,6 @@ AnalyseData
 
 utilities/maps/*
 utilities/maps_files/*
-!utilities/maps/empty_map
 utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/hangar3
 !utilities/maps/hangar9
