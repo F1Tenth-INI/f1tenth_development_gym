@@ -47,7 +47,7 @@ def create_csv_header(path_to_recordings,
 
     # Set path where to save the data
     if csv_name is None or csv_name == '':
-        csv_filepath = path_to_recordings + 'F1TENTH_' + controller_name + '_' + str(
+        csv_filepath = path_to_recordings + 'F1TENTH_' + Settings.DATASET_NAME + '_' + str(
             datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '.csv'
     else:
         csv_filepath = csv_name
@@ -84,7 +84,7 @@ def create_csv_header(path_to_recordings,
 
         writer.writerow(['# Saving: {} s'.format(dt)])
 
-        writer.writerow(['#'])
+        writer.writerow(['# Speedfactor {}'.format(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)])
 
         writer.writerow(['# Controller: {}'.format(controller_name)])
 
@@ -106,6 +106,7 @@ class Recorder:
         # Init
         self.headers_already_saved = False
         self.csv_filepath = None
+        self.plot_path = None
         
         self.global_dict= dict()
         self.dict_to_save =dict()
@@ -211,6 +212,24 @@ class Recorder:
                 writer.writerow([float(x) for x in dict.values()])
         self.dict_buffer = []
         
+
+    def move_csv_to_crash_folder(self):
+        import os
+        import shutil
+
+        # Check if the crash directory exists, if not create it
+        dir_path = os.path.join(self.path_to_experiment_recordings, "crashes")
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+        # Move the file to the crash directory
+        shutil.move(self.csv_filepath, dir_path)
+        
+        # Move the plot directory to the crash directory
+        if self.plot_path is not None and os.path.isdir(self.plot_path):
+            shutil.move(self.plot_path, dir_path)
+        
+        
         
     def get_next_waypoints_dict(self, next_waypoints):
         
@@ -254,7 +273,10 @@ class Recorder:
     def plot_data(self):
         
         save_path = self.csv_filepath[:-4]+"_data"
-        os.mkdir(save_path)
+        self.plot_path = save_path
+        
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
         times = df['time'].to_numpy()[1:]
@@ -298,7 +320,9 @@ class Recorder:
         
         # Copy Settings and configs
         config_sage_path = os.path.join(save_path, "configs")
-        os.mkdir(config_sage_path)
+        
+        if not os.path.exists(config_sage_path):
+            os.mkdir(config_sage_path)
         shutil.copy("Control_Toolkit_ASF/config_controllers.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_cost_function.yml", config_sage_path) 
         shutil.copy("Control_Toolkit_ASF/config_optimizers.yml", config_sage_path) 

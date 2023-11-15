@@ -240,7 +240,7 @@ class F110Env(gym.Env):
                 self.near_starts[i] = False
                 self.toggle_list[i] += 1
             self.lap_counts[i] = self.toggle_list[i] // 2
-            if self.toggle_list[i] < 4:
+            if  self.lap_counts[i] < Settings.STOP_TIMER_AFTER_N_LAPS:
                 self.lap_times[i] = self.current_time
 
         if Settings.DISABLE_AUTOMATIC_TIMEOUT:

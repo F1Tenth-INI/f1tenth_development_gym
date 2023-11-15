@@ -14,7 +14,7 @@ cd f1tenth_development_gym/
 I highly recommend using Conda for virtual environments.
 First create a conda environment. 
 ```bash
-conda create -n f1t python=3.8
+conda create -n f1t python=3.9 # Working environment with Apple Silicon
 conda activate f1t
 ```
 

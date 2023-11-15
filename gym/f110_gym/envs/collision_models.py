@@ -290,7 +290,7 @@ class CollisionTests(unittest.TestCase):
         plt.xlim([1, 4])
         plt.ylim([5, 8])
         plt.axes().set_aspect('equal')
-        plt.show()
+        # plt.show()
         self.assertTrue(vertices.shape == (4, 2))
 
     def test_get_vert_fps(self):

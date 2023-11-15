@@ -82,15 +82,28 @@ def main():
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
 
+    conf = Namespace(**conf_dict)
+    
+    # Determine Starting positions
+    if hasattr(conf, 'starting_positions'):
+        starting_positions =  conf.starting_positions[0:number_of_drivers]
+    else:
+        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        starting_positions = [[0,0,0]]
+
+    if(len(starting_positions) < number_of_drivers):
+        print("No starting positions found")
+        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+        print("You can also let oponents start at random waypoint positions")
+        exit()
+        
     if Settings.REVERSE_DIRECTION:
         new_starting_positions = []
-        starting_positions = conf_dict['starting_positions']
         for starting_position in starting_positions:
             starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
             new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-        conf_dict['starting_positions'] = new_starting_positions
+        starting_positions = new_starting_positions
 
-    conf = Namespace(**conf_dict)
 
     ###Loading neural network for slip steer estimation -> specify net name in Settings
     if Settings.SLIP_STEER_PREDICTION:
@@ -137,19 +150,6 @@ def main():
 
     racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
     
-
-    # Determine Starting positions
-    if hasattr(conf, 'starting_positions'):
-        starting_positions =  conf.starting_positions[0:number_of_drivers]
-    else:
-        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
-        starting_positions = [[0,0,0]]
-
-    if(len(starting_positions) < number_of_drivers):
-        print("No starting positions found")
-        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-        print("You can also let oponents start at random waypoint positions")
-        exit()
         
             
     
@@ -160,6 +160,7 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)[1:4]
+        random_wp[0] += 0.5 * np.pi
         random_wp[0] += random.uniform(0.3, 0.5)
         random_wp[1] += random.uniform(0.3, 0.5)
         random_wp[2] += random.uniform(0.0, 0.2)
@@ -282,7 +283,6 @@ def main():
                             'mu': env.params['mu']
                         }
                     )
-                    # driver.recorder.get_data(control_inputs_applied=(translational_control_with_noise, angular_control_with_noise), mu=env.params['mu'])
 
         controlls = []
         for index, driver in enumerate(drivers):
@@ -304,13 +304,30 @@ def main():
             for i in range(intermediate_steps):
                 obs, step_reward, done, info = env.step(np.array(controlls))
                 laptime += step_reward
+            
+            # Collision ends simulation
+            if obs['collisions'][0] == 1:
+                # Save all recordings
+                driver.recorder.push_on_buffer()
+                driver.recorder.save_csv()
+                driver.recorder.plot_data()
+                driver.recorder.move_csv_to_crash_folder()
+                raise Exception("The car has crashed.")
 
+        # End of controller time step
         if (Settings.SAVE_RECORDINGS):
             for index, driver in enumerate(drivers):
                 if(driver.save_recordings):
                     driver.recorder.push_on_buffer()
+                    
+                    if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
+                        if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
+                            driver.recorder.save_csv()
+                            driver.recorder.plot_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+        
+    # End of similation
     if (Settings.SAVE_RECORDINGS):
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):

@@ -14,6 +14,8 @@ class LidarHelper:
         self.covered_angle_deg = Settings.LIDAR_COVERED_ANGLE_DEG
         self.covered_angle_rad = np.deg2rad(self.covered_angle_deg)
         self.num_scans_total = Settings.LIDAR_NUM_SCANS
+        
+        self.all_lidar_indices = np.arange(self.num_scans_total)
 
         self.scan_angles_all_rad = np.linspace(
             -self.covered_angle_rad/2.0,
@@ -70,8 +72,14 @@ class LidarHelper:
         processed_scan_indices = [int(lidar_col[i][len('LIDAR_'):]) for i in range(len(lidar_col))]
         return processed_scan_indices
 
+    # Get names for processed data only
     def get_lidar_scans_names(self):
         self.lidar_names = ['LIDAR_' + str(i).zfill(4) for i in self.processed_scan_indices]
+        return self.lidar_names
+    
+    # Get names for all lidar data (large)
+    def get_all_lidar_scans_names(self):
+        self.lidar_names = ['LIDAR_' + str(i).zfill(4) for i in self.all_lidar_indices]
         return self.lidar_names
 
     def corrupt_lidar_set_indices(self):

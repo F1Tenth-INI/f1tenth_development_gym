@@ -14,7 +14,7 @@ class Settings():
     # MAP_NAME = "london3_small"  # hangar3, hangar9, hangar11, hangar12, icra2022, ini1, Oschersleben
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
-    REVERSE_DIRECTION = False
+    REVERSE_DIRECTION = True
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
@@ -23,8 +23,11 @@ class Settings():
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
-    DISABLE_AUTOMATIC_TERMINATION = True
+    STOP_TIMER_AFTER_N_LAPS = 2
+    DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
+    
+    # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
 
@@ -43,10 +46,11 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 100  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
-    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_REVORDING_EVERY_NTH_STEP = None # Save recordings also during the simulation (slow down, every Nth step, None for no saving during sim)
 
     ### State Estimation ###
 
@@ -78,23 +82,22 @@ class Settings():
     
     # waypoints:
     MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
-    LOOK_AHEAD_STEPS = 15                    # Number of original waypoints that are considered for cost
+    LOOK_AHEAD_STEPS = 20                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
-    TIMESTEP_PLANNER = 0.04      # For model based planner (MPC) timestep of simulation, can be arbitrary number
-    TIMESTEP_ENVIRONMENT = 0.01  # The timestep used for the simulation, can be arbitrary, default 0.01 --> Do not use
+    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
@@ -123,11 +126,6 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
-    ## Neural Controller ##
-    #Network to be used for Neural control in nni_planner   -> Path to model can be adapted in nni_planner (controller=neursl)
-    PATH_TO_MODELS = './SI_Toolkit_ASF/Experiments/Obstacle_v1/Models/'
-    NET_NAME = 'Dense-89IN-64H1-64H2-2OUT-0'
-
     ## MPC Controller ##
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
@@ -140,8 +138,10 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.9
+    APPLY_SPEED_SCALING_FROM_YAML = False
     START_FROM_RANDOM_POSITION = False
+    DATASET_NAME = MAP_NAME + '_' + CONTROLLER + '_' + str(1/TIMESTEP_CONTROL) + 'Hz'
 
     WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4
