@@ -11,6 +11,10 @@ docs/_build/
 flycheck_*
 dev.py
 
+# configs
+utilites/Settings.py
+Control_Toolkit_ASF/config_controllers.yml
+
 # NN Models
 SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 
