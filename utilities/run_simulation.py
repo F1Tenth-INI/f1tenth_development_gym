@@ -81,6 +81,21 @@ def main():
 
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+    
+    conf = Namespace(**conf_dict)
+        
+    # Determine Starting positions [pos_x, pos_y, absolut_angle_car]
+    if hasattr(conf, 'starting_positions'):
+        starting_positions =  conf.starting_positions[0:number_of_drivers]
+    else:
+        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        starting_positions = [[0,0,0]]
+
+    if(len(starting_positions) < number_of_drivers):
+        print("No starting positions found")
+        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+        print("You can also let oponents start at random waypoint positions")
+        exit()
 
     conf = Namespace(**conf_dict)
     
@@ -99,12 +114,19 @@ def main():
         exit()
         
     if Settings.REVERSE_DIRECTION:
+        starting_positions = [[0,0,-3.0]]
         new_starting_positions = []
+        # starting_positions = conf_dict['starting_positions']
         for starting_position in starting_positions:
             starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
             new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-        starting_positions = new_starting_positions
+            print(new_starting_positions)
+        conf_dict['starting_positions'] = new_starting_positions
+        # conf_dict['starting_positions'] = starting_positions
+        # print(conf_dict['starting_positions'])
+        
 
+    
 
     ###Loading neural network for slip steer estimation -> specify net name in Settings
     if Settings.SLIP_STEER_PREDICTION:
