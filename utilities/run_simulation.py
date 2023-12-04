@@ -19,7 +19,7 @@ from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
 
 # Utilities
-from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
+from utilities.state_utilities import * 
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 
 from time import sleep
@@ -138,14 +138,15 @@ def main():
         angular_control = None
     
 
-    def get_odom(obs, agent_index):
+    def get_odom(obs, agent_index, drivers):
+        
         odom = {
-            'pose_x': obs['poses_x'][agent_index],
-            'pose_y': obs['poses_y'][agent_index],
-            'pose_theta': obs['poses_theta'][agent_index],
-            'linear_vel_x': obs['linear_vels_x'][agent_index],
-            'linear_vel_y': obs['linear_vels_y'][agent_index],
-            'angular_vel_z': obs['ang_vels_z'][agent_index]
+            'pose_x': drivers[agent_index].car_state[POSE_X_IDX],
+            'pose_y': drivers[agent_index].car_state[POSE_Y_IDX],
+            'pose_theta': drivers[agent_index].car_state[POSE_THETA_IDX],
+            'linear_vel_x': drivers[agent_index].car_state[LINEAR_VEL_X_IDX],
+            'linear_vel_y': 0, #drivers[agent_index].car_state[LINEAR_VEL_Y_IDX],
+            'angular_vel_z': drivers[agent_index].car_state[ANGULAR_VEL_Z_IDX],
         }
         return odom
 
@@ -252,10 +253,10 @@ def main():
             if Settings.FROM_RECORDING:
                 sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
-                odom = {} # FIXME: MPC uses just the car state
+                odom = get_odom(obs, index, drivers)
                 env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
             else:
-                odom = get_odom(obs, index)
+                odom = get_odom(obs, index, drivers)
                 odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
                 # Add Noise to the car state
@@ -326,13 +327,14 @@ def main():
             laptime += step_reward
             
             # Collision ends simulation
-            if obs['collisions'][0] == 1:
-                # Save all recordings
-                driver.recorder.push_on_buffer()
-                driver.recorder.save_csv()
-                driver.recorder.plot_data()
-                driver.recorder.move_csv_to_crash_folder()
-                raise Exception("The car has crashed.")
+            if Settings.CRASH_DETECTION:
+                if obs['collisions'][0] == 1:
+                    # Save all recordings
+                    driver.recorder.push_on_buffer()
+                    driver.recorder.save_csv()
+                    driver.recorder.plot_data()
+                    driver.recorder.move_csv_to_crash_folder()
+                    raise Exception("The car has crashed.")
 
         # End of controller time step
         if (Settings.SAVE_RECORDINGS):
