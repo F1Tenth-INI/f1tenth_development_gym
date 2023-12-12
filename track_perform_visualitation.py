@@ -6,11 +6,13 @@ import yaml
 
 def plot_wp(map_name, experiment_folder_path, img_path, sim, real):
     
-    real_path = experiment_folder_path + real
+    if real is None:
+        real_path = None
+    else:
+        real_path = experiment_folder_path + real
+        
     sim_path = experiment_folder_path + sim
-    
     experiment_data = experiment_folder_path + sim.split('.')[0] + '_data/'
-    print(experiment_data)
     
     # Load the data
     wp_data = pd.read_csv(img_path + '_wp.csv')
@@ -32,9 +34,8 @@ def plot_wp(map_name, experiment_folder_path, img_path, sim, real):
         data = yaml.safe_load(file)
 
     # Load the background image
-    # print("Image path:", img_path+ '.png')
     img = plt.imread(img_path + '.png')
-    # img = plt.imread('./utilities/maps/RCA1/RCA1_wp_min_curve_og.png')
+
     # Determine the limits based on the origin and resolution
     x_min = data['origin'][0]
     y_min = data['origin'][1]
@@ -103,55 +104,172 @@ def plot_wp(map_name, experiment_folder_path, img_path, sim, real):
     plt.legend(loc='upper right')
 
     # Save the plot as a PNG
-    plt.savefig(experiment_data + '_result.png')
+    plt.savefig(experiment_data + 'Plot_' + map_name + '_wp.png')
+    print("Plot saved as: ", experiment_data + sim.split('.')[0] +'Plot' + map_name + "_wp.png")
     plt.show()
     
-def plot_vector_wp(path, map_name, sim_path, path_wp, real_data):
-    if real_data is not None:
-        real_data = pd.read_csv(real_data, skiprows=8)
-    if sim_path is not None:
-        sim_data = pd.read_csv(sim_path, skiprows=8)
-    if path_wp is not None:
-        wp_data = pd.read_csv(path_wp)
+def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
+    if real is None:
+        real_path = None
+    else:
+        real_path = experiment_folder_path + real
+            
+    sim_path = experiment_folder_path + sim
+    experiment_data = experiment_folder_path + sim.split('.')[0] + '_data/'
+    
+    # Load the data
+    wp_data = pd.read_csv(img_path + '_wp.csv')
+    if real_path is not None:
+        real_data = pd.read_csv(real_path, skiprows=8)
+    sim_data = pd.read_csv(sim_path, skiprows=8)
 
-    if real_data is not None:
+    if real_path is not None:
+        real_time = real_data['time'].to_numpy()
         real_x = real_data['pose_x'].to_numpy()
         real_y = real_data['pose_y'].to_numpy()
         real_kappa = real_data['pose_theta'].to_numpy()
-        real_ax = real_data['linear_vel_x'].to_numpy()
+        real_vx = real_data['linear_vel_x'].to_numpy()
+        real_translational_con_cal = real_data['translational_control_calculated'].to_numpy()
+        real_angular_con_cal = real_data['angular_control_calculated'].to_numpy()
     
     if sim_path is not None:
+        sim_time = sim_data['time'].to_numpy()
         sim_x = sim_data['pose_x'].to_numpy()
         sim_y = sim_data['pose_y'].to_numpy()
         sim_kappa = sim_data['pose_theta'].to_numpy()
-        sim_ax = sim_data['linear_vel_x'].to_numpy()
+        sim_vx = sim_data['linear_vel_x'].to_numpy()
+        sim_translational_con_applied = sim_data['translational_control_applied'].to_numpy()
+        sim_translational_con_cal = sim_data['translational_control_calculated'].to_numpy()
+        sim_angular_con_applied = sim_data['angular_control_applied'].to_numpy()
+        sim_angular_con_cal = sim_data['angular_control_calculated'].to_numpy()
 
-    if path_wp is not None:
-        wp_x = wp_data['x_m'].to_numpy()
-        wp_y = wp_data['y_m'].to_numpy()
-        wp_kappa = wp_data['kappa_radpm'].to_numpy()
-        wp_ax = wp_data['vx_mps'].to_numpy()
+    wp_x = wp_data['x_m'].to_numpy()
+    wp_y = wp_data['y_m'].to_numpy()
+    wp_kappa = wp_data['kappa_radpm'].to_numpy()
+    wp_vx = wp_data['vx_mps'].to_numpy()
+    
+    # Matching the length of the arrays to compare
+    if real_path is not None and sim_path is not None:
+        min_time = min(len(sim_time), len(real_time))
+        min_length = min(len(sim_x), len(real_x))
+        sim_time = sim_time[:min_time]
+        real_time = real_time[:min_time]
+        sim_x = sim_x[:min_length]
+        real_x = real_x[:min_length]
+        sim_y = sim_y[:min_length]
+        real_y = real_y[:min_length]
+        sim_kappa = sim_kappa[:min_length]
+        real_kappa = real_kappa[:min_length]
+        sim_vx = sim_vx[:min_length]
+        real_vx = real_vx[:min_length]
+        sim_angular_con_applied = sim_angular_con_applied[:min_length]
+        real_angular_con_cal = real_angular_con_cal[:min_length]
+        sim_angular_con_cal = sim_angular_con_cal[:min_length]
+        sim_translational_con_applied = sim_translational_con_applied[:min_length]
+        real_translational_con_cal = real_translational_con_cal[:min_length]
+        sim_translational_con_cal = sim_translational_con_cal[:min_length]
+        
+    print("Length of sim_time: ", sim_angular_con_cal)
+    print("Length of real_time: ", real_angular_con_cal)
+    
+    # Calculate the error
+    error_abs_pos_x = np.abs(sim_x - real_x)
+    error_abs_pos_y = np.abs(sim_y - real_y)
+    error_abs_kappa = np.abs(sim_kappa - real_kappa)
+    error_abs_vx = np.abs(sim_vx - real_vx)
+    error_pos = np.sqrt(error_abs_pos_x**2 + error_abs_pos_y**2)
+    
+    error_translation_sim = np.abs(sim_translational_con_applied - sim_translational_con_cal)
+    error_angular_sim = np.abs(sim_angular_con_applied - sim_angular_con_cal)
+    error_translational_con_cal = np.abs(sim_translational_con_cal - real_translational_con_cal)
+    error_angular_con_cal = np.abs(sim_angular_con_cal - real_angular_con_cal)    
+
+    print("Error in position: ", error_translational_con_cal)
+    print("Error in angle: ", error_angular_con_cal)
+    
+    # Load the background image
+    with open(img_path + '.yaml', 'r') as file:
+        data = yaml.safe_load(file)
+    img = plt.imread(img_path + '.png')
+    
+    # Determine the limits based on the origin and resolution
+    x_min = data['origin'][0]
+    y_min = data['origin'][1]
+    x_max = x_min + img.shape[1] * data['resolution']
+    y_max = y_min + img.shape[0] * data['resolution']
+
+    #TODO: Calculate one laptime for real and sim
+    
+    
+    # Create the figure and axes    
+    fig, ax = plt.subplots(4)
+    ax[0].imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
+    ax[1].imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
     
     # Create the vector plot
-    plt.quiver(wp_x, wp_y, wp_ax*np.cos(wp_kappa), wp_ax*np.sin(wp_kappa), color='red', label='RCA1_wp')
-    plt.quiver(real_x, real_y, real_ax*np.cos(real_kappa), real_ax*np.sin(real_kappa), color='blue', linestyle='dashed', label='RCA1_real')
+    # Subplot 1 with real data
+    if real_path is not None:
+        ax[0].quiver(wp_x, wp_y, wp_vx*np.cos(wp_kappa), wp_vx*np.sin(wp_kappa), color='red', label=map_name + '_wp')
+        ax[0].quiver(real_x, real_y, real_vx*np.cos(real_kappa), real_vx*np.sin(real_kappa), color='blue', label= map_name + '_real')
+        ax[0].grid(True)
+        ax[0].set_title(map_name + ' Coordinate System 1 real vs wp')
+        ax[0].set_xlabel('x')
+        ax[0].set_ylabel('y')
+        ax[0].legend()
+        
+        # Fügen Sie Zeitmarkierungen hinzu
+        for i in range(0, len(sim_time), 250): # last is 250 for 5s since 50Hz sampling rate
+            ax[0].annotate(str(real_time[i]), (real_x[i], real_y[i]))
+            ax[1].annotate(str(sim_time[i]), (sim_x[i], sim_y[i]))
+        
 
-    plt.grid(True)
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.title('RCA1 Coordinate System')
-    plt.legend(['RCA1'], loc='upper right')
+    # Subplot 2 with sim data   
+    ax[1].quiver(wp_x, wp_y, wp_vx*np.cos(wp_kappa), wp_vx*np.sin(wp_kappa), color='red', label=map_name +'_wp')
+    ax[1].quiver(sim_x, sim_y, sim_vx*np.cos(sim_kappa), sim_vx*np.sin(sim_kappa), color='purple', label=map_name + '_sim')
+    ax[1].grid(True)
+    ax[1].set_title(map_name + ' Coordinate System 2 sim vs wp')
+    ax[1].set_xlabel('x')
+    ax[1].set_ylabel('y')
+    ax[1].legend()
+    
+    
+    # Subplot 3 with error and time
+    ax[2].plot(sim_time, error_pos, color='green', label='error between sim and real position')
+    ax[2].plot(sim_time, error_abs_kappa, color='blue', label='error between sim and real kappa')
+    ax[2].plot(sim_time, error_abs_vx, color='red', label='error between sim and real vx')
+    ax[2].grid(True)
+    ax[2].set_title('Error over time')
+    ax[2].set_xlabel('time')
+    ax[2].set_ylabel('error')
+    ax[2].legend()
+
+    # Subplot 4 with error and time
+    # ax[3].plot(sim_time, error_translation_sim, color='green', linestyle='dashed', label='error between applied and calculated translational control sim')
+    # ax[3].plot(sim_time, error_angular_sim, color='red', label='error between applied and calculated angular control sim')
+    ax[3].plot(sim_time, error_angular_con_cal, color='blue', label='error between calculated angular control sim and real')
+    ax[3].plot(sim_time, error_translational_con_cal, color='orange', label='error between calculated translational control sim and real')
+    # ax[3].plot(sim_time, error_translational_real, color='orange', label='error between applied and calculated translational control real') #TODO: get data from real to plot this
+    # ax[3].plot(sim_time, error_angular_real, color='blue', label='error between applied and calculated angular control real') #TODO: get data from real to plot this
+    ax[3].grid(True)
+    ax[3].set_title('Error over time')
+    ax[3].set_xlabel('time')
+    ax[3].set_ylabel('error')
+    ax[3].legend()
 
     # Save the plot as a PNG
-    plt.savefig(path+map_name+'_test.png')
+    # plt.savefig(experiment_data + sim.split('.')[0] + '_Plot_' + map_name + '_wp_vector.png')
+    plt.savefig(exper_folder_path + 'Performance_tracking/Plot_' + sim.split('.')[0] + '_wp_vector.png')
     plt.show()
 
-# Load the data
+# Set the data to be plotted paths
+
 map_name = 'RCA1'
 exper_folder_path = './ExperimentRecordings/'
 img_path = './utilities/maps/' + map_name + '/' + map_name # if no img, set to None
-real_data = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv' # if no real data, set to None
-sim_data = 'F1TENTH_RCA1_neural_50Hz__2023-12-04_15-51-54.csv' # if no sim data, set to None
+real_data = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv' # if no real data, set to None 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
+sim_data = 'F1TENTH_RCA1_mpc_50Hz__2023-12-11_20-40-02.csv' # if no sim data, set to None
 
+# Plot the data with the desired settings
 
-plot_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+# plot_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
