@@ -17,6 +17,7 @@ import os
 
 from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
+from utilities.waypoint_utils import *
 
 # Utilities
 from utilities.state_utilities import * 
@@ -186,17 +187,17 @@ def main():
     
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:
-        from utilities.waypoint_utils import WaypointUtils
         import random
         
         wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)[1:4]
-        random_wp[0] += 0.5 * np.pi
-        random_wp[0] += random.uniform(0.3, 0.5)
-        random_wp[1] += random.uniform(0.3, 0.5)
-        random_wp[2] += random.uniform(0.0, 0.2)
+        random_wp = random.choice(wu.waypoints)
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[2] += 0.5 * np.pi
+        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
         
-        starting_positions[0] = random_wp
+        starting_positions[0] = random_wp[1:4]
         print("Starting position: ", random_wp)
     
         
@@ -258,7 +259,7 @@ def main():
 
         for index, driver in enumerate(drivers):
             if Settings.FROM_RECORDING:
-                sleep(0.05)
+                # sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
                 odom = get_odom(obs, index, drivers)
                 env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
