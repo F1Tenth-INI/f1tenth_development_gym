@@ -156,7 +156,7 @@ class f1t_cost_function(cost_function_base):
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
         steering = u[:, :, ANGULAR_CONTROL_IDX]
-        steering = tf.abs(steering)
+        steering = tf.square(steering)
         steering_cost = steering_cost_weight * steering
 
         return steering_cost

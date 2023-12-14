@@ -17,6 +17,7 @@ import os
 
 from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
+from utilities.waypoint_utils import *
 
 # Utilities
 from utilities.state_utilities import * 
@@ -77,6 +78,13 @@ def main():
     ###############################################################
 
     number_of_drivers = len(drivers)
+    
+    # Control can be executed delays ( as on physical car )
+    # Control steps are first have to go throuh the control delay buffer before they are executed
+    control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+    control_delay_buffer =  control_delay_steps * [[[0.0, 0.1]]]
+
+    
     print("initializing environment with", number_of_drivers, "drivers")
 
     with open(map_config_file) as file:
@@ -179,17 +187,17 @@ def main():
     
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:
-        from utilities.waypoint_utils import WaypointUtils
         import random
         
         wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)[1:4]
-        random_wp[0] += 0.5 * np.pi
-        random_wp[0] += random.uniform(0.3, 0.5)
-        random_wp[1] += random.uniform(0.3, 0.5)
-        random_wp[2] += random.uniform(0.0, 0.2)
+        random_wp = random.choice(wu.waypoints)
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[2] += 0.5 * np.pi
+        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
         
-        starting_positions[0] = random_wp
+        starting_positions[0] = random_wp[1:4]
         print("Starting position: ", random_wp)
     
         
@@ -251,7 +259,7 @@ def main():
 
         for index, driver in enumerate(drivers):
             if Settings.FROM_RECORDING:
-                sleep(0.05)
+                # sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
                 odom = get_odom(obs, index, drivers)
                 env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
@@ -291,12 +299,12 @@ def main():
             render_index += 1
 
         # Get noisy control for each driver:
-        noisy_control = []
+        agent_control_with_noise = []
         for index, driver in enumerate(drivers):
-            translational_control_with_noise = add_noise(driver.translational_control,
-                                                         noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
-            noisy_control.append([translational_control_with_noise, angular_control_with_noise])
+            translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
+            agent_control_with_noise.append([angular_control_with_noise, translational_control_with_noise, ])
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -309,19 +317,23 @@ def main():
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            
+            
+            control_delay_buffer.append(agent_control_with_noise)        
+            agent_control_executed  = control_delay_buffer.pop(0)
+            
+            # Check if PID controller needs to be applied
             controlls = []
-
             for index, driver in enumerate(drivers):
-                translational_control_with_noise, angular_control_with_noise = noisy_control[index]
+                angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
                 if Settings.WITH_PID:
-                    accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
-                                   cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                   cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-                else:
-                    accl, sv = translational_control_with_noise, angular_control_with_noise
+                    translational_control_executed, angular_control_ecexuted = pid(translational_control_executed, angular_control_ecexuted,
+                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 
-                controlls.append([sv, accl]) # Steering velocity, acceleration
+                controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
 
+            # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
             
             laptime += step_reward

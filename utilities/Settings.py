@@ -13,6 +13,11 @@ class Settings():
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
+    
+    # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
+    CONTROL_DELAY = 0.1  
+    
     REVERSE_DIRECTION = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car

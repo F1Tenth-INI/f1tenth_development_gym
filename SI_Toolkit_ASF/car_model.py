@@ -1,4 +1,3 @@
-import tensorflow as tf
 import yaml
 from utilities.path_helper_ros import *
 
@@ -367,9 +366,9 @@ class car_model:
         
         steering_angle_difference = desired_steering_angle - current_steering_angle
 
-        steering_angle_difference_not_too_low_indices = tf.math.greater(tf.math.abs(steering_angle_difference), steering_diff_low)
-        steering_angle_difference_not_too_low_indices = tf.cast(steering_angle_difference_not_too_low_indices,
-                                                                tf.float32)
+        steering_angle_difference_not_too_low_indices = self.lib.greater(self.lib.abs(steering_angle_difference), steering_diff_low)
+        steering_angle_difference_not_too_low_indices = self.lib.cast(steering_angle_difference_not_too_low_indices,
+                                                                self.lib.float32)
 
         steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference * servo_p)
 
@@ -422,7 +421,7 @@ class car_model:
             delta_dot = self.servo_proportional(desired_angle, delta)
             vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
 
-            Q_pid = tf.transpose(tf.stack([delta_dot, vel_x_dot]))
+            Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
 
             return model(s, Q_pid, params)
 
