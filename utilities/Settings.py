@@ -10,15 +10,19 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     CONTROL_DELAY = 0.1  
+
     
+    # driving behaviour
     REVERSE_DIRECTION = False
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    APPLY_SPEED_SCALING_FROM_YAML = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
@@ -27,14 +31,14 @@ class Settings():
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
-    STOP_TIMER_AFTER_N_LAPS = 2
+    STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
     
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
-    CRASH_DETECTION = False
+    CRASH_DETECTION = True
 
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
@@ -55,6 +59,7 @@ class Settings():
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    DATASET_NAME = "Recording1"
     SAVE_REVORDING_EVERY_NTH_STEP = None # Save recordings also during the simulation (slow down, every Nth step, None for no saving during sim)
 
     ### State Estimation ###
@@ -67,13 +72,14 @@ class Settings():
     ONLY_ODOMETRY_AVAILABLE = False     # Decide if available state consists of full car state or only of odometry
 
     # Noise Level for the controller's state estimation
-    # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
-    # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
+    FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
+    
     NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
     NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
-    FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
-    # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
+    # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
+    # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
 
 
     # Nikita's Slip/Steer Predictor
@@ -93,17 +99,17 @@ class Settings():
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1,1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
-    TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
+    TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
-    ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
+    ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
     FOLLOW_RANDOM_TARGETS = False
@@ -134,6 +140,7 @@ class Settings():
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
     NUM_TRAJECTORIES_TO_PLOT = 20
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 5
     OPTIMIZE_EVERY_N_STEPS = 1
     
     ### Other Settings ###
@@ -142,10 +149,8 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
-    APPLY_SPEED_SCALING_FROM_YAML = False
-    START_FROM_RANDOM_POSITION = False
-    STARTING_POSITION = [[0.0, 0.0, 0.0]]
+    START_FROM_RANDOM_POSITION = True
+    STARTING_POSITION = [[3.62, 6.26, 0.378]]
     DATASET_NAME = MAP_NAME + '_' + CONTROLLER + '_' + str(int(1/TIMESTEP_CONTROL)) + 'Hz'
 
     WAYPOINTS_FROM_MPC = False

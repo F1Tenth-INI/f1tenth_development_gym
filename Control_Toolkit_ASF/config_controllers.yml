@@ -1,5 +1,5 @@
 mpc:
-  optimizer: 'mppi' # 'mppi' or 'rpgd-tf'
+  optimizer: 'rpgd-tf' # 'mppi' or 'rpgd-tf'
 #  optimizer: 'rpgd-tf' # 'mppi' or 'rpgd-tf'
   predictor_specification: ODE_TF    # Dense-8IN-128H1-128H2-6OUT-43 Can be "ODE", "ODE_TF", network/GP name (possibly with path) e.g. 'GRU-6IN-32H1-32H2-5OUT-0'/'SGP_30' or a name of a custom predictor. For more info see config_predictors in SI_Toolkit_ASF
 
@@ -9,8 +9,8 @@ mpc:
   calculate_optimal_trajectory: true
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
-  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/Models/'
-  net_name: 'LSTM-45IN-64H1-64H2-2OUT-6'  # TF
+  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-mpc-cs-2/Models/'
+  net_name: 'Dense-46IN-64H1-64H2-2OUT-5'  # TF
   controller_logging: True
   computation_library: tensorflow
   input_at_input: true  # If true the network input is provided to step function, if not, system state is provided and controller tries to get the remaining inputs from environment parameters`

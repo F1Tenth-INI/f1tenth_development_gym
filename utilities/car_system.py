@@ -191,7 +191,7 @@ class CarSystem:
             control_sequence_dict = {**angular_control_dict, **translational_control_dict}
             
             # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
-            self.angular_control, self.translational_control = optimal_control_sequence[0]
+            self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
             
         
         # Rendering and recording
