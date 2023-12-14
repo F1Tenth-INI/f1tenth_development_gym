@@ -77,6 +77,13 @@ def main():
     ###############################################################
 
     number_of_drivers = len(drivers)
+    
+    # Control can be executed delays ( as on physical car )
+    # Control steps are first have to go throuh the control delay buffer before they are executed
+    control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+    control_delay_buffer =  control_delay_steps * [[[0.0, 0.1]]]
+
+    
     print("initializing environment with", number_of_drivers, "drivers")
 
     with open(map_config_file) as file:
@@ -291,12 +298,12 @@ def main():
             render_index += 1
 
         # Get noisy control for each driver:
-        noisy_control = []
+        agent_control_with_noise = []
         for index, driver in enumerate(drivers):
-            translational_control_with_noise = add_noise(driver.translational_control,
-                                                         noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
-            noisy_control.append([translational_control_with_noise, angular_control_with_noise])
+            translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
+            agent_control_with_noise.append([angular_control_with_noise, translational_control_with_noise, ])
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -309,19 +316,23 @@ def main():
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
+            
+            
+            control_delay_buffer.append(agent_control_with_noise)        
+            agent_control_executed  = control_delay_buffer.pop(0)
+            
+            # Check if PID controller needs to be applied
             controlls = []
-
             for index, driver in enumerate(drivers):
-                translational_control_with_noise, angular_control_with_noise = noisy_control[index]
+                angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
                 if Settings.WITH_PID:
-                    accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
-                                   cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                   cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-                else:
-                    accl, sv = translational_control_with_noise, angular_control_with_noise
+                    translational_control_executed, angular_control_ecexuted = pid(translational_control_executed, angular_control_ecexuted,
+                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
                 
-                controlls.append([sv, accl]) # Steering velocity, acceleration
+                controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
 
+            # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
             
             laptime += step_reward
