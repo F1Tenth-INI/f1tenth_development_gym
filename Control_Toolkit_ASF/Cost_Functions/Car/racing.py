@@ -56,7 +56,7 @@ class racing(f1t_cost_function):
 
         ## Crash cost: comment out for faster calculation...
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
-        # crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+        crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
@@ -92,19 +92,18 @@ class racing(f1t_cost_function):
         # distance_to_wp_segments_cost = distance_final
 
         stage_cost = (
-                velocity_difference_to_wp_cost
-                # + crash_cost
+                distance_to_wp_segments_cost
+                # + velocity_difference_to_wp_cost
+                + crash_cost
                 + cc
                 + ccrc
-                + ccocrc
-                + icdc
+                # + ccocrc
+                # + icdc
                 + angular_velocity_cost
-                + angle_difference_to_wp_cost
+                # + angle_difference_to_wp_cost
                 + speed_control_difference_to_wp_cost
-                + distance_to_wp_segments_cost
-                # + steering_cost
+                + steering_cost
                 # + acceleration_cost
-                # + speed_control_difference_to_wp_cost
                 # + slipping_cost
                 # + cost_for_stopping
             )
