@@ -16,7 +16,8 @@ class Settings():
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
-    CONTROL_DELAY = 0.1  
+    CONTROL_DELAY = 0.08
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     
     # driving behaviour
@@ -74,11 +75,10 @@ class Settings():
     # Noise Level for the controller's state estimation
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     
-    NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
-    NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.5 # ftg: 0.5  # mppi: 2.0
-    # NOISE_LEVEL_ANGULAR_CONTROL = 0.30  # ftg: 0.05  # mppi: 3.0
+    # NOISE_LEVEL_CONTROL = [0.35, 0.5] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
     # NOISE_LEVEL_CAR_STATE = [ 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07, 0.07]
 
 
