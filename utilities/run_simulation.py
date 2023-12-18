@@ -33,6 +33,9 @@ if Settings.DISABLE_GPU:
 
 Settings.ROS_BRIDGE = False # No ros bridge if this script is running
 
+control_noise = [0,0]
+
+
 # Noise Level can now be set in Settings.py
 def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
@@ -275,10 +278,9 @@ def main():
                 
                 driver.set_car_state(car_state_with_noise)
 
-            real_slip_vec.append(driver.car_state[7])
-            real_steer_vec.append(driver.car_state[8])
-
             if Settings.SLIP_STEER_PREDICTION:
+                real_slip_vec.append(driver.car_state[7])
+                real_steer_vec.append(driver.car_state[8])
                 print("state before: ", driver.car_state)
                 driver.car_state = steer_estimator.get_slip_steer_car_state(slip_estimator, odom, translational_control, angular_control)
                 print("state after: ", driver.car_state)
@@ -300,17 +302,22 @@ def main():
 
         # Get noisy control for each driver:
         agent_control_with_noise = []
+        
+        if(simulation_index % Settings.CONTROL_NOISE_DURATION == 0):
+             control_noise =  np.array(Settings.NOISE_LEVEL_CONTROL) *  np.random.uniform(-1, 1, 2)
+            
         for index, driver in enumerate(drivers):
-            angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
-            translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
-            agent_control_with_noise.append([angular_control_with_noise, translational_control_with_noise, ])
+
+            control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
+            
+            agent_control_with_noise.append(control_with_noise)
             
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
                         custom_dict={
-                            'translational_control_applied':translational_control_with_noise,
-                            'angular_control_applied':angular_control_with_noise,
+                            'translational_control_applied':control_with_noise[0],
+                            'angular_control_applied':control_with_noise[1],
                             'mu': env.params['mu']
                         }
                     )
