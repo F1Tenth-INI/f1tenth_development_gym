@@ -9,8 +9,12 @@ if(Settings.ROS_BRIDGE):
 else:
     if(Settings.RENDER_MODE is not None):
         from pyglet.gl import GL_POINTS
+        from pyglet.gl import GL_LINES
         import pyglet.gl as gl
         from pyglet import shapes
+        import pyglet
+        from pyglet.gl import glLineWidth
+
 
 
 
@@ -78,6 +82,8 @@ class RenderUtils:
         self.target_point = None
         self.car_state = None
         self.obstacles = None
+        
+        self.steering_direction = None
         
         if(Settings.ROS_BRIDGE):
             print("initialising render utilities for ROS")
@@ -153,20 +159,48 @@ class RenderUtils:
                 self.next_waypoint_vertices.vertices = scaled_points_flat
             
         gl.glPointSize(3)
-        if self.draw_position_history and self.car_state is not None:
-            points = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
-            speed = self.car_state[LINEAR_VEL_X_IDX]
-            scaled_points = RenderUtils.get_scaled_points(points)
-            # Color [r,g,b] values (int) between 0 and 255
-            color = [
-                max(min(int(10 * speed), 255), 0),
-                min(max(int(255 - 10 * speed), 0), 255),
-                0
-            ]
-            e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
-                        ('c3B',color))
+        
+        
+        # if self.draw_position_history and self.car_state is not None:
+        if self.car_state is not None:
+            
+                
+            # Draw an arrow starting at car_state[x,y] and pointing in the direction of car_state[steering_angle]
+            steering_angle = self.car_state[STEERING_ANGLE_IDX]
+            yaw = self.car_state[POSE_THETA_IDX]
+            arrow_length = 1.0  # You can adjust this value
 
+            # Get starting position from car_state
+            start_point_x = self.car_state[POSE_X_IDX]
+            start_point_y = self.car_state[POSE_Y_IDX]
 
+            # Calculate end points
+            end_point_x = start_point_x + arrow_length * np.cos(steering_angle + yaw)
+            end_point_y = start_point_y + arrow_length * np.sin(steering_angle + yaw)
+
+            [start_point_x, start_point_y, end_point_x, end_point_y] = RenderUtils.get_scaled_points([start_point_x, start_point_y, end_point_x, end_point_y])
+            if hasattr(self, 'arrow'):
+                self.arrow.delete()
+            glLineWidth(2)  # Set the width to 5 pixels
+            self.arrow = e.batch.add(2, pyglet.gl.GL_LINES, None, 
+                        ('v2f/stream', [start_point_x, start_point_y, end_point_x, end_point_y]),
+                        ('c3B/static', tuple((0, 204, 0)) * 2))  # color of the arrow
+              
+            # Position History             
+            if self.draw_position_history:
+                points = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
+                speed = self.car_state[LINEAR_VEL_X_IDX]
+                scaled_points = RenderUtils.get_scaled_points(points)
+                # Color [r,g,b] values (int) between 0 and 255
+                color = [
+                    max(min(int(10 * speed), 255), 0),
+                    min(max(int(255 - 10 * speed), 0), 255),
+                    0
+                ]
+                e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
+                            ('c3B',color))
+
+    
         if self.draw_lidar_data: 
             if self.lidar_border_points is not None:
                 scaled_points = RenderUtils.get_scaled_points(self.lidar_border_points)
