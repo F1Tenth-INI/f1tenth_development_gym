@@ -140,7 +140,6 @@ class Settings():
     # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     MPC_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"
     NUM_TRAJECTORIES_TO_PLOT = 20
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 5
     OPTIMIZE_EVERY_N_STEPS = 1
     
     ### Other Settings ###
@@ -151,8 +150,6 @@ class Settings():
     # Settings for data collection
     START_FROM_RANDOM_POSITION = True
     STARTING_POSITION = [[3.62, 6.26, 0.378]]
-    DATASET_NAME = MAP_NAME + '_' + CONTROLLER + '_' + str(int(1/TIMESTEP_CONTROL)) + 'Hz'
-
     WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4
 
