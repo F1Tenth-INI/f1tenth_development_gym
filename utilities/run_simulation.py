@@ -85,8 +85,11 @@ def main():
     # Control can be executed delays ( as on physical car )
     # Control steps are first have to go throuh the control delay buffer before they are executed
     control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
-    control_delay_buffer =  control_delay_steps * [[[0.0, 0.1]]]
-
+    
+    
+    
+    # control_delay_buffer =  control_delay_steps * [[[0.0, 0.1], [0.0, 0.1], [0.0, 0.1], [0.0, 0.1]]]
+    control_delay_buffer = [[[0.0, 0.1] for j in range(number_of_drivers)] for i in range(control_delay_steps)] 
     
     print("initializing environment with", number_of_drivers, "drivers")
 
@@ -194,14 +197,14 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)
-        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[WP_PSI_IDX] -= 0.5 * np.pi
         # random_wp[2] += 0.5 * np.pi
         random_wp[WP_X_IDX] += random.uniform(0., 0.2)
         random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
         random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
         
         starting_positions[0] = random_wp[1:4]
-        print("Starting position: ", random_wp)
+        print("Starting position: ", random_wp[1:4])
     
         
     # Tobi: Place random obstacles on the track
