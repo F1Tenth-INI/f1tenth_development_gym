@@ -113,6 +113,9 @@ class Settings():
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
     FOLLOW_RANDOM_TARGETS = False
+    
+    # Sectors
+    AUTOMATIC_SECTOR_TUNING = True
 
     LIDAR_COVERED_ANGLE_DEG = 270
     LIDAR_NUM_SCANS = 1080
