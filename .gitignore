@@ -36,9 +36,10 @@ SI_Toolkit_ASF/Experiments/*
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
 
-TrainingLite/NN_lidar_odom/data/*
-TrainingLite/NN_lidar_odom/models/*
-TrainingLite/NN_lidar_odom/figures/*
+TrainingLite/*/data/*
+TrainingLite/*/figures/*
+TrainingLite/*/models/*
+
 
 AnalyseData
 
