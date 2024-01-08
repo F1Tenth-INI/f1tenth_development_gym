@@ -49,6 +49,7 @@ class CarSystem:
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
         self.angular_control_history = np.zeros(self.control_average_window[0], dtype=np.int32)
         self.translational_control_history = np.zeros(self.control_average_window[1], dtype=np.int32)
+        self.control_history = [[0,0]]
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
@@ -274,8 +275,8 @@ class CarSystem:
                 custom_dict=control_sequence_dict,
             )     
     
-        self.control_history = self.control_history[1:]
         self.control_history = np.append(self.control_history, [[self.angular_control, self.translational_control]], axis=0)       
+        self.control_history = self.control_history[1:]
        
         self.control_index += 1
         # print("angular_control: ", self.angular_control, "translational_control: ", self.translational_control)
