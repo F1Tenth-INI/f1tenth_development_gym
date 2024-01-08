@@ -6,30 +6,33 @@ class Settings():
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
     FROM_RECORDING = False
-    RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
-    RECORDING_FOLDER = './ExperimentRecordings/'
+    RECORDING_NAME = 'F1TENTH__2023-12-15_17-21-31_RCA1_neural_50Hz_vel1.0_noise_c[0.0, 0.0].csv'
+    RECORDING_FOLDER = './ExperimentRecordings'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
-    CONTROL_DELAY = 0.08
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    CONTROL_DELAY = 0.1
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 5 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     
     # driving behaviour
     REVERSE_DIRECTION = False
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    
+    # Sectors
     APPLY_SPEED_SCALING_FROM_YAML = False
+    AUTOMATIC_SECTOR_TUNING = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
 
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.2
+    OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
 
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
@@ -56,7 +59,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 500  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -91,7 +94,7 @@ class Settings():
     ### Driver Settings
     
     # waypoints:
-    MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    MIN_CURV_SAFETY_WIDTH = 1.6              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 20                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
@@ -114,8 +117,7 @@ class Settings():
 
     FOLLOW_RANDOM_TARGETS = False
     
-    # Sectors
-    AUTOMATIC_SECTOR_TUNING = True
+
 
     LIDAR_COVERED_ANGLE_DEG = 270
     LIDAR_NUM_SCANS = 1080
@@ -133,7 +135,7 @@ class Settings():
     PP_USE_CURVATURE_CORRECTION = False
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
-    PP_VEL2LOOKAHEAD = None  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
+    PP_VEL2LOOKAHEAD = 0.4  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
     PP_NORMING_V_FOR_CURRVATURE = 10.0  # Bigger number - higher velocity required to have effect on shortening of lookahead horizon
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
@@ -151,7 +153,7 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    START_FROM_RANDOM_POSITION = True
+    START_FROM_RANDOM_POSITION = False
     STARTING_POSITION = [[3.62, 6.26, 0.378]]
     WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4
