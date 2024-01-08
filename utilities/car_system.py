@@ -24,6 +24,9 @@ else:
     from utilities.waypoint_utils import WaypointUtils
 
 
+from TrainingLite.NN_lidar_odom.predict import *
+from utilities.imu_simulator import ImuSimulator 
+
 
 class CarSystem:
     
@@ -38,6 +41,9 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.LIDAR = LidarHelper()
+        
+        self.imu_simulator = ImuSimulator()
+        
 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -46,6 +52,10 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
+        self.last_car_state = np.ones(len(STATE_VARIABLES))
+        self.estimated_car_state = np.ones(len(STATE_VARIABLES))
+        self.estimated_car_states = [np.zeros((5, 9))]
+
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -80,6 +90,8 @@ class CarSystem:
             from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
             self.planner =  FollowTheGapPlanner()
         elif controller == 'neural':
+            # self.waypoint_utils = WaypointUtils("winti_race_wp_h2h")
+            
             from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
             self.planner =  NeuralNetImitatorPlanner()
         elif controller == 'pp':
@@ -93,17 +105,21 @@ class CarSystem:
             self.planner = manual_planner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+            print("Controller does not exist")
             exit()
             
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
+        
+        self.last_scans = None
             
 
     
     def set_car_state(self, car_state):
         self.car_state = car_state
+
     
     def render(self, e):
         self.render_utils.render(e)
@@ -122,18 +138,56 @@ class CarSystem:
             'angular_vel_z': float,
         }
     """
-    def process_observation(self, ranges=None, ego_odom=None):
+    
+  
         
+    
+    def process_observation(self, ranges=None, ego_odom_old=None):
+        
+        
+        imu_data = self.imu_simulator.set_state(self.car_state)
         # if Settings.ONLY_ODOMETRY_AVAILABLE:
         #     car_state = odometry_dict_to_state(ego_odom)
         # else:
         #     car_state = self.car_state
         
         car_state = self.car_state
+        self.estimated_car_state = car_state
+        
+        # car_state = self.car_state
+        
+        # overwrite odom with estimated state
+        ego_odom = {
+            'pose_x': car_state[POSE_X_IDX],
+            'pose_y': car_state[POSE_Y_IDX],
+            'pose_theta': car_state[POSE_THETA_IDX],
+            'linear_vel_x': car_state[LINEAR_VEL_X_IDX],
+            'linear_vel_y': 0, #car_state[LINEAR_VEL_Y_IDX],
+            'angular_vel_z': car_state[ANGULAR_VEL_Z_IDX],
+        }
+        
+       
+        
         ranges = np.array(ranges)
         self.LIDAR.load_lidar_measurement(ranges)
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
             car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
+        
+    
+        # if(self.last_scans is not None):
+            
+        #     large_array = np.concatenate((self.LIDAR.processed_scans, self.last_scans), axis=0)
+        #     p = predict(large_array)
+        #     print("p", p)
+        #     d_carstate = self.car_state - self.last_car_state
+            
+
+        #     print("carstate", car_state[ANGULAR_VEL_Z_IDX], car_state[LINEAR_VEL_X_IDX])
+            
+            
+        self.last_scans = self.LIDAR.processed_scans
+        self.last_car_state = car_state
+        
         self.waypoint_utils.update_next_waypoints(car_state)
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
@@ -200,22 +254,32 @@ class CarSystem:
             next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
             car_state = car_state
         )
-        self.render_utils.update_obstacles(obstacles)
+        # self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
+        
+        lidar_ranges_clipped = np.clip(self.LIDAR.processed_scans, a_min=None, a_max=10)
+        
         if (Settings.SAVE_RECORDINGS and self.save_recordings):
                     
             self.recorder.set_data(
                 time=self.time,
                 control_inputs_calculated=( self.angular_control, self.translational_control),
                 odometry=ego_odom,
-                lidar_ranges = self.LIDAR.processed_scans,
+                lidar_ranges = lidar_ranges_clipped,
                 lidar_indices = self.LIDAR.processed_scan_indices,
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
+                imu_data = imu_data,
+                custom_dict=control_sequence_dict,
             )     
-        
+    
+        self.control_history = self.control_history[1:]
+        self.control_history = np.append(self.control_history, [[self.angular_control, self.translational_control]], axis=0)       
+       
         self.control_index += 1
+        # print("angular_control: ", self.angular_control, "translational_control: ", self.translational_control)
+    
         return self.angular_control, self.translational_control
 
             

@@ -145,8 +145,10 @@ class Recorder:
             lidar_indices=None,                 # Lidar Indices between 0 and 1080 (int32)[0:1080]
             state=None,                         # Car State (float32)[9]
             next_waypoints=None, 
-            next_waypoints_relative=None,
-            custom_dict = None):                # Custom Dictionary appended to the recording data
+            next_waypoints_relative=None,  
+            imu_data = None,
+            custom_dict = None  # Custom Dictionary appended to the recording data
+          ):              
         
         data_dict = dict() 
         
@@ -177,7 +179,10 @@ class Recorder:
             lidar_names = ['LIDAR_' + str(i).zfill(4) for i in lidar_indices]
             lidar_dict = dict(zip(lidar_names, lidar_ranges))
             data_dict.update(lidar_dict)
-        
+        if(imu_data is not None):
+            imu_data = {'imu_' + k: v for k, v in imu_data.items()}
+            data_dict.update(imu_data)
+            
         if(custom_dict is not None):
             data_dict.update(custom_dict)
         

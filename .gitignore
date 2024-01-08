@@ -36,6 +36,10 @@ SI_Toolkit_ASF/Experiments/*
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
 
+TrainingLite/NN_lidar_odom/data/*
+TrainingLite/NN_lidar_odom/models/*
+TrainingLite/NN_lidar_odom/figures/*
+
 AnalyseData
 
 utilities/maps/*
@@ -54,4 +58,5 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/ETF1
 !utilities/maps/ini10
 !utilities/maps/RCA1
+!utilities/maps/RCA2
 

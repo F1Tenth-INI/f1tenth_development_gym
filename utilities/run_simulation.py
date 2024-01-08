@@ -345,7 +345,7 @@ def main():
 
             # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
-            
+        
             laptime += step_reward
             
             # Collision ends simulation

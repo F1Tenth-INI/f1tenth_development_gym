@@ -47,11 +47,11 @@ def subfolder_data_compression(dir_path):
     print(f'All subfolders of {dir_path} have been compressed to {zip_filename}.')
     
     # Delete subfolders and their contents
-    for folder in os.listdir(dir_path):
-        folder_path = os.path.join(dir_path, folder)
-        if os.path.isdir(folder_path):
-            shutil.rmtree(folder_path)
-            # print(f'Deleted subfolder: {folder_path}')
+    # for folder in os.listdir(dir_path):
+    #     folder_path = os.path.join(dir_path, folder)
+    #     if os.path.isdir(folder_path):
+    #         shutil.rmtree(folder_path)
+    #         # print(f'Deleted subfolder: {folder_path}')
             
     print(f'All subfolder of the {dir_path} were deleted.')
     
@@ -65,16 +65,18 @@ train_distribution = 0.8
 test_distribution = 0.1
 validate_distribution = 0.1
 
+experiment_folder = "flo-mpc-delay1"
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
-past_recordings = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Past_trainings"
+past_recordings = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Past_trainings"
+create_directory(past_recordings)
 
 # Output folders for distribution
-output_folder_train = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Train"
+output_folder_train = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Recordings/Train"
 create_directory(output_folder_train)
-output_folder_test = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Test"
+output_folder_test = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Recordings/Test"
 create_directory(output_folder_test)
-output_folder_validate = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Validate"
+output_folder_validate = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Recordings/Validate"
 create_directory(output_folder_validate)
 
 # Compremising older csvs and metadata
