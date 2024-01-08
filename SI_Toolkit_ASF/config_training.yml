@@ -1,6 +1,6 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'GRU-64H1-64H2'
+  NET_NAME: 'Dense-128H1-64H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ''
@@ -52,7 +52,7 @@ training_default:
 
 
   setpoint_inputs: []
-  outputs: ['translational_control_calculated', 'angular_control_calculated']
+  outputs: [ 'angular_control_calculated', 'translational_control_calculated']
 
   EPOCHS: 10
   BATCH_SIZE: 16

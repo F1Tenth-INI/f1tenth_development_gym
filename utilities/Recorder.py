@@ -47,8 +47,8 @@ def create_csv_header(path_to_recordings,
 
     # Set path where to save the data
     if csv_name is None or csv_name == '':
-        csv_filepath = path_to_recordings + 'F1TENTH_' + Settings.DATASET_NAME + '_' + str(
-            datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '.csv'
+        csv_filepath = path_to_recordings + 'F1TENTH_' + str(
+            datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + '_' + Settings.DATASET_NAME + '.csv'
     else:
         csv_filepath = csv_name
         if csv_name[-4:] != '.csv':
@@ -80,7 +80,7 @@ def create_csv_header(path_to_recordings,
         writer.writerow(['# ' + 'Done with git-revision: {}'
                         .format(git_revision)])
 
-        writer.writerow(['#'])
+        writer.writerow(['# Starting position :',*np.array(Settings.STARTING_POSITION).tolist()])
 
         writer.writerow(['# Saving: {} s'.format(dt)])
 
@@ -279,9 +279,14 @@ class Recorder:
             os.mkdir(save_path)
         df = pd.read_csv(self.csv_filepath, header = 0, skiprows=range(0,8))
 
+        # read out all states
+
+        
         times = df['time'].to_numpy()[1:]
         pos_xs = df['pose_x'].to_numpy()[1:]
         pos_ys = df['pose_y'].to_numpy()[1:]
+        theta = df['pose_theta'].to_numpy()[1:]
+   
         angular_controls = df['angular_control_calculated'].to_numpy()[1:]
         translational_controls = df['translational_control_calculated'].to_numpy()[1:]   
         
@@ -292,18 +297,34 @@ class Recorder:
         plt.savefig(save_path+"/position.png")
         plt.clf()
         
-        # Plot Angular Control
+  
+        # Plot Control
+        fig = plt.figure()
+        plt.subplot(2, 1, 1)  # 2 rows, 1 column, first plot
         plt.title("Angular Control")
         plt.plot(angular_controls, color="red")
-        plt.savefig(save_path+"/angular_control.png")
-        plt.clf()
-
-        # Plot Translational Control
+        plt.subplot(2, 1, 2)  # 2 rows, 1 column, second plot
         plt.title("Translational Control")
         plt.plot(translational_controls, color="blue")
-        plt.savefig(save_path+"/translational_control.png")
+        plt.savefig(save_path+"/control_plots.png")
         plt.clf()
         
+        # Plot States
+        state_names = ['angular_vel_z','linear_vel_x','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
+        
+        # Create a new figure
+        fig = plt.figure(figsize=(15, 20))  # width: 15 inches, height: 20 inches
+
+        for index, state_name in enumerate(state_names):
+            # Add subplot for each state
+            plt.subplot(7, 1, index+1)  # 7 rows, 1 column, nth plot
+            plt.title(state_name)
+            plt.plot(df[state_name].to_numpy()[1:], color="red")
+
+    
+        plt.savefig(save_path+"/state_plots.png")
+        plt.clf()
+
         # Plot time needed for calculation
         dts = []
         for i in range(15, len(times)-1):
@@ -335,7 +356,11 @@ class Recorder:
             f.write(str(Settings.__dict__))
     
         shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
-        shutil.copy(os.path.join(Settings.MAP_PATH, "speed_scaling.yaml"), config_sage_path) 
+        
+        try: 
+            shutil.copy(os.path.join(Settings.MAP_PATH, "speed_scaling.yaml"), config_sage_path) 
+        except:
+            pass
 
         
         
