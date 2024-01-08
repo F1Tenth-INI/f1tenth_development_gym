@@ -17,9 +17,10 @@ import os
 
 from f110_gym.envs.dynamic_models import pid
 from f110_gym.envs.base_classes import wrap_angle_rad
+from utilities.waypoint_utils import *
 
 # Utilities
-from utilities.state_utilities import full_state_original_to_alphabetical, full_state_alphabetical_to_original, FULL_STATE_VARIABLES
+from utilities.state_utilities import * 
 from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 
 from time import sleep
@@ -77,14 +78,21 @@ def main():
     ###############################################################
 
     number_of_drivers = len(drivers)
+    
+    # Control can be executed delays ( as on physical car )
+    # Control steps are first have to go throuh the control delay buffer before they are executed
+    control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+    control_delay_buffer =  control_delay_steps * [[[0.0, 0.1]]]
+
+    
     print("initializing environment with", number_of_drivers, "drivers")
 
     with open(map_config_file) as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
-
-    conf = Namespace(**conf_dict)
     
-    # Determine Starting positions
+    conf = Namespace(**conf_dict)
+        
+    # Determine Starting positions [pos_x, pos_y, absolut_angle_car]
     if hasattr(conf, 'starting_positions'):
         starting_positions =  conf.starting_positions[0:number_of_drivers]
     else:
@@ -96,14 +104,37 @@ def main():
         print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
         print("You can also let oponents start at random waypoint positions")
         exit()
+
+    conf = Namespace(**conf_dict)
+    
+    # Determine Starting positions
+    
+    if hasattr(conf, 'starting_positions'):
+        starting_positions =  conf.starting_positions[0:number_of_drivers]
+    else:
+        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        starting_positions = Settings.STARTING_POSITION
+
+    if(len(starting_positions) < number_of_drivers):
+        print("No starting positions found")
+        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+        print("You can also let oponents start at random waypoint positions")
+        exit()
         
     if Settings.REVERSE_DIRECTION:
+        starting_positions = [[0,0,-3.0]]
         new_starting_positions = []
+        # starting_positions = conf_dict['starting_positions']
         for starting_position in starting_positions:
             starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
             new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-        starting_positions = new_starting_positions
+            print(new_starting_positions)
+        conf_dict['starting_positions'] = new_starting_positions
+        # conf_dict['starting_positions'] = starting_positions
+        # print(conf_dict['starting_positions'])
+        
 
+    
 
     ###Loading neural network for slip steer estimation -> specify net name in Settings
     if Settings.SLIP_STEER_PREDICTION:
@@ -115,14 +146,15 @@ def main():
         angular_control = None
     
 
-    def get_odom(obs, agent_index):
+    def get_odom(obs, agent_index, drivers):
+        
         odom = {
-            'pose_x': obs['poses_x'][agent_index],
-            'pose_y': obs['poses_y'][agent_index],
-            'pose_theta': obs['poses_theta'][agent_index],
-            'linear_vel_x': obs['linear_vels_x'][agent_index],
-            'linear_vel_y': obs['linear_vels_y'][agent_index],
-            'angular_vel_z': obs['ang_vels_z'][agent_index]
+            'pose_x': drivers[agent_index].car_state[POSE_X_IDX],
+            'pose_y': drivers[agent_index].car_state[POSE_Y_IDX],
+            'pose_theta': drivers[agent_index].car_state[POSE_THETA_IDX],
+            'linear_vel_x': drivers[agent_index].car_state[LINEAR_VEL_X_IDX],
+            'linear_vel_y': 0, #drivers[agent_index].car_state[LINEAR_VEL_Y_IDX],
+            'angular_vel_z': drivers[agent_index].car_state[ANGULAR_VEL_Z_IDX],
         }
         return odom
 
@@ -155,17 +187,17 @@ def main():
     
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:
-        from utilities.waypoint_utils import WaypointUtils
         import random
         
         wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)[1:4]
-        random_wp[0] += 0.5 * np.pi
-        random_wp[0] += random.uniform(0.3, 0.5)
-        random_wp[1] += random.uniform(0.3, 0.5)
-        random_wp[2] += random.uniform(0.0, 0.2)
+        random_wp = random.choice(wu.waypoints)
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[2] += 0.5 * np.pi
+        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
         
-        starting_positions[0] = random_wp
+        starting_positions[0] = random_wp[1:4]
         print("Starting position: ", random_wp)
     
         
@@ -185,6 +217,10 @@ def main():
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
     obs, step_reward, done, info = env.reset(
         np.array(starting_positions) )
+    
+    # Set Starting position for Settings
+    
+    Settings.STARTING_POSITION = starting_positions
 
     if Settings.RENDER_MODE is not None:
         env.render()
@@ -224,12 +260,12 @@ def main():
 
         for index, driver in enumerate(drivers):
             if Settings.FROM_RECORDING:
-                sleep(0.05)
+                # sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
-                odom = {} # FIXME: MPC uses just the car state
+                odom = get_odom(obs, index, drivers)
                 env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
             else:
-                odom = get_odom(obs, index)
+                odom = get_odom(obs, index, drivers)
                 odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
                 # Add Noise to the car state
@@ -268,12 +304,12 @@ def main():
             render_index += 1
 
         # Get noisy control for each driver:
-        noisy_control = []
+        agent_control_with_noise = []
         for index, driver in enumerate(drivers):
-            translational_control_with_noise = add_noise(driver.translational_control,
-                                                         noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
             angular_control_with_noise = add_noise(driver.angular_control, noise_level=Settings.NOISE_LEVEL_ANGULAR_CONTROL)
-            noisy_control.append([translational_control_with_noise, angular_control_with_noise])
+            translational_control_with_noise = add_noise(driver.translational_control, noise_level=Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL)
+            agent_control_with_noise.append([angular_control_with_noise, translational_control_with_noise, ])
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -284,17 +320,28 @@ def main():
                         }
                     )
 
-        controlls = []
-        for index, driver in enumerate(drivers):
-            translational_control_with_noise, angular_control_with_noise = noisy_control[index]
-            if Settings.WITH_PID and Settings.ODE_IMPLEMENTATION == 'f1tenth':
-                accl, sv = pid(translational_control_with_noise, angular_control_with_noise,
-                                cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-            else:
-                accl, sv = translational_control_with_noise, angular_control_with_noise
+        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
+        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
             
-            controlls.append([sv, accl]) # Steering velocity, acceleration
+            
+            control_delay_buffer.append(agent_control_with_noise)        
+            agent_control_executed  = control_delay_buffer.pop(0)
+            
+            # Check if PID controller needs to be applied
+            controlls = []
+            for index, driver in enumerate(drivers):
+                angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
+                if Settings.WITH_PID and Settings.ODE_IMPLEMENTATION == 'f1tenth':
+                    translational_control_executed, angular_control_ecexuted = pid(translational_control_executed, angular_control_ecexuted,
+                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
+                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
+                
+                controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
+
+            # From here on, controls have to be in [steering angle, speed ]
+            obs, step_reward, done, info = env.step(np.array(controlls))
+            
+            # controlls.append([sv, accl]) # Steering velocity, acceleration
 
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
         if Settings.ODE_IMPLEMENTATION == 'ODE_TF':
@@ -306,13 +353,14 @@ def main():
                 laptime += step_reward
             
             # Collision ends simulation
-            if obs['collisions'][0] == 1:
-                # Save all recordings
-                driver.recorder.push_on_buffer()
-                driver.recorder.save_csv()
-                driver.recorder.plot_data()
-                driver.recorder.move_csv_to_crash_folder()
-                raise Exception("The car has crashed.")
+            if Settings.CRASH_DETECTION:
+                if obs['collisions'][0] == 1:
+                    # Save all recordings
+                    driver.recorder.push_on_buffer()
+                    driver.recorder.save_csv()
+                    driver.recorder.plot_data()
+                    driver.recorder.move_csv_to_crash_folder()
+                    raise Exception("The car has crashed.")
 
         # End of controller time step
         if (Settings.SAVE_RECORDINGS):

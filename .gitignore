@@ -11,6 +11,10 @@ docs/_build/
 flycheck_*
 dev.py
 
+# configs
+utilites/Settings.py
+Control_Toolkit_ASF/config_controllers.yml
+
 # NN Models
 SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 
@@ -20,7 +24,6 @@ SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 # Experiment data
 main/maps/WithRandomObstacles/*
 Experimentrecordings/*
-ExperimentRecordings/*
 Quadruped/plots
 
 # Submodule specific config files
@@ -50,5 +53,5 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/london3_large
 !utilities/maps/ETF1
 !utilities/maps/ini10
-
+# !utilities/maps/RCA1
 
