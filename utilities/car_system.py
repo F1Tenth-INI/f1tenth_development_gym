@@ -103,12 +103,14 @@ class CarSystem:
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
-        self.config_controller = self.planner.mpc.config_controller
-        self.online_learning_activated = self.config_controller.get('online_learning', {}).get('activated', False)
-        if self.online_learning_activated:
-            from Control_Toolkit.OnlineLearning import OnlineLearning
-            self.online_learning = OnlineLearning(self.planner.mpc.predictor,
-                                                  self.config_controller['dt'], self.config_controller['online_learning'])
+        self.online_learning_activated = False
+        if Settings.CONTROLLER == 'mpc':
+            self.config_controller = self.planner.mpc.config_controller
+            self.online_learning_activated = self.config_controller.get('online_learning', {}).get('activated', False)
+            if self.online_learning_activated:
+                from Control_Toolkit.OnlineLearning import OnlineLearning
+                self.online_learning = OnlineLearning(self.planner.mpc.predictor,
+                                                    self.config_controller['dt'], self.config_controller['online_learning'])
     
     def set_car_state(self, car_state):
         self.car_state = car_state

@@ -10,13 +10,15 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
+    MAP_NAME = "carpark"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
-    CONTROL_DELAY = 0.1  
+    CONTROL_DELAY = 0.0  
+    
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     
     REVERSE_DIRECTION = False
 
@@ -61,7 +63,7 @@ class Settings():
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
-    ODE_IMPLEMENTATION = 'f1tenth'  # Use the implementation of f1tenth or ODE_TF
+    ODE_IMPLEMENTATION = 'ODE_TF'  # Use the implementation of f1tenth or ODE_TF
 
 
     ONLY_ODOMETRY_AVAILABLE = False     # Decide if available state consists of full car state or only of odometry
@@ -93,12 +95,12 @@ class Settings():
     INTERPOLATE_LOCA_WP = 1
     EXPORT_HANDDRAWN_WP = False
 
-    CONTROL_AVERAGE_WINDOW = (3, 3)     # Window for avg filter [angular, translational]
+    CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number

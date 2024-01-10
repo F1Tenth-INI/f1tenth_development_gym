@@ -7,8 +7,13 @@ from SI_Toolkit.Functions.General.Normalising import get_normalization_function,
 from SI_Toolkit.Functions.General.Initialization import get_norm_info_for_net
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
+# This is a custom keras model for the ODE model of the car dynamics
+# It is not a real network, but it can calculate the ODE with neuw paramteres without recompiling the TensorFlow Graph
+
 
 class ODEModel(tf.keras.Model):
+    
+    # 1st important function for a "fake network" keras model
     def __init__(self, horizon, batch_size, net_info, name=None, **kwargs):
         super().__init__(**kwargs)
 
@@ -45,6 +50,9 @@ class ODEModel(tf.keras.Model):
     def calculate_derivative(self, x_old, x_new, dt):
         return (x_new - x_old) / dt
 
+
+    # 2nt important function for a "fake network" keras model
+    # Will be called in every training/predition step
     def call(self, x, training=None, mask=None):
         x = self.denormalize_inputs(x)
         Q = x[:, 0, 0:2]

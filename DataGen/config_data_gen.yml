@@ -35,7 +35,7 @@ control_inputs:
     strategy: 'mixed'  # random/constant/mixed
     generate_around_state: false  # Set the inputs to be around the current state
     hold_constant_input: 6  # For mixed strategy, how long to hold a constant input
-    distribution: 'normal'
+    distribution: 'normal' # uniform/normal
     control_range: [0.0, 0.20] # [mu, sigma]
 
     # With PID:
