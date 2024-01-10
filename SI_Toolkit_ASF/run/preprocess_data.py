@@ -7,7 +7,7 @@ from SI_Toolkit.load_and_normalize import load_data, append_derivatives
 
 base_path = 'SI_Toolkit_ASF/Experiments/'
 # folder = '0_DNN_tiv/Recordings'
-folder = 'Experiment-0_real_car/Recordings_dungeon'
+folder = 'NNOde/Recordings'
 path = f'./{base_path}/{folder}/**/*.csv'
 csv_files = glob.glob(path)
 file_paths = [os.path.relpath(file, f'{base_path}/{folder}') for file in csv_files]
