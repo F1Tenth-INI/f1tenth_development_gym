@@ -21,11 +21,16 @@ with open(experiment_path + '/models/network.yaml', 'r') as file:
 
 
 
+
 def predict_next_state(s, u):
     
     input = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_COS_IDX],s[POSE_THETA_SIN_IDX],s[SLIP_ANGLE_IDX],s[STEERING_ANGLE_IDX], u[ANGULAR_CONTROL_IDX], u[TRANSLATIONAL_CONTROL_IDX]]
     d_state = predict(input)
+
+    
     d_state = np.insert(d_state, 2, 0)
+    
+    
     next_state = s + 1/50 * d_state
     
     return next_state

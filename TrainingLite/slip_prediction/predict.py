@@ -7,8 +7,6 @@ import math
 import tensorflow as tf
 import yaml
 
-from utilities.state_utilities import *
-
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
 
@@ -21,19 +19,9 @@ with open(experiment_path + '/models/network.yaml', 'r') as file:
 
 
 
-def predict_next_state(s, u):
-    
-    input = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_COS_IDX],s[POSE_THETA_SIN_IDX],s[SLIP_ANGLE_IDX],s[STEERING_ANGLE_IDX], u[ANGULAR_CONTROL_IDX], u[TRANSLATIONAL_CONTROL_IDX]]
-    d_state = predict(input)
-    d_state = np.insert(d_state, 2, 0)
-    next_state = s + 1/50 * d_state
-    
-    return next_state
-    
-    
 def predict(input):
     
-    example_input = [input]
+    example_input = input
     example_input = input_scaler.transform(example_input)
     example_input = tf.convert_to_tensor(example_input, dtype=tf.float32)
     prediction = _predict(example_input)
@@ -47,6 +35,7 @@ def predict(input):
 def _predict(input):
 
     # Make a prediction
+    input = tf.expand_dims(input, axis=0)
     prediction = model(input)
     return prediction
 

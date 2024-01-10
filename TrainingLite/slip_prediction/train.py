@@ -3,6 +3,8 @@ import os
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
+from keras.layers import LSTM
+
 from sklearn.preprocessing import MinMaxScaler
 from joblib import dump
 import glob
@@ -17,37 +19,40 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
+def create_sequences(data, seq_length):
+    xs = []
+    for i in range(len(data)-seq_length+1):
+        x = data[i:(i+seq_length)]
+        xs.append(x)
+    return np.array(xs)
 
-
-# Get a list of all CSV files in the 'data' directory
+# Concatenate all .csv files in the directory
 csv_files = glob.glob(experiment_path + '/data/*.csv')
+dfs = [pd.read_csv(f, comment='#') for f in csv_files]
+df = pd.concat(dfs, ignore_index=True)
 
-# List to hold dataframes
-df_list = []
 
-for file in csv_files:
-    df = pd.read_csv(file, comment='#')
-    
-    # Augment data
-    df['pose_theta_cos'] = np.cos(df['pose_theta'])
-    df['pose_theta_sin'] = np.sin(df['pose_theta'])
-    df['d_time'] = df['time'].diff()
 
-    # Derivatives of states
-    state_variables = ['angular_vel_z', 'linear_vel_x', 'pose_theta_cos', 'pose_theta_sin', 'pose_theta', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
-    for var in state_variables:
-        df['d_' + var] = df[var].diff() / df['d_time']
+# Augment data
+df['d_angular_vel_z'] = df['angular_vel_z'].diff()
+df['d_linear_vel_x'] = df['linear_vel_x'].diff()
+df['d_pose_theta_cos'] = df['pose_theta_cos'].diff()
+df['d_pose_theta_sin'] = df['pose_theta_sin'].diff()
+df['d_pose_x'] = df['pose_x'].diff()
+df['d_pose_y'] = df['pose_y'].diff()
+df['d_slip_angle'] = df['slip_angle'].diff()
+df['d_steering_angle'] = df['steering_angle'].diff()
 
-    # Sort out invalid data
-    df = df[df['d_angular_vel_z'] <= 60]
-    df = df[df['linear_vel_x'] <= 20]
-    df = df[df['d_pose_x'] <= 20.]
-    df = df[df['d_pose_y'] <= 20.]
+# Sort out invalid data
+df = df[df['linear_vel_x'] >= 0.2]
+df = df[df['d_pose_x'] <= 1.]
+df = df[df['d_pose_y'] <= 1.]
 
-    df_list.append(df)
-
-# Concatenate all dataframes in the list into a single dataframe
-df = pd.concat(df_list, ignore_index=True)
+# Keep 20% of the rows where slip_angle is less than 0.1 and all rows where slip_angle is greater than or equal to 0.1
+df = pd.concat([
+    df[df['slip_angle'] < 0.1].sample(frac=0.4),
+    df[df['slip_angle'] >= 0.1]
+])
 
 # print first 3 rows of dataframe
 print(df.head(3))
@@ -55,14 +60,13 @@ print(df.head(3))
 test = df.isnull().sum()
 print("NAN numbers: ", test)
 
-print("Number of data points: ", len(df))
-
 df = df.dropna()
 
 
 # Select the input and output columns
-input_cols = ["angular_vel_z","linear_vel_x","pose_theta_cos","pose_theta_sin","slip_angle","steering_angle","angular_control_calculated","translational_control_calculated"]
-output_cols = ["d_angular_vel_z","d_linear_vel_x","d_pose_theta_cos","d_pose_theta_sin", "d_pose_x", "d_pose_y", "d_slip_angle","d_steering_angle", ]
+input_cols = ["angular_vel_z","linear_vel_x","pose_theta_cos","pose_theta_sin","steering_angle","angular_control_calculated","translational_control_calculated"]
+output_cols = ['slip_angle']
+
 
 print("Input cols: ", input_cols)
 print("output cols: ", output_cols)
@@ -100,8 +104,17 @@ y = df[output_cols].to_numpy()
 input_scaler = MinMaxScaler(feature_range=(-1, 1))
 output_scaler = MinMaxScaler(feature_range=(-1, 1))
 
+seq_length = 10
+
+
 X = input_scaler.fit_transform(X)
 y = output_scaler.fit_transform(y)
+
+X = create_sequences(X, seq_length)
+if(seq_length > 1):
+    y = y[: -seq_length + 1]
+
+
 
 # save the scaler for denormalization
 dump(input_scaler, experiment_path + '/models/input_scaler.joblib')
@@ -112,21 +125,44 @@ dump(output_scaler, experiment_path + '/models/output_scaler.joblib')
 # Split the data into training and validation sets
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
+
+# Apply the function to y_train
+# weights = y_train.copy()
+# weights = np.abs(weights)
+# weights = np.clip(weights, 0.1, 1)
+
+# Normalize weights so they sum to 1
+# weights = weights / weights.sum()
+
+
+
+print("X_Train: ", X_train.shape)
+print("y_Train: ", y_train.shape)
+
+
 # Define the neural network
 model = Sequential()
-model.add(Dense(64, input_dim=len(input_cols), activation='tanh'))
-model.add(Dense(128, activation='tanh'))
+model.add(LSTM(64, input_shape=(seq_length, len(input_cols)), activation='tanh'))
+model.add(Dense(64, activation='tanh'))
 model.add(Dense(64, activation='tanh'))
 model.add(Dense(len(output_cols)))
 
 # Compile the model
-model.compile(loss='mean_absolute_error', optimizer=Adam(learning_rate=0.002))
+model.compile(loss='mean_absolute_error', optimizer=Adam(learning_rate=0.01))
 
 # epoch callback for learning rate reduction
-reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=1, min_lr=0.00001)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=2, min_lr=0.0005)
 
 # Train the model
-model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=25, batch_size=8, shuffle=False, callbacks=[reduce_lr])
+model.fit(X_train, 
+          y_train, 
+          validation_data=(X_val, y_val), 
+          epochs=20, 
+          batch_size=16, 
+          shuffle=False, 
+          callbacks=[reduce_lr], 
+        #   sample_weight=weights
+          )
 
 # Save the model
 model_folder = experiment_path + '/models'
