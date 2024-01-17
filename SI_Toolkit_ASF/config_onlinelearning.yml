@@ -1,4 +1,4 @@
-activated: True
+activated: False
 save_net_history_every_n_training_steps: 100
 controller_load_net_every_n_steps: 10
 buffer_length: 10  # Number of datapoints to train on
