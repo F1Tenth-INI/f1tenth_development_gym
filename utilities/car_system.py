@@ -7,6 +7,8 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 import pandas as pd
+                
+import os
 
 from f110_gym.envs.dynamic_models import pid
 
@@ -22,6 +24,8 @@ if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
+from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
+from SI_Toolkit.computation_library import TensorFlowLibrary
 
 
 
@@ -103,14 +107,34 @@ class CarSystem:
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
-        self.online_learning_activated = False
-        if Settings.CONTROLLER == 'mpc':
-            self.config_controller = self.planner.mpc.config_controller
-            self.online_learning_activated = self.config_controller.get('online_learning', {}).get('activated', False)
-            if self.online_learning_activated:
-                from Control_Toolkit.OnlineLearning import OnlineLearning
-                self.online_learning = OnlineLearning(self.planner.mpc.predictor,
-                                                    self.config_controller['dt'], self.config_controller['online_learning'])
+        
+        
+        self.config_onlinelearning = yaml.load(
+                open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
+                Loader=yaml.FullLoader
+            )
+        self.online_learning_activated = self.config_onlinelearning.get('activated', False)
+        
+        
+        if self.online_learning_activated:
+            from SI_Toolkit.Training.OnlineLearning import OnlineLearning
+
+            if Settings.CONTROLLER == 'mpc':    
+                    self.predictor = self.planner.mpc.predictor
+            else:
+                self.predictor = PredictorWrapper()
+                self.predictor.configure(
+                    batch_size=1,
+                    horizon=1,
+                    dt=Settings.TIMESTEP_CONTROL,
+                    computation_library=TensorFlowLibrary,
+                    predictor_specification="neural_parameter_determination"
+                )
+                
+            self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
+
+            
+                
     
     def set_car_state(self, car_state):
         self.car_state = car_state
@@ -145,9 +169,8 @@ class CarSystem:
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
             car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
         self.waypoint_utils.update_next_waypoints(car_state)
-        obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
-
-
+        obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)          
+                
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
                 pass_data_to_planner(self.waypoints_planner, self.waypoint_utils.next_waypoints, car_state, obstacles)
@@ -188,6 +211,8 @@ class CarSystem:
 
         # Do online learning step
         if self.online_learning_activated:
+            self.online_learning.update_predictor()
+            
             u = np.array([self.angular_control, self.translational_control])
             self.online_learning.step(car_state, u)
 
