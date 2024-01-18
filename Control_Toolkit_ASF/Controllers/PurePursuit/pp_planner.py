@@ -113,8 +113,13 @@ class PurePursuitPlanner(template_planner):
         
         # Dynamic Lookahead distance
         wpts = self.waypoints[:, 1:3]
+        
         nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
-        self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        
+        if(Settings.PP_VEL2LOOKAHEAD):
+            self.lookahead_distance = v_x * Settings.PP_VEL2LOOKAHEAD
+        self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
+        # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
         if self.waypoints[i, WP_VX_IDX] < 0:
