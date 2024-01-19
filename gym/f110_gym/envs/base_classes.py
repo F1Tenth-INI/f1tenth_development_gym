@@ -102,7 +102,15 @@ class RaceCar(object):
 
         self.state = np.zeros((7, ))
         if self.ode_implementation == 'ODE_TF':
-            self.car_model = car_model('ODE:st', Settings.WITH_PID, 1, Settings.ENV_CAR_PARAMETER_FILE, Settings.TIMESTEP_CONTROL, int(Settings.TIMESTEP_CONTROL / self.time_step))
+            self.car_model = car_model(
+                model_of_car_dynamics = 'ODE:st',
+                with_pid = Settings.WITH_PID, 
+                batch_size = 1, 
+                car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
+                dt = 0.01, 
+                intermediate_steps=5
+                )
+    
         elif self.ode_implementation != 'f1tenth':
             raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
 
@@ -292,10 +300,11 @@ class RaceCar(object):
 
 
         # steering angle velocity input to steering velocity acceleration input
-        # accl, sv = pid(vel, steer, self.state[3], self.state[2], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
         # print("pid",sv,accl )
-
         if self.ode_implementation == 'f1tenth':
+            
+            if Settings.WITH_PID:
+                vel, raw_steer = pid(vel, steer, self.state[3], self.state[2], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
             # update physics, get RHS of diff'eq
             f = vehicle_dynamics_st(
             # f = vehicle_dynamics_simple(

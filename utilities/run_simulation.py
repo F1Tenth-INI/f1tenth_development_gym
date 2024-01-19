@@ -197,7 +197,7 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)
-        # random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
         # random_wp[2] += 0.5 * np.pi
         random_wp[WP_X_IDX] += random.uniform(0., 0.2)
         random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
@@ -323,15 +323,15 @@ def main():
                 if(driver.save_recordings):
                     driver.recorder.set_data(
                         custom_dict={
-                            'translational_control_applied':control_with_noise[1],
-                            'angular_control_applied':control_with_noise[0],
+                            'translational_control_applied':control_with_noise[0],
+                            'angular_control_applied':control_with_noise[1],
                             'mu': env.params['mu']
                         }
                     )
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
-            
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
+        for i in range(int(intermediate_steps)):
             
             control_delay_buffer.append(agent_control_with_noise)        
             agent_control_executed  = control_delay_buffer.pop(0)
@@ -340,26 +340,12 @@ def main():
             controlls = []
             for index, driver in enumerate(drivers):
                 angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
-                if Settings.WITH_PID and Settings.ODE_IMPLEMENTATION == 'f1tenth':
-                    translational_control_executed, angular_control_ecexuted = pid(translational_control_executed, angular_control_ecexuted,
-                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-                
+        
                 controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
 
             # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
-            
-            # controlls.append([sv, accl]) # Steering velocity, acceleration
-
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
-        if Settings.ODE_IMPLEMENTATION == 'ODE_TF':
-            obs, step_reward, done, info = env.step(np.array(controlls))
-            laptime += intermediate_steps * step_reward
-        else:
-            for i in range(intermediate_steps):
-                obs, step_reward, done, info = env.step(np.array(controlls))
-                laptime += step_reward
+            laptime += step_reward
             
             # Collision ends simulation
             if Settings.CRASH_DETECTION:

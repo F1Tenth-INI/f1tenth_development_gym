@@ -208,31 +208,23 @@ class CarSystem:
         self.translational_control_history = np.append(self.translational_control_history, self.translational_control)[1:]
         self.angular_control = np.average(self.angular_control_history)
         self.translational_control = np.average(self.translational_control_history)
-
-        # Do online learning step
-        if self.online_learning_activated:
-            self.online_learning.update_predictor()
-            
-            u = np.array([self.angular_control, self.translational_control])
-            self.online_learning.step(car_state, u)
-
         
-        # control_sequence_dict = None
-        # if hasattr(self.planner, 'optimal_control_sequence'):
-        #     optimal_control_sequence = self.planner.optimal_control_sequence
-        #     optimal_control_sequence = np.array(optimal_control_sequence)
-        #     angular_control_sequence = optimal_control_sequence[:, 0]
-        #     translational_control_sequence = optimal_control_sequence[:, 1]
+        control_sequence_dict = None
+        if hasattr(self.planner, 'optimal_control_sequence'):
+            optimal_control_sequence = self.planner.optimal_control_sequence
+            optimal_control_sequence = np.array(optimal_control_sequence)
+            angular_control_sequence = optimal_control_sequence[:, 0]
+            translational_control_sequence = optimal_control_sequence[:, 1]
             
-        #     # Convert MPC's control sequence to dictionary for recording
-        #     angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
-        #     translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
+            # Convert MPC's control sequence to dictionary for recording
+            angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
+            translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
             
             
-        #     control_sequence_dict = {**angular_control_dict, **translational_control_dict}
+            control_sequence_dict = {**angular_control_dict, **translational_control_dict}
             
-        #     # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
-        #     self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
+            # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
+            self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
             
         
         # Rendering and recording
