@@ -197,7 +197,7 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)
-        # random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
         # random_wp[2] += 0.5 * np.pi
         random_wp[WP_X_IDX] += random.uniform(0., 0.2)
         random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
@@ -215,7 +215,8 @@ def main():
 
 
     env = gym.make('f110_gym:f110-v0', map=racetrack,
-                   map_ext=".png", num_agents=number_of_drivers)
+                   map_ext=".png", num_agents=number_of_drivers,
+                   ode_implementation=Settings.ODE_IMPLEMENTATION)
     env.add_render_callback(render_callback)
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
@@ -278,6 +279,9 @@ def main():
                 car_state_with_noise = np.zeros(9)
                 for state_index in range(9):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
+                # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta
+                car_state_with_noise[3] = np.cos(car_state_with_noise[2])
+                car_state_with_noise[4] = np.sin(car_state_with_noise[2])
                 
                 driver.set_car_state(car_state_with_noise)
 
@@ -326,8 +330,8 @@ def main():
                     )
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        for i in range(int(Settings.TIMESTEP_CONTROL/env.timestep)):
-            
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
+        for i in range(int(intermediate_steps)):
             
             control_delay_buffer.append(agent_control_with_noise)        
             agent_control_executed  = control_delay_buffer.pop(0)
@@ -336,16 +340,11 @@ def main():
             controlls = []
             for index, driver in enumerate(drivers):
                 angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
-                if Settings.WITH_PID:
-                    translational_control_executed, angular_control_ecexuted = pid(translational_control_executed, angular_control_ecexuted,
-                                    cars[index].state[3], cars[index].state[2], cars[index].params['sv_max'],
-                                    cars[index].params['a_max'], cars[index].params['v_max'], cars[index].params['v_min'])
-                
+        
                 controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
 
             # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
-            
             laptime += step_reward
             
             # Collision ends simulation

@@ -18,57 +18,41 @@ def load_initial_states_from_file(file_path, initial_states_from_file, number_of
     return position, number_of_initial_states
 
 
-def get_initial_states(number_of_initial_states, file_with_initial_states=None, initial_states_from_file=None):
+def get_state(value, limit, length, distribution='uniform'):
+    if value is not None:
+        return np.repeat(value, length)
+    else:
+        if distribution == 'uniform':
+            return np.random.uniform(limit[0], limit[1], length)
+        elif distribution == 'normal':
+            return np.random.normal(limit[0], limit[1], length)
+
+
+def get_initial_states(number_of_initial_states, initial_states,
+                       file_with_initial_states=None, initial_states_from_file=None):
+    init_limits = initial_states.pop('init_limits')
 
     if file_with_initial_states is not None:
         initial_states_from_file = []
-        pose_x_y, number_of_initial_states = load_initial_states_from_file(file_with_initial_states,initial_states_from_file, number_of_initial_states)
+        pose_x_y, number_of_initial_states = load_initial_states_from_file(file_with_initial_states, initial_states_from_file, number_of_initial_states)
         x_dist = pose_x_y[:, 0]
         y_dist = pose_x_y[:, 1]
     else:
-        x_dist = np.random.uniform(-50, 50, number_of_initial_states)
-        y_dist = np.random.uniform(-50, 50, number_of_initial_states)
+        x_dist = get_state(initial_states['x'], init_limits['x'], number_of_initial_states)
+        y_dist = get_state(initial_states['y'], init_limits['y'], number_of_initial_states)
 
-    # Steering of front wheels
-    delta_dist = np.random.uniform(-0.5, 0.5, number_of_initial_states)
-
-
-    # velocity in face direction
-    # v_dist = np.random.uniform(5.0, 20, number_of_initial_states)
-    v_dist = np.random.uniform(-2.0, 20.0, number_of_initial_states)
-    # v_dist = np.random.uniform(10, 20, number_of_initial_states)
-
-    # Yaw Angle
-    yaw_dist = np.random.uniform(-np.pi, np.pi, number_of_initial_states)
-
-    # Yaw Angle cos and sin
+    steering_dist = get_state(initial_states['steering_angle'], init_limits['steering_angle'], number_of_initial_states)
+    v_dist = get_state(initial_states['velocity_x'], init_limits['velocity_x'], number_of_initial_states)
+    yaw_dist = get_state(initial_states['yaw_angle'], init_limits['yaw_angle'], number_of_initial_states)
     yaw_cos = np.cos(yaw_dist)
     yaw_sin = np.sin(yaw_dist)
+    yaw_rate_dist = get_state(initial_states['yaw_rate'], init_limits['yaw_rate'], number_of_initial_states)
+    slip_angle_dist = get_state(initial_states['slip_angle'], init_limits['slip_angle'], number_of_initial_states)
 
-    # Yaw rate
-    yaw_rate_dist = np.random.normal(0.0, 3.25, number_of_initial_states)
-    # yaw_rate_dist = np.random.normal(0.0, 0.0, number_of_initial_states)
-
-    # Slip angle
-    slip_angle_dist = np.random.uniform(-2.0, 2.0, number_of_initial_states)
-    # slip_angle_dist = np.random.uniform(-0.0, 0.0, number_of_initial_states)
-
-    # Collect states in a table
-    """
-        'angular_vel_z',  # x5: yaw rate
-        'linear_vel_x',   # x3: velocity in x direction
-        'pose_theta',  # x4: yaw angle
-        'pose_theta_cos',
-        'pose_theta_sin',
-        'pose_x',  # x0: x position in global coordinates
-        'pose_y',  # x1: y position in global coordinates
-        'slip_angle',  # x6: slip angle at vehicle center
-        'steering_angle' 
-    """
     # Order to follow for the network
-    #states = np.column_stack((x_dist,y_dist,yaw_dist,v_dist,yaw_rate_dist,yaw_cos, yaw_sin, slip_angle_dist, delta_dist))
+    #states = np.column_stack((x_dist,y_dist,yaw_dist,v_dist,yaw_rate_dist,yaw_cos, yaw_sin, slip_angle_dist, steering_dist))
     # Order the predictor needs
-    states = np.column_stack((yaw_rate_dist,v_dist,yaw_dist, yaw_cos, yaw_sin, x_dist, y_dist, slip_angle_dist, delta_dist))
+    states = np.column_stack((yaw_rate_dist, v_dist, yaw_dist, yaw_cos, yaw_sin, x_dist, y_dist, slip_angle_dist, steering_dist))
 
     return states, number_of_initial_states
 

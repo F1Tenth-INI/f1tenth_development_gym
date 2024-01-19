@@ -94,7 +94,7 @@ class racing(f1t_cost_function):
         stage_cost = (
                 distance_to_wp_segments_cost
                 # + velocity_difference_to_wp_cost
-                + crash_cost
+                # + crash_cost
                 + cc
                 + ccrc
                 # + ccocrc
