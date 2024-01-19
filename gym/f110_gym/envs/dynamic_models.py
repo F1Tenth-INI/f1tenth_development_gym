@@ -239,7 +239,7 @@ def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v)
 
         # Same as in predictor
         if np.fabs(steer_diff) > 1e-4:
-            sv = (steer_diff / np.fabs(steer_diff)) * max_sv
+            sv = 10 * steer_diff
         else:
             sv = 0.0
 
