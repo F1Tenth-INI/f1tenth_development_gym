@@ -53,7 +53,7 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/london3_large
 !utilities/maps/ETF1
 !utilities/maps/ini10
-!utilities/maps/RCA1
+# !utilities/maps/RCA1
 
 
 TrainingLite
