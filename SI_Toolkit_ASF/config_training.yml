@@ -1,69 +1,45 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'Dense-128H1-64H2'
+  NET_NAME: 'Dense-64H1-128H2-64H3' # Dense/LSTM/Simple-RNN/GRU
+  # NET_NAME: 'Dense-10IN-128H1-128H2-8OUT-0'
+  # NET_NAME: 'LSTM-64H1-64H2'
+  # NET_NAME: 'LSTM-10IN-64H1-64H2-8OUT-0'
+  # NET_NAME: 'Custom-ODE_module.py-STModelMu' # train with 0 epochs
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
-  path_to_experiment: ''
-  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/'  # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/'  # Path where the experiments data is stored
+  path_to_experiment: 'NNOde/'
+  DATA_FOLDER: 'Recordings_preprocessed'
 
 
 training_default:
   #### For training closed loop dynamics model:
-  #state_inputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z','slip_angle','steering_angle']
-  #control_inputs: ['translational_control', 'angular_control']
-  #setpoint_inputs: []
-  #outputs: ['pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'linear_vel_x', 'angular_vel_z', 'slip_angle','steering_angle']
-  ## translation_invariant_variables: ['pose_x', 'pose_y']
+  state_inputs: ['pose_x', 'pose_y', 'pose_theta_cos', 'pose_theta_sin', 'linear_vel_x', 'angular_vel_z', 'slip_angle', 'steering_angle' ]
+  control_inputs: [ 'translational_control', 'angular_control' ]
+  outputs: [ 'D_pose_theta_cos', 'D_pose_theta_sin', 'D_pose_x', 'D_pose_y', 'D_linear_vel_x', 'D_angular_vel_z', 'D_slip_angle','D_steering_angle' ]
   translation_invariant_variables: []
-
-  # Lidar data points (nr of points: 40)
-  # lidar_data      : [ 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
-  #                     'LIDAR_0340', 'LIDAR_0365', 'LIDAR_0390', 'LIDAR_0415', 'LIDAR_0440', 'LIDAR_0465', 'LIDAR_0490', 'LIDAR_0515', 'LIDAR_0540', 'LIDAR_0565', 'LIDAR_0590', 'LIDAR_0615',
-  #                    'LIDAR_0640', 'LIDAR_0665', 'LIDAR_0690', 'LIDAR_0715', 'LIDAR_0740', 'LIDAR_0765', 'LIDAR_0790', 'LIDAR_0815', 'LIDAR_0840', 'LIDAR_0865', 'LIDAR_0890', 'LIDAR_0915', 'LIDAR_0940', 'LIDAR_0965', 'LIDAR_0990', 'LIDAR_1015' ]
-
-  # waypoints_x     : [ 'WYPT_REL_X_00', 'WYPT_REL_X_01', 'WYPT_REL_X_02', 'WYPT_REL_X_03', 'WYPT_REL_X_04', 'WYPT_REL_X_05', 'WYPT_REL_X_06', 'WYPT_REL_X_07', 'WYPT_REL_X_08', 'WYPT_REL_X_09', 'WYPT_REL_X_10', 'WYPT_REL_X_11', 'WYPT_REL_X_12', 'WYPT_REL_X_13', 'WYPT_REL_X_14' ]
-  # waypoints_y     : [ 'WYPT_REL_Y_00', 'WYPT_REL_Y_01', 'WYPT_REL_Y_02', 'WYPT_REL_Y_03', 'WYPT_REL_Y_04', 'WYPT_REL_Y_05', 'WYPT_REL_Y_06', 'WYPT_REL_Y_07', 'WYPT_REL_Y_08', 'WYPT_REL_Y_09', 'WYPT_REL_Y_10', 'WYPT_REL_Y_11', 'WYPT_REL_Y_12', 'WYPT_REL_Y_13', 'WYPT_REL_Y_14' ]
-  # waypoints_vx    : [ 'WYPT_VX_00', 'WYPT_VX_01', 'WYPT_VX_02', 'WYPT_VX_03', 'WYPT_VX_04', 'WYPT_VX_05', 'WYPT_VX_06', 'WYPT_VX_07', 'WYPT_VX_08', 'WYPT_VX_09', 'WYPT_VX_10', 'WYPT_VX_11', 'WYPT_VX_12', 'WYPT_VX_13', 'WYPT_VX_14' ]
-  # vel_and_angle   : [ 'angular_vel_z', 'linear_vel_x', 'slip_angle', 'steering_angle' ]
-
-  ### For training open loop dynamics model:
-  # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
-  # outputs = inputs_list
-
-  state_inputs: []
-  
-  control_inputs: [ 
-                    # 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
-                    # 'LIDAR_0340', 'LIDAR_0365', 'LIDAR_0390', 'LIDAR_0415', 'LIDAR_0440', 'LIDAR_0465', 'LIDAR_0490', 'LIDAR_0515', 'LIDAR_0540', 'LIDAR_0565', 'LIDAR_0590', 'LIDAR_0615',
-                    # 'LIDAR_0640', 'LIDAR_0665', 'LIDAR_0690', 'LIDAR_0715', 'LIDAR_0740', 'LIDAR_0765', 'LIDAR_0790', 'LIDAR_0815', 'LIDAR_0840', 'LIDAR_0865', 'LIDAR_0890', 'LIDAR_0915', 'LIDAR_0940', 'LIDAR_0965', 'LIDAR_0990', 'LIDAR_1015',
-                    'WYPT_REL_X_00', 'WYPT_REL_X_01', 'WYPT_REL_X_02', 'WYPT_REL_X_03', 'WYPT_REL_X_04', 'WYPT_REL_X_05', 'WYPT_REL_X_06', 'WYPT_REL_X_07', 'WYPT_REL_X_08', 'WYPT_REL_X_09', 'WYPT_REL_X_10', 'WYPT_REL_X_11', 'WYPT_REL_X_12', 'WYPT_REL_X_13', 'WYPT_REL_X_14',
-                    'WYPT_REL_Y_00', 'WYPT_REL_Y_01', 'WYPT_REL_Y_02', 'WYPT_REL_Y_03', 'WYPT_REL_Y_04', 'WYPT_REL_Y_05', 'WYPT_REL_Y_06', 'WYPT_REL_Y_07', 'WYPT_REL_Y_08', 'WYPT_REL_Y_09', 'WYPT_REL_Y_10', 'WYPT_REL_Y_11', 'WYPT_REL_Y_12', 'WYPT_REL_Y_13', 'WYPT_REL_Y_14',
-                    'WYPT_VX_00', 'WYPT_VX_01', 'WYPT_VX_02', 'WYPT_VX_03', 'WYPT_VX_04', 'WYPT_VX_05', 'WYPT_VX_06', 'WYPT_VX_07', 'WYPT_VX_08', 'WYPT_VX_09', 'WYPT_VX_10', 'WYPT_VX_11', 'WYPT_VX_12', 'WYPT_VX_13', 'WYPT_VX_14',
-                    # 'angular_vel_z', 
-                    # 'linear_vel_x', 
-                    # 'slip_angle',
-                    # 'steering_angle'
-                     ]
-
-
-  # state_inputs: []
-  # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
-
-
   setpoint_inputs: []
-  outputs: [ 'angular_control_calculated', 'translational_control_calculated']
 
-  EPOCHS: 10
-  BATCH_SIZE: 16
+
+
+  EPOCHS: 25
+  BATCH_SIZE: 8
   SEED: 1873
   LR: 1.0e-3
-  WASH_OUT_LEN: 20
+  WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 1  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
+
+  REDUCE_LR_ON_PLATEAU:
+    ACTIVATED: True
+    FACTOR: 0.316  # Factor to reduce learning rate by (0.316 = sqrt(0.1))
+    PATIENCE: 1
+    MIN_LR: 1.0e-5
+    MIN_DELTA: 0.00
 
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
