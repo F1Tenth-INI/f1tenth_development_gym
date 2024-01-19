@@ -152,6 +152,11 @@ class F110Env(gym.Env):
         except:
             self.ego_idx = 0
 
+        try:
+            self.ode_implementation = kwargs['ode_implementation']
+        except:
+            self.ode_implementation = 'f1tenth'
+
         # radius to consider done
         self.start_thresh = 0.5  # 10cm
 
@@ -183,7 +188,7 @@ class F110Env(gym.Env):
         self.start_rot = np.eye(2)
 
         # initiate stuff
-        self.sim = Simulator(self.params, self.num_agents, self.seed)
+        self.sim = Simulator(self.params, self.num_agents, self.seed, self.ode_implementation)
         self.sim.set_map(self.map_path, self.map_ext)
 
         # stateful observations for rendering

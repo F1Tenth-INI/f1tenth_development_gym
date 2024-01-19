@@ -10,6 +10,16 @@ predictors:
     model_name: 'GRU-6IN-32H1-32H2-5OUT-0'
     path_to_model: './SI_Toolkit_ASF/Experiments/Tutorial/Models/'
     update_before_predicting: True
+  neural_flo:
+    predictor_type: 'neural'
+    model_name: 'Dense-10IN-64H1-128H2-64H3-8OUT-0'
+    path_to_model: './SI_Toolkit_ASF/Experiments/ContinualLearning/Models/'
+    update_before_predicting: False
+  neural_parameter_determination:
+    predictor_type: 'neural'
+    model_name: 'Custom-11IN-ODE_module-STModel-9OUT-0'
+    path_to_model: './SI_Toolkit_ASF/Experiments/ContinualLearning/Models/'
+    update_before_predicting: False
   GP_default:
     predictor_type: 'GP'
     model_name: 'SGP_10'
