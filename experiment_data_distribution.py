@@ -65,11 +65,10 @@ train_distribution = 0.8
 test_distribution = 0.1
 validate_distribution = 0.1
 
-experiment_folder = "flo-mpc-delay1"
+experiment_folder = "flo-pp-non-noise"
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
 past_recordings = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Past_trainings"
-create_directory(past_recordings)
 
 # Output folders for distribution
 output_folder_train = "./SI_Toolkit_ASF/Experiments/"+experiment_folder+"/Recordings/Train"

@@ -9,6 +9,7 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.state_utilities import *
 
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
+import matplotlib.pyplot as plt
 
 '''
 Example PP planner, adapted to our system

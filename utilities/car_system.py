@@ -28,7 +28,7 @@ from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
 
-from TrainingLite.NN_lidar_odom.predict import *
+#  from TrainingLite.NN_lidar_odom.predict import *
 from utilities.imu_simulator import ImuSimulator 
 
 
@@ -175,9 +175,6 @@ class CarSystem:
         }
     """
     
-  
-        
-    
     def process_observation(self, ranges=None, ego_odom_old=None):
         
         
@@ -201,8 +198,7 @@ class CarSystem:
             'linear_vel_y': 0, #car_state[LINEAR_VEL_Y_IDX],
             'angular_vel_z': car_state[ANGULAR_VEL_Z_IDX],
         }
-        
-       
+   
         
         ranges = np.array(ranges)
         self.LIDAR.load_lidar_measurement(ranges)
