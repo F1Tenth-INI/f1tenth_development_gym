@@ -38,10 +38,13 @@ waypoints = waypoint_utils.next_waypoints
 WP_S_IDX = 0 # Distance since start
 WP_X_IDX = 1 # Position x
 WP_Y_IDX = 2 # Position y
-WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
+WP_PSI_IDX = 3 # Absolute angle normal to raceline
 WP_KAPPA_IDX = 4 # Relative angle
 WP_VX_IDX = 5 # Suggested velocity 
 WP_A_X_IDX = 6 # Suggested acceleration
+
+# Not in the file: generated on loading
+WP_THETA_IDX = 7 # Absolute angle of vector connecting to next wp
 
 
 # Indices for sectors
@@ -90,10 +93,10 @@ class WaypointUtils:
         self.nearest_waypoint_index = None
         
         # next waypoints including the ones ignored by index offset: Relevant for looking for next (cache for looking for next one)
-        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 7), dtype=np.float32) 
+        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 8), dtype=np.float32) 
         
          # next waypoints considering ignored waypoints index offset
-        self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
         self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
@@ -166,8 +169,20 @@ class WaypointUtils:
         
             sector = self.sectors[self.sector_error_index]
             error_shifted = self.sector_error - 0.20
-            sector[SECTOR_SCALING_IDX] -= 1.5*error_shifted
-            print("Adusting sector scaling by ", 1.5 * -error_shifted)
+            
+            adjusting_by = - 1.5*error_shifted
+            
+            if( adjusting_by > 0):
+                adjusting_by = 0.5 * adjusting_by
+                
+                
+            sector[SECTOR_SCALING_IDX] += adjusting_by
+            print("Adusting sector scaling by ", adjusting_by)
+            
+            if( adjusting_by < 0):
+                print("Adusting previous sector scaling by ", adjusting_by)
+                sector[SECTOR_SCALING_IDX - 1] += adjusting_by
+            
             
             
             # Read the file into a list of lines
@@ -181,10 +196,6 @@ class WaypointUtils:
             # Write the list of lines back to the file
             with open(self.speed_scaling_pth, 'w') as file:
                 file.writelines(lines)
-            # Load the CSV file
-            # df = pd.read_csv(self.speed_scaling_pth, header=1)
-            # df.loc[self.sector_index -1] = csv_line
-            # df.to_csv(self.speed_scaling_pth, index=False)
 
             
             self.sector_error = 0
@@ -235,9 +246,27 @@ class WaypointUtils:
             return None
         
         waypoints = pd.read_csv(file_path, header=1).to_numpy()
+        waypoints = np.c_[waypoints, np.zeros(waypoints.shape[0])]
         
         # Original Psi is the normal angle but we want the translational one
-        waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
+        # waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
+        
+        
+        for i in range(len(waypoints)):
+            # Get the current waypoint and the next waypoint
+            waypoint1 = waypoints[i]
+            waypoint2 = waypoints[(i + 1) % len(waypoints)]
+
+            # Calculate the difference in x and y coordinates
+            delta_x = waypoint2[WP_X_IDX] - waypoint1[WP_X_IDX]
+            delta_y = waypoint2[WP_Y_IDX] - waypoint1[WP_Y_IDX]
+
+            # Calculate the angle
+            angle = np.arctan2(delta_y, delta_x)
+
+            # Store the angle in the waypoints array
+            waypoints[i, WP_THETA_IDX] = angle
+        
         return np.array(waypoints)
      
     @staticmethod

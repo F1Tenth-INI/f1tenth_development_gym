@@ -9,6 +9,7 @@ from SI_Toolkit.computation_library import ComputationLibrary
 
 from utilities.state_utilities import *
 from utilities.path_helper_ros import *
+from utilities.waypoint_utils import WP_THETA_IDX
 
 distance_normalization = 6.0
 
@@ -331,15 +332,15 @@ class f1t_cost_function(cost_function_base):
     
     def get_angle_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
 
-        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)[:,:,3]
-        nearest_waypoint_psi_rad_sin = tf.sin(nearest_waypoints)
-        nearest_waypoint_psi_rad_cos = tf.cos(nearest_waypoints)
+        nearest_waypoints = tf.gather(waypoints, nearest_waypoint_indices)[:,:,WP_THETA_IDX]
+        nearest_waypoint_theta_rad_sin = tf.sin(nearest_waypoints)
+        nearest_waypoint_theta_rad_cos = tf.cos(nearest_waypoints)
         
         car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
         car_angle_cos = s[:, :, POSE_THETA_COS_IDX]
         
-        angle_difference_sin = tf.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
-        angle_difference_cos= tf.square(nearest_waypoint_psi_rad_cos - car_angle_cos)
+        angle_difference_sin = tf.square(nearest_waypoint_theta_rad_sin - car_angle_sin)
+        angle_difference_cos= tf.square(nearest_waypoint_theta_rad_cos - car_angle_cos)
         return angle_difference_to_wp_cost_weight * (angle_difference_sin + angle_difference_cos)
         
     def normed_discount(self, array_to_discount, model_array, discount_factor):

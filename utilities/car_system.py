@@ -71,7 +71,7 @@ class CarSystem:
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
         self.save_recording = save_recording
-        if save_recording:
+        if self.save_recording:
             self.recorder = Recorder(name='Blank-MPPI-{}'.format(str(car_index)))
         self.obstacle_detector = ObstacleDetector()
 

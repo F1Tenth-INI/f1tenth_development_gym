@@ -335,7 +335,7 @@ class RaceCar(object):
             #     self.state[4] = self.state[4] - 2*np.pi
             # elif self.state[4] < 0:
             #     self.state[4] = self.state[4] + 2*np.pi
-            # self.state[4] = wrap_angle_rad(self.state[4])
+            self.state[4] = wrap_angle_rad(self.state[4])
         elif self.ode_implementation == 'ODE_TF':
             self.state = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, vel]], dtype=np.float32), None).numpy()[0]

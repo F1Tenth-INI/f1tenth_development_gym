@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -59,7 +59,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 500  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 5000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -117,9 +117,6 @@ class Settings():
 
     FOLLOW_RANDOM_TARGETS = False
     
-    # Sectors
-    AUTOMATIC_SECTOR_TUNING = False
-
     LIDAR_COVERED_ANGLE_DEG = 270
     LIDAR_NUM_SCANS = 1080
 
@@ -154,7 +151,7 @@ class Settings():
     DISABLE_GPU = True
 
     # Settings for data collection
-    START_FROM_RANDOM_POSITION = False
+    START_FROM_RANDOM_POSITION = True
     STARTING_POSITION = [[3.62, 6.26, 0.378]]
     WAYPOINTS_FROM_MPC = False
     PLAN_EVERY_N_STEPS = 4

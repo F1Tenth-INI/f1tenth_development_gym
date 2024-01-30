@@ -68,9 +68,8 @@ def main():
     opponents = []
     waypoint_velocity_factor = np.min((np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR / driver.waypoint_utils.global_limit, 0.5))
     for i in range(Settings.NUMBER_OF_OPPONENTS):
-        opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
+        opponent = CarSystem(Settings.OPPONENTS_CONTROLLER, save_recording=False)
         opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
-        opponent.save_recordings = False
         opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
         opponents.append(opponent)
 
@@ -194,11 +193,20 @@ def main():
     # Starting from random position near a waypoint
     if Settings.START_FROM_RANDOM_POSITION:
         import random
-        
+
         wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)
-        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
-        # random_wp[2] += 0.5 * np.pi
+        
+        random_index = random.randrange(len(wu.waypoints))
+        random_wp = wu.waypoints[random_index]
+        next_wp = wu.waypoints[ (random_index + 1) % len(wu.waypoints)]
+        
+        # Starting angle such that it is directed towards the next waypoint
+        delta_x = next_wp[WP_X_IDX] - random_wp[WP_X_IDX]
+        delta_y = next_wp[WP_Y_IDX] - random_wp[WP_Y_IDX]
+        angle = np.arctan2(delta_y, delta_x)
+        random_wp[WP_PSI_IDX] = angle
+        
+        # add noise
         random_wp[WP_X_IDX] += random.uniform(0., 0.2)
         random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
         random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
