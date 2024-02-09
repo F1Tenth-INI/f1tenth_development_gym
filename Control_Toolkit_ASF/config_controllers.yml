@@ -9,8 +9,8 @@ mpc:
   calculate_optimal_trajectory: true
 neural-imitator:
   seed: null                            # If null, random seed based on datetime is used
-  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-mpc-cs-2/Models/'
-  net_name: 'Dense-46IN-64H1-64H2-2OUT-5'  # TF
+  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-dataset/Models/'
+  net_name: 'GRU-63IN-32H1-32H2-2OUT-3'  # TF
   controller_logging: True
   computation_library: tensorflow
   input_at_input: true  # If true the network input is provided to step function, if not, system state is provided and controller tries to get the remaining inputs from environment parameters`

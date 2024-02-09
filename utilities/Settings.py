@@ -10,7 +10,7 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1
+    MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -104,7 +104,7 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number

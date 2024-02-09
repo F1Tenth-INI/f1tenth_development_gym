@@ -1,10 +1,10 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'Dense-128H1-64H2'
+  NET_NAME: 'GRU-32H1-32H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ''
-  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/'  # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/flo-dataset/'  # Path where the experiments data is stored
 
 
 training_default:
@@ -31,18 +31,20 @@ training_default:
   # outputs = inputs_list
 
   state_inputs: []
-  
-  control_inputs: [ 
+
+  control_inputs: [
                     # 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
                     # 'LIDAR_0340', 'LIDAR_0365', 'LIDAR_0390', 'LIDAR_0415', 'LIDAR_0440', 'LIDAR_0465', 'LIDAR_0490', 'LIDAR_0515', 'LIDAR_0540', 'LIDAR_0565', 'LIDAR_0590', 'LIDAR_0615',
                     # 'LIDAR_0640', 'LIDAR_0665', 'LIDAR_0690', 'LIDAR_0715', 'LIDAR_0740', 'LIDAR_0765', 'LIDAR_0790', 'LIDAR_0815', 'LIDAR_0840', 'LIDAR_0865', 'LIDAR_0890', 'LIDAR_0915', 'LIDAR_0940', 'LIDAR_0965', 'LIDAR_0990', 'LIDAR_1015',
-                    'WYPT_REL_X_00', 'WYPT_REL_X_01', 'WYPT_REL_X_02', 'WYPT_REL_X_03', 'WYPT_REL_X_04', 'WYPT_REL_X_05', 'WYPT_REL_X_06', 'WYPT_REL_X_07', 'WYPT_REL_X_08', 'WYPT_REL_X_09', 'WYPT_REL_X_10', 'WYPT_REL_X_11', 'WYPT_REL_X_12', 'WYPT_REL_X_13', 'WYPT_REL_X_14',
-                    'WYPT_REL_Y_00', 'WYPT_REL_Y_01', 'WYPT_REL_Y_02', 'WYPT_REL_Y_03', 'WYPT_REL_Y_04', 'WYPT_REL_Y_05', 'WYPT_REL_Y_06', 'WYPT_REL_Y_07', 'WYPT_REL_Y_08', 'WYPT_REL_Y_09', 'WYPT_REL_Y_10', 'WYPT_REL_Y_11', 'WYPT_REL_Y_12', 'WYPT_REL_Y_13', 'WYPT_REL_Y_14',
-                    'WYPT_VX_00', 'WYPT_VX_01', 'WYPT_VX_02', 'WYPT_VX_03', 'WYPT_VX_04', 'WYPT_VX_05', 'WYPT_VX_06', 'WYPT_VX_07', 'WYPT_VX_08', 'WYPT_VX_09', 'WYPT_VX_10', 'WYPT_VX_11', 'WYPT_VX_12', 'WYPT_VX_13', 'WYPT_VX_14',
-                    # 'angular_vel_z', 
-                    # 'linear_vel_x', 
+                    'WYPT_REL_X_00', 'WYPT_REL_X_01', 'WYPT_REL_X_02', 'WYPT_REL_X_03', 'WYPT_REL_X_04', 'WYPT_REL_X_05', 'WYPT_REL_X_06', 'WYPT_REL_X_07', 'WYPT_REL_X_08', 'WYPT_REL_X_09', 'WYPT_REL_X_10', 'WYPT_REL_X_11', 'WYPT_REL_X_12', 'WYPT_REL_X_13', 'WYPT_REL_X_14', 'WYPT_REL_X_15', 'WYPT_REL_X_16', 'WYPT_REL_X_17', 'WYPT_REL_X_18', 'WYPT_REL_X_19',
+                    'WYPT_REL_Y_00', 'WYPT_REL_Y_01', 'WYPT_REL_Y_02', 'WYPT_REL_Y_03', 'WYPT_REL_Y_04', 'WYPT_REL_Y_05', 'WYPT_REL_Y_06', 'WYPT_REL_Y_07', 'WYPT_REL_Y_08', 'WYPT_REL_Y_09', 'WYPT_REL_Y_10', 'WYPT_REL_Y_11', 'WYPT_REL_Y_12', 'WYPT_REL_Y_13', 'WYPT_REL_Y_14', 'WYPT_REL_Y_15', 'WYPT_REL_Y_16', 'WYPT_REL_Y_17', 'WYPT_REL_Y_18', 'WYPT_REL_Y_19',
+                    'WYPT_VX_00', 'WYPT_VX_01', 'WYPT_VX_02', 'WYPT_VX_03', 'WYPT_VX_04', 'WYPT_VX_05', 'WYPT_VX_06', 'WYPT_VX_07', 'WYPT_VX_08', 'WYPT_VX_09', 'WYPT_VX_10', 'WYPT_VX_11', 'WYPT_VX_12', 'WYPT_VX_13', 'WYPT_VX_14', 'WYPT_VX_15', 'WYPT_VX_16', 'WYPT_VX_17', 'WYPT_VX_18', 'WYPT_VX_19',
+                    'angular_vel_z',
+                    'linear_vel_x',
                     # 'slip_angle',
-                    # 'steering_angle'
+                    'steering_angle',
+                    # 'ch_a_1','ch_a_2','ch_a_3','ch_a_4','ch_a_5','ch_a_6','ch_a_7','ch_a_8','ch_a_9',
+                    # 'ch_t_1','ch_t_2','ch_t_3','ch_t_4','ch_t_5','ch_t_6','ch_t_7','ch_t_8','ch_t_9',
                      ]
 
 
@@ -51,9 +53,9 @@ training_default:
 
 
   setpoint_inputs: []
-  outputs: [ 'angular_control_calculated', 'translational_control_calculated']
+  outputs: [ 'cs_a_4', 'cs_t_4']
 
-  EPOCHS: 10
+  EPOCHS: 5
   BATCH_SIZE: 16
   SEED: 1873
   LR: 1.0e-3
