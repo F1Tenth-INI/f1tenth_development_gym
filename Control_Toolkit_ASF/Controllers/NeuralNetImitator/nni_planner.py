@@ -6,10 +6,7 @@ from utilities.waypoint_utils import *
 
 from Control_Toolkit_ASF.Controllers import template_planner
 
-EVALUATION = 'PC'
-
-from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator as controller_pc
-from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller_fpga
+EVALUATION = 'PC'  # 'PC' or 'FPGA'
 
 
 class NeuralNetImitatorPlanner(template_planner):
@@ -28,6 +25,8 @@ class NeuralNetImitatorPlanner(template_planner):
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
         if EVALUATION == 'PC':
+            from Control_Toolkit.Controllers.controller_neural_imitator import \
+                controller_neural_imitator as controller_pc
             self.nni = controller_pc(
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
@@ -37,6 +36,7 @@ class NeuralNetImitatorPlanner(template_planner):
 
             self.nni.configure()
         else:
+            from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller_fpga
             self.nni = controller_fpga(
                 dt=Settings.TIMESTEP_CONTROL,
                 environment_name="Car",
