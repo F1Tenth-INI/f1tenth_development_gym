@@ -66,6 +66,7 @@ training_default:
   SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
+  VALIDATE_ALSO_ON_TRAINING_SET: true
 
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.

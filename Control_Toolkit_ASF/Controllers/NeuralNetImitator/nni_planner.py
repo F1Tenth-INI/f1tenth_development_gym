@@ -5,7 +5,12 @@ import sklearn # Don't touch
 from utilities.waypoint_utils import *
 
 from Control_Toolkit_ASF.Controllers import template_planner
-from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
+
+EVALUATION = 'PC'
+
+from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator as controller_pc
+from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller_fpga
+
 
 class NeuralNetImitatorPlanner(template_planner):
 
@@ -22,18 +27,29 @@ class NeuralNetImitatorPlanner(template_planner):
 
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
-        self.nni = controller_neural_imitator(
-            dt=Settings.TIMESTEP_CONTROL,
-            environment_name="Car",
-            initial_environment_attributes={},
-            control_limits=(control_limits_low, control_limits_high),
-        )
+        if EVALUATION == 'PC':
+            self.nni = controller_pc(
+                dt=Settings.TIMESTEP_CONTROL,
+                environment_name="Car",
+                initial_environment_attributes={},
+                control_limits=(control_limits_low, control_limits_high),
+            )
 
-        self.nni.configure()
+            self.nni.configure()
+        else:
+            self.nni = controller_fpga(
+                dt=Settings.TIMESTEP_CONTROL,
+                environment_name="Car",
+                initial_environment_attributes={},
+                control_limits=(control_limits_low, control_limits_high),
+            )
+            self.nni.configure()
+
+
         self.nn_inputs = self.nni.net_info.inputs
-        
+
         if 'GRU' in self.nni.config_controller['net_name']:
-            Settings.ACCELERATION_TIME = 10 # GRU needs a little whashout 
+            Settings.ACCELERATION_TIME = 10 # GRU needs a little whashout
             print("GRU detected... set acceleration time to 10")
 
         number_of_next_waypoints_network = len([wp for wp in self.nni.net_info.inputs if wp.startswith("WYPT_REL_X")])
@@ -56,7 +72,7 @@ class NeuralNetImitatorPlanner(template_planner):
         # Build a dict data_dict, to store all environment and sensor data that we have access to
         # The NNI will then extract the data it needs from this dict
         # If you have access to more data than waypoints, state, etc, add it to the dict
-        
+
         # About timing: Building the lidar dict takes 1ms, bulding the whole dict takes 1.3ms
         # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
@@ -85,16 +101,16 @@ class NeuralNetImitatorPlanner(template_planner):
         
         # Combine all dictionaries into one
         data_dict = {**waypoints_dict, **state_dict, **lidar_dict}
-        
+
         # Check if every key in self.nn_inputs is present in data_dict
         if not all(key in data_dict for key in self.nn_inputs):
             missing_keys = [key for key in self.nn_inputs if key not in data_dict]
             raise Exception(f"Not all data the NN needs for input are present. The following keys are missing from data_dict: {missing_keys}")
-        
+
         # Extract all data from dict that NN needs as input
-        input_data = [data_dict[key] for key in self.nn_inputs if key in data_dict]
-        
-        # NN prediction step 
+        input_data = np.array([data_dict[key] for key in self.nn_inputs if key in data_dict])
+
+        # NN prediction step
         net_output = self.nni.step(input_data)
 
         self.angular_control = net_output[0, 0, 0]
