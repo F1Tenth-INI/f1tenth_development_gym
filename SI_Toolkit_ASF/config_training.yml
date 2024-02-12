@@ -1,10 +1,11 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'GRU-32H1-32H2'
+  NET_NAME: 'Dense-64H1-64H2'
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ''
   PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/flo-dataset/'  # Path where the experiments data is stored
+  DATA_FOLDER:                  'Recordings'                        # Folder within path_to_experiment where the experimental data is stored
 
 
 training_default:
@@ -55,18 +56,25 @@ training_default:
   setpoint_inputs: []
   outputs: [ 'cs_a_4', 'cs_t_4']
 
-  EPOCHS: 5
+  EPOCHS: 15
   BATCH_SIZE: 16
   SEED: 1873
-  LR: 1.0e-3
-  WASH_OUT_LEN: 20
+  LR:
+    INITIAL: 1.0e-3
+    REDUCE_LR_ON_PLATEAU: True
+    MINIMAL: 1.0e-6
+    PATIENCE: 1
+    DECREASE_FACTOR: 0.2 # sqrt(0.1)
+    MIN_DELTA: 1.0e-4
+  WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
   SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
   USE_NNI: False  # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch
-  VALIDATE_ALSO_ON_TRAINING_SET: true
+  VALIDATE_ALSO_ON_TRAINING_SET: false
+  PLOT_WEIGHTS_DISTRIBUTION: true # Calculate histograms of weights and biases and activations, take long time
 
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
@@ -74,3 +82,52 @@ training_default:
   #ToDo instead of listing all Lidar Points, one just writes how many and the state input vector is generated automatically
   upper_bound: 880
   lower_bound: 200
+REGULARIZATION:   # Implemented only for TF, no regularization for Pytorch
+  ACTIVATED: true
+  KERNEL:  # For all layers
+    l1: 0.001
+    l2: 0.00
+  BIAS:  # For all layers
+    l1: 0.001
+    l2: 0.00
+  ACTIVITY:  # Not for last layer, this has activity regularization set to 0
+    l1: 0.00
+    l2: 0.00
+
+
+QUANTIZATION: # Not implemented yet
+  ACTIVATED: false
+  ACTIVATION:
+    bits: 18
+  KERNEL:
+    bits: 18
+    integer: 6
+    symmetric: True
+  BIAS:
+    bits: 18
+    integer: 6
+    symmetric: True
+  RECURRENT:
+    bits: 18
+    integer: 6
+    symmetric: True
+
+PRUNING: # TF only for the moment
+  ACTIVATED: false
+  PRUNING_PARAMS:
+    PRUNING_SCHEDULE: 'CONSTANT_SPARSITY'
+  PRUNING_SCHEDULES:
+    CONSTANT_SPARSITY:
+      target_sparsity: 0.805
+      target_sparsity_last_layer: 0.65
+      begin_step_in_epochs: 1.0  # fraction of epoch allowed
+      end_step_in_training_fraction: 1.0
+      frequency_per_epoch: 100.0 # fraction of epoch allowed
+    POLYNOMIAL_DECAY:
+      initial_sparsity: 0.0
+      final_sparsity: 0.75
+      final_sparsity_last_layer: 0.5
+      begin_step_in_epochs: 1.0  # fraction of epoch allowed
+      end_step_in_training_fraction: 0.8
+      power: 3.0
+      frequency_per_epoch: 1000 # fraction of epoch allowed
