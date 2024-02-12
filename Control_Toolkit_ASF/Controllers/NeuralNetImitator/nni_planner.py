@@ -112,12 +112,9 @@ class NeuralNetImitatorPlanner(template_planner):
 
         # NN prediction step
         net_output = self.nni.step(input_data)
-        if np.ndim(net_output) == 1:
-            self.angular_control = net_output[0]
-            self.translational_control = net_output[1]
-        else:
-            self.angular_control = net_output[0, 0, 0]
-            self.translational_control = net_output[0, 0, 1]
+
+        self.angular_control = net_output[0, 0, 0]
+        self.translational_control = net_output[0, 0, 1]
 
         # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
         if self.simulation_index < Settings.ACCELERATION_TIME:
