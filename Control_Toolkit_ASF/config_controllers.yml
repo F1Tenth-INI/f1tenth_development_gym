@@ -27,4 +27,4 @@ fpga:
   input_at_input: true
   controller_logging: True
   SERIAL_PORT: 1
-  SERIAL_BAUD: 115200
+  SERIAL_BAUD: 230400
