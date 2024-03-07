@@ -168,9 +168,6 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
         sim_translational_con_applied = sim_translational_con_applied[:min_length]
         real_translational_con_cal = real_translational_con_cal[:min_length]
         sim_translational_con_cal = sim_translational_con_cal[:min_length]
-        
-    print("Length of sim_time: ", sim_angular_con_cal)
-    print("Length of real_time: ", real_angular_con_cal)
     
     # Calculate the error
     error_abs_pos_x = np.abs(sim_x - real_x)
@@ -182,10 +179,8 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
     error_translation_sim = np.abs(sim_translational_con_applied - sim_translational_con_cal)
     error_angular_sim = np.abs(sim_angular_con_applied - sim_angular_con_cal)
     error_translational_con_cal = np.abs(sim_translational_con_cal - real_translational_con_cal)
+    normalized_error_translational_con_cal = error_translational_con_cal / np.max(real_translational_con_cal)
     error_angular_con_cal = np.abs(sim_angular_con_cal - real_angular_con_cal)    
-
-    print("Error in position: ", error_translational_con_cal)
-    print("Error in angle: ", error_angular_con_cal)
     
     # Load the background image
     with open(img_path + '.yaml', 'r') as file:
@@ -247,7 +242,7 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
     # ax[3].plot(sim_time, error_translation_sim, color='green', linestyle='dashed', label='error between applied and calculated translational control sim')
     # ax[3].plot(sim_time, error_angular_sim, color='red', label='error between applied and calculated angular control sim')
     ax[3].plot(sim_time, error_angular_con_cal, color='blue', label='error between calculated angular control sim and real')
-    ax[3].plot(sim_time, error_translational_con_cal, color='orange', label='error between calculated translational control sim and real')
+    ax[3].plot(sim_time, normalized_error_translational_con_cal, color='orange', label='normalized error between calculated translational control sim and real')
     # ax[3].plot(sim_time, error_translational_real, color='orange', label='error between applied and calculated translational control real') #TODO: get data from real to plot this
     # ax[3].plot(sim_time, error_angular_real, color='blue', label='error between applied and calculated angular control real') #TODO: get data from real to plot this
     ax[3].grid(True)

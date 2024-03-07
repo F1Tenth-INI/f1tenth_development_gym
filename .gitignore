@@ -10,6 +10,7 @@ docs/_build/
 *.mypy_cache/
 flycheck_*
 dev.py
+find.py
 
 # configs
 utilites/Settings.py
