@@ -6,8 +6,8 @@ class Settings():
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
 
     FROM_RECORDING = False
-    RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
-    RECORDING_FOLDER = './ExperimentRecordings/'
+    RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-12-18_14-03-54.csv'
+    RECORDING_FOLDER = './ExperimentRecordings/Physical_car/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10,    london3_large
@@ -16,7 +16,7 @@ class Settings():
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
-    CONTROL_DELAY = 0.1  
+    CONTROL_DELAY = 0
     
     REVERSE_DIRECTION = False
 
@@ -34,7 +34,7 @@ class Settings():
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
-    CRASH_DETECTION = True
+    CRASH_DETECTION = False
 
     # Decide if to use PID as in the original F1TENTH implementation [angle, speed] Or bypass it [angular_vel, acceleration]
     WITH_PID = True # Warning: The planner classes that can not handle both (pp, ftg) will overwrite this setting
@@ -51,7 +51,7 @@ class Settings():
     ### Experiment Settings ###
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 4000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -98,9 +98,9 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
-    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_CONTROL = 0.036    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.1      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
     ACCELERATION_TIME = 1                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -145,7 +145,7 @@ class Settings():
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
     APPLY_SPEED_SCALING_FROM_YAML = False
     START_FROM_RANDOM_POSITION = False
-    STARTING_POSITION = [[0.0, 0.0, 0.0]]
+    STARTING_POSITION = [[0, 0, 0]]
     DATASET_NAME = MAP_NAME + '_' + CONTROLLER + '_' + str(int(1/TIMESTEP_CONTROL)) + 'Hz'
 
     WAYPOINTS_FROM_MPC = False

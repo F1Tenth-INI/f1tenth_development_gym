@@ -2,5 +2,5 @@ Sector0:
   end: 925
   scaling: 0.5
   start: 0
-global_limit: 1.0
+global_limit: 0.5
 n_sectors: 1

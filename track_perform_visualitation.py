@@ -4,7 +4,87 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 import yaml
 
-def plot_wp(map_name, experiment_folder_path, img_path, sim, real):
+def plot_data(map_name, experiment_folder_path, img_path, controller,laptime):
+    sim_data = pd.read_csv(experiment_folder_path, skiprows=8)
+    wp_data = pd.read_csv(img_path + '_wp.csv')
+    
+    wp_x = wp_data['x_m'].to_numpy()
+    wp_y = wp_data['y_m'].to_numpy()
+    sim_x = sim_data['pose_x'].to_numpy()
+    sim_y = sim_data['pose_y'].to_numpy()
+    
+    laptime = str(laptime)
+    
+    with open(img_path + '.yaml', 'r') as file:
+        data = yaml.safe_load(file)
+
+    # Load the background image
+    img = plt.imread(img_path + '.png')
+
+    # Determine the limits based on the origin and resolution
+    x_min = data['origin'][0]
+    y_min = data['origin'][1]
+    x_max = x_min + img.shape[1] * data['resolution']
+    y_max = y_min + img.shape[0] * data['resolution']
+    
+    fig, ax = plt.subplots()
+    
+    ax.imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
+    
+    plt.scatter(sim_x[0], sim_y[0], color='red', marker='x', s=100, label='Starting point Race car')
+    
+    plt.plot(sim_x, sim_y, color='red', label='position Race car')
+    plt.plot(wp_x, wp_y, color='green', marker='o', markersize=2,linestyle='dotted', label='waypoints')
+    plt.grid(True)
+    plt.xlabel('x [m]', fontsize=24)
+    plt.xlim(-24, 8)
+    plt.ylim(-4, 12)
+    plt.ylabel('y [m]', fontsize=24)
+    plt.title(map_name + ' Coordinate System with controller: ' + controller, fontsize=24)
+    # if laptime != 'crashed':
+    #     plt.suptitle('2-Laptime: ' + laptime+' s', fontsize=24, fontweight='bold')
+    # else:
+    #     plt.suptitle('Crashed', fontsize=24, fontweight='bold')
+    plt.tick_params(axis='both', labelsize=24)
+    plt.legend(loc='upper right', fontsize=24)
+
+    # Save the plot as a PNG
+    plt.show()
+
+def plot_wp(map_name,img_path):
+    wp_data = pd.read_csv(img_path + '_wp.csv')
+    
+    wp_x = wp_data['x_m'].to_numpy()
+    wp_y = wp_data['y_m'].to_numpy()
+    
+    with open(img_path + '.yaml', 'r') as file:
+        data = yaml.safe_load(file)
+
+    # Load the background image
+    img = plt.imread(img_path + '.png')
+
+    # Determine the limits based on the origin and resolution
+    x_min = data['origin'][0]
+    y_min = data['origin'][1]
+    x_max = x_min + img.shape[1] * data['resolution']
+    y_max = y_min + img.shape[0] * data['resolution']
+    
+    fig, ax = plt.subplots()
+    
+    ax.imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
+    
+    plt.plot(wp_x, wp_y, color='green', label='waypoints')
+    
+    plt.grid(True)
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title(map_name + ' Coordinate System')
+    plt.legend(loc='upper right')
+
+    # Save the plot as a PNG
+    plt.show()
+
+def plot_wp_in(map_name, experiment_folder_path, img_path, sim, real):
     
     if real is None:
         real_path = None
@@ -197,7 +277,7 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
     
     
     # Create the figure and axes    
-    fig, ax = plt.subplots(4)
+    fig, ax = plt.subplots(2)
     ax[0].imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
     ax[1].imshow(img, extent=[x_min, x_max, y_min, y_max], cmap='gray')
     
@@ -227,44 +307,49 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
     ax[1].set_ylabel('y')
     ax[1].legend()
     
+    fig, bx = plt.subplots(2)
     
     # Subplot 3 with error and time
-    ax[2].plot(sim_time, error_pos, color='green', label='error between sim and real position')
-    ax[2].plot(sim_time, error_abs_kappa, color='blue', label='error between sim and real kappa')
-    ax[2].plot(sim_time, error_abs_vx, color='red', label='error between sim and real vx')
-    ax[2].grid(True)
-    ax[2].set_title('Error over time')
-    ax[2].set_xlabel('time')
-    ax[2].set_ylabel('error')
-    ax[2].legend()
+    bx[0].plot(sim_time, error_pos, color='green', label='error between sim and real position')
+    bx[0].plot(sim_time, error_abs_kappa, color='blue', label='error between sim and real kappa')
+    bx[0].plot(sim_time, error_abs_vx, color='red', label='error between sim and real vx')
+    bx[0].grid(True)
+    bx[0].set_title('Error over time')
+    bx[0].set_xlabel('time')
+    bx[0].set_ylabel('error')
+    bx[0].legend()
 
     # Subplot 4 with error and time
     # ax[3].plot(sim_time, error_translation_sim, color='green', linestyle='dashed', label='error between applied and calculated translational control sim')
     # ax[3].plot(sim_time, error_angular_sim, color='red', label='error between applied and calculated angular control sim')
-    ax[3].plot(sim_time, error_angular_con_cal, color='blue', label='error between calculated angular control sim and real')
-    ax[3].plot(sim_time, normalized_error_translational_con_cal, color='orange', label='normalized error between calculated translational control sim and real')
-    # ax[3].plot(sim_time, error_translational_real, color='orange', label='error between applied and calculated translational control real') #TODO: get data from real to plot this
-    # ax[3].plot(sim_time, error_angular_real, color='blue', label='error between applied and calculated angular control real') #TODO: get data from real to plot this
-    ax[3].grid(True)
-    ax[3].set_title('Error over time')
-    ax[3].set_xlabel('time')
-    ax[3].set_ylabel('error')
-    ax[3].legend()
+    bx[1].plot(sim_time, error_angular_con_cal, color='blue', label='error between calculated angular control sim and real')
+    bx[1].plot(sim_time, normalized_error_translational_con_cal, color='orange', label='normalized error between calculated translational control sim and real')
+    # bx[1].plot(sim_time, error_translational_real, color='orange', label='error between applied and calculated translational control real') #TODO: get data from real to plot this
+    # bx[1].plot(sim_time, error_angular_real, color='blue', label='error between applied and calculated angular control real') #TODO: get data from real to plot this
+    bx[1].grid(True)
+    bx[1].set_title('Error over time')
+    bx[1].set_xlabel('time')
+    bx[1].set_ylabel('error')
+    bx[1].legend()
 
     # Save the plot as a PNG
     # plt.savefig(experiment_data + sim.split('.')[0] + '_Plot_' + map_name + '_wp_vector.png')
-    plt.savefig(exper_folder_path + 'Performance_tracking/Plot_' + sim.split('.')[0] + '_wp_vector.png')
+    # plt.savefig(exper_folder_path + 'Performance_tracking/Plot_' + sim.split('.')[0] + '_wp_vector.png')
     plt.show()
 
 # Set the data to be plotted paths
 
-map_name = 'RCA1'
+map_name = 'RCA2'
 exper_folder_path = './ExperimentRecordings/'
 img_path = './utilities/maps/' + map_name + '/' + map_name # if no img, set to None
-real_data = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv' # if no real data, set to None 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
-sim_data = 'F1TENTH_RCA1_mpc_50Hz__2023-12-11_20-40-02.csv' # if no sim data, set to None
+real_data = '/Physical_car/F1TENTH_ETF1_NNI__2023-12-18_16-43-49.csv' # if no real data, set to None 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
+sim_data = 'F1TENTH__2023-12-27_15-00-24_RCA2_mpc_50Hz.csv' # if no sim data, set to None
 
 # Plot the data with the desired settings
-
-# plot_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
-plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+ex = 'ExperimentRecordings/Physical_car/F1TENTH_ETF1_NNI__2023-12-18_14-11-50.csv'
+# controller = 'PP'
+# laptime = 67.61 #'crashed'
+# plot_wp_in(map_name, exper_folder_path, img_path, sim_data, real_data)
+# plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+plot_wp(map_name, img_path)
+# plot_data(map_name, ex, img_path, controller, laptime)

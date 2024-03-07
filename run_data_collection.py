@@ -5,9 +5,9 @@ import time
 import os
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA1'
+Settings.MAP_NAME = 'hangar12'
 
-Settings.EXPERIMENT_LENGTH = 3000  
+Settings.EXPERIMENT_LENGTH = 2000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
 
 # Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
@@ -21,9 +21,9 @@ Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0.]
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "RPGD_no_noise_no_obs_CS"
+Settings.DATASET_NAME = "pp_no_noise"
 
-Settings.CONTROLLER = 'mpc'
+Settings.CONTROLLER = 'pp'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 
 
@@ -35,9 +35,9 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 7
+runs_without_obstacles = 10
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.8]
+global_waypoint_velocity_factors = [0.6, 0.7, 0.8, 0.9, 1.0]
 reverse_direction_values = [False]
 
 
