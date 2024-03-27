@@ -3,12 +3,13 @@ part: 'XC7Z020'
 path_to_hls_installation: '/tools/Xilinx/Vivado/2020.1/bin'
 
 
-path_to_models: './IROS24_f1t_v1/'
-net_name: 'Dense-63IN-64H1-64H2-2OUT-1-3'
+PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Models/'
+net_name: 'Dense-31IN-32H1-32H2-2OUT-8'  # Working with control delay of 0.03 - 0.11 (VERY NICE) speefactor up to
+
 batch_size: 1
 
-precision_layers: 'fixed<20,6>'
-precision_activation: 'fixed<20,6>' # Same as set for the whole model
+precision_layers: 'fixed<12,4>'
+precision_activation: 'fixed<12,4>' # Same as set for the whole model
 Strategy: 'Resources'  # Resources or Latency
 ReuseFactor: 8
 

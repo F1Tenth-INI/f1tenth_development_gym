@@ -36,7 +36,7 @@ SI_Toolkit_ASF/Experiments/*
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
 
-AnalyseData
+
 
 utilities/maps/*
 utilities/maps_files/*
@@ -54,4 +54,10 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/ETF1
 !utilities/maps/ini10
 !utilities/maps/RCA1
+
+AnalyseData/*
+!AnalyseData/iros24
+
+
+TrainingLite
 

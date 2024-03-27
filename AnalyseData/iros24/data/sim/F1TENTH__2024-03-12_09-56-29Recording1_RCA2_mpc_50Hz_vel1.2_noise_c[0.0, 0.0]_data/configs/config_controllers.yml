@@ -1,0 +1,22 @@
+mpc:
+  optimizer: 'rpgd-tf' # 'mppi' or 'rpgd-tf'
+#  optimizer: 'rpgd-tf' # 'mppi' or 'rpgd-tf'
+  # predictor_specification: neural_flo    # Dense-8IN-128H1-128H2-6OUT-43 Can be "ODE", "ODE_TF", network/GP name (possibly with path) e.g. 'GRU-6IN-32H1-32H2-5OUT-0'/'SGP_30' or a name of a custom predictor. For more info see config_predictors in SI_Toolkit_ASF
+  # predictor_specification: neural_parameter_determination    # Dense-8IN-128H1-128H2-6OUT-43 Can be "ODE", "ODE_TF", network/GP name (possibly with path) e.g. 'GRU-6IN-32H1-32H2-5OUT-0'/'SGP_30' or a name of a custom predictor. For more info see config_predictors in SI_Toolkit_ASF
+  predictor_specification: ODE_TF    # Dense-8IN-128H1-128H2-6OUT-43 Can be "ODE", "ODE_TF", network/GP name (possibly with path) e.g. 'GRU-6IN-32H1-32H2-5OUT-0'/'SGP_30' or a name of a custom predictor. For more info see config_predictors in SI_Toolkit_ASF
+
+  cost_function_specification: 'racing'  # One of "default", "quadratic_boundary_grad", "quadratic_boundary_nonconvex", "quadratic_boundary"
+  computation_library: tensorflow  # One of "numpy", "tensorflow", "pytorch". Defaults to "numpy" if none given.
+  controller_logging: false
+  calculate_optimal_trajectory: true
+
+neural-imitator:
+  seed: null                            # If null, random seed based on datetime is used
+  PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Models/'
+  net_name: 'LSTM-63IN-64H1-64H2-2OUT-0'  # TF
+  controller_logging: True
+  computation_library: tensorflow
+  input_at_input: true  # If true the network input is provided to step function, if not, system state is provided and controller tries to get the remaining inputs from environment parameters`
+stanley:
+  controller_logging: False
+  computation_library: numpy
