@@ -1,0 +1,12 @@
+free_thresh: 0.196
+image: icra2022.png
+negate: 0
+occupied_thresh: 0.65
+origin:
+- -9.65
+- -5.703772735595703
+- 0
+resolution: 0.05000000074505806
+
+starting_positions: 
+ - [0.916266,-2.063036,-0.379625]
