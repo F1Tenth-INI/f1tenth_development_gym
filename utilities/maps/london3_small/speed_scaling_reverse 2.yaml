@@ -1,0 +1,6 @@
+Sector0:
+  end: 474
+  scaling: 0.5
+  start: 0
+global_limit: 1.0
+n_sectors: 1
