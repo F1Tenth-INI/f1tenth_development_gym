@@ -1,9 +1,0 @@
-image: ETF1.pgm
-resolution: 0.050000
-origin: [-3.447576, -34.508139, 0.000000]
-negate: 0
-occupied_thresh: 0.65
-free_thresh: 0.196
-
-starting_positions:
-  - [3.559870,-12.307972,2.722817]

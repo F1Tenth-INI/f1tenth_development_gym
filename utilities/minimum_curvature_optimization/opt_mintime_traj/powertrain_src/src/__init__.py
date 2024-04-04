@@ -1,4 +1,0 @@
-import minimum_curvature_optimization.opt_mintime_traj.powertrain_src.src.Battery
-import minimum_curvature_optimization.opt_mintime_traj.powertrain_src.src.EMachine
-import minimum_curvature_optimization.opt_mintime_traj.powertrain_src.src.Inverter
-import minimum_curvature_optimization.opt_mintime_traj.powertrain_src.src.Radiators
