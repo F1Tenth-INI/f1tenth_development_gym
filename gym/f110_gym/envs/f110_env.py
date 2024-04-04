@@ -246,7 +246,7 @@ class F110Env(gym.Env):
         if Settings.DISABLE_AUTOMATIC_TIMEOUT:
             done = (self.collisions[self.ego_idx])
         else:
-            done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
+            done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= Settings.STOP_TIMER_AFTER_N_LAPS * 2)
         
         return done, self.toggle_list >= 4
 
