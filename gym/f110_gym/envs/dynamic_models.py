@@ -203,6 +203,42 @@ def vehicle_dynamics_st(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max
 
     return f
 
+# dynamics for the vehicle with STD model
+def vehicle_dynamics_std(x, u_init, mu, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
+    """
+    Single Track Drift Dynamic Vehicle Dynamics.
+
+    Args:
+        x (numpy.ndarray (3, )): vehicle state vector (x1, x2, x3, x4, x5, x6, x7, x8, x9)
+            x0: x position in global coordinates
+            x1: y position in global coordinates
+            x2: steering angle of front wheels
+            x3: velocity in x direction
+            x4: yaw angle
+            x5: yaw rate
+            x6: slip angle at vehicle center
+            x7: angular velocity of front wheel
+            x8: angular velocity of rear wheel
+        u (numpy.ndarray (2, )): control input vector (u1, u2)
+            u0: steering angle velocity of front wheels
+            u1: longitudinal acceleration
+
+    Returns:
+        f (numpy.ndarray): right hand side of differential equations
+    """
+    
+    # gravity constant m/s^2
+    g = 9.81
+    
+    # constraints
+    u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
+    
+    f = np.zeros(9)
+    
+    return f
+
+    
+
 @njit(cache=True)
 def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v):
     """

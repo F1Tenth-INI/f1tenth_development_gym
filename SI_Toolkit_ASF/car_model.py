@@ -13,6 +13,8 @@ from utilities.state_utilities import (
     STEERING_ANGLE_IDX,
     ANGULAR_CONTROL_IDX,
     TRANSLATIONAL_CONTROL_IDX,
+    WHEEL_FRONT_IDX,
+    WHEEL_REAR_IDX,
 )
 
 class car_model:
@@ -84,6 +86,11 @@ class car_model:
                 self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_st)
             else:
                 self.step_dynamics = self._step_dynamics_st
+        elif model_of_car_dynamics == 'ODE:std':
+            if self.with_pid:
+                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_std)
+            else:
+                self.step_dynamics = self._step_dynamics_std
         else:
             raise NotImplementedError(
                 '{} not recognized as a valid name for a model of car dynamics'.format(model_of_car_dynamics))
@@ -296,7 +303,140 @@ class car_model:
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
         return next_step
+    
+    #TODO: Implement STD model
+    def _step_dynamics_std(self, s, Q, params):
+        '''
+        Parallaley executes steps frim initial state s[i] with control input Q[i] for every i
+        @param s: (batch_size, len(state)) all initial states for every step
+        @param Q: (batch_size, len(control_input)) all control inputs for every step
+        @param params: TODO: Parameters of the car
+        returns s_next: (batch_size, len(state)) all nexts states
+        '''
 
+        # params
+        mu = self.car_parameters['mu']  # friction coefficient  [-]
+        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
+        h = self.car_parameters['h']  # center of gravity height of toal mass [m]
+        m = self.car_parameters['m']  # Total Mass of car [kg]
+        I = self.car_parameters['I']  # Moment of inertia for entire mass about z axis  [kgm^2]
+        g = self.car_parameters['g'] # gravity acceleration [m/s^2]
+        
+        r_w = self.car_parameters['r'] # effective wheel radius [m] TODO: Check if its in parameters
+        I_w = self.car_parameters['I_w'] # wheel inertia [kgm^2] TODO: Check if its in parameters
+        T_sb = self.car_parameters['T_sb'] # torque split of brakes TODO: Check if its in parameters
+        T_se = self.car_parameters['T_se'] # torque split of engine TODO: Check if its in parameters
+
+        # States
+        s_x = s[:, POSE_X_IDX]  # Pose X                                #x1
+        s_y = s[:, POSE_Y_IDX]  # Pose Y                                #x2
+        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle   #x3
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed                           #x4 
+        psi = s[:, POSE_THETA_IDX]  # Yaw Angle                         #x5
+        psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate                   #x6
+        beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle                   #x7
+        w_f = s[:, WHEEL_FRONT_IDX] # front wheel angular velocity      #x8
+        w_r = s[:, WHEEL_REAR_IDX] # rear wheel angular velocity        #x9
+
+        # Variable utils, mbakka
+        # Control Input
+        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        
+        # pajecka tire model
+        alpha_f = self.lib.atan((v_x * self.lib.sin(beta) + psi_dot * lf) / (v_x * self.lib.cos(beta))) # lateral slip angle front
+        alpha_r = self.lib.atan((v_x * self.lib.sin(beta) - psi_dot * lr) / (v_x * self.lib.cos(beta))) # lateral slip angle rear
+        
+        u_wf = v_x * self.lib.cos(beta) * self.lib.cos(delta) + (v_x * self.lib.sin(beta) + lf * psi_dot) * self.lib.sin(delta) # velocity of front wheel
+        u_wr = v_x * self.lib.cos(beta) # velocity of rear wheel
+        
+        s_f = 1 - (r_w * w_f) / u_wf # slip ratio front
+        s_r = 1 - (r_w * w_r) / u_wr # slip ratio rear
+        
+        F_sf = 0 #TODO: Implement the dynamics of the lateral force on the front wheels
+        F_sr = 0 #TODO: Implement the dynamics of the lateral force on the rear wheels
+        F_lf = 0 #TODO: Implement the dynamics of the longitudinal force on the front wheels
+        F_lr = 0 #TODO: Implement the dynamics of the longitudinal force on the rear wheels
+        
+        # Torque dynamics
+        T_b = 0 #TODO: Implement the dynamics of the braking torque
+        T_e = 0 #TODO: Implement the dynamics of the engine torque
+        
+        
+        # dynamics of the car states
+        for _ in range(self.intermediate_steps):
+            # Constaints
+            v_x_dot = self.accl_constraints(v_x, v_x_dot) #x4_dot
+            delta_dot = self.steering_constraints(delta, delta_dot) #x3_dot
+
+            # In case speed dropy to < 0.2 during rollout
+            # ST model needs a lin_vel_x of > 0.1 to work
+            #v_x = tf.clip_by_value(v_x, 0.2, 1000)
+
+            s_x_dot = v_x * self.lib.cos(psi + beta) # x1_dot
+            s_y_dot = v_x * self.lib.sin(psi + beta) # x2_dot
+            # delta_dot = delta_dot
+            # v_x_dot = v_x_dot
+
+            v_x = self.lib.where(v_x == 0.0, 1e-10, v_x)  # Add small value zero values to avoid division by zero #x4_dot
+            
+            psi_dot_dot = 1/I * (F_sf * self.lib.cos(delta) * lf - F_sr * lr + F_lf * self.lib.sin(delta) * lf) #x6_dot
+
+            beta_dot = - psi_dot + (1/(m * v_x)) * (F_sf * self.lib.cos(delta - beta) + F_sr * self.lib.cos(beta) - F_lr * self.lib.sin(beta) + F_lf * self.lib.sin(delta-beta)) #x7_dot
+
+            w_f_dot = 1/I_w * (-r_w * F_lf + T_sb * T_b + T_se * T_e) #x8_dot
+            w_r_dot = 1/I_w * (-r_w * F_lr + (1 - T_sb) * T_b + (1 - T_se) * T_e) #x9_dot
+            
+            s_x = s_x + self.t_step * s_x_dot #x1
+            s_y = s_y + self.t_step * s_y_dot #x2
+            delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max) #x3
+            v_x = v_x + self.t_step * v_x_dot #x4
+            psi = psi + self.t_step * psi_dot #x5
+            psi_dot = psi_dot + self.t_step * psi_dot_dot #x6
+            beta = beta + self.t_step * beta_dot #x7
+            w_f = w_f + self.t_step * w_f_dot #x8
+            w_r = w_r + self.t_step * w_r_dot #x9
+
+        angular_vel_z = psi_dot
+        linear_vel_x = v_x
+        pose_theta_cos = self.lib.cos(psi)
+        pose_theta_sin = self.lib.sin(psi)
+        if self.wrap_angle:
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        else:
+            pose_theta = psi
+        pose_x = s_x
+        pose_y = s_y
+        slip_angle = beta
+        steering_angle = delta
+
+
+        ## Check if needed
+        s_next_ks = self._step_dynamics_ks(s, Q, None)
+        s_next_ts = self.next_step_output(angular_vel_z,
+                                          linear_vel_x,
+                                          pose_theta,
+                                          pose_theta_cos,
+                                          pose_theta_sin,
+                                          pose_x,
+                                          pose_y,
+                                          slip_angle,
+                                          steering_angle,
+                                          w_f,
+                                          w_r)
+
+        # switch to kinematic model for small velocities
+        min_speed_st = self.car_parameters['min_speed_st']
+        speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
+        speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices, (-1, 1))
+        state_len = self.lib.shape(s)[1]
+        ks_or_ts = self.lib.repeat(speed_too_low_for_st_indices, state_len, 1)
+        next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
+
+        return next_step
+        
+        
 
     def steering_constraints(self, steering_angle, steering_velocity):
 
@@ -469,7 +609,9 @@ class car_model:
                                      pose_x,
                                      pose_y,
                                      slip_angle,
-                                     steering_angle):
+                                     steering_angle,
+                                     w_f,
+                                     w_r):
         return self.lib.stack([
             angular_vel_z,
             linear_vel_x,
@@ -479,7 +621,9 @@ class car_model:
             pose_x,
             pose_y,
             slip_angle,
-            steering_angle
+            steering_angle,
+            w_f,
+            w_r
         ], axis=1)
 
 # endregion

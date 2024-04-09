@@ -29,7 +29,9 @@ FULL_STATE_VARIABLES = np.sort([
     'pose_x',  # x0: x position in global coordinates
     'pose_y',  # x1: y position in global coordinates
     'slip_angle',  # x6: slip angle at vehicle center
-    'steering_angle'  # x2: steering angle of front wheels
+    'steering_angle',  # x2: steering angle of front wheels
+    'wheel_front_vel_ang',  # x7: angular velocity of front wheel
+    'wheel_rear_vel_ang'  # x8: angular velocity of rear wheel
 ])
 
 if Settings.ONLY_ODOMETRY_AVAILABLE:
@@ -51,6 +53,9 @@ POSE_Y_IDX = STATE_INDICES['pose_y']
 
 LINEAR_VEL_X_IDX = STATE_INDICES['linear_vel_x']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
+
+WHEEL_FRONT_IDX = STATE_INDICES['wheel_front_vel_ang']
+WHEEL_REAR_IDX = STATE_INDICES['wheel_rear_vel_ang']
 
 if not Settings.ONLY_ODOMETRY_AVAILABLE:
     SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
