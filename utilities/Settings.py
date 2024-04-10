@@ -146,7 +146,6 @@ class Settings():
     OPTIMIZE_EVERY_N_STEPS = 1
     
     ### Other Settings ###
-    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     ROS_BRIDGE = None # Automatically determined on program start
     DISABLE_GPU = True
 
