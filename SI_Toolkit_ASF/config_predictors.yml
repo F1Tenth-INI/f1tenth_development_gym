@@ -27,16 +27,12 @@ predictors:
   ODE_default:
     predictor_type: 'ODE'
     model_name:
-    intermediate_steps: 10
-  ODE_TF_default:
-    predictor_type: 'ODE_TF'
-    model_name:
     intermediate_steps: 2
 
   # ADD YOUR PREDICTORS BELOW
 
   I_love_control:
-    predictor_type: 'neural'  # Possible options are: 'neural', 'GP', 'ODE, 'ODE_TF'
+    predictor_type: 'neural'  # Possible options are: 'neural', 'GP', 'ODE'
     model_name:
     path_to_model: './SI_Toolkit_ASF/Experiments/Pretrained-RNN-1/Models/'
     update_before_predicting: True

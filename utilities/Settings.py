@@ -67,7 +67,7 @@ class Settings():
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
-    ODE_IMPLEMENTATION = 'f1tenth'  # Use the implementation of f1tenth or ODE_TF
+    ODE_IMPLEMENTATION = 'f1tenth'  # Use the implementation of f1tenth or ODE
 
 
     ONLY_ODOMETRY_AVAILABLE = False     # Decide if available state consists of full car state or only of odometry

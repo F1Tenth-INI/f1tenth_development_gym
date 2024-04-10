@@ -3,7 +3,7 @@ import numpy as np
 
 from MPPI.mppi_planner import MppiPlanner
 
-from SI_Toolkit_ASF.predictors_customization_tf import next_state_predictor_ODE_tf
+from SI_Toolkit_ASF.predictors_customization_tf import next_state_predictor_ODE
 
 
 
@@ -62,7 +62,7 @@ dt=0.04
 intermediate_steps=4,
 num_rollouts = 2000
 
-next_step_predictor = next_state_predictor_ODE_tf(dt, intermediate_steps, disable_individual_compilation=True)
+next_step_predictor = next_state_predictor_ODE(dt, intermediate_steps, disable_individual_compilation=True)
 
 # x1: x position in global coordinates
 # x2: y position in global coordinates

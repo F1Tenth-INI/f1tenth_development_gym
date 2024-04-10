@@ -101,7 +101,7 @@ class RaceCar(object):
         self.ode_implementation = ode_implementation
 
         self.state = np.zeros((7, ))
-        if self.ode_implementation == 'ODE_TF':
+        if self.ode_implementation == 'ODE':
             self.car_model = car_model(
                 model_of_car_dynamics = 'ODE:st',
                 with_pid = Settings.WITH_PID, 
@@ -112,7 +112,7 @@ class RaceCar(object):
                 )
     
         elif self.ode_implementation != 'f1tenth':
-            raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
+            raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE')
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -336,7 +336,7 @@ class RaceCar(object):
             # elif self.state[4] < 0:
             #     self.state[4] = self.state[4] + 2*np.pi
             # self.state[4] = wrap_angle_rad(self.state[4])
-        elif self.ode_implementation == 'ODE_TF':
+        elif self.ode_implementation == 'ODE':
             self.state = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, vel]], dtype=np.float32), None).numpy()[0]
             self.state = full_state_alphabetical_to_original(self.state)

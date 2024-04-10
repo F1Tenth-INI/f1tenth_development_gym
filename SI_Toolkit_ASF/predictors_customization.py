@@ -37,7 +37,7 @@ class next_state_predictor_ODE():
                 intermediate_steps=intermediate_steps,
                                  )  # Environment model, keeping car ODEs
         else:
-            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
+            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE'.format(Settings.ENVIRONMENT_NAME))
 
         self.variable_parameters = variable_parameters
 
