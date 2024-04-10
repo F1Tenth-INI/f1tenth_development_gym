@@ -1,22 +1,150 @@
-import numpy as np
+import tensorflow as tf
+
+from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from utilities.state_utilities import *
+from utilities.Settings import Settings
+
+environment_name = Settings.ENVIRONMENT_NAME
+model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
+with_pid = Settings.WITH_PID
+car_parameter_file = Settings.MPC_CAR_PARAMETER_FILE
 
 class next_state_predictor_ODE():
 
-    def __init__(self, dt, intermediate_steps):
-        self.s = None
-
+    def __init__(self,
+                 dt,
+                 intermediate_steps,
+                 lib,
+                 batch_size=1,
+                 variable_parameters=None,
+                 disable_individual_compilation=False):
+        self.s = tf.convert_to_tensor(create_car_state())
+        
+        self.params = None
+    
         self.intermediate_steps = intermediate_steps
-        self.t_step = np.float32(dt / float(self.intermediate_steps))
+        self.t_step = dt / float(self.intermediate_steps)
 
-    def step(self, s, Q, params):
+        if environment_name == 'Car':
+            from SI_Toolkit_ASF.car_model import car_model
+            self.env = car_model(
+                model_of_car_dynamics=model_of_car_dynamics,
+                with_pid=with_pid,
+                batch_size=batch_size,
+                car_parameter_file=car_parameter_file,
+                dt=dt,
+                intermediate_steps=intermediate_steps,
+                                 )  # Environment model, keeping car ODEs
+        else:
+            raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
-        s_next = np.copy(s)
+        self.variable_parameters = variable_parameters
 
+        if disable_individual_compilation:
+            self.step = self._step
+        else:
+            self.step = CompileTF(self._step)
+
+    def _step(self, s, Q):
+
+        s_next = self.env.step_dynamics(s, Q, None)
         return s_next
 
 
-def augment_predictor_output(output_array, net_info):
-    pass
-    return output_array
+
+class predictor_output_augmentation_tf:
+    def __init__(self, net_info, disable_individual_compilation=False, differential_network=False):
+        outputs_after_integration = [(x[2:] if x[:2] == 'D_' else x) for x in net_info.outputs]
+        self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
+        indices_augmentation = []
+        features_augmentation = []
+        if 'angular_vel_z' not in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['angular_vel_z'])
+            features_augmentation.append('angular_vel_z')
+        if 'linear_vel_x' not in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['linear_vel_x'])
+            features_augmentation.append('linear_vel_x')
+        if 'linear_vel_y' not in outputs_after_integration and 'linear_vel_y' in STATE_INDICES.keys():  # Quadruped only
+            indices_augmentation.append(STATE_INDICES['linear_vel_y'])
+            features_augmentation.append('linear_vel_y')
+
+        if 'pose_theta' not in outputs_after_integration and 'pose_theta_sin' in outputs_after_integration and 'pose_theta_cos' in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['pose_theta'])
+            features_augmentation.append('pose_theta')
+        if 'pose_theta_sin' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
+            features_augmentation.append('pose_theta_sin')
+        if 'pose_theta_cos' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
+            features_augmentation.append('pose_theta_cos')
+
+        if 'slip_angle' not in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['slip_angle'])
+            features_augmentation.append('slip_angle')
+        if 'steering_angle' not in outputs_after_integration:
+            indices_augmentation.append(STATE_INDICES['steering_angle'])
+            features_augmentation.append('steering_angle')
+
+        self.indices_augmentation = indices_augmentation
+        self.features_augmentation = features_augmentation
+        self.augmentation_len = len(self.indices_augmentation)
+
+        if 'pose_theta' in outputs_after_integration:
+            self.index_pose_theta = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta'])
+        if 'pose_theta_sin' in outputs_after_integration:
+            self.index_pose_theta_sin = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta_sin'])
+        if 'pose_theta_cos' in outputs_after_integration:
+            self.index_pose_theta_cos = tf.convert_to_tensor(self.outputs_after_integration_indices['pose_theta_cos'])
+
+        if disable_individual_compilation:
+            self.augment = self._augment
+        else:
+            self.augment = CompileTF(self._augment)
+
+    def get_indices_augmentation(self):
+        return self.indices_augmentation
+
+    def get_features_augmentation(self):
+        return self.features_augmentation
+
+    def _augment(self, net_output):
+
+        output = net_output
+        if 'angular_vel_z' in self.features_augmentation:
+            angular_vel_z = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, angular_vel_z], axis=-1)
+        if 'linear_vel_x' in self.features_augmentation:
+            linear_vel_x = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, linear_vel_x], axis=-1)
+        if 'linear_vel_y' in self.features_augmentation:
+            linear_vel_y = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, linear_vel_y], axis=-1)
+
+        if 'pose_theta' in self.features_augmentation:
+            pose_theta = tf.math.atan2(
+                net_output[..., self.index_pose_theta_sin],
+                net_output[..., self.index_pose_theta_cos])[:, :,
+                         tf.newaxis]  # tf.math.atan2 removes the features (last) dimension, so it is added back with [:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta], axis=-1)
+
+        if 'pose_theta_sin' in self.features_augmentation:
+            pose_theta_sin = \
+                tf.sin(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta_sin], axis=-1)
+
+        if 'pose_theta_cos' in self.features_augmentation:
+            pose_theta_cos = \
+                tf.cos(net_output[..., self.index_pose_theta])[:, :, tf.newaxis]
+            output = tf.concat([output, pose_theta_cos], axis=-1)
+
+        if 'slip_angle' in self.features_augmentation:
+            slip_angle = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, slip_angle], axis=-1)
+
+        if 'steering_angle' in self.features_augmentation:
+            steering_angle = tf.zeros_like(net_output[:, :, -1:])
+            output = tf.concat([output, steering_angle], axis=-1)
+
+
+        return output
