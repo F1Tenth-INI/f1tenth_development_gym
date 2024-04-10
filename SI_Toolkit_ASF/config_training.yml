@@ -41,6 +41,8 @@ training_default:
     MIN_LR: 1.0e-5
     MIN_DELTA: 0.00
 
+  AUGMENT_DATA: True  # If true transforms training data with function specified in SI_Toolkit_ASF/data_augmentation.py at the beginning of the training and at the end of each epoch.
+
 
   ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
   # Depending on number of Lidar points listed in state input, an even distribution of input scans between the two bounds is selected and fed to the network.
