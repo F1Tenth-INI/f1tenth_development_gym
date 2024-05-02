@@ -337,19 +337,26 @@ def plot_vector_wp(map_name, experiment_folder_path, img_path, sim, real):
     # plt.savefig(exper_folder_path + 'Performance_tracking/Plot_' + sim.split('.')[0] + '_wp_vector.png')
     plt.show()
 
-# Set the data to be plotted paths
+# # Set the data to be plotted paths
 
-map_name = 'RCA2'
+map_name = 'TEST'
 exper_folder_path = './ExperimentRecordings/'
 img_path = './utilities/maps/' + map_name + '/' + map_name # if no img, set to None
-real_data = '/Physical_car/F1TENTH_ETF1_NNI__2023-12-18_16-43-49.csv' # if no real data, set to None 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
-sim_data = 'F1TENTH__2023-12-27_15-00-24_RCA2_mpc_50Hz.csv' # if no sim data, set to None
+real_data = None # if no real data, set to None 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
+sim_data = 'F1TENTH__2024-05-01_17-58-46_TEST_pajecka_50Hz.csv' # if no sim data, set to None
 
-# Plot the data with the desired settings
-ex = 'ExperimentRecordings/Physical_car/F1TENTH_ETF1_NNI__2023-12-18_14-11-50.csv'
-# controller = 'PP'
-# laptime = 67.61 #'crashed'
-# plot_wp_in(map_name, exper_folder_path, img_path, sim_data, real_data)
-# plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
-plot_wp(map_name, img_path)
-# plot_data(map_name, ex, img_path, controller, laptime)
+plot_wp_in(map_name, exper_folder_path, img_path, sim_data, real_data)
+
+# # Plot the data with the desired settings
+# ex = 'ExperimentRecordings/Physical_car/F1TENTH_ETF1_NNI__2023-12-18_14-11-50.csv'
+# # controller = 'PP'
+# # laptime = 67.61 #'crashed'
+# # plot_wp_in(map_name, exper_folder_path, img_path, sim_data, real_data)
+# # plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+# plot_wp(map_name, img_path)
+# # plot_data(map_name, ex, img_path, controller, laptime)
+
+# map = "TEST"
+# path = "utilities/maps/TEST/TEST"
+
+# plot_wp(map, path)

@@ -91,6 +91,9 @@ class CarSystem:
         elif controller == 'manual':
             from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
             self.planner = manual_planner()
+        elif controller == 'pajecka':
+            from Control_Toolkit_ASF.Controllers.Pajecka.pajecka_planner import PajeckaPlanner
+            self.planner = PajeckaPlanner()
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
             exit()
