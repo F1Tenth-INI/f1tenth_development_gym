@@ -154,32 +154,12 @@ print(np.array(X_train).shape)
 
 
 
-# Define the neural networks
-# model = Sequential()
-# model.add(Dense(64, input_dim=len(input_cols), activation='tanh'))
-# model.add(Dense(64, activation='relu'))
-# model.add(Dense(64, activation='relu'))
-# model.add(Dense(len(output_cols)))
-# loss of 0.003
-# 9s per epoch
-
-
-
 def create_sequences(data, seq_length):
     xs = []
     for i in range(len(data)-seq_length+1):
         x = data[i:(i+seq_length)]
         xs.append(x)
     return np.array(xs)
-
-# length of the sequence
-
-# seq_length = 20  
-# 0.0072, 66s/epoch
-
-# seq_length = 10
-# 0.0072 25s/epoch
-
 
 seq_length = 1
 # 0.007, 20s/epoch
@@ -200,10 +180,6 @@ model = Sequential()
 model.add(GRU(64, input_shape=(seq_length, features), return_sequences=True))
 model.add(GRU(64, return_sequences=False))
 model.add(Dense(len(output_cols)))
-
-# model.add(Dense(64, input_shape=(seq_length, features), ))
-# model.add(Dense(64, ))
-# model.add(Dense(len(output_cols)))
 
 
 # Compile the model
