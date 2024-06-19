@@ -32,6 +32,8 @@ import numpy as np
 from numba import njit
 
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid, vehicle_dynamics_simple
+from f110_gym.envs.dynamic_models_pacejka import vehicle_dynamics_pacejka, StateIndices
+
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
@@ -110,9 +112,11 @@ class RaceCar(object):
                 dt = 0.01, 
                 intermediate_steps=5
                 )
-    
-        elif self.ode_implementation != 'f1tenth':
-            raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
+
+        # Handle the case where it's none of the specified options
+        # For example, raise an error or set a default implementation
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka']:
+            raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -214,8 +218,9 @@ class RaceCar(object):
         self.in_collision = False
         # clear state
         self.state = np.zeros((7, ))
-        self.state[0:2] = pose[0:2]
-        self.state[4] = pose[2]
+        self.state[StateIndices.pose_x] = pose[0]
+        self.state[StateIndices.pose_y] = pose[1]
+        self.state[StateIndices.yaw_angle] = pose[2]
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
         self.scan_rng = np.random.default_rng(seed=self.seed)
@@ -239,7 +244,8 @@ class RaceCar(object):
             # get vertices of current oppoenent
             opp_vertices = get_vertices(opp_pose, self.params['length'], self.params['width'])
 
-            new_scan = ray_cast(np.append(self.state[0:2], self.state[4]), new_scan, self.scan_angles, opp_vertices)
+            pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+            new_scan = ray_cast(pose, new_scan, self.scan_angles, opp_vertices)
 
         return new_scan
 
@@ -257,11 +263,11 @@ class RaceCar(object):
             None
         """
         
-        in_collision = check_ttc_jit(current_scan, self.state[3], self.scan_angles, self.cosines, self.side_distances, self.ttc_thresh)
+        in_collision = check_ttc_jit(current_scan, self.state[StateIndices.v_x], self.scan_angles, self.cosines, self.side_distances, self.ttc_thresh)
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[3:] = 0.
+            self.state[StateIndices.v_x:] = 0.
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
@@ -294,17 +300,29 @@ class RaceCar(object):
             self.steer_buffer = self.steer_buffer[:-1]
             self.steer_buffer = np.append(raw_steer, self.steer_buffer)
 
-        # print("RaceCar before", self.state)
+
         
-        # print("input",raw_steer,vel )
+        desired_steering_angle = steer
+        desired_vel_x = vel
+    
+    
+        if Settings.WITH_PID:
+            acceleration, steering_angular_velocity = pid(desired_vel_x, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+    
+        
+        if(self.ode_implementation == 'pacejka'):
+            
+            s = self.state
+            u = np.array([desired_steering_angle, acceleration])
+            
+            f = vehicle_dynamics_pacejka(s, u)
 
-
-        # steering angle velocity input to steering velocity acceleration input
-        # print("pid",sv,accl )
+            self.state = self.state + np.array(f) * self.time_step            
+            
         if self.ode_implementation == 'f1tenth':
             
             if Settings.WITH_PID:
-                vel, raw_steer = pid(vel, steer, self.state[3], self.state[2], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+                vel, raw_steer = pid(vel, steer, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
             # update physics, get RHS of diff'eq
             f = vehicle_dynamics_st(
             # f = vehicle_dynamics_simple(
@@ -331,18 +349,19 @@ class RaceCar(object):
             self.state = self.state + f * self.time_step
 
             # bound yaw angle
-            # if self.state[4] > 2*np.pi:
-            #     self.state[4] = self.state[4] - 2*np.pi
-            # elif self.state[4] < 0:
-            #     self.state[4] = self.state[4] + 2*np.pi
-            # self.state[4] = wrap_angle_rad(self.state[4])
+            # if self.state[StateIndices.yaw_angle] > 2*np.pi:
+            #     self.state[StateIndices.yaw_angle] = self.state[StateIndices.yaw_angle] - 2*np.pi
+            # elif self.state[StateIndices.yaw_angle] < 0:
+            #     self.state[StateIndices.yaw_angle] = self.state[StateIndices.yaw_angle] + 2*np.pi
+            # self.state[StateIndices.yaw_angle] = wrap_angle_rad(self.state[StateIndices.yaw_angle])
         elif self.ode_implementation == 'ODE_TF':
             self.state = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, vel]], dtype=np.float32), None).numpy()[0]
             self.state = full_state_alphabetical_to_original(self.state)
         
         # update scan
-        current_scan = RaceCar.scan_simulator.scan(np.append(self.state[0:2], self.state[4]), self.scan_rng)
+        pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+        current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)
 
         return current_scan
 
@@ -536,12 +555,12 @@ class Simulator(object):
             'collisions': self.collisions}
         for i, agent in enumerate(self.agents):
             observations['scans'].append(agent_scans[i])
-            observations['poses_x'].append(agent.state[0])
-            observations['poses_y'].append(agent.state[1])
-            observations['poses_theta'].append(agent.state[4])
-            observations['linear_vels_x'].append(agent.state[3])
-            observations['linear_vels_y'].append(0.)
-            observations['ang_vels_z'].append(agent.state[5])
+            observations['poses_x'].append(agent.state[StateIndices.pose_x])
+            observations['poses_y'].append(agent.state[StateIndices.pose_y])
+            observations['poses_theta'].append(agent.state[StateIndices.yaw_angle])
+            observations['linear_vels_x'].append(agent.state[StateIndices.v_x])
+            observations['linear_vels_y'].append(agent.state[StateIndices.v_y])
+            observations['ang_vels_z'].append(agent.state[StateIndices.yaw_rate])
             # Missing state[2] and state[6]
 
         return observations
