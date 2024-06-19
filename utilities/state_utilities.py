@@ -1,5 +1,7 @@
 from utilities.Settings import Settings
 import numpy as np
+import math
+
 
 ODOMETRY_VARIABLES = np.sort([
     'angular_vel_z',
@@ -84,12 +86,32 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
 
 def full_state_original_to_alphabetical(o):
-    alphabetical = np.array([o[5], o[3], o[4], np.cos(o[4]), np.sin(o[4]), o[0], o[1], o[6], o[2]])
+    
+    from f110_gym.envs.dynamic_models_pacejka import StateIndices
+    
+    slipping_angle = np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
+    alphabetical = np.array([o[StateIndices.yaw_rate], o[StateIndices.v_x], o[StateIndices.yaw_angle], np.cos(o[StateIndices.yaw_angle]), np.sin(o[StateIndices.yaw_angle]), o[StateIndices.pose_x], o[StateIndices.pose_y], slipping_angle, o[StateIndices.steering_angle]])
+    
+    
     return alphabetical
 
 
 def full_state_alphabetical_to_original(a):
-    original = np.array([a[5], a[6], a[8], a[1], a[2], a[0], a[7]])
+    
+    from f110_gym.envs.dynamic_models_pacejka import StateIndices
+
+    lateral_velocity =  a[SLIP_ANGLE_IDX] * math.sin(a[LINEAR_VEL_X_IDX])    
+
+    
+    original = np.zeros(6)
+    original[StateIndices.pose_x] = a[5]
+    original[StateIndices.pose_y] = a[6]
+    original[StateIndices.yaw_angle] = a[2]
+    original[StateIndices.v_x] = a[1]
+    original[StateIndices.v_y] = lateral_velocity
+    original[StateIndices.yaw_rate] = a[0]
+    original[StateIndices.steering_angle] = a[8]
+    
     return original
 
 

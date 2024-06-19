@@ -10,19 +10,19 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
 
-    MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "Carpark"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
-    CONTROL_DELAY = 0.1
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 5 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    CONTROL_DELAY = 0.0
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     
     # driving behaviour
     REVERSE_DIRECTION = False
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.7
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.2
     APPLY_SPEED_SCALING_FROM_YAML = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
@@ -31,6 +31,7 @@ class Settings():
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
+
 
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
@@ -66,8 +67,8 @@ class Settings():
     ### State Estimation ###
 
     # Options for ODE_MODEL_OF_CAR_DYNAMICS: 'ODE:simple', 'ODE:ks', 'ODE:st' # TODO: Currently only st discerns correctly between scenario with and without PID
+    ODE_IMPLEMENTATION = "pacejka"  # Use the implementation 'std', 'std_tf', 'pacejka'
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
-    ODE_IMPLEMENTATION = 'f1tenth'  # Use the implementation of f1tenth or ODE_TF
 
 
     ONLY_ODOMETRY_AVAILABLE = False     # Decide if available state consists of full car state or only of odometry
