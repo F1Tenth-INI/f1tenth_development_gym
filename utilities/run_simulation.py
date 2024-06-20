@@ -51,10 +51,10 @@ def main():
         waypoints_generator = WaypointsGenerator()
         waypoints_generator.export_handdrawn_waypoints()
         
-    if Settings.FROM_RECORDING:
+    if Settings.REPLAY_RECORDING:
         state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
         time_axis = state_recording['time'].to_numpy()
-        state_recording = state_recording[FULL_STATE_VARIABLES].to_numpy()
+        state_recording = state_recording[STATE_VARIABLES].to_numpy()
     else:
         state_recording = None
 
@@ -140,17 +140,6 @@ def main():
         # print(conf_dict['starting_positions'])
         
 
-    
-
-    ###Loading neural network for slip steer estimation -> specify net name in Settings
-    if Settings.SLIP_STEER_PREDICTION:
-        from SI_Toolkit_ASF.nn_loader_race import NeuralNetImitatorPlannerNV
-        import matplotlib.pyplot as plt
-        steer_estimator = NeuralNetImitatorPlannerNV(Settings.NET_NAME_STEER)
-        slip_estimator = NeuralNetImitatorPlannerNV(Settings.NET_NAME_SLIP)
-        translational_control = None
-        angular_control = None
-    
 
     def get_odom(obs, agent_index, drivers):
         
@@ -214,9 +203,7 @@ def main():
         racetrack=random_obstacle_creator.add_random_obstacles(racetrack, starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
 
 
-    env = gym.make('f110_gym:f110-v0', map=racetrack,
-                   map_ext=".png", num_agents=number_of_drivers,
-                   ode_implementation=Settings.ODE_IMPLEMENTATION)
+    env = gym.make('f110_gym:f110-v0', map=racetrack, map_ext=".png", num_agents=number_of_drivers)
     env.add_render_callback(render_callback)
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
@@ -253,7 +240,7 @@ def main():
     est_slip_vec = []
     est_steer_vec = []
 
-    if Settings.FROM_RECORDING:
+    if Settings.REPLAY_RECORDING:
         experiment_length = len(state_recording)
     else:
         experiment_length = Settings.EXPERIMENT_LENGTH
@@ -265,7 +252,7 @@ def main():
         ranges = obs['scans']
 
         for index, driver in enumerate(drivers):
-            if Settings.FROM_RECORDING:
+            if Settings.REPLAY_RECORDING:
                 # sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
                 odom = get_odom(obs, index, drivers)
@@ -284,17 +271,6 @@ def main():
                 car_state_with_noise[4] = np.sin(car_state_with_noise[2])
                 
                 driver.set_car_state(car_state_with_noise)
-
-            if Settings.SLIP_STEER_PREDICTION:
-                real_slip_vec.append(driver.car_state[7])
-                real_steer_vec.append(driver.car_state[8])
-                print("state before: ", driver.car_state)
-                driver.car_state = steer_estimator.get_slip_steer_car_state(slip_estimator, odom, translational_control, angular_control)
-                print("state after: ", driver.car_state)
-                if _ < 20:
-                    driver.car_state[7] = 0.0
-                est_slip_vec.append(driver.car_state[7])
-                est_steer_vec.append(driver.car_state[8])
 
             ### GOES TO MPC PLANNER PROCESS OBSERVATION
             start_control = time.time()
@@ -382,16 +358,6 @@ def main():
                 driver.recorder.plot_data()
     
     env.close()
-
-    ###PRINT RESULTS FOR ESTIMATION
-    if Settings.SLIP_STEER_PREDICTION:
-        if Settings.RENDER_MODE is None:
-            x = range(Settings.EXPERIMENT_LENGTH)
-        else:
-            x = range(render_index)
-
-        steer_estimator.show_slip_steer_results(x, real_slip_vec, est_slip_vec, real_steer_vec, est_steer_vec)
-
 
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 

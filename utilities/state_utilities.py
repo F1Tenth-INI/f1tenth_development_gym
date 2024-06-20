@@ -2,27 +2,7 @@ from utilities.Settings import Settings
 import numpy as np
 import math
 
-
-ODOMETRY_VARIABLES = np.sort([
-    'angular_vel_z',
-    'linear_vel_x',
-    'pose_theta',
-    'pose_theta_cos',
-    'pose_theta_sin',
-    'pose_x',
-    'pose_y',
-])
-
-def odometry_dict_to_state(odom):
-    s = np.array([odom['angular_vel_z'], odom['linear_vel_x'],
-                 odom['pose_theta'], odom['pose_theta_cos'], odom['pose_theta_sin'],
-                 odom['pose_x'], odom['pose_y']])
-    return s
-
-
-
-
-FULL_STATE_VARIABLES = np.sort([
+STATE_VARIABLES = np.sort([
     'angular_vel_z',  # x5: yaw rate
     'linear_vel_x',   # x3: velocity in x direction
     'pose_theta',  # x4: yaw angle
@@ -34,10 +14,6 @@ FULL_STATE_VARIABLES = np.sort([
     'steering_angle'  # x2: steering angle of front wheels
 ])
 
-if Settings.ONLY_ODOMETRY_AVAILABLE:
-    STATE_VARIABLES = ODOMETRY_VARIABLES
-else:
-    STATE_VARIABLES = FULL_STATE_VARIABLES
 
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
 
@@ -54,12 +30,8 @@ POSE_Y_IDX = STATE_INDICES['pose_y']
 LINEAR_VEL_X_IDX = STATE_INDICES['linear_vel_x']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 
-if not Settings.ONLY_ODOMETRY_AVAILABLE:
-    SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
-    STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
-else:
-    SLIP_ANGLE_IDX = None
-    STEERING_ANGLE_IDX = None
+SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
+STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
 
 
 def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
@@ -129,10 +101,7 @@ def get_control_limits(clip_control_input):
     return clip_control_input_low, clip_control_input_high
 
 if Settings.ENVIRONMENT_NAME == 'Car':
-    if not Settings.WITH_PID:  # MPC return velocity and steering angle
-        control_limits_low, control_limits_high = get_control_limits([[-3.2, -9.5], [3.2, 9.5]])
-    else:  # MPC returns acceleration and steering velocity
-        control_limits_low, control_limits_high = get_control_limits([[-0.8 , -1], [0.8, 18]])
+    control_limits_low, control_limits_high = get_control_limits([[-0.8 , -1], [0.8, 18]])
 else:
     raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
 

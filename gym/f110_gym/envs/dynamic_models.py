@@ -226,16 +226,6 @@ def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v)
         # steering - Modified from F1TENTH, the original version too jittery, see below
         steer_diff = steer - current_steer
         
-        # if np.fabs(steer_diff) > 1e-4:
-        #     sv = steer_diff / 0.1  # Try to make the steering within one timestep
-        # else:
-        #     sv = 0.0
-
-        # Original PID for steering
-        # if np.fabs(steer_diff) > 1e-4:
-        #     sv = (steer_diff / np.fabs(steer_diff)) * max_sv
-        # else:
-        #     sv = 0.0
 
         # Same as in predictor
         if np.fabs(steer_diff) > 1e-4:
