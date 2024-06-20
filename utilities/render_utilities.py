@@ -247,7 +247,7 @@ class RenderUtils:
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
 
-        if self.target_point is not None and (Settings.FOLLOW_RANDOM_TARGETS or Settings.CONTROLLER == 'pp' or Settings.CONTROLLER == 'stanley'):
+        if self.target_point is not None and (Settings.CONTROLLER == 'pp' or Settings.CONTROLLER == 'stanley'):
 
             scaled_target_point = RenderUtils.get_scaled_points(self.target_point)
             scaled_target_point_flat = scaled_target_point.flatten()

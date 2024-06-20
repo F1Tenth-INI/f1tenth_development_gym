@@ -4,6 +4,8 @@ import platform
 
 from matplotlib import pyplot as plt
 import matplotlib
+import time  # Import time module
+
 
 
 class LidarHelper:
@@ -148,12 +150,12 @@ class LidarHelper:
     def plot_lidar_data(self):
         if platform.system() == 'Darwin':
             matplotlib.use('MacOSX')
-
-        plt.ion()
-        plt.clf()
-        plt.plot(self.processed_scans)
-        plt.show()
-        plt.clf()
+        if self.processed_scans is not None:
+            plt.clf()
+            plt.ion()
+            plt.plot(self.processed_scans)
+            plt.show()
+            time.sleep(0.01)  # Pause for 1 second to allow the plot to render
 
 if __name__ == '__main__':
     import pandas as pd

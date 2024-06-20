@@ -158,11 +158,10 @@ class CarSystem:
     """
     def process_observation(self, ranges=None, ego_odom=None):
         
-        # if Settings.ONLY_ODOMETRY_AVAILABLE:
-        #     car_state = odometry_dict_to_state(ego_odom)
-        # else:
-        #     car_state = self.car_state
         
+        if Settings.LIDAR_PLOT_SCANS:
+            self.LIDAR.plot_lidar_data()
+            
         car_state = self.car_state
         ranges = np.array(ranges)
         self.LIDAR.load_lidar_measurement(ranges)
