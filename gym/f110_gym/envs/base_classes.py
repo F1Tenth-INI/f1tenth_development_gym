@@ -276,7 +276,7 @@ class RaceCar(object):
 
         return in_collision
 
-    def update_pose(self, raw_steer, vel):
+    def update_pose(self, desired_steering_angle, desired_speed):
         """
         Steps the vehicle's physical simulation
 
@@ -290,24 +290,9 @@ class RaceCar(object):
 
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
 
-        # steering delay
-        steer = 0.
-        if self.steer_buffer.shape[0] < self.steer_buffer_size:
-            steer = 0.
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-        else:
-            steer = self.steer_buffer[-1]
-            self.steer_buffer = self.steer_buffer[:-1]
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-
-
         
-        desired_steering_angle = steer
-        desired_vel_x = vel
-    
-    
-        if Settings.WITH_PID:
-            acceleration, steering_angular_velocity = pid(desired_vel_x, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+        # Some models require PID control
+        acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
     
         
         if(self.ode_implementation == 'pacejka'):
@@ -322,12 +307,12 @@ class RaceCar(object):
         if self.ode_implementation == 'f1tenth':
             
             if Settings.WITH_PID:
-                vel, raw_steer = pid(vel, steer, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+                desired_speed, raw_steer = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
             # update physics, get RHS of diff'eq
             f = vehicle_dynamics_st(
             # f = vehicle_dynamics_simple(
                 self.state,
-                np.array([raw_steer, vel]),
+                np.array([raw_steer, desired_speed]),
                 self.params['mu'],
                 self.params['C_Sf'],
                 self.params['C_Sr'],
@@ -356,7 +341,7 @@ class RaceCar(object):
             # self.state[StateIndices.yaw_angle] = wrap_angle_rad(self.state[StateIndices.yaw_angle])
         elif self.ode_implementation == 'ODE_TF':
             self.state = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
-            self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, vel]], dtype=np.float32), None).numpy()[0]
+            self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, desired_speed]], dtype=np.float32), None).numpy()[0]
             self.state = full_state_alphabetical_to_original(self.state)
         
         # update scan
