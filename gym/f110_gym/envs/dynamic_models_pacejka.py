@@ -10,6 +10,7 @@ class StateIndices:
     yaw_rate = 5
     steering_angle = 6
     
+    
 class ControlIndices:
     desired_steering_angle = 0
     acceleration = 1
@@ -46,7 +47,39 @@ class VehicleParameters:
         self.mu = 0.8
         self.tire_model = "pacejka"
         self.tau_steer = 0.15779476
+        
+        self.v_max = 20
+        self.v_min = -5
 
+
+
+def speed_pid(current_speed: float, desired_speed: float, p: VehicleParameters) -> float:
+    # acceleration - Exactly as original F1TENTH
+    vel_diff = desired_speed - current_speed
+    # currently forward
+    if current_speed > 0.:
+        if (vel_diff > 0):
+            # accelerate
+            kp = 10.0 * p.a_max / p.v_max
+            accl = kp * vel_diff
+        else:
+            # braking
+            kp = 10.0 * p.a_max / (-p.v_min)
+            accl = kp * vel_diff
+    # currently backwards
+    else:
+        if (vel_diff > 0):
+            # braking
+            kp = 2.0 * p.a_max / p.v_max
+            accl = kp * vel_diff
+        else:
+            # accelerating
+            kp = 2.0 * p.a_max / (-p.v_min)
+            accl = kp * vel_diff
+            
+    return accl
+
+    
 
 def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     """
@@ -59,8 +92,9 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
             x3: longitudinal velocity
             x4: lateral velocity
             x5: yaw rate
-            
         :param u: vehicle input vector (steering angle, longitudinal acceleration)
+            u0: desired steering angle
+            u1: longitudinal acceleration
         :param p: vehicle parameter vector 
         :param type: tire model type (linear or pacejka)
     Outputs:
@@ -85,6 +119,8 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     I_z = p.I_z
     
     
+    acceleration_x = speed_pid(x[StateIndices.v_x], u[ControlIndices.acceleration], p)
+    # acceleration_x = u[ControlIndices.acceleration]    
 
     # compute lateral tire slip angles
     if x[StateIndices.v_x] == 0 :
@@ -105,7 +141,7 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     d_pos_x = x[StateIndices.v_x]*math.cos(x[StateIndices.yaw_angle]) - x[StateIndices.v_y]*math.sin(x[StateIndices.yaw_angle])
     d_pos_y = x[StateIndices.v_x]*math.sin(x[StateIndices.yaw_angle]) + x[StateIndices.v_y]*math.cos(x[StateIndices.yaw_angle])
     d_yaw_angle = x[StateIndices.yaw_rate]
-    d_v_x = u[ControlIndices.acceleration]
+    d_v_x = acceleration_x
     d_v_y = 1/m * (F_yr + F_yf) - x[StateIndices.v_x] * x[StateIndices.yaw_rate]
     d_yaw_rate = 1/I_z * (-lr * F_yr + lf * F_yf)
     

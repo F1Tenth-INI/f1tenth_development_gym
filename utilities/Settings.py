@@ -22,7 +22,7 @@ class Settings():
     
     # driving behaviour
     REVERSE_DIRECTION = False
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.2
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.7
     APPLY_SPEED_SCALING_FROM_YAML = False
 
     ENV_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml" # Car parameters for simulated car
@@ -105,7 +105,7 @@ class Settings():
     ###################################################################################
     ### Controller Settings
 
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number
