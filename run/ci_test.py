@@ -1,3 +1,6 @@
+# This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
+
+
 
 import os
 import sys
@@ -8,8 +11,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from utilities.Settings import Settings
 from run.run_simulation import run_experiments
+from utilities.Settings import Settings 
 
 # Test with simple PP controller
 Settings.MAP_NAME = "RCA2"
