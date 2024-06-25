@@ -1,10 +1,9 @@
-j![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
+![Python 3.8 3.9](https://github.com/f1tenth/f1tenth_gym/actions/workflows/ci.yml/badge.svg)
 ![Docker](https://github.com/f1tenth/f1tenth_gym/actions/workflows/docker.yml/badge.svg)
-
-# Notes by Florian
 
 ## Setup
 
+(Tested on Ubuntu20, MacOS at 2024-06-25)
 Clone the repo including submodules
 
 ```bash
@@ -12,7 +11,7 @@ git clone --recurse-submodules git@github.com:F1Tenth-INI/f1tenth_development_gy
 cd f1tenth_development_gym/
 ```
 
-I highly recommend using Conda for virtual environments.
+I highly recommend using [Conda](https://conda.io/projects/conda/en/latest/user-guide/install/index.html) for virtual environments.
 First create a conda environment.
 
 ```bash
@@ -32,7 +31,7 @@ Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit s
 git submodule update --init --recursive
 ```
 
-and then install the Toolkit packages:
+And then install the SI_Toolkit
 
 ```bash
 python -m pip install --user -e ./SI_Toolkit
@@ -56,9 +55,16 @@ export PYTHONPATH=./
 
 Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) This file gives you an idea of what can be adjusted at the GYM.
 
+Let's go through the most important ones:
+
+- MAP_NAME: There are multiple maps available (from easy to quite tricky). Change the map name to face different challenges.
+- CONTROLLER: We have implemented multiple controllers (again from easy to complicated). If you are new with F1TGym, checkout 'ftg' (Follow the Gap) first, then the 'pp' (Pure Pursuit) controller. There are a lot of Tutorials about how these controllers work online.
+- SAVE_RECORDINGS: IF set to true, a Recording will be created (in the folder ExperimentRecordings), which contains all the information about the car state and sensory inputs during the simulation. Recordings can also be raplayed.
+
 # Wording & Conventions
 
-##Environment
+## Environment
+
 Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the drivers array:
 
 ```python

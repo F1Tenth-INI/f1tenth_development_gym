@@ -1,0 +1,40 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          submodules: "recursive"
+
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: f1t
+          python-version: 3.9
+          auto-activate-base: false
+          miniconda-version: "latest"
+
+      - name: Create and activate Conda environment
+        run: |
+          conda create -n f1t python=3.9
+          echo "source activate f1t" >> $GITHUB_ENV
+
+      - name: Install gym
+        run: pip install --user -e gym/
+
+      - name: Check submodules
+        run: |
+          if [ -z "$(ls -A SI_Toolkit)" ] || [ -z "$(ls -A Control_Toolkit)" ]; then
+            git submodule update --init --recursive
+          fi
+
+      - name: Install SI_Toolkit
+        run: python -m pip install --user -e ./SI_Toolkit
+
+      - name: Run simulation
+        run: python run.py
