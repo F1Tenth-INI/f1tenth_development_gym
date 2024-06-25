@@ -1,5 +1,14 @@
 This folder contains routine, data-generation and helper scripts that can b e executed directly
 
+## Run CI Test
+
+This script is executed as soon as you push something on github [TODO...]. It will make sure that the program sill compiles and that the car is able to drive a lap.
+To be sure it passes the test, you might want to run ci_test.py before pushing.
+
+```bash
+python run/ci_test.py
+```
+
 ## Minimum curvature waypoints
 
 This is a script for calculating minimum curvature waypoints
