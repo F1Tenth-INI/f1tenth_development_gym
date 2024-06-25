@@ -260,7 +260,7 @@ def main():
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
                 # Add Noise to the car state
                 car_state_without_noise = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
-                car_state_with_noise = np.zeros(10)
+                car_state_with_noise = np.zeros(9)
                 for state_index in range(9):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
                 # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta
