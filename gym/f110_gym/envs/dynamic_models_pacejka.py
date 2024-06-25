@@ -1,6 +1,6 @@
 import math
 import numpy as np  
-
+from utilities.car_files.gym_car_parameters import GymCarParameters
 class StateIndices:
     pose_x = 0
     pose_y = 1
@@ -9,6 +9,14 @@ class StateIndices:
     v_y = 4
     yaw_rate = 5
     steering_angle = 6
+    
+    # Create a reverse mapping dictionary as a class attribute
+    name_dict = {value: name for name, value in vars().items() if not name.startswith('__')}
+
+    @classmethod
+    def getStateName(cls, index):
+        # Use the reverse mapping to get the state name from the index
+        return cls.name_dict.get(index, "Index not found")
     
     
 class ControlIndices:
@@ -39,14 +47,11 @@ class VehicleParameters:
         self.a_max = 3
         self.a_min = -3
         self.h_cg = 0.014
-        self.l_f = 0.162
-        self.l_r = 0.145
+        self.lf = 0.162
+        self.lr = 0.145
         self.l_wb = 0.307
         self.m = 3.54
-        self.model_name = "NUC1"
         self.mu = 0.8
-        self.tire_model = "pacejka"
-        self.tau_steer = 0.15779476
         
         self.v_max = 20
         self.v_min = -5
@@ -112,8 +117,8 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     D_r = p.C_Pr[2]
     E_r = p.C_Pr[3]
 
-    lf = p.l_f
-    lr = p.l_r
+    lf = p.lf
+    lr = p.lr
     h = p.h_cg 
     m = p.m 
     I_z = p.I_z

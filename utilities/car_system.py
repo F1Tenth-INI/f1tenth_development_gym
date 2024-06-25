@@ -239,7 +239,6 @@ class CarSystem:
             self.recorder.set_data(
                 time=self.time,
                 control_inputs_calculated=( self.angular_control, self.translational_control),
-                odometry=ego_odom,
                 lidar_ranges = self.LIDAR.processed_scans,
                 lidar_indices = self.LIDAR.processed_scan_indices,
                 state=self.car_state,

@@ -13,7 +13,7 @@ class Settings():
 
 
     # Controller Settings
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number
@@ -36,7 +36,7 @@ class Settings():
     
     SAVE_RECORDINGS = True
     SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
-    SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
+    SAVE_PLOTS = False # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
     RECORDING_FOLDER = './ExperimentRecordings/'
