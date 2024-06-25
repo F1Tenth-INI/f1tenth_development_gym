@@ -45,7 +45,7 @@ reverse_direction_values = [False]
 # Comment out during data collection
 # Settings.EXPERIMENT_LENGTH = 1000  
 # global_waypoint_velocity_factors = [0.8]
-Settings.RENDER_MODE = "human_fast"
+# Settings.RENDER_MODE = "human_fast"
 
 for reverse_direction in reverse_direction_values:
     Settings.REVERSE_DIRECTION = reverse_direction
