@@ -10,7 +10,6 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
-from utilities.waypoints_generator import WaypointsGenerator
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 import pandas as pd
@@ -48,9 +47,6 @@ def main():
     main entry point
     """
     
-    if Settings.EXPORT_HANDDRAWN_WP:
-        waypoints_generator = WaypointsGenerator()
-        waypoints_generator.export_handdrawn_waypoints()
         
     if Settings.REPLAY_RECORDING:
         state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
@@ -264,7 +260,7 @@ def main():
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
                 # Add Noise to the car state
                 car_state_without_noise = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
-                car_state_with_noise = np.zeros(9)
+                car_state_with_noise = np.zeros(10)
                 for state_index in range(9):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
                 # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta

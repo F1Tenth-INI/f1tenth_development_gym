@@ -26,10 +26,8 @@ POSE_THETA_COS_IDX = STATE_INDICES['pose_theta_cos']
 POSE_THETA_SIN_IDX = STATE_INDICES['pose_theta_sin']
 POSE_X_IDX = STATE_INDICES['pose_x']
 POSE_Y_IDX = STATE_INDICES['pose_y']
-
 LINEAR_VEL_X_IDX = STATE_INDICES['linear_vel_x']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
-
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
 
@@ -100,9 +98,5 @@ def get_control_limits(clip_control_input):
 
     return clip_control_input_low, clip_control_input_high
 
-if Settings.ENVIRONMENT_NAME == 'Car':
-    control_limits_low, control_limits_high = get_control_limits([[-0.8 , -1], [0.8, 18]])
-else:
-    raise NotImplementedError('{} mpc not implemented yet'.format(Settings.ENVIRONMENT_NAME))
-
+control_limits_low, control_limits_high = get_control_limits([[-0.8 , -1], [0.8, 18]])
 control_limits_max_abs = np.max(np.vstack((np.abs(control_limits_low), np.abs(control_limits_high))), axis=0)
