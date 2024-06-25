@@ -85,7 +85,6 @@ class Settings():
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    EXPORT_HANDDRAWN_WP = False
     
     AUTOMATIC_SECTOR_TUNING = False
     
