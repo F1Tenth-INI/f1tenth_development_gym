@@ -1,9 +1,0 @@
-map_ext: '.png'
-
-# map paths
-map_path: 'utilities/maps_files/maps/Catalunya'
-waypoint_path: 'utilities/maps_files/waypoints/Catalunya_wp'
-
-# starting pose for map
-starting_positions: 
- - [0., 0., 2.2] 
