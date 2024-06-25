@@ -20,11 +20,25 @@ Warning: existing waypoint files will be overwritten. Make sure you have a backu
 
 ## Data collection for race scenario
 
+This script performs multiple experiments with different setings (defined in arrays at the beginning of the script). It can be used to collect data for a NeuralNetwork Immitator, that for example needs to be trained on different speed levels.
+
+- Check the settings on the beginning of the file
+- Set a unique DATASET_NAME
+- WARNING: before runniong the script overnight, make sure to test it with a small amoount of data, otherwise the chances of a bad surprise in the morning are high...
+
 ```bash
 python run/run_data_collection.py
 ```
 
 # UNTESTED
+
+## Experiment data distribution (by Nigalsan)
+
+Distribute ExperimentRecordings into SI_Toolkit_ASF/Experiments/[EXPERIMENTNAME] folder. It will split test and training data.
+
+## Perform Track Visualization (by Nigalsan)
+
+Visualizes an Experiment Recording
 
 ## DataGen (MT by Gianni)
 
