@@ -21,6 +21,15 @@ conda activate f1t
 
 Then install the gym inside the environment. Don't omit the trailing / on gym.
 
+There is a chance that yout setuptools is too new for the gym version. If that is the case, you need to downgrade it.
+
+```bash
+python -m pip install "pip<24.1"
+pip install setuptools==65.5.0 "wheel<0.40.0"
+```
+
+And now you can install the gym environment.
+
 ```bash
 pip install --user -e gym/
 ```
