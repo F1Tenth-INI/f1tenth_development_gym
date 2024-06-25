@@ -362,7 +362,7 @@ To check that your predictor works, run the Brunton test using:
 - Run the script:
 
 ```bash
-python utilities/run_create_min_curve_waypoints.py
+python run/create_min_curve_waypoints.py
 ```
 
 The waypoints (and additional data) will be saved in the map folder.
