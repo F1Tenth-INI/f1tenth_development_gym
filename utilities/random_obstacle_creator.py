@@ -10,6 +10,8 @@ from argparse import Namespace
 import atexit
 import logging
 from datetime import datetime
+from ruamel.yaml import YAML
+
 
 from distutils.dir_util import copy_tree
 
@@ -19,15 +21,16 @@ import ruamel.yaml
 def overwrite_value_yaml(config_path, field_name, new_value):
 
     # load data from YAML file
+    yaml = YAML()
     with open(config_path, 'r') as file:
-        data = ruamel.yaml.round_trip_load(file)
+        data = yaml.load(file)
 
     # modify data
     data[field_name] = new_value
 
     # write modified data back to YAML file
     with open(config_path, 'w') as file:
-        ruamel.yaml.round_trip_dump(data, file)
+        yaml.dump(data, file)
 
 logger = logging.getLogger(__name__)
 

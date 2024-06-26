@@ -1,9 +1,0 @@
-
-starting_positions:
-- [0.0, 0.0, 0]
-
-# map paths
-# map_path: 'utilities/maps_files/maps/empty_map'
-map_path: 'utilities/maps_files/maps/blank_map'
-
-map_ext: '.png'
