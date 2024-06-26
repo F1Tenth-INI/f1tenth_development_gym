@@ -8,12 +8,15 @@ if(Settings.ROS_BRIDGE):
     from visualization_msgs.msg import Marker, MarkerArray
 else:
     if(Settings.RENDER_MODE is not None):
-        from pyglet.gl import GL_POINTS
-        from pyglet.gl import GL_LINES
-        import pyglet.gl as gl
-        from pyglet import shapes
-        import pyglet
-        from pyglet.gl import glLineWidth
+        try:
+            from pyglet.gl import GL_POINTS
+            from pyglet.gl import GL_LINES
+            import pyglet.gl as gl
+            from pyglet import shapes
+            import pyglet
+            from pyglet.gl import glLineWidth
+        except:
+            Settings.RENDER_MODE = None
 
 
 

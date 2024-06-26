@@ -2,11 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
   pull_request:
-    branches:
-      - main
 
 jobs:
   build-and-test:
@@ -46,3 +42,5 @@ jobs:
 
       - name: Run simulation
         run: python run/ci_test.py
+        env:
+          CI_TEST: true

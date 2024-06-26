@@ -142,3 +142,9 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
+
+
+    # if os.getenv('CI_TEST', 'false').lower() == 'true':
+    #     RENDER_MODE = None
+    #     CONTROLLER = 'pp'
+    #     START_FROM_RANDOM_POSITION = False
