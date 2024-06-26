@@ -7,8 +7,7 @@ from utilities.Settings import Settings
 
 environment_name = Settings.ENVIRONMENT_NAME
 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
-with_pid = Settings.WITH_PID
-car_parameter_file = Settings.MPC_CAR_PARAMETER_FILE
+car_parameter_file = Settings.CONTROLLER_CAR_PARAMETER_FILE
 
 class next_state_predictor_ODE():
 
@@ -30,7 +29,6 @@ class next_state_predictor_ODE():
             from SI_Toolkit_ASF.car_model import car_model
             self.env = car_model(
                 model_of_car_dynamics=model_of_car_dynamics,
-                with_pid=with_pid,
                 batch_size=batch_size,
                 car_parameter_file=car_parameter_file,
                 dt=dt,

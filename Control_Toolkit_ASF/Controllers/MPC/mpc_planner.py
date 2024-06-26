@@ -8,7 +8,6 @@ from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
-    odometry_dict_to_state,
     control_limits_low,
     control_limits_high,
 )
@@ -90,8 +89,6 @@ class mpc_planner(template_planner):
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
 
-        if Settings.LIDAR_PLOT_SCANS:
-            self.LIDAR.plot_lidar_data()
 
         self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
             self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
@@ -104,9 +101,6 @@ class mpc_planner(template_planner):
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
             return self.angular_control, self.translational_control
-
-        if (Settings.FOLLOW_RANDOM_TARGETS):
-            self.target_point = self.TargetGenerator.step((self.car_state[POSE_X_IDX],  self.car_state[POSE_Y_IDX]), )
 
 
         angular_control, translational_control  = self.mpc.step(self.car_state,

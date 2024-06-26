@@ -1,9 +1,0 @@
-free_thresh: 0.196
-image: double_s.png
-negate: 0
-occupied_thresh: 0.45
-origin:
-- -10.1
-- -34.6
-- 0.0
-resolution: 0.1

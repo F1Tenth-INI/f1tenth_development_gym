@@ -31,7 +31,9 @@ Author: Hongrui Zheng
 import numpy as np
 from numba import njit
 
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid, vehicle_dynamics_simple
+from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
+from f110_gym.envs.dynamic_models_pacejka import vehicle_dynamics_pacejka, StateIndices
+
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
@@ -75,7 +77,7 @@ class RaceCar(object):
     scan_angles = None
     side_distances = None
 
-    def __init__(self, params, seed, ode_implementation, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
+    def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
         """
         Init function
 
@@ -98,21 +100,22 @@ class RaceCar(object):
         self.num_beams = num_beams
         self.fov = fov
 
-        self.ode_implementation = ode_implementation
+        self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
 
         self.state = np.zeros((7, ))
         if self.ode_implementation == 'ODE_TF':
             self.car_model = car_model(
                 model_of_car_dynamics = 'ODE:st',
-                with_pid = Settings.WITH_PID, 
                 batch_size = 1, 
                 car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
                 dt = 0.01, 
                 intermediate_steps=5
                 )
-    
-        elif self.ode_implementation != 'f1tenth':
-            raise NotImplementedError('This ode implementation is not yet implemented. Use f1tenth or ODE_TF')
+
+        # Handle the case where it's none of the specified options
+        # For example, raise an error or set a default implementation
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka']:
+            raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -214,8 +217,9 @@ class RaceCar(object):
         self.in_collision = False
         # clear state
         self.state = np.zeros((7, ))
-        self.state[0:2] = pose[0:2]
-        self.state[4] = pose[2]
+        self.state[StateIndices.pose_x] = pose[0]
+        self.state[StateIndices.pose_y] = pose[1]
+        self.state[StateIndices.yaw_angle] = pose[2]
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
         self.scan_rng = np.random.default_rng(seed=self.seed)
@@ -239,7 +243,8 @@ class RaceCar(object):
             # get vertices of current oppoenent
             opp_vertices = get_vertices(opp_pose, self.params['length'], self.params['width'])
 
-            new_scan = ray_cast(np.append(self.state[0:2], self.state[4]), new_scan, self.scan_angles, opp_vertices)
+            pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+            new_scan = ray_cast(pose, new_scan, self.scan_angles, opp_vertices)
 
         return new_scan
 
@@ -257,11 +262,11 @@ class RaceCar(object):
             None
         """
         
-        in_collision = check_ttc_jit(current_scan, self.state[3], self.scan_angles, self.cosines, self.side_distances, self.ttc_thresh)
+        in_collision = check_ttc_jit(current_scan, self.state[StateIndices.v_x], self.scan_angles, self.cosines, self.side_distances, self.ttc_thresh)
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[3:] = 0.
+            self.state[StateIndices.v_x:] = 0.
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
@@ -270,7 +275,7 @@ class RaceCar(object):
 
         return in_collision
 
-    def update_pose(self, raw_steer, vel):
+    def update_pose(self, desired_steering_angle, desired_speed):
         """
         Steps the vehicle's physical simulation
 
@@ -284,65 +289,26 @@ class RaceCar(object):
 
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
 
-        # steering delay
-        steer = 0.
-        if self.steer_buffer.shape[0] < self.steer_buffer_size:
-            steer = 0.
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-        else:
-            steer = self.steer_buffer[-1]
-            self.steer_buffer = self.steer_buffer[:-1]
-            self.steer_buffer = np.append(raw_steer, self.steer_buffer)
-
-        # print("RaceCar before", self.state)
         
-        # print("input",raw_steer,vel )
-
-
-        # steering angle velocity input to steering velocity acceleration input
-        # print("pid",sv,accl )
-        if self.ode_implementation == 'f1tenth':
+        # Some models require PID control
+        acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+    
+        
+        if(self.ode_implementation == 'pacejka'):
             
-            if Settings.WITH_PID:
-                vel, raw_steer = pid(vel, steer, self.state[3], self.state[2], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
-            # update physics, get RHS of diff'eq
-            f = vehicle_dynamics_st(
-            # f = vehicle_dynamics_simple(
-                self.state,
-                np.array([raw_steer, vel]),
-                self.params['mu'],
-                self.params['C_Sf'],
-                self.params['C_Sr'],
-                self.params['lf'],
-                self.params['lr'],
-                self.params['h'],
-                self.params['m'],
-                self.params['I'],
-                self.params['s_min'],
-                self.params['s_max'],
-                self.params['sv_min'],
-                self.params['sv_max'],
-                self.params['v_switch'],
-                self.params['a_max'],
-                self.params['v_min'],
-                self.params['v_max'])
-
-            # update state
-            self.state = self.state + f * self.time_step
-
-            # bound yaw angle
-            # if self.state[4] > 2*np.pi:
-            #     self.state[4] = self.state[4] - 2*np.pi
-            # elif self.state[4] < 0:
-            #     self.state[4] = self.state[4] + 2*np.pi
-            # self.state[4] = wrap_angle_rad(self.state[4])
-        elif self.ode_implementation == 'ODE_TF':
-            self.state = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
-            self.state = self.car_model.step_dynamics(self.state, np.array([[raw_steer, vel]], dtype=np.float32), None).numpy()[0]
-            self.state = full_state_alphabetical_to_original(self.state)
+            s = self.state
+            u = np.array([desired_steering_angle, acceleration])
+            
+            f = vehicle_dynamics_pacejka(s, u)
+            
+            self.state = self.state + f * self.time_step            
+            
+        if self.ode_implementation == 'f1tenth_st':
+            raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
         
         # update scan
-        current_scan = RaceCar.scan_simulator.scan(np.append(self.state[0:2], self.state[4]), self.scan_rng)
+        pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+        current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)
 
         return current_scan
 
@@ -396,7 +362,7 @@ class Simulator(object):
 
     """
 
-    def __init__(self, params, num_agents, seed, ode_implementation, time_step=0.01, ego_idx=0):
+    def __init__(self, params, num_agents, seed, time_step=0.01, ego_idx=0):
         """
         Init function
 
@@ -412,7 +378,6 @@ class Simulator(object):
         """
         self.num_agents = num_agents
         self.seed = seed
-        self.ode_implementation = ode_implementation
         self.time_step = time_step
         self.ego_idx = ego_idx
         self.params = params
@@ -424,10 +389,10 @@ class Simulator(object):
         # initializing agents
         for i in range(self.num_agents):
             if i == ego_idx:
-                ego_car = RaceCar(params, self.seed, ode_implementation, is_ego=True)
+                ego_car = RaceCar(params, self.seed, is_ego=True)
                 self.agents.append(ego_car)
             else:
-                agent = RaceCar(params, self.seed, ode_implementation)
+                agent = RaceCar(params, self.seed)
                 self.agents.append(agent)
 
     def set_map(self, map_path, map_ext):
@@ -536,12 +501,12 @@ class Simulator(object):
             'collisions': self.collisions}
         for i, agent in enumerate(self.agents):
             observations['scans'].append(agent_scans[i])
-            observations['poses_x'].append(agent.state[0])
-            observations['poses_y'].append(agent.state[1])
-            observations['poses_theta'].append(agent.state[4])
-            observations['linear_vels_x'].append(agent.state[3])
-            observations['linear_vels_y'].append(0.)
-            observations['ang_vels_z'].append(agent.state[5])
+            observations['poses_x'].append(agent.state[StateIndices.pose_x])
+            observations['poses_y'].append(agent.state[StateIndices.pose_y])
+            observations['poses_theta'].append(agent.state[StateIndices.yaw_angle])
+            observations['linear_vels_x'].append(agent.state[StateIndices.v_x])
+            observations['linear_vels_y'].append(agent.state[StateIndices.v_y])
+            observations['ang_vels_z'].append(agent.state[StateIndices.yaw_rate])
             # Missing state[2] and state[6]
 
         return observations

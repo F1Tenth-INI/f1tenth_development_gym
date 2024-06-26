@@ -26,7 +26,7 @@ class PurePursuitPlanner(template_planner):
 
         self.render_utils = RenderUtils()
 
-        car_parameters = yaml.load(open(Settings.MPC_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
+        car_parameters = yaml.load(open(Settings.CONTROLLER_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
     
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)

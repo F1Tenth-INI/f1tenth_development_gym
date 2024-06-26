@@ -1,0 +1,28 @@
+; [MASTER]
+; # Enable all checks by default
+; enable=all
+
+; # Disable some checks that are not relevant or too strict for your project
+; disable=
+;     C0103, # Disable "Invalid name" check
+;     R0903, # Disable "Too few public methods" check
+
+; [FORMAT]
+; # Code style
+; max-line-length=100
+; indent-string='    '  # 4 spaces
+
+; [NAMING]
+; # Naming conventions
+; function-rgx=[a-z_][a-z0-9_]{2,30}$  # Function names should be lowercase, separated by underscores, and between 3 and 30 characters long
+; variable-rgx=[a-z_][a-z0-9_]{2,30}$  # Variable names follow the same rule as function names
+; constant-rgx=([A-Z_][A-Z0-9_]{2,30})$  # Constants should be uppercase, separated by underscores, and between 3 and 30 characters long
+
+; [MISCELLANEOUS]
+; # Other settings
+; notes=TODO,FIXME  # Mark sections of the code that need attention
+
+; [MESSAGES CONTROL]
+; # Fine-tune the messages that Pylint should emit or suppress
+; # Example: to only show warnings and errors
+; enable=W,E

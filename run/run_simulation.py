@@ -10,7 +10,6 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
-from utilities.waypoints_generator import WaypointsGenerator
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 import pandas as pd
@@ -48,9 +47,6 @@ def main():
     main entry point
     """
     
-    if Settings.EXPORT_HANDDRAWN_WP:
-        waypoints_generator = WaypointsGenerator()
-        waypoints_generator.export_handdrawn_waypoints()
         
     if Settings.REPLAY_RECORDING:
         state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
