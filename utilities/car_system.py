@@ -27,6 +27,8 @@ else:
 from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
+# from TrainingLite.slip_prediction import predict
+
 
 
 class CarSystem:
@@ -86,6 +88,9 @@ class CarSystem:
         elif controller == 'neural':
             from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
             self.planner =  NeuralNetImitatorPlanner()
+        elif controller == 'nni-lite':
+            from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
+            self.planner =  NNLitePlanner()
         elif controller == 'pp':
             from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
             self.planner = PurePursuitPlanner()
@@ -163,6 +168,20 @@ class CarSystem:
             self.LIDAR.plot_lidar_data()
             
         car_state = self.car_state
+        
+        
+        # print("Car state: ", car_state)
+        # s = car_state
+        # input = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_IDX],s[STEERING_ANGLE_IDX]]
+        # # print("input", input)
+        # output_true = s[SLIP_ANGLE_IDX]
+        # print("output as should be", output_true)
+        # output = predict.predict_slip_angle_from_car_state(car_state)
+        # print("output", output)
+        
+        
+        
+        
         ranges = np.array(ranges)
         self.LIDAR.load_lidar_measurement(ranges)
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
