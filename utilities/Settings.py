@@ -51,7 +51,7 @@ class Settings():
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
     
     # Random Obstacles
-    PLACE_RANDOM_OBSTACLES = True  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
+    PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     CRASH_DETECTION = True
 
