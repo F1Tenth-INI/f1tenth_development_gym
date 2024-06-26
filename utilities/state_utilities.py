@@ -2,6 +2,7 @@ from utilities.Settings import Settings
 import numpy as np
 import math
 
+
 STATE_VARIABLES = np.sort([
     'angular_vel_z',  # x5: yaw rate
     'linear_vel_x',   # x3: velocity in x direction
@@ -14,6 +15,7 @@ STATE_VARIABLES = np.sort([
     'steering_angle'  # x2: steering angle of front wheels
 ])
 
+FULL_STATE_VARIABLES = STATE_VARIABLES
 
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
 
