@@ -31,7 +31,6 @@ class ODEModel(tf.keras.Model):
     def setup_car_model(self, car_parameter_file, model_of_car_dynamics, trainable_params='all'):
         self.car_model = car_model(
             model_of_car_dynamics=model_of_car_dynamics,
-            with_pid=True,
             batch_size=self.batch_size,
             car_parameter_file=car_parameter_file,
             dt=self.dt,

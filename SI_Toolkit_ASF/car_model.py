@@ -23,7 +23,6 @@ class car_model:
     def __init__(
             self,
             model_of_car_dynamics: str,
-            with_pid: bool,
             batch_size: int,
             car_parameter_file: str, # file containing the car parameters
             dt: float = 0.03,
@@ -54,7 +53,6 @@ class car_model:
         self.lwb = self.lib.constant(lf + lr, self.lib.float32)
       
         self.model_of_car_dynamics = model_of_car_dynamics
-        self.with_pid = with_pid
         self.step_dynamics = None
         self.set_model_of_car_dynamics(model_of_car_dynamics)
 
@@ -70,20 +68,13 @@ class car_model:
     def set_model_of_car_dynamics(self, model_of_car_dynamics):
 
         if model_of_car_dynamics == 'ODE:simple':
-            if self.with_pid:
-                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_simple)
-            else:
-                self.step_dynamics = self._step_dynamics_simple
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_simple)
+           
         elif model_of_car_dynamics == 'ODE:ks':
-            if self.with_pid:
-                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_ks)
-            else:
-                self.step_dynamics = self._step_dynamics_ks
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_ks)
+          
         elif model_of_car_dynamics == 'ODE:st':
-            if self.with_pid:
-                self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_st)
-            else:
-                self.step_dynamics = self._step_dynamics_st
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_st)
         else:
             raise NotImplementedError(
                 '{} not recognized as a valid name for a model of car dynamics'.format(model_of_car_dynamics))
