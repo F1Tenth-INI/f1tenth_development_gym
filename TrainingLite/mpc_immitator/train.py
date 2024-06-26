@@ -13,6 +13,7 @@ import glob
 import numpy as np
 import time
 import yaml
+import zipfile
 
 import matplotlib.pyplot as plt
 from keras.callbacks import ReduceLROnPlateau
@@ -22,11 +23,12 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
+model_name = "GRU1-Example"
 
 
-model_name = "LSTM1"
 base_dir = os.path.join(experiment_path, 'models')
 model_dir = os.path.join(base_dir, model_name)
+
 
 # # Create directory
 # if os.path.exists(model_dir):
@@ -41,6 +43,12 @@ if os.path.exists(model_dir):
 os.makedirs(model_dir, exist_ok=True)
 
 
+
+# Zip the training script for reconstruction
+this_file_path = os.path.realpath(__file__)
+zip_file_path = os.path.join(model_dir, 'train.py.zip')
+with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    zipf.write(this_file_path, arcname=os.path.basename(this_file_path))
 
 
 # Get a list of all CSV files in the 'data' directory
@@ -145,15 +153,6 @@ dump(output_scaler, model_dir+'/output_scaler.joblib')
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
 
-# X_train = X_train.reshape((X_train.shape[0], 10, 4))
-
-
-print(np.array(X_train).shape)
-
-
-
-
-
 def create_sequences(data, seq_length):
     xs = []
     for i in range(len(data)-seq_length+1):
@@ -162,7 +161,6 @@ def create_sequences(data, seq_length):
     return np.array(xs)
 
 seq_length = 1
-# 0.007, 20s/epoch
 
 
 features = X_train.shape[1]  # number of features
@@ -189,14 +187,10 @@ model.compile(loss='mean_squared_error', optimizer=Adam(learning_rate=0.002))
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=1, min_lr=0.00001)
 
 # Train the model
-model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=1, batch_size=8, shuffle=False, callbacks=[reduce_lr])
+model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=8, shuffle=False, callbacks=[reduce_lr])
 
 # Save the model
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
-model.save(model_dir+'/my_model.h5')
-
-
-
-
+model.save(model_dir+'/my_model.keras')
 

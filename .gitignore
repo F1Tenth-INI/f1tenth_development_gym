@@ -57,6 +57,8 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 
 
 # TrainingLite
-TrainingLite/**/data/
-TrainingLite/**/models/
-TrainingLite/**/figures/
+TrainingLite/**/data/*
+TrainingLite/**/models/*
+TrainingLite/**/figures/*
+
+!TrainingLite/mpc_immitator/models/GRU1-Example

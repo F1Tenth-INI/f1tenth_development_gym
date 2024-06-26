@@ -14,15 +14,22 @@ from utilities.Settings import Settings
 
 time.sleep(1)
 
-# Test with simple PP controller
+# Global Settings
+# Settings.RENDER_MODE = None
+Settings.REVERSE_DIRECTION = False # Drive reverse waypoints
+Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.7 
+Settings.APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+    
 Settings.MAP_NAME = "RCA2"
-Settings.RENDER_MODE = None
-Settings.CONTROLLER = 'pp'
 Settings.START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
-# Settings.STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
 
 
 time.sleep(1)
+
+
+# Test: Run the simulation with the PP controller on the RCA2 map (without delay)
+Settings.CONTROLLER = 'pp'
+Settings.CONTROL_DELAY = 0.00
 
 from run.run_simulation import run_experiments
 time.sleep(1)
@@ -32,10 +39,10 @@ run_experiments()
 
 time.sleep(1)
 
-# Test with simple PP controller
-Settings.MAP_NAME = "RCA2"
+# Test: Run the simulation with the PP controller on the RCA2 map (with delay)
 Settings.CONTROLLER = 'mpc'
-# Settings.STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
+Settings.CONTROL_DELAY = 0.08
+Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
 
 
 time.sleep(1)
