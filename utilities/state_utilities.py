@@ -59,11 +59,20 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
 def full_state_original_to_alphabetical(o):
     
-    from f110_gym.envs.dynamic_models_pacejka import StateIndices
+    from f110_gym.envs.dynamic_models_pacejka import StateIndices 
     
     slipping_angle = np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
-    alphabetical = np.array([o[StateIndices.yaw_rate], o[StateIndices.v_x], o[StateIndices.yaw_angle], np.cos(o[StateIndices.yaw_angle]), np.sin(o[StateIndices.yaw_angle]), o[StateIndices.pose_x], o[StateIndices.pose_y], slipping_angle, o[StateIndices.steering_angle]])
+    alphabetical = np.zeros(9)
     
+    alphabetical[ANGULAR_VEL_Z_IDX] = o[StateIndices.yaw_rate]
+    alphabetical[LINEAR_VEL_X_IDX] = o[StateIndices.v_x]
+    alphabetical[POSE_THETA_IDX] = o[StateIndices.yaw_angle]
+    alphabetical[POSE_THETA_COS_IDX] = np.cos(o[StateIndices.yaw_angle])
+    alphabetical[POSE_THETA_SIN_IDX] = np.sin(o[StateIndices.yaw_angle])
+    alphabetical[POSE_X_IDX] = o[StateIndices.pose_x]
+    alphabetical[POSE_Y_IDX] = o[StateIndices.pose_y]
+    alphabetical[SLIP_ANGLE_IDX] = slipping_angle
+    alphabetical[STEERING_ANGLE_IDX] = o[StateIndices.steering_angle]
     
     return alphabetical
 

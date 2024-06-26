@@ -31,7 +31,7 @@ Author: Hongrui Zheng
 import numpy as np
 from numba import njit
 
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid, vehicle_dynamics_simple
+from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 from f110_gym.envs.dynamic_models_pacejka import vehicle_dynamics_pacejka, StateIndices
 
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
