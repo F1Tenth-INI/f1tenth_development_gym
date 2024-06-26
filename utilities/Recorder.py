@@ -22,7 +22,7 @@ try:
 except:
     pass
 
-from utilities.state_utilities import FULL_STATE_VARIABLES
+from utilities.state_utilities import STATE_VARIABLES
 
 from utilities.path_helper_ros import get_gym_path
 gym_path = get_gym_path()
@@ -154,7 +154,7 @@ class Recorder:
             data_dict['time'] = time
             
         if(state is not None):
-            for index, state_variable in enumerate(FULL_STATE_VARIABLES):
+            for index, state_variable in enumerate(STATE_VARIABLES):
                 data_dict[state_variable] = state[index]
         
         if(control_inputs_applied is not None):

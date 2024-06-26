@@ -50,8 +50,6 @@ class NeuralNetImitatorPlanner(template_planner):
 
         self.LIDAR.corrupted_scans_high2zero()
 
-        if Settings.LIDAR_PLOT_SCANS:
-            self.LIDAR.plot_lidar_data()
 
         # Build a dict data_dict, to store all environment and sensor data that we have access to
         # The NNI will then extract the data it needs from this dict
@@ -81,7 +79,7 @@ class NeuralNetImitatorPlanner(template_planner):
         }
 
         # Carstate dict
-        state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in FULL_STATE_VARIABLES}
+        state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
         
         # Combine all dictionaries into one
         data_dict = {**waypoints_dict, **state_dict, **lidar_dict}

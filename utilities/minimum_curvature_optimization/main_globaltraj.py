@@ -2,12 +2,22 @@ import numpy as np
 import time
 import json
 import os
+import inspect
+import sys
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+parentdir = os.path.dirname(currentdir)
+sys.path.insert(0, parentdir) 
+
 import trajectory_planning_helpers as tph
 import copy
 import matplotlib.pyplot as plt
 import configparser
 import minimum_curvature_optimization.opt_mintime_traj as opt_mintime_traj
 import minimum_curvature_optimization.helper_funcs_glob as helper_funcs_glob
+
+
+
+
 
 """
 Created by:

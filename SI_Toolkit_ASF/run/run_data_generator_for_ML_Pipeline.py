@@ -1,4 +1,4 @@
-from run_data_generator import run_data_generator
+from run.DataGen.run_data_generator import run_data_generator
 
 # Automatically create new path to save everything in
 

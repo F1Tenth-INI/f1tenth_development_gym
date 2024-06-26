@@ -5,3 +5,7 @@ negate: 0
 occupied_thresh: 0.65
 free_thresh: 0.196
 
+starting_positions:
+- [-20.206593, -1.677999, -0.968570]   # 310
+map_path: 
+  utilities/maps_files/maps/WithRandomObstacles/RCA2-2024-06-26_14-20-17/RCA2-2024-06-26_14-20-17
