@@ -12,10 +12,10 @@ from utilities.waypoint_utils import *
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "LSTM1"
+model_name = "GRU1-Example"
 
 # Load the model
-model = load_model(experiment_path + '/models/'+model_name+'/my_model.h5')
+model = load_model(experiment_path + '/models/'+model_name+'/my_model.keras')
 input_scaler = load(experiment_path + '/models/'+model_name+'/input_scaler.joblib')
 output_scaler = load(experiment_path + '/models/'+model_name+'/output_scaler.joblib')
 with open(experiment_path + '/models/'+model_name+'/network.yaml', 'r') as file:
