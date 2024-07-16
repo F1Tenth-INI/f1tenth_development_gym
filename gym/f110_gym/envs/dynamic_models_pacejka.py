@@ -108,6 +108,8 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     p = VehicleParameters()
     g_ = 9.81
     mu = p.mu
+    
+    # pacejka tire model parameters
     B_f = p.C_Pf[0]
     C_f = p.C_Pf[1]
     D_f = p.C_Pf[2]
@@ -117,6 +119,7 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     D_r = p.C_Pr[2]
     E_r = p.C_Pr[3]
 
+    # vehicle parameters
     lf = p.lf
     lr = p.lr
     h = p.h_cg 

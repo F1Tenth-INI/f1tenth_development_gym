@@ -1,4 +1,6 @@
 import yaml
+import math
+import tensorflow as tf
 from utilities.path_helper_ros import *
 
 
@@ -75,6 +77,10 @@ class car_model:
           
         elif model_of_car_dynamics == 'ODE:st':
             self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_st)
+            
+        elif model_of_car_dynamics == 'ODE:pacejka':
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_pacejka)
+            
         else:
             raise NotImplementedError(
                 '{} not recognized as a valid name for a model of car dynamics'.format(model_of_car_dynamics))
@@ -287,6 +293,109 @@ class car_model:
         next_step = self.lib.where(ks_or_ts, s_next_ks, s_next_ts)
 
         return next_step
+
+    def _step_dynamics_pacejka(self, s, Q, params):
+        
+        from f110_gym.envs.dynamic_models_pacejka import StateIndices
+        
+        # params
+        mu = self.car_parameters['mu']  # friction coefficient  [-]
+        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
+        h_cg = self.car_parameters['h_cg']  # center of gravity height of toal mass [m]
+        m = self.car_parameters['m']  # Total Mass of car [kg]
+        I_z = self.car_parameters['I_z']  # Moment of inertia for entire mass about z axis  [kgm^2]
+        g_ = self.car_parameters['g'] # gravity [m/s^2]
+        
+        # pacejka tire model parameters
+        B_f = self.car_parameters['C_Pf'][0]
+        C_f = self.car_parameters['C_Pf'][1]
+        D_f = self.car_parameters['C_Pf'][2]
+        E_f = self.car_parameters['C_Pf'][3]
+        B_r = self.car_parameters['C_Pr'][0]
+        C_r = self.car_parameters['C_Pr'][1]
+        D_r = self.car_parameters['C_Pr'][2]
+        E_r = self.car_parameters['C_Pr'][3]
+        
+        # State
+        s_x = s[:, POSE_X_IDX]  # Pose X
+        s_y = s[:, POSE_Y_IDX]  # Pose Y
+        delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
+        v_y = s[:, StateIndices.v_y]  # Lateral Velocity
+        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
+        psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
+        beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
+        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        
+        # Constraints
+        v_x_dot = self.accl_constraints(v_x, v_x_dot)
+        delta_dot = self.steering_constraints(delta, delta_dot)
+        
+        for _ in range(self.intermediate_steps):
+            
+            alpha_f = -tf.math.atan((v_y + psi_dot * lf) / (v_x)) + delta
+            alpha_r = -tf.math.atan((v_y - psi_dot * lr) / v_x )
+            
+            # compute vertical tire forces
+            F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
+            F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
+
+            F_yf = F_yr = 0
+            
+            # calculate combined slip lateral forces
+            F_yf = mu * F_zf * D_f * tf.math.sin(C_f * tf.math.atan(B_f * alpha_f - E_f*(B_f * alpha_f - tf.math.atan(B_f * alpha_f))))
+            F_yr = mu * F_zr * D_r * tf.math.sin(C_r * tf.math.atan(B_r * alpha_r - E_r*(B_r * alpha_r - tf.math.atan(B_r * alpha_r))))
+
+            d_pos_x = v_x * tf.math.cos(psi) - v_y * tf.math.sin(psi)
+            d_pos_y = v_x * tf.math.sin(psi) + v_y * tf.math.cos(psi)
+            d_psi = psi_dot
+            d_v_x = v_x_dot
+            d_v_y = 1/m * (F_yr + F_yf) - v_x * psi_dot
+            d_psi_dot = 1/I_z * (-lr * F_yr + lf * F_yf)
+        
+            s_x = s_x + self.t_step * d_pos_x
+            s_y = s_y + self.t_step * d_pos_y
+            delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max)
+            v_x = v_x + self.t_step * d_v_x
+            v_y = v_y + self.t_step * d_v_y
+            psi = psi + self.t_step * d_psi
+            psi_dot = psi_dot + self.t_step * d_psi_dot
+
+        angular_vel_z = psi_dot
+        linear_vel_x = v_x
+        pose_theta_cos = self.lib.cos(psi)
+        pose_theta_sin = self.lib.sin(psi)
+        if self.wrap_angle:
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
+        else:
+            pose_theta = psi
+        pose_x = s_x
+        pose_y = s_y
+        slip_angle = beta
+        steering_angle = delta
+
+        s_next_ks = self._step_dynamics_ks(s, Q, None)
+        s_next_ts = self.next_step_output(angular_vel_z,
+                                          linear_vel_x,
+                                          pose_theta,
+                                          pose_theta_cos,
+                                          pose_theta_sin,
+                                          pose_x,
+                                          pose_y,
+                                          slip_angle,
+                                          steering_angle)
+
+        # switch to kinematic model for small velocities
+        min_speed_pacejka = self.car_parameters['min_speed_pacejka']
+        speed_too_low_for_pacejka_indices = self.lib.less(v_x, min_speed_pacejka)
+        speed_too_low_for_pacejka_indices = self.lib.reshape(speed_too_low_for_pacejka_indices, (-1, 1))
+        state_len = self.lib.shape(s)[1]
+        ks_or_pacejka = self.lib.repeat(speed_too_low_for_pacejka_indices, state_len, 1)
+        next_step = self.lib.where(ks_or_pacejka, s_next_ks, s_next_ts)
+
+        return next_step    
 
 
     def steering_constraints(self, steering_angle, steering_velocity):
