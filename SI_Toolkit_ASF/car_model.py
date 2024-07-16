@@ -296,7 +296,7 @@ class car_model:
 
     def _step_dynamics_pacejka(self, s, Q, params):
         
-        from f110_gym.envs.dynamic_models_pacejka import StateIndices
+        # from f110_gym.envs.dynamic_models_pacejka import StateIndices
         
         # params
         mu = self.car_parameters['mu']  # friction coefficient  [-]
@@ -321,13 +321,15 @@ class car_model:
         s_x = s[:, POSE_X_IDX]  # Pose X
         s_y = s[:, POSE_Y_IDX]  # Pose Y
         delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Speed
-        v_y = s[:, StateIndices.v_y]  # Lateral Velocity
+        v_x = s[:, LINEAR_VEL_X_IDX] # Speed
+    
         psi = s[:, POSE_THETA_IDX]  # Yaw Angle
         psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
         beta = s[:, SLIP_ANGLE_IDX]  # Slipping Angle
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        
+        v_y = beta * tf.math.sin(v_x)  # Lateral Velocity
         
         # Constraints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)

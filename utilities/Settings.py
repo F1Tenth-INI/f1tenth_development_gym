@@ -18,16 +18,16 @@ class Settings():
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number
 
-    ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
+    ACCELERATION_TIME = 10                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
+    START_FROM_RANDOM_POSITION = True # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5 
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
     
@@ -114,8 +114,8 @@ class Settings():
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
     ## MPC Controller ##
-    CONTROLLER_CAR_PARAMETER_FILE = "utilities/car_files/ini_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:st'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    CONTROLLER_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20
     OPTIMIZE_EVERY_N_STEPS = 1
