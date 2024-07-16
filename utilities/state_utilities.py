@@ -33,7 +33,6 @@ ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
 
-
 def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
     """
     Constructor of car state from named arguments. The order of variables is fixed in STATE_VARIABLES.
