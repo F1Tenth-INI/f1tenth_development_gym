@@ -23,7 +23,7 @@ class Settings():
 
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = True # Start from random position (randomly selected waypoint + delta)
+    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints

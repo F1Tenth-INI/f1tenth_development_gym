@@ -86,6 +86,8 @@ def speed_pid(current_speed: float, desired_speed: float, p: VehicleParameters) 
             kp = 2.0 * p.a_max / (-p.v_min)
             accl = kp * vel_diff
             
+        accl = max(-5, min(accl, 10))
+    
     return accl
 
     
@@ -170,16 +172,37 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     
         
     
-    f = np.zeros(7)
-    f[StateIndices.pose_x] = d_pos_x
-    f[StateIndices.pose_y] = d_pos_y
-    f[StateIndices.yaw_angle] = d_yaw_angle
-    f[StateIndices.v_x] = d_v_x
-    f[StateIndices.v_y] = d_v_y
-    f[StateIndices.yaw_rate] = d_yaw_rate
-    f[StateIndices.steering_angle] = d_steering_angle
+    d_s_simple = np.zeros(7)
+    d_s_pacejka = np.zeros(7)
+    
+    low_speed_threshold = 0.5  # Below this speed, use the simple model
+    high_speed_threshold = 4  # Above this speed, use the complex model
+    if x[StateIndices.v_x] <= low_speed_threshold:
+        weight = 0
+    elif x[StateIndices.v_x] >= high_speed_threshold:
+        weight = 1
+    else:
+        weight = (x[StateIndices.v_x] - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        
+    d_s_simple[StateIndices.pose_x] = x[StateIndices.v_x]*np.cos(x[StateIndices.yaw_angle])
+    d_s_simple[StateIndices.pose_y] = x[StateIndices.v_x]*np.sin(x[StateIndices.yaw_angle])
+    d_s_simple[StateIndices.steering_angle] = (u[ControlIndices.desired_steering_angle] - x[StateIndices.steering_angle])
+    d_s_simple[StateIndices.v_x] = d_v_x 
+    d_s_simple[StateIndices.yaw_angle] = x[StateIndices.v_x]/p.l_wb*np.tan(x[StateIndices.steering_angle])
+      
+  
+    d_s_pacejka[StateIndices.pose_x] = d_pos_x
+    d_s_pacejka[StateIndices.pose_y] = d_pos_y
+    d_s_pacejka[StateIndices.yaw_angle] = d_yaw_angle
+    d_s_pacejka[StateIndices.v_x] = d_v_x
+    d_s_pacejka[StateIndices.v_y] = d_v_y
+    d_s_pacejka[StateIndices.yaw_rate] = d_yaw_rate
+    d_s_pacejka[StateIndices.steering_angle] = d_steering_angle
+        
+        
+    d_s = (1 - weight) * d_s_simple + weight * d_s_pacejka
 
     
 
-    return f
+    return d_s
 
