@@ -13,7 +13,7 @@ class Settings():
 
 
     # Controller Settings
-    CONTROLLER = 'nni-lite'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_PLANNER = 0.02      # For model based planner (MPC) timestep of simulation, can be arbitrary number
@@ -23,7 +23,7 @@ class Settings():
 
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = True # Start from random position (randomly selected waypoint + delta)
+    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
