@@ -1,6 +1,7 @@
 import math
 import numpy as np  
 from utilities.car_files.gym_car_parameters import GymCarParameters
+from utilities.Settings import Settings
 class StateIndices:
     pose_x = 0
     pose_y = 1
@@ -51,7 +52,10 @@ class VehicleParameters:
         self.lr = 0.145
         self.l_wb = 0.307
         self.m = 3.54
-        self.mu = 0.8
+        if Settings.SURFACE_FRICITON is not None:
+            self.mu = Settings.SURFACE_FRICITON
+        else:
+            self.mu = 0.8
         
         self.v_max = 20
         self.v_min = -5
