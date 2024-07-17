@@ -115,7 +115,7 @@ def main():
     if hasattr(conf, 'starting_positions'):
         starting_positions =  conf.starting_positions[0:number_of_drivers]
     else:
-        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
+        print("No starting positions in INI.yaml. Taking value from settings.py")
         starting_positions = Settings.STARTING_POSITION
 
     if(len(starting_positions) < number_of_drivers):
