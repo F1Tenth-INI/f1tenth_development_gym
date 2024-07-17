@@ -102,10 +102,12 @@ class RaceCar(object):
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
 
+        # change car parameter
+        
         self.state = np.zeros((7, ))
         if self.ode_implementation == 'ODE_TF':
             self.car_model = car_model(
-                model_of_car_dynamics = 'ODE:st',
+                model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
                 car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
                 dt = 0.01, 

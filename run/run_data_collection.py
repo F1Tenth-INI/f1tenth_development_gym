@@ -25,7 +25,7 @@ Settings.DATASET_NAME = "RPGD_no_noise_no_obs_CS"
 
 Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
-
+# Settings.SURFACE_FRICTION = 0.5
 
 Settings.RENDER_MODE = None
 

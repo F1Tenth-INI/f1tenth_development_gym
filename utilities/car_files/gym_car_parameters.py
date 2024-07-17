@@ -1,5 +1,5 @@
 class GymCarParameters:
-  mu = 0.9
+  mu = 0.1
   C_Sf = 4.718
   C_Sr = 5.4562
   lf = 0.15875
