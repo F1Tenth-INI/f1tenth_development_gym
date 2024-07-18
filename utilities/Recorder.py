@@ -191,7 +191,49 @@ class Recorder:
     def push_on_buffer(self,): # Do at every control stel
         self.dict_buffer.append(self.dict_to_save.copy())
 
+    def save_custom_csv(self, data):
+        # Open the file in read mode to read the contents
+        with open(self.csv_filepath, mode='r', newline='') as file:
+            reader = csv.reader(file)
+            lines = list(reader)
         
+        # Check if data is a list of strings or a single string
+        if isinstance(data, str):
+            csv_row = [data]
+        elif isinstance(data, list):
+            csv_row = data
+        else:
+            raise ValueError("The format of the data is incorrect. Expected a string or a list of strings.")
+        
+        # Debugging: Check the content of csv_row
+        print("CSV Row:", csv_row)
+
+        # Change line 7 (index 6) if it exists
+        if len(lines) > 6:
+            lines[6] = csv_row
+        else:
+            raise IndexError("The file has fewer than 7 lines.")
+
+        # Open the file in write mode to write the new content
+        with open(self.csv_filepath, mode='w', newline='') as outfile:
+            writer = csv.writer(outfile)
+            writer.writerows(lines)
+
+        # Append additional data to the file if required
+        if len(self.dict_buffer) > 0:
+            with open(self.csv_filepath, mode='a', newline='') as outfile:
+                writer = csv.writer(outfile)
+
+                if not self.headers_already_saved:
+                    writer.writerow(self.dict_buffer[-1].keys())
+                    self.headers_already_saved = True
+
+                for dict in self.dict_buffer:
+                    dict = {key: np.around(value, self.rounding_decimals) for key, value in dict.items()}
+                    writer.writerow([float(x) for x in dict.values()])
+
+            self.dict_buffer = []
+    
     '''
     Save data buffer array to CSV
     Please only call once in a while but not every timestep

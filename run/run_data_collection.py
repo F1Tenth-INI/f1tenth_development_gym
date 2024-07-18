@@ -25,7 +25,7 @@ Settings.DATASET_NAME = "RPGD_no_noise_no_obs_CS"
 
 Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
-# Settings.SURFACE_FRICTION = 0.5
+Settings.SURFACE_FRICTION = 0.5
 
 Settings.RENDER_MODE = None
 
@@ -38,6 +38,7 @@ runs_with_obstacles = 0
 runs_without_obstacles = 7
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.8]
+global_surface_friction_values = [0.3, 0.5, 0.7]
 reverse_direction_values = [False]
 
 

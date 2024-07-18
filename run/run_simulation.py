@@ -343,14 +343,21 @@ def main():
                             driver.recorder.plot_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
+    
+    # Adding Laptime to the recordings
+    stop_timer_after_n_laps = str(Settings.STOP_TIMER_AFTER_N_LAPS)
+    lap_timee = str(round(obs['lap_times'][0],3))
+    N_laptime = '# ' + stop_timer_after_n_laps + '-laptime: ' + lap_timee + ' s'
         
     # End of similation
     if (Settings.SAVE_RECORDINGS):
+        driver.recorder.save_custom_csv(N_laptime)
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
                 driver.recorder.save_csv()
 
     if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
+        driver.recorder.save_custom_csv(N_laptime)
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
                 driver.recorder.plot_data()
@@ -358,7 +365,7 @@ def main():
     env.close()
 
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
-
+    print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(obs['lap_times']), 's')
 
 def run_experiments():
     for i in range(Settings.NUMBER_OF_EXPERIMENTS):
