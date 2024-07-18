@@ -85,7 +85,7 @@ def create_csv_header(path_to_recordings,
 
         writer.writerow(['# Starting position :',*np.array(Settings.STARTING_POSITION).tolist()])
 
-        writer.writerow(['# Saving: {} s'.format(dt)])
+        writer.writerow(['# Timestep: {} s'.format(dt)])
 
         writer.writerow(['# Speedfactor {}'.format(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)])
 
@@ -204,9 +204,6 @@ class Recorder:
             csv_row = data
         else:
             raise ValueError("The format of the data is incorrect. Expected a string or a list of strings.")
-        
-        # Debugging: Check the content of csv_row
-        print("CSV Row:", csv_row)
 
         # Change line 7 (index 6) if it exists
         if len(lines) > 6:

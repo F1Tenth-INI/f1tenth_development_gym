@@ -346,8 +346,11 @@ def main():
     
     # Adding Laptime to the recordings
     stop_timer_after_n_laps = str(Settings.STOP_TIMER_AFTER_N_LAPS)
-    lap_timee = str(round(obs['lap_times'][0],3))
-    N_laptime = '# ' + stop_timer_after_n_laps + '-laptime: ' + lap_timee + ' s'
+    if laptime - 3*Settings.TIMESTEP_CONTROL <= obs['lap_times'][0]:
+        lap_timee = str(round(laptime,3)) + ' s (uncomplete)'
+    else:
+        lap_timee = str(round(obs['lap_times'][0],3)) + ' s'
+    N_laptime = '# ' + stop_timer_after_n_laps + '-laptime: ' + lap_timee 
         
     # End of similation
     if (Settings.SAVE_RECORDINGS):
