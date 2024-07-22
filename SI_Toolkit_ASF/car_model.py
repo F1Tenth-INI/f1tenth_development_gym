@@ -2,7 +2,7 @@ import yaml
 import math
 import tensorflow as tf
 from utilities.path_helper_ros import *
-
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
@@ -36,22 +36,23 @@ class car_model:
         self.lib = computation_lib
         self.wrap_angle = wrap_angle
 
-        gym_path = get_gym_path()
         # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
-        self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
+        # self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
+        self.car_parameters =  VehicleParameters(car_parameter_file)
         
-        self.s_min = self.lib.constant(self.car_parameters['s_min'], self.lib.float32)
-        self.s_max = self.lib.constant(self.car_parameters['s_max'], self.lib.float32)
-        self.sv_min = self.lib.constant(self.car_parameters['sv_min'], self.lib.float32)
-        self.sv_max = self.lib.constant(self.car_parameters['sv_max'], self.lib.float32)
+        self.s_min = self.lib.constant(self.car_parameters.s_min, self.lib.float32)
+        self.s_max = self.lib.constant(self.car_parameters.s_max, self.lib.float32)
+        self.sv_min = self.lib.constant(self.car_parameters.sv_min, self.lib.float32)
+        self.sv_max = self.lib.constant(self.car_parameters.sv_max, self.lib.float32)
         
-        self.v_switch = self.lib.constant(self.car_parameters['v_switch'], self.lib.float32)
-        self.a_max = self.lib.constant(self.car_parameters['a_max'], self.lib.float32)
-        self.v_min = self.lib.constant(self.car_parameters['v_min'], self.lib.float32)
-        self.v_max = self.lib.constant(self.car_parameters['v_max'], self.lib.float32)
+        self.v_switch = self.lib.constant(self.car_parameters.v_switch, self.lib.float32)
+        self.a_max = self.lib.constant(self.car_parameters.a_max, self.lib.float32)
+        self.a_min = self.lib.constant(self.car_parameters.a_min, self.lib.float32)
+        self.v_min = self.lib.constant(self.car_parameters.v_min, self.lib.float32)
+        self.v_max = self.lib.constant(self.car_parameters.v_max, self.lib.float32)
         
-        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
-        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
+        lf = self.car_parameters.lf  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters.lr  # distance from venter of gracity to rear axle [m]
         self.lwb = self.lib.constant(lf + lr, self.lib.float32)
       
         self.model_of_car_dynamics = model_of_car_dynamics
@@ -196,15 +197,15 @@ class car_model:
         '''
 
         # params
-        mu = self.car_parameters['mu']  # friction coefficient  [-]
-        C_Sf = self.car_parameters['C_Sf']  # cornering stiffness front [1/rad]
-        C_Sr = self.car_parameters['C_Sr']  # cornering stiffness rear [1/rad]
-        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
-        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
-        h = self.car_parameters['h']  # center of gravity height of toal mass [m]
-        m = self.car_parameters['m']  # Total Mass of car [kg]
-        I = self.car_parameters['I']  # Moment of inertia for entire mass about z axis  [kgm^2]
-        g = self.car_parameters['g']
+        mu = self.car_parameters.mu  # friction coefficient  [-]
+        C_Sf = self.car_parameters.C_Sf  # cornering stiffness front [1/rad]
+        C_Sr = self.car_parameters.C_Sr  # cornering stiffness rear [1/rad]
+        lf = self.car_parameters.lf  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters.lr  # distance from venter of gracity to rear axle [m]
+        h = self.car_parameters.h  # center of gravity height of toal mass [m]
+        m = self.car_parameters.m  # Total Mass of car [kg]
+        I = self.car_parameters.I  # Moment of inertia for entire mass about z axis  [kgm^2]
+        g = self.car_parameters.g
 
         # State
         s_x = s[:, POSE_X_IDX]  # Pose X
@@ -285,7 +286,7 @@ class car_model:
                                           steering_angle)
 
         # switch to kinematic model for small velocities
-        min_speed_st = self.car_parameters['min_speed_st']
+        min_speed_st = self.car_parameters.min_speed_st
         speed_too_low_for_st_indices = self.lib.less(v_x, min_speed_st)
         speed_too_low_for_st_indices = self.lib.reshape(speed_too_low_for_st_indices, (-1, 1))
         state_len = self.lib.shape(s)[1]
@@ -296,26 +297,26 @@ class car_model:
 
     def _step_dynamics_pacejka(self, s, Q, params):
         
-        # from f110_gym.envs.dynamic_models_pacejka import StateIndices
-        
+        # Q: Control after PID (steering velocity: delta_dot, acceleration_x: v_x_dot)
+                
         # params
-        mu = self.car_parameters['mu']  # friction coefficient  [-]
-        lf = self.car_parameters['lf']  # distance from venter of gracity to front axle [m]
-        lr = self.car_parameters['lr']  # distance from venter of gracity to rear axle [m]
-        h_cg = self.car_parameters['h_cg']  # center of gravity height of toal mass [m]
-        m = self.car_parameters['m']  # Total Mass of car [kg]
-        I_z = self.car_parameters['I_z']  # Moment of inertia for entire mass about z axis  [kgm^2]
-        g_ = self.car_parameters['g'] # gravity [m/s^2]
+        mu = self.car_parameters.mu  # friction coefficient  [-]
+        lf = self.car_parameters.lf  # distance from venter of gracity to front axle [m]
+        lr = self.car_parameters.lr  # distance from venter of gracity to rear axle [m]
+        h_cg = self.car_parameters.h  # center of gravity height of toal mass [m]
+        m = self.car_parameters.m  # Total Mass of car [kg]
+        I_z = self.car_parameters.I_z  # Moment of inertia for entire mass about z axis  [kgm^2]
+        g_ = self.car_parameters.g # gravity [m/s^2]
         
         # pacejka tire model parameters
-        B_f = self.car_parameters['C_Pf'][0]
-        C_f = self.car_parameters['C_Pf'][1]
-        D_f = self.car_parameters['C_Pf'][2]
-        E_f = self.car_parameters['C_Pf'][3]
-        B_r = self.car_parameters['C_Pr'][0]
-        C_r = self.car_parameters['C_Pr'][1]
-        D_r = self.car_parameters['C_Pr'][2]
-        E_r = self.car_parameters['C_Pr'][3]
+        B_f = self.car_parameters.C_Pf[0]
+        C_f = self.car_parameters.C_Pf[1]
+        D_f = self.car_parameters.C_Pf[2]
+        E_f = self.car_parameters.C_Pf[3]
+        B_r = self.car_parameters.C_Pr[0]
+        C_r = self.car_parameters.C_Pr[1]
+        D_r = self.car_parameters.C_Pr[2]
+        E_r = self.car_parameters.C_Pr[3]
         
         # State
         s_x = s[:, POSE_X_IDX]  # Pose X
@@ -337,6 +338,8 @@ class car_model:
         
         for _ in range(self.intermediate_steps):
             
+            
+            v_x = tf.where(v_x == 0, tf.constant(1e-5), v_x)
             alpha_f = -tf.math.atan((v_y + psi_dot * lf) / (v_x)) + delta
             alpha_r = -tf.math.atan((v_y - psi_dot * lr) / v_x )
             
@@ -360,7 +363,7 @@ class car_model:
             s_x = s_x + self.t_step * d_pos_x
             s_y = s_y + self.t_step * d_pos_y
             delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max)
-            v_x = v_x + self.t_step * d_v_x
+            v_x = v_x + tf.multiply(self.t_step , d_v_x)
             v_y = v_y + self.t_step * d_v_y
             psi = psi + self.t_step * d_psi
             psi_dot = psi_dot + self.t_step * d_psi_dot
@@ -390,7 +393,7 @@ class car_model:
                                           steering_angle)
 
         # switch to kinematic model for small velocities
-        min_speed_pacejka = self.car_parameters['min_speed_pacejka']
+        min_speed_pacejka = self.car_parameters.v_min
         speed_too_low_for_pacejka_indices = self.lib.less(v_x, min_speed_pacejka)
         speed_too_low_for_pacejka_indices = self.lib.reshape(speed_too_low_for_pacejka_indices, (-1, 1))
         state_len = self.lib.shape(s)[1]
@@ -416,12 +419,6 @@ class car_model:
 
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, self.v_switch)
-        # velocity_not_too_high_indices = self.lib.logical_not(velocity_too_high_indices)
-        #mbakka commented
-        #velocity_too_high_indices = self.lib.cast(velocity_too_high_indices, self.lib.float32)
-        # velocity_not_too_high_indices = self.lib.cast(velocity_not_too_high_indices, self.lib.float32)
-
-        # mbakka
         pos_limit = self.lib.where(velocity_too_high_indices, (self.a_max * self.v_switch) / vel, self.a_max)
 
         # mbakka commented the following paragraph
@@ -447,7 +444,7 @@ class car_model:
 
         accl = self.lib.where(condition, 0., accl)
 
-        accl = self.lib.clip(accl, -self.a_max, pos_limit)
+        accl = self.lib.clip(accl, self.a_min, pos_limit)
 
         return accl
 
@@ -465,8 +462,8 @@ class car_model:
 
     def servo_proportional(self, desired_steering_angle, current_steering_angle):
         
-        steering_diff_low = self.car_parameters['steering_diff_low']
-        servo_p = self.car_parameters['servo_p']
+        steering_diff_low = self.car_parameters.steering_diff_low
+        servo_p = self.car_parameters.servo_p
         
         steering_angle_difference = desired_steering_angle - current_steering_angle
 
@@ -475,11 +472,8 @@ class car_model:
                                                                 self.lib.float32)
 
         steering_velocity = steering_angle_difference_not_too_low_indices * (steering_angle_difference * servo_p)
-
-        # As in f1tenth
-        # steering_velocity = 3.2 * self.lib.divide(steering_angle_difference, self.lib.abs(steering_angle_difference))  # Probably normalizing would be better suited
-        # steering_velocity = 3.2 * self.lib.sign(steering_angle_difference)  # Should be equivalent to f1tenth implementation
-        # steering_velocity = steering_angle_difference_not_too_low_indices * steering_velocity
+        
+        steering_velocity = self.lib.clip(steering_velocity, self.car_parameters.sv_min, self.car_parameters.sv_max)
 
         return steering_velocity
 

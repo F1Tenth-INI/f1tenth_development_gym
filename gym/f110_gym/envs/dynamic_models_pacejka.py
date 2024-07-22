@@ -1,6 +1,6 @@
 import math
 import numpy as np  
-from utilities.car_files.gym_car_parameters import GymCarParameters
+from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.Settings import Settings
 class StateIndices:
     pose_x = 0
@@ -23,43 +23,6 @@ class StateIndices:
 class ControlIndices:
     desired_steering_angle = 0
     acceleration = 1
-    
-
-class VehicleParameters:
-    def __init__(self):
-        self.C_0d = 0.41117415569890003
-        self.C_Pf = [
-            4.47161357602916,
-            0.1320293068694414,
-            12.267008918241816,
-            1.5562751013900538
-        ]
-        self.C_Pr = [
-            9.999999999999812,
-            1.4999999999992566,
-            1.3200250015860229,
-            1.0999999999999999
-        ]
-        self.C_R = 3.693303119695026
-        self.C_acc = 7.135521073243542
-        self.C_d = -0.8390993957160475
-        self.C_dec = 5.935972263881579
-        self.I_z = 0.05797
-        self.a_max = 3
-        self.a_min = -3
-        self.h_cg = 0.014
-        self.lf = 0.162
-        self.lr = 0.145
-        self.l_wb = 0.307
-        self.m = 3.54
-        if Settings.SURFACE_FRICITON is not None:
-            self.mu = Settings.SURFACE_FRICITON
-        else:
-            self.mu = 0.8
-        
-        self.v_max = 20
-        self.v_min = -5
-
 
 
 def speed_pid(current_speed: float, desired_speed: float, p: VehicleParameters) -> float:
@@ -86,10 +49,16 @@ def speed_pid(current_speed: float, desired_speed: float, p: VehicleParameters) 
             kp = 2.0 * p.a_max / (-p.v_min)
             accl = kp * vel_diff
             
-        accl = max(-5, min(accl, 10))
-    
+    accl = max(p.a_min, min(accl, p.a_max))
     return accl
 
+def servo_pid(current_steering: float, desired_steering: float, p: VehicleParameters) -> float:
+    
+    error = desired_steering - current_steering
+    d_steering_angle = p.servo_p * error
+   
+    d_steering_angle = max(p.sv_min, min(d_steering_angle, p.sv_max))
+    return d_steering_angle
     
 
 def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
@@ -105,14 +74,14 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
             x5: yaw rate
         :param u: vehicle input vector (steering angle, longitudinal acceleration)
             u0: desired steering angle
-            u1: longitudinal acceleration
+            u1: desired speed
         :param p: vehicle parameter vector 
         :param type: tire model type (linear or pacejka)
     Outputs:
         :return f: derivative of vehicle state vector
     """
     p = VehicleParameters()
-    g_ = 9.81
+    g_ = p.g
     mu = p.mu
     
     # pacejka tire model parameters
@@ -128,13 +97,13 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     # vehicle parameters
     lf = p.lf
     lr = p.lr
-    h = p.h_cg 
+    h = p.h 
     m = p.m 
     I_z = p.I_z
     
     
     acceleration_x = speed_pid(x[StateIndices.v_x], u[ControlIndices.acceleration], p)
-    # acceleration_x = u[ControlIndices.acceleration]    
+    steering_velocity = servo_pid(x[StateIndices.steering_angle], u[ControlIndices.desired_steering_angle], p)
 
     # compute lateral tire slip angles
     if x[StateIndices.v_x] == 0 :
@@ -158,31 +127,12 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     d_v_x = acceleration_x
     d_v_y = 1/m * (F_yr + F_yf) - x[StateIndices.v_x] * x[StateIndices.yaw_rate]
     d_yaw_rate = 1/I_z * (-lr * F_yr + lf * F_yf)
-    
-    
-    threshold = 0.1  # Define what "close" means, adjust as necessary
-    error = u[ControlIndices.desired_steering_angle] - x[StateIndices.steering_angle]
-
-    if error < -threshold:
-        d_steering_angle = -4.5
-    elif error > threshold:
-        d_steering_angle = 4.5
-    else:
-        d_steering_angle = 1.0 * error
-    
-        
+    d_steering_angle = steering_velocity
     
     d_s_simple = np.zeros(7)
     d_s_pacejka = np.zeros(7)
     
-    low_speed_threshold = 0.5  # Below this speed, use the simple model
-    high_speed_threshold = 4  # Above this speed, use the complex model
-    if x[StateIndices.v_x] <= low_speed_threshold:
-        weight = 0
-    elif x[StateIndices.v_x] >= high_speed_threshold:
-        weight = 1
-    else:
-        weight = (x[StateIndices.v_x] - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+ 
         
     d_s_simple[StateIndices.pose_x] = x[StateIndices.v_x]*np.cos(x[StateIndices.yaw_angle])
     d_s_simple[StateIndices.pose_y] = x[StateIndices.v_x]*np.sin(x[StateIndices.yaw_angle])
@@ -198,11 +148,18 @@ def vehicle_dynamics_pacejka(x, u) -> np.ndarray:
     d_s_pacejka[StateIndices.v_y] = d_v_y
     d_s_pacejka[StateIndices.yaw_rate] = d_yaw_rate
     d_s_pacejka[StateIndices.steering_angle] = d_steering_angle
-        
-        
+    
+    # Fuse the two models 
+    low_speed_threshold = 0.5  # Below this speed, use the simple model
+    high_speed_threshold = 3  # Above this speed, use the complex model
+    if x[StateIndices.v_x] <= low_speed_threshold:
+        weight = 0
+    elif x[StateIndices.v_x] >= high_speed_threshold:
+        weight = 1
+    else:
+        weight = (x[StateIndices.v_x] - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
     d_s = (1 - weight) * d_s_simple + weight * d_s_pacejka
 
-    
 
     return d_s
 
