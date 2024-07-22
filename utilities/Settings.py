@@ -114,7 +114,7 @@ class Settings():
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
 
     ## MPC Controller ##
-    CONTROLLER_CAR_PARAMETER_FILE = "utilities/car_files/gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
+    CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20
