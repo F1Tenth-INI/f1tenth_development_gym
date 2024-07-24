@@ -32,7 +32,7 @@ import numpy as np
 from numba import njit
 
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
-from f110_gym.envs.dynamic_models_pacejka import vehicle_dynamics_pacejka, StateIndices
+from f110_gym.envs.dynamic_models_pacejka import DynamicModelPacejka, StateIndices
 
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
@@ -101,6 +101,7 @@ class RaceCar(object):
         self.fov = fov
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
+        self.dynamic_model = DynamicModelPacejka(dt=0.01)
 
         # change car parameter
         
@@ -300,10 +301,7 @@ class RaceCar(object):
             
             s = self.state
             u = np.array([desired_steering_angle, acceleration])
-            
-            f = vehicle_dynamics_pacejka(s, u)
-            
-            self.state = self.state + f * self.time_step            
+            self.state = self.dynamic_model.step(s, u)
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
