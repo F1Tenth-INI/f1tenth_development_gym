@@ -60,11 +60,12 @@ def full_state_original_to_alphabetical(o):
     
     from f110_gym.envs.dynamic_models_pacejka import StateIndices 
     
-    slipping_angle = np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
+    slipping_angle = np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x]) - o[StateIndices.steering_angle]
+    velocity = np.sqrt(o[StateIndices.v_x] ** 2 + o[StateIndices.v_y] ** 2)
     alphabetical = np.zeros(9)
     
     alphabetical[ANGULAR_VEL_Z_IDX] = o[StateIndices.yaw_rate]
-    alphabetical[LINEAR_VEL_X_IDX] = o[StateIndices.v_x]
+    alphabetical[LINEAR_VEL_X_IDX] = velocity
     alphabetical[POSE_THETA_IDX] = o[StateIndices.yaw_angle]
     alphabetical[POSE_THETA_COS_IDX] = np.cos(o[StateIndices.yaw_angle])
     alphabetical[POSE_THETA_SIN_IDX] = np.sin(o[StateIndices.yaw_angle])
@@ -80,15 +81,15 @@ def full_state_alphabetical_to_original(a):
     
     from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
-    lateral_velocity =  a[SLIP_ANGLE_IDX] * math.sin(a[LINEAR_VEL_X_IDX])    
+    v_x = a[LINEAR_VEL_X_IDX] * math.cos(a[SLIP_ANGLE_IDX])
+    v_y =  a[LINEAR_VEL_X_IDX] * math.sin(a[SLIP_ANGLE_IDX])    
 
-    
-    original = np.zeros(6)
+    original = np.zeros(7)
     original[StateIndices.pose_x] = a[5]
     original[StateIndices.pose_y] = a[6]
     original[StateIndices.yaw_angle] = a[2]
-    original[StateIndices.v_x] = a[1]
-    original[StateIndices.v_y] = lateral_velocity
+    original[StateIndices.v_x] = v_x
+    original[StateIndices.v_y] = v_y
     original[StateIndices.yaw_rate] = a[0]
     original[StateIndices.steering_angle] = a[8]
     
