@@ -104,7 +104,8 @@ class F110Env(gym.Env):
     def __init__(self, **kwargs):        
         
         car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE
-        env_car_parameters = yaml.load(open(car_parameter_file, "r"), Loader=yaml.FullLoader)
+        path = 'utilities/car_files/'
+        env_car_parameters = yaml.load(open(os.path.join(path, car_parameter_file), "r"), Loader=yaml.FullLoader)
 
         # kwargs extraction
         try:
