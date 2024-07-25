@@ -1,6 +1,6 @@
 library: 'TF'  # TF or Pytorch
 modeling:
-  NET_NAME: 'Dense-64H1-128H2-64H3' # Dense/LSTM/Simple-RNN/GRU
+  NET_NAME: 'Dense-32H1-64H2-32H3' # Dense/LSTM/Simple-RNN/GRU
   # NET_NAME: 'Dense-10IN-128H1-128H2-8OUT-0'
   # NET_NAME: 'LSTM-64H1-64H2'
   # NET_NAME: 'LSTM-10IN-64H1-64H2-8OUT-0'
@@ -8,8 +8,8 @@ modeling:
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   PATH_TO_EXPERIMENT_FOLDERS: './SI_Toolkit_ASF/Experiments/'  # Path where the experiments data is stored
-  path_to_experiment: 'NNOde/'
-  DATA_FOLDER: 'Recordings_preprocessed'
+  path_to_experiment: 'MPPI-Imitator/'
+  DATA_FOLDER: 'Recordings'
 
 
 training_default:
@@ -25,7 +25,7 @@ training_default:
   EPOCHS: 25
   BATCH_SIZE: 8
   SEED: 1873
-  LR: 1.0e-3
+  LR: 0.001
   WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
