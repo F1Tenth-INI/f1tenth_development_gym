@@ -140,7 +140,16 @@ class car_model:
         @param params: TODO: Parameters of the car
         returns s_next: (batch_size, len(state)) all nexts states
         '''
-        angular_vel_z, v_x, psi, _, _, s_x, s_y, beta, delta = self.lib.unstack(s, 9, 1)
+        
+        angular_vel_z = s[:, ANGULAR_VEL_Z_IDX]
+        v_x = s[:, LINEAR_VEL_X_IDX]
+        psi = s[:, POSE_THETA_IDX]
+      
+        s_x = s[:, POSE_X_IDX]
+        s_y = s[:, POSE_Y_IDX]
+        beta = s[:, SLIP_ANGLE_IDX]
+        delta = s[:, STEERING_ANGLE_IDX]
+
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
         
         # Constraints
