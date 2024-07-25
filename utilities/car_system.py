@@ -266,6 +266,7 @@ class CarSystem:
             )     
         
         self.control_index += 1
+        # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
         return self.angular_control, self.translational_control
 
             
