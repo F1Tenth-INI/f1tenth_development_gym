@@ -1,7 +1,8 @@
 import math
 import numpy as np  
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.Settings import Settings
+import inspect
+
 class StateIndices:
     pose_x = 0
     pose_y = 1
@@ -11,14 +12,6 @@ class StateIndices:
     yaw_rate = 5
     steering_angle = 6
     
-    # Create a reverse mapping dictionary as a class attribute
-    name_dict = {value: name for name, value in vars().items() if not name.startswith('__')}
-
-    @classmethod
-    def getStateName(cls, index):
-        # Use the reverse mapping to get the state name from the index
-        return cls.name_dict.get(index, "Index not found")
-    
     
 class ControlIndices:
     desired_steering_angle = 0
@@ -26,7 +19,18 @@ class ControlIndices:
 
 
 class DynamicModelPacejka:
+    
+    # Dynamically count number of states
+    number_of_states = len([name for name, value in inspect.getmembers(StateIndices) if not (name.startswith('__') and name.endswith('__')) and not inspect.isroutine(value)])
 
+    # Create a reverse mapping dictionary as a class attribute
+    name_dict = {value: name for name, value in vars(StateIndices).items() if not name.startswith('__')}
+
+    @classmethod
+    def getStateName(cls, index):
+        # Use the reverse mapping to get the state name from the index
+        return cls.name_dict.get(index, "Index not found")
+    
     def __init__(self, dt=0.01 , intermediate_steps=1):
         self.dt = dt
         self.vehicle_parameters = VehicleParameters()

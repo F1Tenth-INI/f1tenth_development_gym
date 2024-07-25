@@ -1,6 +1,7 @@
 from utilities.Settings import Settings
 import numpy as np
 import math
+from f110_gym.envs.dynamic_models_pacejka import StateIndices 
 
 
 STATE_VARIABLES = np.sort([
@@ -58,9 +59,8 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
 def full_state_original_to_alphabetical(o):
     
-    from f110_gym.envs.dynamic_models_pacejka import StateIndices 
     
-    slipping_angle = np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x]) - o[StateIndices.steering_angle]
+    slipping_angle = 0 if o[StateIndices.v_x] == 0 else np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
     velocity = np.sqrt(o[StateIndices.v_x] ** 2 + o[StateIndices.v_y] ** 2)
     alphabetical = np.zeros(9)
     
@@ -73,6 +73,7 @@ def full_state_original_to_alphabetical(o):
     alphabetical[POSE_Y_IDX] = o[StateIndices.pose_y]
     alphabetical[SLIP_ANGLE_IDX] = slipping_angle
     alphabetical[STEERING_ANGLE_IDX] = o[StateIndices.steering_angle]
+    # alphabetical[9] = o[StateIndices.v_y]
     
     return alphabetical
 
@@ -82,7 +83,7 @@ def full_state_alphabetical_to_original(a):
     from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
     v_x = a[LINEAR_VEL_X_IDX] * math.cos(a[SLIP_ANGLE_IDX])
-    v_y =  a[LINEAR_VEL_X_IDX] * math.sin(a[SLIP_ANGLE_IDX])    
+    v_y = a[LINEAR_VEL_X_IDX] * math.sin(a[SLIP_ANGLE_IDX])
 
     original = np.zeros(7)
     original[StateIndices.pose_x] = a[5]
@@ -92,6 +93,7 @@ def full_state_alphabetical_to_original(a):
     original[StateIndices.v_y] = v_y
     original[StateIndices.yaw_rate] = a[0]
     original[StateIndices.steering_angle] = a[8]
+    # original[7] = a[SLIP_ANGLE_IDX]
     
     return original
 
