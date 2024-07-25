@@ -3,8 +3,8 @@ import math
 import tensorflow as tf
 from utilities.path_helper_ros import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from SI_Toolkit.computation_library import TensorFlowLibrary,NumpyLibrary
 
-from SI_Toolkit.computation_library import TensorFlowLibrary
 from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
@@ -30,7 +30,7 @@ class car_model:
             dt: float = 0.03,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary,
-            wrap_angle=False,
+            wrap_angle=True,
             **kwargs
     ):
         self.lib = computation_lib
@@ -338,8 +338,8 @@ class car_model:
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
         slip_angle = s[:, SLIP_ANGLE_IDX]  # Slip Angle
         
-        v_x = velocity * tf.math.cos(slip_angle)  # Longitudinal Velocity
-        v_y = velocity * tf.math.sin(slip_angle)  # Lateral Velocity;
+        v_x = velocity * self.lib.cos(slip_angle)  # Longitudinal Velocity
+        v_y = velocity * self.lib.sin(slip_angle)  # Lateral Velocity;
         
         # Constraints
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -347,18 +347,18 @@ class car_model:
 
         for _ in range(self.intermediate_steps):
             v_x = tf.where(v_x == 0, tf.constant(1e-8), v_x)
-            alpha_f = -tf.math.atan((v_y + psi_dot * lf) / (v_x)) + delta
-            alpha_r = -tf.math.atan((v_y - psi_dot * lr) / v_x )
+            alpha_f = -self.lib.atan((v_y + psi_dot * lf) / (v_x)) + delta
+            alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x )
 
             # compute vertical tire forces
             F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
             F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
 
-            F_yf = mu * F_zf * D_f * tf.math.sin(C_f * tf.math.atan(B_f * alpha_f - E_f*(B_f * alpha_f - tf.math.atan(B_f * alpha_f))))
-            F_yr = mu * F_zr * D_r * tf.math.sin(C_r * tf.math.atan(B_r * alpha_r - E_r*(B_r * alpha_r - tf.math.atan(B_r * alpha_r))))
+            F_yf = mu * F_zf * D_f * self.lib.sin(C_f * self.lib.atan(B_f * alpha_f - E_f*(B_f * alpha_f - self.lib.atan(B_f * alpha_f))))
+            F_yr = mu * F_zr * D_r * self.lib.sin(C_r * self.lib.atan(B_r * alpha_r - E_r*(B_r * alpha_r - self.lib.atan(B_r * alpha_r))))
 
-            d_pos_x = v_x * tf.math.cos(psi) - v_y * tf.math.sin(psi)
-            d_pos_y = v_x * tf.math.sin(psi) + v_y * tf.math.cos(psi)
+            d_pos_x = v_x * self.lib.cos(psi) - v_y * self.lib.sin(psi)
+            d_pos_y = v_x * self.lib.sin(psi) + v_y * self.lib.cos(psi)
             d_psi = psi_dot
             d_v_x = v_x_dot
             d_v_y = 1/m * (F_yr + F_yf) - v_x * psi_dot
@@ -367,7 +367,8 @@ class car_model:
             s_x = s_x + self.t_step * d_pos_x
             s_y = s_y + self.t_step * d_pos_y
             delta = self.lib.clip(delta + self.t_step * delta_dot, self.s_min, self.s_max)
-            v_x = v_x + tf.multiply(self.t_step, d_v_x)
+            # v_x = v_x + self.lib.multiply(self.t_step, d_v_x)
+            v_x = v_x + self.t_step *d_v_x
             v_y = v_y + self.t_step * d_v_y
             psi = psi + self.t_step * d_psi
             psi_dot = psi_dot + self.t_step * d_psi_dot
@@ -377,12 +378,12 @@ class car_model:
         pose_theta_cos = self.lib.cos(psi)
         pose_theta_sin = self.lib.sin(psi)
         if self.wrap_angle:
-            pose_theta = psi
+            pose_theta = self.lib.atan2(pose_theta_sin, pose_theta_cos)
         else:
             pose_theta = psi
         pose_x = s_x
         pose_y = s_y
-        slip_angle = tf.atan(v_y / v_x)  # Calculate slip angle for consistency
+        slip_angle = self.lib.atan(v_y / v_x)  # Calculate slip angle for consistency
         steering_angle = delta
 
         s_next_ks = self._step_dynamics_ks(s, Q, None)
@@ -404,10 +405,10 @@ class car_model:
         # Calculate weights for each element in v_x
         weights = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
         weights = self.lib.clip(weights, 0, 1)  # Ensure weights are in [0, 1]
-        weights = tf.reshape(weights, [-1, 1]) 
+        weights = self.lib.reshape(weights, [-1, 1]) 
 
-        counter_weights = tf.ones(tf.shape(weights)) - weights
-        counter_weights = tf.reshape(counter_weights, [-1, 1]) 
+        counter_weights = self.lib.ones(self.lib.shape(weights)) - weights
+        counter_weights = self.lib.reshape(counter_weights, [-1, 1]) 
         # Interpolate between the simple and complex models
         next_step = counter_weights * s_next_ks + weights * s_next_ts
 
