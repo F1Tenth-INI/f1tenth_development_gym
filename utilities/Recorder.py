@@ -48,7 +48,7 @@ def create_csv_header(path_to_recordings,
     # Set path where to save the data
     if csv_name is None or csv_name == '':
         
-        dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(int(1/Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel' + str(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)+ '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL)
+        dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(int(1/Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)+ '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(Settings.SURFACE_FRICITON) 
 
         csv_filepath = path_to_recordings + 'F1TENTH_' + str(
             datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + Settings.DATASET_NAME + '_' + dataset_name + '.csv'

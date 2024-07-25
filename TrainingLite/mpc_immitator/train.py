@@ -23,7 +23,7 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU1-Example"
+model_name = "GRU-Example"
 
 
 base_dir = os.path.join(experiment_path, 'models')
