@@ -15,9 +15,9 @@ from utilities.Settings import Settings
 time.sleep(1)
 
 # Global Settings
-# Settings.RENDER_MODE = None
+Settings.RENDER_MODE = None
 Settings.REVERSE_DIRECTION = False # Drive reverse waypoints
-Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.7 
+Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
 Settings.APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
 Settings.MAP_NAME = "RCA2"
@@ -29,6 +29,7 @@ time.sleep(1)
 
 # Test: Run the simulation with the PP controller on the RCA2 map (without delay)
 Settings.CONTROLLER = 'pp'
+Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
 Settings.CONTROL_DELAY = 0.00
 
 from run.run_simulation import run_experiments
@@ -41,6 +42,7 @@ time.sleep(1)
 
 # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
 Settings.CONTROLLER = 'mpc'
+Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
 Settings.CONTROL_DELAY = 0.08
 Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
 

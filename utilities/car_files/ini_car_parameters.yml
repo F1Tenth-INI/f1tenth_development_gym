@@ -1,15 +1,19 @@
-# MPC Car parameters
-mu: 0.9    # friction coefficient  [-]
-C_Sf: 4.718   # cornering stiffness front [1/rad]
-C_Sr: 5.4562  # cornering stiffness rear [1/rad]
-lf: 0.15875   # distance from venter of gracity to front axle [m]
-lr: 0.17145   # distance from venter of gracity to rear axle [m]
-h: 0.074      # center of gravity height of toal mass [m]
-m: 4.20       # Total Mass of car [kg]
-I: 0.04712    # Moment of inertia for entire mass about z axis  [kgm^2]
-g: 9.81       # Gravitation Constant [m/s^2]
-width: 0.31   # Width of the car [m]
-length: 0.58  # Length of the car [m]
+# Simulator engine Car parameters
+mu: 0.9 # friction coefficient  [-]
+C_Sf: 4.718 # cornering stiffness front [1/rad]
+C_Sr: 5.4562 # cornering stiffness rear [1/rad]
+
+lf: 0.162 # distance from venter of gracity to front axle [m]
+lr: 0.145 # distance from venter of gracity to rear axle [m]
+l_wb: 0.307 # wheel base [m]
+h: 0.074 # center of gravity height of toal mass [m]
+h_cg: 0.014 # center of gravity height of sprung mass [m]
+m: 4.3 # Total Mass of car [kg]
+I_z: 0.07297 # Moment of inertia for entire mass about z axis  [kgm^2]
+g: 9.81 # Gravitation Constant [m/s^2]
+
+width: 0.31 # Width of the car [m]
+length: 0.58 # Length of the car [m]
 
 # Steering Constraints
 s_min: -0.4189
@@ -18,14 +22,37 @@ sv_min: -3.2
 sv_max: 3.2
 
 # Acceleration Constraints
-a_max: 9.01
+a_max: 9.51
+a_min: -3
 v_min: -5.0
 v_max: 20
 v_switch: 7.319
 
 # Servo
-servo_p: 10             # proportional factor of servo PID
-steering_diff_low: 0.001  # [rad] Steering angle difference below is considered as 0
+servo_p: 10 # proportional factor of servo PID
+steering_diff_low: 0.001 # [rad] Steering angle difference below is considered as 0
 
 # Other
 min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
+min_speed_pacejka: 0.7 # [m/s] Speed where Pacejka model switches to KS model
+
+# Wheel parameters
+C_0d: 0.41117415569890003
+# Pacejka Magic Formula Parameters front trire (B, C, D, E)
+C_Pf:
+  - 4.47161357602916
+  - 0.1320293068694414
+  - 12.267008918241816
+  - 1.5562751013900538
+
+# Pacejka Magic Formula Parameters rear trire (B, C, D, E)
+C_Pr:
+  - 9.999999999999812
+  - 1.4999999999992566
+  - 1.3200250015860229
+  - 1.0999999999999999
+
+C_R: 3.693303119695026
+C_acc: 7.135521073243542
+C_d: -0.8390993957160475
+C_dec: 5.935972263881579

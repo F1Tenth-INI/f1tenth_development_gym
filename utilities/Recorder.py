@@ -48,7 +48,7 @@ def create_csv_header(path_to_recordings,
     # Set path where to save the data
     if csv_name is None or csv_name == '':
         
-        dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(int(1/Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel' + str(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)+ '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL)
+        dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(int(1/Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)+ '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(Settings.SURFACE_FRICITON) 
 
         csv_filepath = path_to_recordings + 'F1TENTH_' + str(
             datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + Settings.DATASET_NAME + '_' + dataset_name + '.csv'
@@ -85,7 +85,7 @@ def create_csv_header(path_to_recordings,
 
         writer.writerow(['# Starting position :',*np.array(Settings.STARTING_POSITION).tolist()])
 
-        writer.writerow(['# Saving: {} s'.format(dt)])
+        writer.writerow(['# Timestep: {} s'.format(dt)])
 
         writer.writerow(['# Speedfactor {}'.format(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)])
 
@@ -191,7 +191,46 @@ class Recorder:
     def push_on_buffer(self,): # Do at every control stel
         self.dict_buffer.append(self.dict_to_save.copy())
 
+    def save_custom_csv(self, data):
+        # Open the file in read mode to read the contents
+        with open(self.csv_filepath, mode='r', newline='') as file:
+            reader = csv.reader(file)
+            lines = list(reader)
         
+        # Check if data is a list of strings or a single string
+        if isinstance(data, str):
+            csv_row = [data]
+        elif isinstance(data, list):
+            csv_row = data
+        else:
+            raise ValueError("The format of the data is incorrect. Expected a string or a list of strings.")
+
+        # Change line 7 (index 6) if it exists
+        if len(lines) > 6:
+            lines[6] = csv_row
+        else:
+            raise IndexError("The file has fewer than 7 lines.")
+
+        # Open the file in write mode to write the new content
+        with open(self.csv_filepath, mode='w', newline='') as outfile:
+            writer = csv.writer(outfile)
+            writer.writerows(lines)
+
+        # Append additional data to the file if required
+        if len(self.dict_buffer) > 0:
+            with open(self.csv_filepath, mode='a', newline='') as outfile:
+                writer = csv.writer(outfile)
+
+                if not self.headers_already_saved:
+                    writer.writerow(self.dict_buffer[-1].keys())
+                    self.headers_already_saved = True
+
+                for dict in self.dict_buffer:
+                    dict = {key: np.around(value, self.rounding_decimals) for key, value in dict.items()}
+                    writer.writerow([float(x) for x in dict.values()])
+
+            self.dict_buffer = []
+    
     '''
     Save data buffer array to CSV
     Please only call once in a while but not every timestep
