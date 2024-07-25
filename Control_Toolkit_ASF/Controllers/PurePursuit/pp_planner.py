@@ -3,6 +3,7 @@ import numpy as np
 from utilities.Settings import Settings
 
 from utilities.waypoint_utils import *
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
 from Control_Toolkit_ASF.Controllers import template_planner
@@ -26,8 +27,7 @@ class PurePursuitPlanner(template_planner):
 
         self.render_utils = RenderUtils()
 
-        car_parameters = yaml.load(open(Settings.CONTROLLER_CAR_PARAMETER_FILE, "r"), Loader=yaml.FullLoader)
-    
+        car_parameters = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
         self.lidar_points = 1080 * [[0,0]]
         self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
 
@@ -37,7 +37,7 @@ class PurePursuitPlanner(template_planner):
         # Controller settings
         self.waypoint_velocity_factor = Settings.PP_WAYPOINT_VELOCITY_FACTOR
         self.lookahead_distance =  Settings.PP_LOOKAHEAD_DISTANCE 
-        self.wheelbase = car_parameters['lf'] +  car_parameters['lr'] 
+        self.wheelbase = car_parameters.lf +  car_parameters.lr 
         self.max_reacquire = 20.
         
         self.simulation_index = 0

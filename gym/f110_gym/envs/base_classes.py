@@ -22,6 +22,9 @@
 
 
 
+from SI_Toolkit.computation_library import  NumpyLibrary
+
+
 """
 Prototype of base classes
 Replacement of the old RaceCar, Simulator classes in C++
@@ -32,7 +35,8 @@ import numpy as np
 from numba import njit
 
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
-from f110_gym.envs.dynamic_models_pacejka import vehicle_dynamics_pacejka, StateIndices
+from f110_gym.envs.dynamic_models_pacejka import DynamicModelPacejka,StateIndices
+
 
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
@@ -101,22 +105,30 @@ class RaceCar(object):
         self.fov = fov
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
-
-        self.state = np.zeros((7, ))
-        if self.ode_implementation == 'ODE_TF':
-            self.car_model = car_model(
-                model_of_car_dynamics = 'ODE:st',
-                batch_size = 1, 
-                car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
-                dt = 0.01, 
-                intermediate_steps=5
-                )
+        self.dynamic_model = DynamicModelPacejka(dt=0.01)
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
+        self.state = np.zeros((DynamicModelPacejka.number_of_states, ))
+        if self.ode_implementation == 'ODE_TF':
+            self.car_model = car_model(
+                model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+                batch_size = 1, 
+                car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
+                dt = 0.01, 
+                intermediate_steps=1,
+                computation_lib=NumpyLibrary
+                )
+            
+            # In case you want to use other library than numpy
+            # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
+            # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
+            self.step_dynamics = self.car_model.step_dynamics
+
+       
         # pose of opponents in the world
         self.opp_poses = None
 
@@ -266,7 +278,7 @@ class RaceCar(object):
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[StateIndices.v_x:] = 0.
+            self.state[StateIndices.v_x:] = 0.0
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
@@ -295,13 +307,19 @@ class RaceCar(object):
     
         
         if(self.ode_implementation == 'pacejka'):
-            
             s = self.state
-            u = np.array([desired_steering_angle, acceleration])
+            u = np.array([desired_steering_angle, desired_speed])
+            self.state = self.dynamic_model.step(s, u)
+
             
-            f = vehicle_dynamics_pacejka(s, u)
+        elif self.ode_implementation == 'ODE_TF':
+            s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
+            u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32) 
+        
+            s = self.step_dynamics(s, u, None)[0]
+
+            self.state = full_state_alphabetical_to_original(s)
             
-            self.state = self.state + f * self.time_step            
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
