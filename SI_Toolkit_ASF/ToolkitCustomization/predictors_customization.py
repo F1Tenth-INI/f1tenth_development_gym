@@ -19,9 +19,9 @@ class next_state_predictor_ODE():
                  variable_parameters=None,
                  disable_individual_compilation=False):
         self.s = tf.convert_to_tensor(create_car_state())
-        
+
         self.params = None
-    
+
         self.intermediate_steps = intermediate_steps
         self.t_step = dt / float(self.intermediate_steps)
 

@@ -53,7 +53,6 @@ class mpc_planner(template_planner):
 
 
         self.mpc = controller_mpc(
-            dt=Settings.TIMESTEP_PLANNER,
             environment_name="Car",
             initial_environment_attributes={
                 "obstacles": self.obstacles,
