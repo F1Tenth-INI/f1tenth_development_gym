@@ -103,6 +103,13 @@ class F110Env(gym.Env):
 
     def __init__(self, **kwargs):        
         
+          
+        # # Define action space
+        self.action_space = spaces.Box(low=np.array([-1.0, -1.0]), high=np.array([1.0, 1.0]), dtype=np.float32)
+        # # Define observation space
+        self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 3), dtype=np.uint8)
+        
+        
         car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE
         path = 'utilities/car_files/'
         env_car_parameters = yaml.load(open(os.path.join(path, car_parameter_file), "r"), Loader=yaml.FullLoader)
