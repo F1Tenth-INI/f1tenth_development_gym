@@ -29,7 +29,7 @@ predictors:
     model_name:
     intermediate_steps: 10
   ODE_TF_default:
-    predictor_type: "ODE_TF"
+    predictor_type: "ODE"
     model_name:
     intermediate_steps: 2
 

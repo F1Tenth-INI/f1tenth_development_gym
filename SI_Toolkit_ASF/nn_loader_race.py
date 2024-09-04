@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from SI_Toolkit.Functions.General.Normalising import get_normalization_function, get_denormalization_function
 
 try:
-    from SI_Toolkit_ASF.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
+    from SI_Toolkit_ASF.ToolkitCustomization.predictors_customization import STATE_VARIABLES, STATE_INDICES, \
         CONTROL_INPUTS, augment_predictor_output
 except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
