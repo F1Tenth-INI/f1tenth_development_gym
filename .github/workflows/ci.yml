@@ -27,11 +27,6 @@ jobs:
           python -m venv venv
           source venv/bin/activate
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install "pip<24.1"
-          pip install setuptools==65.5.0 "wheel<0.40.0"
-
       - name: Install gym
         run: pip install --user -e gym/
 
@@ -42,7 +37,7 @@ jobs:
           fi
 
       - name: Install SI_Toolkit
-        run: python -m pip install --user -e ./SI_Toolkit
+        run: pip install --user -e ./SI_Toolkit
 
       - name: Run simulation
         run: python run/ci_test.py
