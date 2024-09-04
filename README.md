@@ -1,4 +1,4 @@
-![Python 3.8 3.9](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml/badge.svg)](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml)
 
 ## Setup
 
