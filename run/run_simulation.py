@@ -200,13 +200,12 @@ def main():
         racetrack=random_obstacle_creator.add_random_obstacles(racetrack, starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
 
 
-    env = gym.make('f110_gym:f110-v0', map=racetrack, map_ext=".png", num_agents=number_of_drivers)
+    env = gym.make('f110-v0', map=racetrack, map_ext=".png", num_agents=number_of_drivers)
     env.add_render_callback(render_callback)
     assert(env.timestep == 0.01)
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-    obs, step_reward, done, info = env.reset(
-        np.array(starting_positions) )
+    obs, step_reward, done, info = env.reset(poses=np.array(starting_positions) )
     
     # Set Starting position for Settings
     
