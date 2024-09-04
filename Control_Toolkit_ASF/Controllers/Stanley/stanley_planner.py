@@ -69,7 +69,6 @@ class StanleyPlanner(template_planner):
         self.waypoints = self.waypoint_utils.next_waypoints
 
         self.stanley = controller_stanley(
-            dt=Settings.TIMESTEP_PLANNER,
             environment_name="Car",
             initial_environment_attributes={
                 "next_waypoints": self.waypoints,
