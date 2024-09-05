@@ -13,7 +13,7 @@ class Settings():
     SURFACE_FRICITON = 1.0  # Surface friction coefficient
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller), 'nni-lite'(Low weight version of NNI)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -21,13 +21,13 @@ class Settings():
 
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
-    STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
-    
-    REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
+    REVERSE_DIRECTION = False # Drive reverse waypoints
+    
+    STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
+    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     
     ## Recordings ##
     REPLAY_RECORDING = False
