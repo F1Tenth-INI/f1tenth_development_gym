@@ -11,6 +11,7 @@ from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 import pandas as pd
 import os
@@ -299,7 +300,7 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': env.params['mu']
+                            'mu': VehicleParameters().mu,
                         }
                     )
 

@@ -303,7 +303,7 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': env.params['mu']
+                            'mu': Settings.SURFACE_FRICITON,
                         }
                     )
 
@@ -360,7 +360,7 @@ def main():
                 driver.recorder.plot_data()
     
     env.close()
-
+    
     print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
 
 
