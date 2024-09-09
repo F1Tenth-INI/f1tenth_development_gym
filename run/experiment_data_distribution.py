@@ -90,16 +90,21 @@ train_distribution = 0.8
 test_distribution = 0.1
 validate_distribution = 0.1
 
+# Change to desired directory in Experiment
+root_dir = "./SI_Toolkit_ASF/Experiments"
+experiment_dir = "MPPI-pacejka"
+
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
-past_recordings = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Past_trainings"
+past_recordings = root_dir + experiment_dir + "/Past_trainings"
+create_directory(past_recordings)
 
 # Output folders for distribution
-output_folder_train = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Train"
+output_folder_train = root_dir + experiment_dir + "/Recordings/Train"
 create_directory(output_folder_train)
-output_folder_test = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Test"
+output_folder_test = root_dir + experiment_dir + "/Recordings/Test"
 create_directory(output_folder_test)
-output_folder_validate = "./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Validate"
+output_folder_validate = root_dir + experiment_dir + "/Recordings/Validate"
 create_directory(output_folder_validate)
 
 # Compressing older csvs and metadata
