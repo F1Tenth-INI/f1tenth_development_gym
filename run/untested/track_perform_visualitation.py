@@ -144,14 +144,13 @@ def plot_vector_wp(path, map_name, sim_path, path_wp, real_data):
 
     # Save the plot as a PNG
     plt.savefig(path+map_name+'_test.png')
-    plt.show()
 
 # Load the data
-map_name = 'RCA1'
+map_name = 'RCA2'
 exper_folder_path = './ExperimentRecordings/'
 img_path = './utilities/maps/' + map_name + '/' + map_name # if no img, set to None
-real_data = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv' # if no real data, set to None
-sim_data = 'F1TENTH_RCA1_neural_50Hz__2023-12-04_15-51-54.csv' # if no sim data, set to None
+real_data = 'F1TENTH__2024-08-19_13-23-31Recording1_RCA2_neural_50Hz_vel_0.8_noise_c[0.0, 0.0]_mu_0.8.csv' # if no real data, set to None
+sim_data = None # if no sim data, set to None
 
-
-plot_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
+plt.show()
+plot_vector_wp(map_name, exper_folder_path, img_path, sim_data, real_data)
