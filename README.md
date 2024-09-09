@@ -1,4 +1,4 @@
-![Python 3.8 3.9](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml/badge.svg)](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml)
 
 ## Setup
 
@@ -14,24 +14,29 @@ I highly recommend using [Conda](https://conda.io/projects/conda/en/latest/user-
 First create a conda environment.
 
 ```bash
-conda create -n f1t python=3.9 # Working environment with Apple Silicon
+conda create -n f1t python=3.11
 conda activate f1t
 ```
 
-Then install the gym inside the environment. Don't omit the trailing / on gym.
-
-There is a chance that yout setuptools is too new for the gym version. If that is the case, you need to downgrade it.
-
-```bash
-python -m pip install "pip<24.1"
-pip install setuptools==65.5.0 "wheel<0.40.0"
-```
-
-And now you can install the gym environment.
+And now you can install the gym package.
 
 ```bash
 pip install --user -e gym/
 ```
+
+Install the SI Toolkit package.
+
+```bash
+pip install --user -e ./SI_Toolkit
+```
+
+Done. Check if everything works with:
+
+```bash
+python run.py
+```
+
+## Troubleshooting
 
 Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit should not be empty. If they are empty, run:
 
@@ -39,7 +44,7 @@ Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit s
 git submodule update --init --recursive
 ```
 
-And then install the SI_Toolkit
+And then install the SI_Toolkit again
 
 ```bash
 python -m pip install --user -e ./SI_Toolkit
