@@ -16,7 +16,6 @@ class Settings():
     CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
-
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -29,6 +28,10 @@ class Settings():
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.8
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
+    REVERSE_DIRECTION = False # Drive reverse waypoints
+    
+    STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
+    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     
     ## Recordings ##
     REPLAY_RECORDING = False

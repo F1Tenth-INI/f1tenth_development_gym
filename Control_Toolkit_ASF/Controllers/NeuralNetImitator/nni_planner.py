@@ -23,20 +23,19 @@ class NeuralNetImitatorPlanner(template_planner):
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
         self.nni = controller_neural_imitator(
-            dt=Settings.TIMESTEP_CONTROL,
             environment_name="Car",
             initial_environment_attributes={},
             control_limits=(control_limits_low, control_limits_high),
         )
 
         self.nni.configure()
-        self.nn_inputs = self.nni.net_info.inputs
+        self.nn_inputs = self.nni.remaining_inputs
         
         if 'GRU' in self.nni.config_controller['net_name']:
             Settings.ACCELERATION_TIME = 10 # GRU needs a little whashout 
             print("GRU detected... set acceleration time to 10")
 
-        number_of_next_waypoints_network = len([wp for wp in self.nni.net_info.inputs if wp.startswith("WYPT_REL_X")])
+        number_of_next_waypoints_network = len([wp for wp in self.nn_inputs if wp.startswith("WYPT_REL_X")])
         if number_of_next_waypoints_network > Settings.LOOK_AHEAD_STEPS:
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
