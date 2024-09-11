@@ -10,6 +10,7 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
+from utilities.car_files.vehicle_parameters import VehicleParameters
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 import pandas as pd
@@ -291,6 +292,8 @@ def main():
             
             agent_control_with_noise.append(control_with_noise)
             
+            vehicle_parameters = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -298,7 +301,7 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': env.params['mu']
+                            'mu': vehicle_parameters.mu
                         }
                     )
 
