@@ -30,6 +30,10 @@ Install the SI Toolkit package.
 pip install --user -e ./SI_Toolkit
 ```
 
+```bash
+pip install -e utilities/minimum_curvature_optimization/trajectory-planning-helpers
+```
+
 Done. Check if everything works with:
 
 ```bash
