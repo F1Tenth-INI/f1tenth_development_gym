@@ -12,7 +12,8 @@ from utilities.waypoint_utils import *
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU4"
+# model_name = "GRU-Example2"
+model_name = "GRU1_delay_slip"
 
 # Load the model
 model = load_model(experiment_path + '/models/'+model_name+'/my_model.keras')
@@ -21,11 +22,13 @@ output_scaler = load(experiment_path + '/models/'+model_name+'/output_scaler.job
 with open(experiment_path + '/models/'+model_name+'/network.yaml', 'r') as file:
     network_yaml = yaml.safe_load(file)
 
+mu_history = []
 
 
 def predict_next_control(s, waypoints_relative, waypoints):
     
-    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_IDX],s[STEERING_ANGLE_IDX]]
+    # state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_IDX],s[STEERING_ANGLE_IDX]]
+    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_IDX],s[STEERING_ANGLE_IDX], s[SLIP_ANGLE_IDX]]
     waypoints_x = waypoints_relative[:,0]
     waypoints_y = waypoints_relative[:,1]
     waypoints_vx = waypoints[:,WP_VX_IDX]
@@ -35,7 +38,16 @@ def predict_next_control(s, waypoints_relative, waypoints):
 
     output = predict(input)
     
-    control = output
+    control = [output[0, 0:2]]
+    # print("mu: ", output[0,2])
+    mu_history.append(output[0,2])
+    
+    window = 250
+    if len(mu_history) >= window:
+        last_avg = sum(mu_history[-window:]) / window
+        print(f"mu: {last_avg}")
+    else:
+        print("Not enough elements in mu_history to calculate the average of the last 50 values.")
     
     return control
     

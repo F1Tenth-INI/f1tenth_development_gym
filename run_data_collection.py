@@ -18,10 +18,11 @@ Settings.NUMBER_OF_EXPERIMENTS = 1
 Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
 Settings.NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
 Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0.]
+Settings.START_FROM_RANDOM_POSITION = True 
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "_MPPI_no_noise_"
+Settings.DATASET_NAME = "_variable_friction_and_speed_test_"
 
 Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
@@ -35,11 +36,11 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 10
+runs_without_obstacles = 4
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.5, 0.6, 0.75, 0.95, 1.0, 1.1]
-global_surface_friction_values = [0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 1.0]
-reverse_direction_values = [False, True]
+global_waypoint_velocity_factors = [0.4, 0.5, 0.7, 0.9, 1.1]
+global_surface_friction_values = [ 0.3, 0.5, 0.7, 0.9, 1.1]
+reverse_direction_values = [False]
 
 
 # Settings for tuning before recoriding
