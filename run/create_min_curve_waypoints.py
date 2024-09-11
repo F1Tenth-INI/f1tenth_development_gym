@@ -104,6 +104,8 @@ class GlobalPlanner:
         # get morphological skeleton of the map
         skeleton = skeletonize(opening, method='lee')
         path = os.path.join(self.map_dir,'data','skeleton.png')
+        
+        skeleton = skeleton.astype(np.uint8) * 255
         cv2.imwrite(path, skeleton)
 
 
