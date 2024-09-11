@@ -16,18 +16,28 @@ import yaml
 import zipfile
 
 import matplotlib.pyplot as plt
-from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
 import shutil
 
 from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU5"
+model_name = "GRU_example"
 
 
 base_dir = os.path.join(experiment_path, 'models')
 model_dir = os.path.join(base_dir, model_name)
+
+
+# # Create directory
+# if os.path.exists(model_dir):
+#     i = 1
+#     while os.path.exists(model_dir + f"_{i}"):
+#         i += 1
+#     model_dir = model_dir + f"_{i}"
+#     model_name = model_name + f"_{i}"
+
 if os.path.exists(model_dir):
     shutil.rmtree(model_dir)
 os.makedirs(model_dir, exist_ok=True)
@@ -71,7 +81,6 @@ for file in csv_files:
 # Concatenate all dataframes in the list into a single dataframe
 df = pd.concat(df_list, ignore_index=True)
 
-
 # print first 3 rows of dataframe
 print(df.head(3))
 
@@ -83,36 +92,25 @@ print("Number of data points: ", len(df))
 df = df.dropna()
 
 
-df["c_angular"] =df["cs_a_0"].shift(-3)
-df["c_translational"] =df["cs_t_0"].shift(-3)
-
-df_copy = df.copy()
-df_copy = df_copy.set_index(df.index)
-# # Shift the specified columns by one position
-df_copy["c_angular"] =df["cs_a_0"].shift(4)
-df_copy["c_translational"] =df["cs_t_0"].shift(4)
-df_copy = df_copy.iloc[1:-2]
-
-print(df)
-print(df_copy)
-# df_copy["c_translational"] = df_copy["cs_t_3"].shift(1)
-
-# df = pd.concat([df, df_copy], axis=0)
-
-df = df.dropna()
-
-
 # Select the input and output columns
 
-state_cols = ["angular_vel_z","linear_vel_x","pose_theta","steering_angle"]
-wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(20)]
-wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(20)]
-wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(20)]
+state_cols = ["angular_vel_z","linear_vel_x","pose_theta","steering_angle", "slip_angle", ]
+wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 20, 1)]
+wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 20, 1)]
+wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 20, 1)]
 
 input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols
 
 
-output_cols = ["c_angular", "c_translational" ]
+output_cols = ["angular_control_calculated", "translational_control_calculated", "mu" ]
+shift_cols =  ["angular_control_calculated", "translational_control_calculated", ]
+
+# Shift the output columns by -3
+# for col in shift_cols:
+    # df[col] = df[col].shift(-4)
+
+# Remove rows with NaN values after shifting
+df = df.dropna()
 
 
 print("Input cols: ", input_cols)
@@ -125,6 +123,7 @@ with open(model_dir+'/network.yaml', 'w') as file:
     
 # Plot data for NN
 time.sleep(0.1)  # Sleep for 50 milliseconds
+
 
 # for col in df[input_cols]:
 #     plt.figure()
@@ -191,17 +190,22 @@ model.add(GRU(64, return_sequences=False))
 model.add(Dense(len(output_cols)))
 
 
+# Create model folder
+if not os.path.exists(model_dir):
+    os.makedirs(model_dir)
+
 # Compile the model
 model.compile(loss='mean_squared_error', optimizer=Adam(learning_rate=0.002))
 
 # epoch callback for learning rate reduction
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=1, min_lr=0.00001)
 
-# Train the model
-model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=5, batch_size=8, shuffle=False, callbacks=[reduce_lr])
+# ModelCheckpoint callback to save the model after each epoch
+checkpoint = ModelCheckpoint(filepath=model_dir+'/my_model.keras', save_weights_only=False, save_best_only=False, verbose=1)
 
-# Save the model
-if not os.path.exists(model_dir):
-    os.makedirs(model_dir)
+# Train the model
+model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=8, shuffle=False, callbacks=[reduce_lr, checkpoint])
+
+
 model.save(model_dir+'/my_model.keras')
 

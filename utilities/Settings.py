@@ -10,10 +10,10 @@ class Settings():
     MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
-    SURFACE_FRICITON = 1.0  # Surface friction coefficient
+    SURFACE_FRICITON = 0.5  # Surface friction coefficient
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller), 'nni-lite'(Low weight version of NNI)
+    CONTROLLER = 'nni-lite'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller), 'nni-lite'(Low weight version of NNI)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -21,7 +21,7 @@ class Settings():
 
     
     ## driving behaviour ## 
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.8
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
@@ -64,7 +64,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

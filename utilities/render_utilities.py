@@ -116,8 +116,7 @@ class RenderUtils:
         if(target_point is not None): self.target_point = target_point
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
         if(car_state is not None): self.car_state = car_state
-        
-        if(self.next_waypoints == []):self.next_waypoints = None
+    
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
@@ -355,6 +354,6 @@ class RenderUtils:
        
     @staticmethod
     def get_scaled_points(points):
-        if(points == [] or points is None): return np.array([])
+        if( points is None): return np.array([])
         # print(points)
         return 50.*np.array(points)
