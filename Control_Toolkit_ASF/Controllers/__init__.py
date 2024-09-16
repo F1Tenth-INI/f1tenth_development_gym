@@ -8,6 +8,7 @@ class template_planner(ABC):
 
         self.translational_control = None
         self.angular_control = None
+        self.friction_value = None
 
         self.LIDAR = LidarHelper()
         self.lidar_points = self.LIDAR.points_map_coordinates
