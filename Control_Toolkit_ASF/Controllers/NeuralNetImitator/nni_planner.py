@@ -80,6 +80,9 @@ class NeuralNetImitatorPlanner(template_planner):
         # Carstate dict
         state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
         
+        state_pacejka = full_state_alphabetical_to_original(self.car_state)[4]
+        state_dict["v_y"] = state_pacejka
+
         # Combine all dictionaries into one
         data_dict = {**waypoints_dict, **state_dict, **lidar_dict}
         
@@ -93,10 +96,16 @@ class NeuralNetImitatorPlanner(template_planner):
         
         # NN prediction step 
         net_output = self.nni.step(input_data)
-
-        self.angular_control = net_output[0, 0, 0]
-        self.translational_control = net_output[0, 0, 1]
-
+        
+        if net_output.shape[2] == 3:
+            self.angular_control = net_output[0, 0, 0]
+            fricition = net_output[0, 0, 1]
+            self.translational_control = net_output[0, 0, 2]
+            print("Estimated friction: ", fricition)
+        else:
+            self.angular_control = net_output[0, 0, 0]
+            self.translational_control = net_output[0, 0, 1]
+        
         # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
         if self.simulation_index < Settings.ACCELERATION_TIME:
             self.simulation_index += 1
@@ -107,4 +116,3 @@ class NeuralNetImitatorPlanner(template_planner):
 
         return self.angular_control, self.translational_control
         
-
