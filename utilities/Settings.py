@@ -13,7 +13,7 @@ class Settings():
     
     ## Friction ##
     SURFACE_FRICITON = 0.8  # Surface friction coefficient
-    AVERAGE_WINDOW = 100  # Window for avg filter [friction]
+    AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
     CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
@@ -71,7 +71,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.1 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
