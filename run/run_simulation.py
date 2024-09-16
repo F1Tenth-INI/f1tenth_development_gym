@@ -10,8 +10,8 @@ from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
-from f110_gym.envs.dynamic_models_pacejka import StateIndices
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 import pandas as pd
 import os
@@ -59,6 +59,9 @@ def main():
     # Config
     # overwrite config.yaml files 
     map_config_file = Settings.MAP_CONFIG_FILE
+    
+    vehicle_parameters = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+
 
     # First planner settings
     driver = CarSystem(Settings.CONTROLLER)
@@ -291,10 +294,7 @@ def main():
             control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
-            friction = 0.0
-            if driver.planner.friction_value is not None:
-                friction = round(driver.planner.friction_value, 3)
-            
+                        
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -302,8 +302,7 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': VehicleParameters().mu,
-                            'estimated_mu': friction,
+                            'mu': vehicle_parameters.mu
                         }
                     )
 
@@ -391,4 +390,3 @@ main()
 
 if __name__ == '__main__':
     run_experiments()
-
