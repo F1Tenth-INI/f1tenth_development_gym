@@ -295,7 +295,6 @@ def main():
             
             agent_control_with_noise.append(control_with_noise)
             
-            vehicle_parameters = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
             
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
