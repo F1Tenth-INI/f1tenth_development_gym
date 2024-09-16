@@ -291,6 +291,9 @@ def main():
             control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
+            friction = 0.0
+            if driver.planner.friction_value is not None:
+                friction = round(driver.planner.friction_value, 3)
             
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
@@ -300,6 +303,7 @@ def main():
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
                             'mu': VehicleParameters().mu,
+                            'estimated_mu': friction,
                         }
                     )
 
