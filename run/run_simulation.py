@@ -59,6 +59,9 @@ def main():
     # Config
     # overwrite config.yaml files 
     map_config_file = Settings.MAP_CONFIG_FILE
+    
+    vehicle_parameters = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+
 
     # First planner settings
     driver = CarSystem(Settings.CONTROLLER)
@@ -389,4 +392,3 @@ main()
 
 if __name__ == '__main__':
     run_experiments()
-

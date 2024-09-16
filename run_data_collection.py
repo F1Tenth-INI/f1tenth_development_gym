@@ -22,7 +22,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "_variable_friction_and_speed_test_"
+Settings.DATASET_NAME = "_MPPI_with_delay_"
 
 Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
