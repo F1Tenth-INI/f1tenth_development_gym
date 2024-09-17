@@ -45,11 +45,32 @@ def modify_csv(filename: str, outfile, argument, value):
         else:
             print(f'The argument {argument} is not in the CSV file')
             return
+        
+def remove_empty_lines(input_file_path, output_file_path):
+    with open(input_file_path, 'r') as file:
+        lines = file.readlines()
+
+    # Flag zum Überprüfen, ob die Datei Datenzeilen enthält
+    has_data_lines = False
+    
+    with open(output_file_path, 'w') as file:
+        for line in lines:
+            stripped_line = line.strip()
+            # Schreibe nur Kommentarzeilen oder nicht-leere Datenzeilen
+            if stripped_line.startswith('#') or stripped_line:
+                file.write(line)
+                if stripped_line and not stripped_line.startswith('#'):
+                    has_data_lines = True
+
+    if not has_data_lines:
+        print("Warnung: Es wurden keine Datenzeilen in der Datei gefunden.")
+
 
 # change if other argument is necessary to modify the folder_path and argument and the value you want to set          
 # Set the folder path
-folder_path = 'SI_Toolkit_ASF/Experiments/MPPI-pacejka/Recordings/Validate/'
+folder_path = 'SI_Toolkit_ASF\Experiments\MPPI-pacejka\Recordings\Validate'
 argument = 'mu'
+
 
 # Get all the files in the folder
 files = os.listdir(folder_path)
@@ -60,11 +81,11 @@ for file in tqdm(files, desc="Processing files", ascii=True):
     if file.endswith('.csv'):
         # Create the full file path
         file_path = os.path.join(folder_path, file)
-        
+        remove_empty_lines(file_path, file_path)
         # get value from the file name last part
-        value = str(int(file.split('_')[-1].split('.')[1])/10 + int(file.split('_')[-1].split('.')[0])) 
+        #value = str(int(file.split('_')[-1].split('.')[1])/10 + int(file.split('_')[-1].split('.')[0])) 
         
         # Call the modify_csv function for each file
-        modify_csv(file_path, file_path, argument, value)
+        #modify_csv(file_path, file_path, argument, value)
         
 
