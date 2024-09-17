@@ -1,6 +1,6 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "Dense-64H1-64H2"
+  NET_NAME: "LSTM-64H1-64H2"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
@@ -69,7 +69,7 @@ training_default:
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 0 # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
   USE_NNI: False # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
 

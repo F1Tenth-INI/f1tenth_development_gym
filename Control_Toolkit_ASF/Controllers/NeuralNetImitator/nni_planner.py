@@ -101,8 +101,9 @@ class NeuralNetImitatorPlanner(template_planner):
         if net_output.shape[2] == 3:
             self.angular_control = net_output[0, 0, 0]
             fricition = net_output[0, 0, 1]
-
             self.translational_control = net_output[0, 0, 2]
+
+            # Estimate friction over a period of time (AVERAGE_WINDOW)
             if len(self.friction_estimate) < Settings.AVERAGE_WINDOW:
                 self.friction_estimate.append(fricition)
                 self.friction = np.mean(self.friction_estimate)
