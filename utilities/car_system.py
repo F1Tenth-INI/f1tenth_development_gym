@@ -6,6 +6,7 @@ from argparse import Namespace
 from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
+from utilities.imu_simulator import IMUSimulator
 import pandas as pd
                 
 import os
@@ -44,6 +45,7 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.LIDAR = LidarHelper()
+        self.imu_simulator = IMUSimulator()
 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -179,7 +181,9 @@ class CarSystem:
         # output = predict.predict_slip_angle_from_car_state(car_state)
         # print("output", output)
         
-        
+                
+        imu_array = self.imu_simulator.update_car_state(car_state)
+        imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
         
         ranges = np.array(ranges)
@@ -263,6 +267,7 @@ class CarSystem:
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
+                custom_dict=imu_dict,
             )     
         
         self.control_index += 1
