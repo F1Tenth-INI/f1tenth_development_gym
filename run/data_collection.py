@@ -61,7 +61,7 @@ def save_this_file():
     os.makedirs(target_dir, exist_ok=True)
     
     # Compress the Python file
-    source_file = "run_data_collection.py"
+    source_file = "run/data_collection.py"
     target_zip = os.path.join(target_dir, f"{Settings.DATASET_NAME}_run.zip")
     with zipfile.ZipFile(target_zip, 'w') as zipf:
         zipf.write(source_file, os.path.basename(source_file))
