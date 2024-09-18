@@ -31,7 +31,6 @@ waypoint_interpolation_steps = Settings.INTERPOLATION_STEPS
 
 rounding_decimals = 5
 
-path_to_experiment_recordings = 'ExperimentRecordings/'
 
 
 def create_csv_header(path_to_recordings,
@@ -103,7 +102,8 @@ class Recorder:
 
         # Settings
         self.name = name
-        self.path_to_experiment_recordings = path_to_experiment_recordings
+        self.path_to_experiment_recordings = Settings.RECORDING_FOLDER
+        
         self.rounding_decimals = 3
 
         # Init
@@ -115,6 +115,8 @@ class Recorder:
         self.dict_to_save =dict()
         self.dict_buffer = [] # Buffer to save dicts on RAM instead of disk
         
+        if not self.path_to_experiment_recordings.endswith('/'):
+            self.path_to_experiment_recordings += '/'
         self.csv_filepath = create_csv_header(
                 self.path_to_experiment_recordings,
                 self.name,
