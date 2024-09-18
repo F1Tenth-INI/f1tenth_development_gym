@@ -3,6 +3,10 @@ from run.run_simulation import run_experiments
 from utilities.Settings import Settings
 import time
 import os
+import zipfile
+import subprocess
+
+
 
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA2'
@@ -23,6 +27,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 Settings.START_FROM_RANDOM_POSITION = True
 Settings.DATASET_NAME = "_MPPI_with_delay_"
+Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
@@ -48,6 +53,33 @@ reverse_direction_values = [False]
 # Settings.EXPERIMENT_LENGTH = 1000  
 # global_waypoint_velocity_factors = [0.8]
 # Settings.RENDER_MODE = "human_fast"
+
+
+# Save this file to the recordings for perfect reconstruction
+def save_this_file():
+    target_dir = os.path.join("ExperimentRecordings", f"{Settings.DATASET_NAME}/")
+    os.makedirs(target_dir, exist_ok=True)
+    
+    # Compress the Python file
+    source_file = "run_data_collection.py"
+    target_zip = os.path.join(target_dir, f"{Settings.DATASET_NAME}_run.zip")
+    with zipfile.ZipFile(target_zip, 'w') as zipf:
+        zipf.write(source_file, os.path.basename(source_file))
+    
+    # Get Git status
+    branch_name = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().decode('utf-8')
+    commit_hash = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip().decode('utf-8')
+    
+    # Save Git status to a text file
+    git_status_file = os.path.join(target_dir, "git_status.txt")
+    with open(git_status_file, 'w') as f:
+        f.write(f"Branch: {branch_name}\n")
+        f.write(f"Commit: {commit_hash}\n")
+    
+    print(f"File {source_file} compressed and saved to {target_zip}")
+    print(f"Git status saved to {git_status_file}")
+
+save_this_file()
 
 for reverse_direction in reverse_direction_values:
     
