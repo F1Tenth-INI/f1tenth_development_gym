@@ -303,11 +303,16 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': vehicle_parameters.mu
+                            'mu': vehicle_parameters.mu,
+                            #'estimated_mu': driver.estimated_mu,
                         }
                     )
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
+        # Add zero angle offset to the steering angle
+        if Settings.ZERO_ANGLE_OFFSET is not None:
+            env.sim.agents[index].state[StateIndices.steering_angle] = env.sim.agents[index].state[StateIndices.steering_angle] + Settings.ZERO_ANGLE_OFFSET
+            
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
         for i in range(int(intermediate_steps)):
             
@@ -318,8 +323,8 @@ def main():
             controlls = []
             for index, driver in enumerate(drivers):
                 angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
-        
-                controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
+
+                controlls.append([angular_control_ecexuted , translational_control_executed]) # Steering velocity, acceleration
 
             # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))

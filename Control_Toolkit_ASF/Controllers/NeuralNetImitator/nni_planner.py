@@ -19,7 +19,8 @@ class NeuralNetImitatorPlanner(template_planner):
         print('Loading NeuralNetImitatorPlanner')
 
         self.simulation_index = 0
-
+        self.friction_estimate = []
+        self.friction = 0
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
 
         self.nni = controller_neural_imitator(
@@ -100,8 +101,17 @@ class NeuralNetImitatorPlanner(template_planner):
         if net_output.shape[2] == 3:
             self.angular_control = net_output[0, 0, 0]
             fricition = net_output[0, 0, 1]
+
             self.translational_control = net_output[0, 0, 2]
-            print("Estimated friction: ", fricition)
+            if len(self.friction_estimate) < Settings.AVERAGE_WINDOW:
+                self.friction_estimate.append(fricition)
+                self.friction = np.mean(self.friction_estimate)
+            else:
+                self.friction_estimate.pop(0)
+                self.friction_estimate.append(fricition)
+                self.friction = np.mean(self.friction_estimate)
+            
+            print("Estimated friction: ", self.friction)
         else:
             self.angular_control = net_output[0, 0, 0]
             self.translational_control = net_output[0, 0, 1]
