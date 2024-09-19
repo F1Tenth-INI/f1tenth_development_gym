@@ -9,7 +9,7 @@ import subprocess
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA2'
+Settings.MAP_NAME = 'RCA1'
 
 Settings.EXPERIMENT_LENGTH = 3000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
@@ -41,11 +41,11 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 4
+runs_without_obstacles = 2
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.4, 0.5, 0.7, 0.9, 1.1]
-global_surface_friction_values = [ 0.3, 0.5, 0.7, 0.9, 1.1]
-reverse_direction_values = [False]
+global_waypoint_velocity_factors = [0.5, 0.6, 0.8, 0.9, 1.0, 1.1]
+global_surface_friction_values = [ 0.3, 0.5, 0.7, 0.8, 1.0]
+reverse_direction_values = [False, True]
 
 
 # Settings for tuning before recoriding

@@ -19,6 +19,8 @@ class Settings():
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
+    # Zero Angle offset
+    ZERO_ANGLE_OFFSET = 0.05  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
     
     ## driving behaviour ## 
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.8
@@ -26,7 +28,7 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     
-    STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
+    STARTING_POSITION = [[-3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     
     ## Recordings ##
