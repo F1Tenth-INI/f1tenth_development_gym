@@ -25,8 +25,8 @@ if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
-from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
-from SI_Toolkit.computation_library import TensorFlowLibrary
+# from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
+# from SI_Toolkit.computation_library import TensorFlowLibrary
 
 # from TrainingLite.slip_prediction import predict
 
@@ -128,15 +128,15 @@ class CarSystem:
 
             if Settings.CONTROLLER == 'mpc':    
                     self.predictor = self.planner.mpc.predictor
-            else:
-                self.predictor = PredictorWrapper()
-                self.predictor.configure(
-                    batch_size=1,
-                    horizon=1,
-                    dt=Settings.TIMESTEP_CONTROL,
-                    computation_library=TensorFlowLibrary,
-                    predictor_specification="neural_parameter_determination"
-                )
+            # else:
+            #     self.predictor = PredictorWrapper()
+            #     self.predictor.configure(
+            #         batch_size=1,
+            #         horizon=1,
+            #         dt=Settings.TIMESTEP_CONTROL,
+            #         computation_library=TensorFlowLibrary,
+            #         predictor_specification="neural_parameter_determination"
+            #     )
                 
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
