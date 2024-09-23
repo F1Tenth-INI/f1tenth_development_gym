@@ -316,6 +316,7 @@ class EnvRenderer(pyglet.window.Window):
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
         poses_theta = obs['poses_theta']
+        # estimate_friction = Settings.SURFACE_FRICITON
         
         num_agents = len(poses_x)
         if self.poses is None:
@@ -343,6 +344,7 @@ class EnvRenderer(pyglet.window.Window):
         state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
         self.score_label.text = '{number_of_laps: .0f}-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(number_of_laps=Settings.STOP_TIMER_AFTER_N_LAPS, laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
         self.score_label.text +=  "\n" + state_text
+        self.score_label.text += "\n" + "Friction settings: {surface_friction:.1f}, Friction estimation: TODO".format(surface_friction=Settings.SURFACE_FRICITON) #, surface_estimation=estimate_friction)
 
         
     def close(self):
