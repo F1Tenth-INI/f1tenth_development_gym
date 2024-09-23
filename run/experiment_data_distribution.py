@@ -92,7 +92,7 @@ validate_distribution = 0.1
 
 # Change to desired directory in Experiment
 root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "/MPPI-pacejka"
+experiment_dir = "/PP_Zeroangle"
 
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
@@ -119,9 +119,9 @@ csv_files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
 
 # Calculate the number of files for each category
 total_files = len(csv_files)
-num_files_train = 180#int(total_files * train_distribution)
-num_files_test = 10#int(total_files * test_distribution)
-num_files_validate = 10#int(total_files * validate_distribution)
+num_files_train = 0.8#int(total_files * train_distribution)
+num_files_test = 0.1#int(total_files * test_distribution)
+num_files_validate = 0.1#int(total_files * validate_distribution)
 
 # Shuffle the order of CSV files
 random.shuffle(csv_files)
