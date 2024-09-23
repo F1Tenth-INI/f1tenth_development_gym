@@ -7,7 +7,7 @@ from utilities.waypoint_utils import *
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
 
-from TrainingLite.mpc_immitator.predict import predict_next_control
+from TrainingLite.mpc_immitator_mu.predict import predict_next_control
 
 class NNLitePlanner(template_planner):
 

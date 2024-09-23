@@ -117,7 +117,6 @@ class RenderUtils:
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
         if(car_state is not None): self.car_state = car_state
         
-        # if(self.next_waypoints == []):self.next_waypoints = None
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
