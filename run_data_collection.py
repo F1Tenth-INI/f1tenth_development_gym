@@ -18,6 +18,7 @@ Settings.NUMBER_OF_EXPERIMENTS = 1
 Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 0.0 # ftg: 0.5  # mppi: 2.0
 Settings.NOISE_LEVEL_ANGULAR_CONTROL = 0.0  # ftg: 0.05  # mppi: 3.0
 Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0.]
+Settings.START_FROM_RANDOM_POSITION = True 
 
 
 Settings.START_FROM_RANDOM_POSITION = True

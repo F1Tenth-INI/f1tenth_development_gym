@@ -294,7 +294,8 @@ def main():
             control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
-                        
+            
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
