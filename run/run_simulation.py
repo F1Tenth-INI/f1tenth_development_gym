@@ -336,7 +336,7 @@ def main():
                     # Save all recordings
                     driver.recorder.push_on_buffer()
                     driver.recorder.save_csv()
-                    driver.recorder.plot_data()
+                    driver.recorder.save_experiment_data()
                     driver.recorder.move_csv_to_crash_folder()
                     raise Exception("The car has crashed.")
 
@@ -349,7 +349,7 @@ def main():
                     if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
                         if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
                             driver.recorder.save_csv()
-                            driver.recorder.plot_data()
+                            driver.recorder.save_experiment_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     
@@ -372,7 +372,7 @@ def main():
         driver.recorder.save_custom_csv(N_laptime)
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
-                driver.recorder.plot_data()
+                driver.recorder.save_experiment_data()
     
     env.close()
 
