@@ -6,13 +6,11 @@ import os
 from datetime import datetime
 import csv
 import numpy as np
-import yaml
 import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
-import json
 from utilities.Settings import Settings
-
+from utilities.ExperimentAnalyzer import ExperimentAnalyzer
 from utilities.waypoint_utils import *
 
 
@@ -48,9 +46,8 @@ def create_csv_header(path_to_recordings,
     if csv_name is None or csv_name == '':
         
         dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(int(1/Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)+ '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(Settings.SURFACE_FRICITON) 
-
-        csv_filepath = path_to_recordings + 'F1TENTH_' + str(
-            datetime.now().strftime('_%Y-%m-%d_%H-%M-%S')) + Settings.DATASET_NAME + '_' + dataset_name + '.csv'
+        experiment_name = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S')) + Settings.DATASET_NAME + '_' + dataset_name
+        csv_filepath = os.path.join(path_to_recordings,experiment_name + '.csv')
     else:
         csv_filepath = csv_name
         if csv_name[-4:] != '.csv':
@@ -94,7 +91,7 @@ def create_csv_header(path_to_recordings,
 
         writer.writerow(['# Data:'])
 
-    return csv_filepath
+    return csv_filepath, experiment_name
 
 
 class Recorder:
@@ -103,7 +100,6 @@ class Recorder:
         # Settings
         self.name = name
         self.path_to_experiment_recordings = Settings.RECORDING_FOLDER
-        
         self.rounding_decimals = 3
 
         # Init
@@ -117,7 +113,7 @@ class Recorder:
         
         if not self.path_to_experiment_recordings.endswith('/'):
             self.path_to_experiment_recordings += '/'
-        self.csv_filepath = create_csv_header(
+        self.csv_filepath, self.experiment_name = create_csv_header(
                 self.path_to_experiment_recordings,
                 self.name,
                 Settings.TIMESTEP_CONTROL,
@@ -312,9 +308,9 @@ class Recorder:
    
 
     '''
-    Generate plots from the csv file of the recording
+    Copy relevant settings to the data folder and analyze experiment
     '''
-    def plot_data(self):
+    def save_experiment_data(self):
         
         save_path = self.csv_filepath[:-4]+"_data"
         self.plot_path = save_path
@@ -326,48 +322,7 @@ class Recorder:
         # read out all states
 
         
-        times = df['time'].to_numpy()[1:]
-        pos_xs = df['pose_x'].to_numpy()[1:]
-        pos_ys = df['pose_y'].to_numpy()[1:]
-        theta = df['pose_theta'].to_numpy()[1:]
-   
-        angular_controls = df['angular_control_calculated'].to_numpy()[1:]
-        translational_controls = df['translational_control_calculated'].to_numpy()[1:]   
-        
-        # Plot position
-        plt.clf()
-        plt.title("Position")
-        plt.plot(pos_xs, pos_ys, color="green")
-        plt.savefig(save_path+"/position.png")
-        plt.clf()
-        
-  
-        # Plot Control
-        fig = plt.figure()
-        plt.subplot(2, 1, 1)  # 2 rows, 1 column, first plot
-        plt.title("Angular Control")
-        plt.plot(angular_controls, color="red")
-        plt.subplot(2, 1, 2)  # 2 rows, 1 column, second plot
-        plt.title("Translational Control")
-        plt.plot(translational_controls, color="blue")
-        plt.savefig(save_path+"/control_plots.png")
-        plt.clf()
-        
-        # Plot States
-        state_names = ['angular_vel_z','linear_vel_x','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
-        
-        # Create a new figure
-        fig = plt.figure(figsize=(15, 20))  # width: 15 inches, height: 20 inches
-
-        for index, state_name in enumerate(state_names):
-            # Add subplot for each state
-            plt.subplot(7, 1, index+1)  # 7 rows, 1 column, nth plot
-            plt.title(state_name)
-            plt.plot(df[state_name].to_numpy()[1:], color="red")
-
-    
-        plt.savefig(save_path+"/state_plots.png")
-        plt.clf()
+        times = df['time'].to_numpy()[1:]   
 
         # Plot time needed for calculation
         dts = []
@@ -400,11 +355,24 @@ class Recorder:
             f.write(str(Settings.__dict__))
     
         shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".png"), config_sage_path) 
+        shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+"_wp.csv"), config_sage_path) 
         
+        
+        try: 
+            shutil.copy(os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+"_wp_reverse.csv"), config_sage_path) 
+        except:
+            pass
+
         try: 
             shutil.copy(os.path.join(Settings.MAP_PATH, "speed_scaling.yaml"), config_sage_path) 
         except:
             pass
+        
+        try:
+            experiment_analyzer = ExperimentAnalyzer(self.experiment_name)
+            experiment_analyzer.plot_experiment()
+        except Exception as e:
+            print(f'Warning: experiment analysis did not work. Error: {e}')
 
         
         
