@@ -26,7 +26,6 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 
 from time import sleep
 
-
 if Settings.DISABLE_GPU:
     import os
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -165,17 +164,21 @@ def main():
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
             top, bottom, left, right = max(y), min(y), min(x), max(x)
+            
             e.score_label.x = left
             e.score_label.y = top - 700
             e.left = left - 800
             e.right = right + 800
             e.top = top + 800
             e.bottom = bottom - 800
+            
+            e.info_label.x = left - 150
+            e.info_label.y = top +750
 
         for driver in drivers:
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)
-
+        
     racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
     
         
