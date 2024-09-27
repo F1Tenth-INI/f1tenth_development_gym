@@ -32,12 +32,7 @@ class Settings():
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.1 
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
-    
-    REVERSE_DIRECTION = False # Drive reverse waypoints
-    
-    STARTING_POSITION = [[-3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
-    
+
     ## Recordings ##
     REPLAY_RECORDING = False
     
