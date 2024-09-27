@@ -23,7 +23,7 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU_Example"
+model_name = "GRU_1"
 dataset_name = "_MPC_IMU_fixfriction_"
 
 
