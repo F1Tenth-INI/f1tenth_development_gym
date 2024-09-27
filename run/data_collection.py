@@ -3,6 +3,10 @@ from run.run_simulation import run_experiments
 from utilities.Settings import Settings
 import time
 import os
+import zipfile
+import subprocess
+
+
 
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA2'
@@ -22,7 +26,8 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "_PP_without_delay_"
+Settings.DATASET_NAME = "_MPPI_with_delay_"
+Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'pp'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]

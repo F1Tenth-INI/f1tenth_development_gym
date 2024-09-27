@@ -13,7 +13,7 @@ from utilities.waypoint_utils import *
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
 # model_name = "GRU-Example2"
-model_name = "GRU1_delay_slip"
+model_name = "GRU_Example"
 
 # Load the model
 model = load_model(experiment_path + '/models/'+model_name+'/my_model.keras')
@@ -45,7 +45,7 @@ def predict_next_control(s, waypoints_relative, waypoints):
     window = 250
     if len(mu_history) >= window:
         last_avg = sum(mu_history[-window:]) / window
-        print(f"mu: {last_avg}")
+        # print(f"mu: {last_avg}")
     else:
         print("Not enough elements in mu_history to calculate the average of the last 50 values.")
     

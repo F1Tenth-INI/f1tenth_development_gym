@@ -1,9 +1,8 @@
 import yaml
 import math
-import tensorflow as tf
 from utilities.path_helper_ros import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from SI_Toolkit.computation_library import TensorFlowLibrary,NumpyLibrary
+from SI_Toolkit.computation_library import NumpyLibrary
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -29,7 +28,7 @@ class car_model:
             car_parameter_file: str, # file containing the car parameters
             dt: float = 0.03,
             intermediate_steps=1,
-            computation_lib=TensorFlowLibrary,
+            computation_lib = NumpyLibrary(),
             wrap_angle=True,
             **kwargs
     ):
@@ -38,7 +37,7 @@ class car_model:
 
         # config = yaml.load(open(os.path.join(gym_path, "config.yml"), "r"), Loader=yaml.FullLoader)
         # self.car_parameters = yaml.load(open(os.path.join(gym_path,car_parameter_file), "r"), Loader=yaml.FullLoader)
-        self.car_parameters =  VehicleParameters(car_parameter_file)
+        self.car_parameters = VehicleParameters(car_parameter_file)
         
         self.s_min = self.lib.constant(self.car_parameters.s_min, self.lib.float32)
         self.s_max = self.lib.constant(self.car_parameters.s_max, self.lib.float32)
@@ -346,7 +345,7 @@ class car_model:
         delta_dot = self.steering_constraints(delta, delta_dot)
 
         for _ in range(self.intermediate_steps):
-            v_x = tf.where(v_x == 0, tf.constant(1e-8), v_x)
+            v_x = self.lib.where(v_x == 0, self.lib.constant(1e-8, self.lib.float32), v_x)
             alpha_f = -self.lib.atan((v_y + psi_dot * lf) / (v_x)) + delta
             alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x )
 

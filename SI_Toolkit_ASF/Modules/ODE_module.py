@@ -18,7 +18,7 @@ class ODEModel(tf.keras.Model):
         super().__init__(**kwargs)
 
         self.dt = Settings.TIMESTEP_PLANNER
-        self.lib = TensorFlowLibrary
+        self.lib = TensorFlowLibrary()
         self.intermediate_steps = 4
         self.batch_size = batch_size
         self.car_parameter_file = 'utilities/car_files/custom_car_parameters.yml'
@@ -35,6 +35,7 @@ class ODEModel(tf.keras.Model):
             car_parameter_file=car_parameter_file,
             dt=self.dt,
             intermediate_steps=self.intermediate_steps
+            computation_lib=self.lib
         )
 
         self.car_parameters_tf = {}
