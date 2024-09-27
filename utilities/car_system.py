@@ -250,6 +250,14 @@ class CarSystem:
             
         
         # Rendering and recording
+        label_dict = {
+            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
+            '0: angular_control': self.angular_control,
+            '1: translational_control': self.translational_control,
+            '4: Surface Friction': Settings.SURFACE_FRICITON,
+        }
+        self.render_utils.set_label_dict(label_dict)
+        
         self.render_utils.update(
             lidar_points= lidar_points,
             next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),

@@ -110,6 +110,20 @@ class EnvRenderer(pyglet.window.Window):
                 color=(255, 255, 255, 255),
                 multiline=True,
                 batch=self.batch)
+        
+        self.info_label = pyglet.text.Label(
+                '',
+                font_size=22,
+                x=0,
+                y=0,
+                anchor_x='center',
+                anchor_y='top',
+                width=1200,
+                align='left',
+                # height=0.01,
+                color=(255, 255, 255, 255),
+                multiline=True,
+                batch=self.batch)
 
         self.fps_display = pyglet.window.FPSDisplay(self)
 
@@ -301,6 +315,7 @@ class EnvRenderer(pyglet.window.Window):
         # Remove default modelview matrix
         glPopMatrix()
 
+
     def update_obs(self, obs):
         """
         Updates the renderer with the latest observation from the gym environment, including the agent poses, and the information text.
@@ -344,7 +359,6 @@ class EnvRenderer(pyglet.window.Window):
         state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
         self.score_label.text = '{number_of_laps: .0f}-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(number_of_laps=Settings.STOP_TIMER_AFTER_N_LAPS, laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
         self.score_label.text +=  "\n" + state_text
-        self.score_label.text += "\n" + "Friction settings: {surface_friction:.1f}, Friction estimation: TODO".format(surface_friction=Settings.SURFACE_FRICITON) #, surface_estimation=estimate_friction)
 
         
     def close(self):
