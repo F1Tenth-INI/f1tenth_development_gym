@@ -1,6 +1,7 @@
 import pandas as pd
 from io import StringIO
 import os
+import random
 
 # function to shift specified columns in a CSV file by a given value
 def shift_column_with_comments(input_file, output_file, shift_value, column_name):
@@ -91,22 +92,57 @@ def trim_csvs_with_comments_in_folder(folder_path, output_folder):
         
         print(f'Trimmed {file} to {min_length} rows (excluding comments) and saved to {output_file}')
 
+# Create subfolders with shift values as title suffix
+def distribute_files_to_subfolders(folder_path, probabilities, shift_values, column_names):
+    # Ensure the probabilities sum to 1
+    if sum(probabilities) != 1:
+        raise ValueError("The probabilities must sum to 1.")
+    
+    # Create subfolders if they don't exist
+    shifted_subfolders = [os.path.join(folder_path, f'columns_shifted_by_{abs(shift_value)}') for shift_value in shift_values]
+    for subfolder in shifted_subfolders:
+        os.makedirs(subfolder, exist_ok=True)
+    
+    # Get all files in the folder
+    files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+    
+    # Distribute files based on the given probabilities
+    for file in files:
+        subfolder = random.choices(shifted_subfolders, probabilities)[0]
+        src_path = os.path.join(folder_path, file)
+        dest_path = os.path.join(subfolder, file)
+        os.rename(src_path, dest_path)
+        print(f"Moved {file} to {subfolder}")
+        
+    for i in range(len(shift_values)):
+        for filename in os.listdir(shifted_subfolders[i]):
+            if filename.endswith('.csv'):
+                # Construct the full file paths
+                input_file = os.path.join(shifted_subfolders[i], filename)
+                output_file = os.path.join(shifted_subfolders[i], filename)
+                shift_column_with_comments(input_file, output_file, shift_values[i], column_names)
+                print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
+
+
 # parameter to modify
-input_folder = 'ExperimentRecordings/test1'
-output_folder = 'ExperimentRecordings/test2'
-test_folder = 'ExperimentRecordings/test3'
-shift_value = -2
+folder_path = 'ExperimentRecordings'
+probabilities = [0.2, 0.6, 0.2]
+shift_values = [-2, -3, -4]
 column_names = ['angular_control_calculated', 'translational_control_calculated']
 
-# Loop through all CSV files in the input folder
-for filename in os.listdir(input_folder):
-    if filename.endswith('.csv'):
-        # Construct the full file paths
-        input_file = os.path.join(input_folder, filename)
-        output_file = os.path.join(output_folder, filename)
+# distribute_files_to_subfolders(folder_path, probabilities, shift_values, column_names)
 
-        shift_column_with_comments(input_file, output_file, shift_value, column_names)
+# Distribute files
+# distribute_files_to_subfolders(input_folder, probabilities)
+# # Loop through all CSV files in the input folder
+# for filename in os.listdir(input_folder):
+#     if filename.endswith('.csv'):
+#         # Construct the full file paths
+#         input_file = os.path.join(input_folder, filename)
+#         output_file = os.path.join(output_folder, filename)
+#         shift_column_with_comments(input_file, output_file, shift_value, column_names)
+#         print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
 
-        print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
+output = 'SI_Toolkit_ASF/Experiments/MPPI-pacejka/Recordings/Validate'
 
-trim_csvs_with_comments_in_folder(output_folder, test_folder)
+trim_csvs_with_comments_in_folder(output, output)

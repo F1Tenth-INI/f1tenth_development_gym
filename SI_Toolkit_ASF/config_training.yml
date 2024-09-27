@@ -4,7 +4,7 @@ modeling:
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/PP_Zeroangle/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/MPPI-pacejka/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -67,7 +67,8 @@ training_default:
       "angular_vel_z",
       "linear_vel_x",
       # 'slip_angle',
-      "steering_angle",
+      # "steering_angle",
+      "v_y"
     ]
 
   # state_inputs: []
