@@ -120,7 +120,7 @@ class RaceCar(object):
                 car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
                 dt = 0.01, 
                 intermediate_steps=1,
-                computation_lib=NumpyLibrary
+                computation_lib=NumpyLibrary()
                 )
             
             # In case you want to use other library than numpy
