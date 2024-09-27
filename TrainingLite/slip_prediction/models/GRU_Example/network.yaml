@@ -1,0 +1,9 @@
+input_cols:
+- angular_vel_z
+- linear_vel_x
+- pose_theta
+- steering_angle
+- imu_dd_y
+- imu_dd_yaw
+output_cols:
+- slip_angle

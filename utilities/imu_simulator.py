@@ -4,12 +4,13 @@ from utilities.state_utilities import *
 
 
 class IMUSimulator:
+    
+    # Indices
+    dx_idx = 0
+    dy_idx = 1
+    dtheta_idx = 2
+ 
     def __init__(self):
-        
-        # Indices
-        self.dx_idx = 0
-        self.dy_idx = 1
-        self.dtheta_idx = 2
         
         # Last car state variables
         self.last_x = 0.0
@@ -88,15 +89,17 @@ class IMUSimulator:
         imu_array = np.array([accel_x_car, accel_y_car, accel_angular_z])
         return imu_array
     
-    def array_to_dict(self, imu_array):
-        
+    
+    
+    @staticmethod
+    def array_to_dict(imu_array):
         imu_dict = {
-            'imu_dd_x': imu_array[self.dx_idx],
-            'imu_dd_y': imu_array[self.dy_idx],
-            'imu_dd_yaw': imu_array[self.dtheta_idx],
+            'imu_dd_x': imu_array[IMUSimulator.dx_idx],
+            'imu_dd_y': imu_array[IMUSimulator.dy_idx],
+            'imu_dd_yaw': imu_array[IMUSimulator.dtheta_idx],
         }
         
-        return imu_dict    
+        return imu_dict
 
 # Example usage
 if __name__ == "__main__":

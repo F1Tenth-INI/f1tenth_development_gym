@@ -24,11 +24,12 @@ from keras.optimizers import Adam
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
 model_name = "GRU_Example"
+dataset_name = "_MPC_IMU_fixfriction_"
+
 
 
 base_dir = os.path.join(experiment_path, 'models')
 model_dir = os.path.join(base_dir, model_name)
-
 
 if os.path.exists(model_dir):
     shutil.rmtree(model_dir)
@@ -44,13 +45,23 @@ with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
 
 
 # Get a list of all CSV files in the 'data' directory
-csv_files = glob.glob(experiment_path + '/data/*.csv')
+data_dircetory = experiment_path + '/../Datasets/'+dataset_name+'/*.csv'
+csv_files = glob.glob(data_dircetory)
+
 
 # List to hold dataframes
 df_list = []
 
 for file in csv_files:
-    df = pd.read_csv(file, comment='#')
+    
+    try:
+        df = pd.read_csv(file, comment='#')
+    except FileNotFoundError:
+        print(f"Error: The file '{file}' was not found.")
+    except pd.errors.ParserError:
+        print(f"Error: There was a parsing error while reading the file '{file}'. May the file be empty?")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
     
     # Augment data
     df['pose_theta_cos'] = np.cos(df['pose_theta'])
@@ -86,24 +97,12 @@ df = df.dropna()
 
 # Select the input and output columns
 
-state_cols = ["angular_vel_z","linear_vel_x","pose_theta","steering_angle", "slip_angle", ]
-wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 20, 1)]
-wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 20, 1)]
-wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 20, 1)]
-
-input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols
-
-
-output_cols = ["angular_control_calculated", "translational_control_calculated", "mu" ]
-shift_cols =  ["angular_control_calculated", "translational_control_calculated", ]
-
-# Shift the output columns by -3
-for col in shift_cols:
-    df[col] = df[col].shift(-4)
+input_cols =  ["angular_vel_z","linear_vel_x","pose_theta","steering_angle","imu_dd_y","imu_dd_yaw" ]
+output_cols = [ "slip_angle" ]
+shift_cols =  []
 
 # Remove rows with NaN values after shifting
 df = df.dropna()
-
 
 print("Input cols: ", input_cols)
 print("output cols: ", output_cols)
@@ -131,7 +130,7 @@ time.sleep(0.1)  # Sleep for 50 milliseconds
 #     plt.title(col)
 #     plt.savefig(experiment_path + '/figures/' + col + '.png')
 
-#     time.sleep(0.15)  # Sleep for 50 milliseconds
+#     time.sleep(0.15)  # Sleep for 150 milliseconds
     
     
 X = df[input_cols].to_numpy()
@@ -182,18 +181,6 @@ model.add(GRU(64, return_sequences=False))
 model.add(Dense(len(output_cols)))
 
 
-
-
-# Dense Training
-
-# X_train = X_train.reshape(-1, 65)
-# X_val = X_val.reshape(-1, 65)
-# model = Sequential()
-# model.add(Dense(64, input_shape=(features,), activation='tanh'))
-# model.add(Dense(64, activation='tanh'))
-# model.add(Dense(len(output_cols)))
-
-
 # Create model folder
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
@@ -208,7 +195,7 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=1, min_lr
 checkpoint = ModelCheckpoint(filepath=model_dir+'/my_model.keras', save_weights_only=False, save_best_only=False, verbose=1)
 
 # Train the model
-model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=10, batch_size=8, shuffle=False, callbacks=[reduce_lr, checkpoint])
+model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=15, batch_size=8, shuffle=False, callbacks=[reduce_lr, checkpoint])
 
 
 model.save(model_dir+'/my_model.keras')

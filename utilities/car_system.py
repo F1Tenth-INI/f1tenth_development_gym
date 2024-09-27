@@ -183,6 +183,7 @@ class CarSystem:
         
                 
         imu_array = self.imu_simulator.update_car_state(car_state)
+        self.planner.imu_data = imu_array
         imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
         
