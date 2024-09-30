@@ -123,7 +123,6 @@ def distribute_files_to_subfolders(folder_path, probabilities, shift_values, col
                 shift_column_with_comments(input_file, output_file, shift_values[i], column_names)
                 print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
 
-
 # parameter to modify
 folder_path = 'ExperimentRecordings'
 probabilities = [0.2, 0.6, 0.2]
@@ -143,6 +142,7 @@ column_names = ['angular_control_calculated', 'translational_control_calculated'
 #         shift_column_with_comments(input_file, output_file, shift_value, column_names)
 #         print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
 
+# These 2 to modify the CSV files for cutting of the last rows of the CSV files to the length of the smallest CSV file
 output = 'SI_Toolkit_ASF/Experiments/MPPI-pacejka/Recordings/Validate'
 
 trim_csvs_with_comments_in_folder(output, output)

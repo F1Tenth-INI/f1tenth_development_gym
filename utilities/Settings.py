@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 1.0  # Surface friction coefficient
+    SURFACE_FRICITON = 0.5  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -23,7 +23,7 @@ class Settings():
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
     # Zero Angle offset
-    ZERO_ANGLE_OFFSET = 0.05  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
+    ZERO_ANGLE_OFFSET = 0.0  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
     
     ## driving behaviour ## 
     START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
