@@ -1,6 +1,6 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "Dense-64H1-64H2"
+  NET_NAME: "LSTM-64H1-64H2"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
@@ -67,7 +67,8 @@ training_default:
       "angular_vel_z",
       "linear_vel_x",
       # 'slip_angle',
-      "steering_angle",
+      # "steering_angle",
+      "v_y"
     ]
 
   # state_inputs: []
@@ -155,18 +156,18 @@ training_nn_physical_model:
       "WYPT_REL_X_00", "WYPT_REL_X_01", "WYPT_REL_X_02", "WYPT_REL_X_03", "WYPT_REL_X_04", "WYPT_REL_X_05", "WYPT_REL_X_06", "WYPT_REL_X_07", "WYPT_REL_X_08", "WYPT_REL_X_09", "WYPT_REL_X_10", "WYPT_REL_X_11", "WYPT_REL_X_12", "WYPT_REL_X_13", "WYPT_REL_X_14",
       "WYPT_REL_Y_00", "WYPT_REL_Y_01", "WYPT_REL_Y_02", "WYPT_REL_Y_03", "WYPT_REL_Y_04", "WYPT_REL_Y_05", "WYPT_REL_Y_06", "WYPT_REL_Y_07", "WYPT_REL_Y_08", "WYPT_REL_Y_09", "WYPT_REL_Y_10", "WYPT_REL_Y_11", "WYPT_REL_Y_12", "WYPT_REL_Y_13", "WYPT_REL_Y_14",
       "WYPT_VX_00", "WYPT_VX_01", "WYPT_VX_02", "WYPT_VX_03", "WYPT_VX_04", "WYPT_VX_05", "WYPT_VX_06", "WYPT_VX_07", "WYPT_VX_08", "WYPT_VX_09", "WYPT_VX_10", "WYPT_VX_11", "WYPT_VX_12", "WYPT_VX_13", "WYPT_VX_14",
-      'v_y',
+      # 'v_y',
       'angular_vel_z',
-      'linear_vel_x',
+      # 'linear_vel_x',
       # 'slip_angle',
-      # 'steering_angle'
+      'steering_angle'
     ]
 
   # state_inputs: []
   # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
 
   setpoint_inputs: []
-  outputs: ["angular_control_calculated", "translational_control_calculated","mu"]
+  outputs: ["angular_control_calculated", "translational_control_calculated"] # "mu"
 
   EPOCHS: 25
   BATCH_SIZE: 8
@@ -185,7 +186,7 @@ training_nn_physical_model:
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 3 # for k, as a label to row i is taken row i+k
   USE_NNI: False # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
 

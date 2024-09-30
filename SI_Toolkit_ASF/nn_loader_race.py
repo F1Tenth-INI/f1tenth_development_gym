@@ -36,7 +36,7 @@ class NeuralNetImitatorPlannerNV:
 
     def __init__(self, name, PATH_TO_MODELS=PATH_TO_MODELS, speed_fraction=1, batch_size=1):
 
-        self.lib = TensorFlowLibrary
+        self.lib = TensorFlowLibrary()
 
         print('Loading NeuralNetImitatorPlanner')
 
