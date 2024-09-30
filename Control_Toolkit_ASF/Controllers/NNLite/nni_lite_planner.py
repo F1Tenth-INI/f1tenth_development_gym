@@ -3,11 +3,13 @@ import sklearn # Don't touch
 # https://forums.developer.nvidia.com/t/sklearn-skimage-cannot-allocate-memory-in-static-tls-block/236960
 
 from utilities.waypoint_utils import *
+from utilities.render_utilities import RenderUtils
 
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
 
-from TrainingLite.mpc_immitator.predict import predict_next_control
+from TrainingLite.mpc_immitator_mu.predict import predict_next_control
+from TrainingLite.slip_prediction.predict import predict_slip_angle
 
 class NNLitePlanner(template_planner):
 
@@ -20,6 +22,10 @@ class NNLitePlanner(template_planner):
         self.simulation_index = 0
         self.car_state = None
         self.waypoints = None
+        self.imu_data = None
+        
+        self.render_utils = RenderUtils()
+
         
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
         
@@ -36,6 +42,15 @@ class NNLitePlanner(template_planner):
         waypoints_relative_x = waypoints_relative[:, 0]
         waypoints_relative_y = waypoints_relative[:, 1]
         next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
+        
+        slip_angle_predicted = predict_slip_angle(np.array(self.car_state), np.array(self.imu_data))[0]
+        # print("slip_angle", slip_angle, self.car_state[SLIP_ANGLE_IDX])
+        
+        # Overwrite slip angle with predicted value
+        # self.car_state[SLIP_ANGLE_IDX] = slip_angle_predicted
+        # self.car_state[SLIP_ANGLE_IDX] = 0 
+        
+        self.render_utils.set_label_dict({'3: slip_angle_predicted': slip_angle_predicted,})
         
         controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints)
         control = controls[0]

@@ -2,6 +2,11 @@ from utilities.Settings import Settings
 import numpy as np
 from utilities.state_utilities import *
 
+from typing import Dict, Any
+import numbers
+
+
+
 # Imports depending on ROS/Gym
 if(Settings.ROS_BRIDGE):
     import rospy
@@ -65,6 +70,8 @@ class RenderUtils:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
+        
+        self.label_dict = {}
 
         self.waypoint_vertices = None
         self.next_waypoint_vertices = None
@@ -117,7 +124,6 @@ class RenderUtils:
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
         if(car_state is not None): self.car_state = car_state
         
-        # if(self.next_waypoints == []):self.next_waypoints = None
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
@@ -130,6 +136,25 @@ class RenderUtils:
         self.obstacles = obstacles
         return
     
+    
+    def set_label_dict(self, dict: Dict[str, Any]) -> None:
+        """
+        Update the info label on the rendering. Add some custom dict and it will be displayed on the rendering.
+
+        Args:
+            dict (dict): A dictionary containing key-value pairs to render information
+
+        Returns:
+            None
+        """
+        for key, value in dict.items():
+            
+            if isinstance(value, (numbers.Real, np.float32)):
+                value = round(float(value), 4)
+            self.label_dict[key] = value
+            
+            
+    
     def render(self, e = None):
 
         if(Settings.ROS_BRIDGE):
@@ -139,6 +164,10 @@ class RenderUtils:
             
 
     def render_gym(self, e):
+
+        if Settings.RENDER_INFO:
+            label_text = "\n".join([f"{key}: {value}" for key, value in sorted(self.label_dict.items())])
+            e.info_label.text = label_text
         
         # Waypoints
         gl.glPointSize(1)
@@ -160,7 +189,7 @@ class RenderUtils:
                                                ('c3B', self.next_waypoint_visualization_color * howmany))
             else:
                 self.next_waypoint_vertices.vertices = scaled_points_flat
-            
+                
         gl.glPointSize(3)
         
         

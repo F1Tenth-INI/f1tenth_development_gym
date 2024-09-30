@@ -12,7 +12,7 @@ from utilities.waypoint_utils import *
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU1-Example"
+model_name = "GRU4"
 
 # Load the model
 model = load_model(experiment_path + '/models/'+model_name+'/my_model.keras')

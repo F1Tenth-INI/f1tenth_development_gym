@@ -26,7 +26,6 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 
 from time import sleep
 
-
 if Settings.DISABLE_GPU:
     import os
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -165,17 +164,21 @@ def main():
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
             top, bottom, left, right = max(y), min(y), min(x), max(x)
+            
             e.score_label.x = left
             e.score_label.y = top - 700
             e.left = left - 800
             e.right = right + 800
             e.top = top + 800
             e.bottom = bottom - 800
+            
+            e.info_label.x = left - 150
+            e.info_label.y = top +750
 
         for driver in drivers:
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)
-
+        
     racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
     
         
@@ -294,7 +297,8 @@ def main():
             control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
-                        
+            
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -335,7 +339,7 @@ def main():
                     # Save all recordings
                     driver.recorder.push_on_buffer()
                     driver.recorder.save_csv()
-                    driver.recorder.plot_data()
+                    driver.recorder.save_experiment_data()
                     driver.recorder.move_csv_to_crash_folder()
                     raise Exception("The car has crashed.")
 
@@ -348,7 +352,7 @@ def main():
                     if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
                         if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
                             driver.recorder.save_csv()
-                            driver.recorder.plot_data()
+                            driver.recorder.save_experiment_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     
@@ -371,7 +375,7 @@ def main():
         driver.recorder.save_custom_csv(N_laptime)
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
-                driver.recorder.plot_data()
+                driver.recorder.save_experiment_data()
     
     env.close()
 
