@@ -32,12 +32,7 @@ class Settings():
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.1 
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
-    
-    REVERSE_DIRECTION = False # Drive reverse waypoints
-    
-    STARTING_POSITION = [[-3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
-    
+
     ## Recordings ##
     REPLAY_RECORDING = False
     
@@ -137,10 +132,11 @@ class Settings():
     
     
     ## Visualization ##
-    KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
+    KEYBOARD_INPUT_ENABLE = True  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
+    RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
     
     
