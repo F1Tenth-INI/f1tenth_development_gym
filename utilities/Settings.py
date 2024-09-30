@@ -16,7 +16,7 @@ class Settings():
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
-    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -30,7 +30,7 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.1 
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.7 
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
@@ -68,7 +68,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.06 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
