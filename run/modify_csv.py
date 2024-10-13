@@ -68,7 +68,7 @@ def remove_empty_lines(input_file_path, output_file_path):
 
 # change if other argument is necessary to modify the folder_path and argument and the value you want to set          
 # Set the folder path
-folder_path = 'SI_Toolkit_ASF\Experiments\MPPI-pacejka\Recordings\Validate'
+folder_path = 'SI_Toolkit_ASF/Experiments/MPPI-pacejka/Recordings/Test'
 argument = 'mu'
 
 
@@ -83,9 +83,9 @@ for file in tqdm(files, desc="Processing files", ascii=True):
         file_path = os.path.join(folder_path, file)
         remove_empty_lines(file_path, file_path)
         # get value from the file name last part
-        #value = str(int(file.split('_')[-1].split('.')[1])/10 + int(file.split('_')[-1].split('.')[0])) 
+        value = str(int(file.split('_')[-1].split('.')[1])/10 + int(file.split('_')[-1].split('.')[0])) 
         
         # Call the modify_csv function for each file
-        #modify_csv(file_path, file_path, argument, value)
+        modify_csv(file_path, file_path, argument, value)
         
 

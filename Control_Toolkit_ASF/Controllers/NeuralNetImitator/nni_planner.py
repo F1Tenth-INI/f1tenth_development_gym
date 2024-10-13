@@ -1,7 +1,7 @@
 import sklearn # Don't touch
 # sklearn is needed later, need to import it here for nni planner to work on nvidia jetson:
 # https://forums.developer.nvidia.com/t/sklearn-skimage-cannot-allocate-memory-in-static-tls-block/236960
-
+import tkinter as tk
 from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
 
@@ -44,6 +44,21 @@ class NeuralNetImitatorPlanner(template_planner):
         if number_of_next_waypoints_network > Settings.LOOK_AHEAD_STEPS:
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
+    def display_dynamic_value(self):
+        # Erstelle das Fenster
+        window = tk.Tk()
+        window.title("Dynamic Value Display")
+        
+        # Erstelle ein Label-Widget, das den Wert anzeigt
+        label = tk.Label(window, text="")
+        label.pack(padx=20, pady=20)
+
+        # Starte die Hauptschleife des Fensters
+        window.mainloop()
+
+        
+    
+    
     def process_observation(self, ranges=None, ego_odom=None):
 
         self.LIDAR.load_lidar_measurement(ranges)

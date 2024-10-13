@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.5  # Surface friction coefficient
+    SURFACE_FRICITON = 0.8  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -30,7 +30,7 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.7 
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
     APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
@@ -68,7 +68,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.06 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -132,7 +132,7 @@ class Settings():
     
     
     ## Visualization ##
-    KEYBOARD_INPUT_ENABLE = True  # Allows for keyboard input during experiment. Causes silent crash on some computers
+    KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map

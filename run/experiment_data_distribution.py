@@ -118,7 +118,7 @@ subfolder_data_compression(input_folder)
 csv_files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
 
 # Calculate the number of files for each category
-total_files = 200 #len(csv_files)
+total_files = len(csv_files)
 num_files_train = int(total_files * train_distribution)
 num_files_test = int(total_files * test_distribution)
 num_files_validate = int(total_files * validate_distribution)

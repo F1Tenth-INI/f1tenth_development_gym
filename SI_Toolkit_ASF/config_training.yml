@@ -1,6 +1,6 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "LSTM-64H1-64H2"
+  NET_NAME: "LSTM-48IN-64H1-64H2-3OUT-12"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
