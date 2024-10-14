@@ -389,7 +389,7 @@ def run_experiments():
             import subprocess
             import sys
             program = '''
-from utilities.run import main
+from run.run_simulation import main
 main()
 '''
             result = subprocess.run([sys.executable, "-c", program])
