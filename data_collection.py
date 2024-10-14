@@ -11,7 +11,7 @@ import subprocess
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA2'
 
-Settings.EXPERIMENT_LENGTH = 3000  
+Settings.EXPERIMENT_LENGTH = 300  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
 
 # Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
@@ -26,7 +26,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "MPC_IMU_fixfriction"
+Settings.DATASET_NAME = "test1"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'pp'
@@ -44,7 +44,7 @@ runs_with_obstacles = 0
 runs_without_obstacles = 5
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [ 0.6, 0.8, 1.0, 1.1]
-global_surface_friction_values = [ 0.5]
+global_surface_friction_values = [ 0.7]
 zero_angle_offset_values = [0.0]
 reverse_direction_values = [False, True]
 big_loop = 1

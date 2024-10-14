@@ -66,7 +66,7 @@ def create_csv_header(path_to_recordings,
             net_index += 1
 
     # Write the header of .csv file
-    with open(csv_filepath, "a") as outfile:
+    with open(csv_filepath, "a", newline='') as outfile:
         writer = csv.writer(outfile)
 
         writer.writerow(['# ' + 'This is F1TENTH simulation from {} at time {}'
@@ -88,7 +88,6 @@ def create_csv_header(path_to_recordings,
         writer.writerow(['# Controller: {}'.format(controller_name)])
 
         writer.writerow(['#'])
-
         writer.writerow(['# Data:'])
 
     return csv_filepath, experiment_name
@@ -369,7 +368,7 @@ class Recorder:
             pass
         
         try:
-            experiment_analyzer = ExperimentAnalyzer(self.experiment_name)
+            experiment_analyzer = ExperimentAnalyzer(self.experiment_name, experiment_path=self.path_to_experiment_recordings)
             experiment_analyzer.plot_experiment()
         except Exception as e:
             print(f'Warning: experiment analysis did not work. Error: {e}')

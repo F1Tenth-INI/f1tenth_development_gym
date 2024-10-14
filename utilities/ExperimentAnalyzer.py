@@ -16,7 +16,7 @@ class ExperimentAnalyzer:
         self.step_start = 0
         self.step_end = step_end
         
-        self.experiment_path = experiment_path
+        self.experiment_path = Settings.RECORDING_FOLDER #experiment_path
         self.experiment_name = experiment_name
         self.map_name = Settings.MAP_NAME
         self.controller_name = 'neural'
