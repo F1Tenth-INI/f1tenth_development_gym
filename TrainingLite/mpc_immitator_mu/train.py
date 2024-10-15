@@ -37,15 +37,15 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU_6_s1"
-dataset_name = "MPC_Original"
+model_name = "LSTM_6_stateful"
+dataset_name = "MPC_original"
 
 
 
 seq_length = 1
 washout_steps = 0
 
-number_of_epochs = 10
+number_of_epochs = 5
 shuffle = False
 
 train_on_output_sequences = False
@@ -67,7 +67,8 @@ with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
 
 
 # Get a list of all CSV files in the 'data' directory
-csv_files = glob.glob(experiment_path + '/data/*.csv')
+csv_files = glob.glob(experiment_path + '/../Datasets/' + dataset_name + '/*.csv')
+
 
 # List to hold dataframes
 df_list = []
@@ -219,12 +220,24 @@ if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 
 
+batch_size = 8
+num_batches = len(X_train) // batch_size
+X_train = X_train[:num_batches * batch_size]
+y_train = y_train[:num_batches * batch_size]
+
+num_batches = len(X_val) // batch_size
+X_val = X_val[:num_batches * batch_size]
+y_val = y_val[:num_batches * batch_size]
+
+
 # Define the GRU network
 model = Sequential()
-model.add(GRU(64, input_shape=(seq_length, features), return_sequences=True))
-model.add(GRU(64, return_sequences=False))
+model.add(LSTM(64,
+              batch_input_shape=(batch_size, seq_length, features),
+              stateful=True, 
+              return_sequences=True))
+model.add(LSTM(64, return_sequences=False, stateful=False))
 model.add(Dense(len(output_cols)))
-# model.add(TimeDistributed(Dense(len(output_cols))))
 
 
 
@@ -237,20 +250,6 @@ model.add(Dense(len(output_cols)))
 # model.add(Dense(len(output_cols)))
 
 
-# Custom loss function
-def custom_mse_loss_with_washout(y_true, y_pred):
-
-    # Ignore the first 'washout_steps' timesteps in both y_true and y_pred
-    if(washout_steps == 0):
-        return mean_squared_error(y_true, y_pred)
-    
-    y_true_washout = y_true[:, washout_steps:, :]
-    y_pred_washout = y_pred[:, washout_steps:, :]
-
-    squared_diff = K.square(y_true_washout - y_pred_washout)
-
-    return K.mean(squared_diff, axis=-1)
-
 # Compile the model
 model.compile(loss='mse', optimizer=Adam(learning_rate=0.002))
 
@@ -261,7 +260,7 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.3, patience=1, min_lr
 checkpoint = ModelCheckpoint(filepath=model_dir+'/my_model.keras', save_weights_only=False, save_best_only=False, verbose=1)
 
 # Train the model
-history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=number_of_epochs, batch_size=8, shuffle=True, callbacks=[reduce_lr, checkpoint])
+history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=number_of_epochs, batch_size=batch_size, shuffle=True, callbacks=[reduce_lr, checkpoint])
 
 # Plot the training and validation loss
 plt.figure(figsize=(10, 6))

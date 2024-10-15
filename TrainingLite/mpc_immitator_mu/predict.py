@@ -20,7 +20,7 @@ experiment_path =os.path.dirname(os.path.realpath(__file__))
 
 # model_name = "GRU-Example2"
 # model_name = "LSTM7_s1w0_large"
-model_name = "GRU_6_s1"
+model_name = "LSTM_6_stateful"
 
 
 # Load the model
@@ -45,16 +45,16 @@ input_history = []
 
 
 # seq_length = 1
-# sequence_length = 1
-# features = len(network_yaml["input_cols"])
-# outputs = len(network_yaml["output_cols"])
-# deploy_model = Sequential()
-# deploy_model.add(GRU(64, batch_input_shape=(1, 1, features), return_sequences=True))
-# deploy_model.add(GRU(64, return_sequences=False))
-# deploy_model.add(Dense(outputs))
+sequence_length = 1
+features = len(network_yaml["input_cols"])
+outputs = len(network_yaml["output_cols"])
+deploy_model = Sequential()
+deploy_model.add(LSTM(64, batch_input_shape=(1, 1, features), return_sequences=True, stateful=False))
+deploy_model.add(LSTM(64, return_sequences=False, stateful=False))
+deploy_model.add(Dense(outputs))
 
-# deploy_model.set_weights(model.get_weights())
-deploy_model = model
+deploy_model.set_weights(model.get_weights())
+# deploy_model = model
 
 
 
