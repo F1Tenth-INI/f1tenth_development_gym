@@ -18,8 +18,8 @@ import yaml
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "tGRU_6_stateful2"
-dataset_name = "_MPC_Noise1"
+model_name = "tGRU_6_stateful4"
+dataset_name = "_MPC_Noise2"
 seq_length = 1
 washout_steps = 0
 number_of_epochs = 5
@@ -57,8 +57,9 @@ for i, file in enumerate(csv_files):
     df = df[df['d_pose_x'] <= 20.]
     df = df[df['d_pose_y'] <= 20.]
 
-    if i % 2 == 0:
-        df_list.append(df)
+    # if i % 2 == 0:
+    #     df_list.append(df)
+    df_list.append(df)
 
 
 df = pd.concat(df_list, ignore_index=True)
@@ -134,6 +135,7 @@ class GRUNetwork(nn.Module):
 
 
 
+
       
 input_size = X_train.shape[1]
 output_size = len(output_cols)
@@ -152,34 +154,43 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 for epoch in range(number_of_epochs):
     model.train()
     
+    hidden = model.reset_hidden_state(batch_size)  # Initialize hidden state once per epoch
+    
     # Loop over batches
     for i in range(0, len(X_train), batch_size):
         X_batch = torch.tensor(X_train[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
         y_batch = torch.tensor(y_train[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
 
-        # Reset hidden state for the new batch
-        hidden = model.reset_hidden_state(X_batch.size(0))
+        # Adjust hidden state size to match current batch size (in case the last batch is smaller)
+        hidden = model.reset_hidden_state(X_batch.size(0))  # Adjust batch size dynamically
 
         optimizer.zero_grad()
-        outputs, hidden = model(X_batch, hidden)
+        outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
         loss = criterion(outputs, y_batch)
 
         loss.backward()
         optimizer.step()
 
+        # Detach hidden state to prevent backprop through time
+        hidden = hidden.detach()
+
     # Validation step
     model.eval()
     val_loss = 0.0
+    hidden_val = model.reset_hidden_state(batch_size)  # Initialize hidden state for validation
     with torch.no_grad():
         for i in range(0, len(X_val), batch_size):
             X_batch_val = torch.tensor(X_val[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
             y_batch_val = torch.tensor(y_val[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
 
+            # Adjust hidden state size for validation batch size
             hidden_val = model.reset_hidden_state(X_batch_val.size(0))
-            val_outputs, _ = model(X_batch_val, hidden_val)
 
+            val_outputs, hidden_val = model(X_batch_val, hidden_val)
             val_loss += criterion(val_outputs, y_batch_val).item()
-        
+
+            hidden_val = hidden_val.detach()
+
     val_loss /= len(X_val) / batch_size
     print(f"Epoch [{epoch+1}/{number_of_epochs}], Validation Loss: {val_loss}")
 

@@ -20,7 +20,7 @@ experiment_path =os.path.dirname(os.path.realpath(__file__))
 
 # model_name = "GRU-Example2"
 # model_name = "LSTM7_s1w0_large"
-model_name = "LSTM_6_stateful"
+model_name = "tGRU_6_stateful4"
 
 
 # Load the model
