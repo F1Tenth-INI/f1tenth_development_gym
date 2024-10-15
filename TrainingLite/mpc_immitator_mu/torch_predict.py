@@ -18,7 +18,7 @@ import yaml
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
-model_name = "tGRU_6_stateful2"
+model_name = "tGRU_6_stateful3"
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
@@ -40,7 +40,6 @@ with open(experiment_path + '/models/'+model_name+'/network.yaml', 'r') as file:
     network_yaml = yaml.safe_load(file)
     
     
-sequence_length = network_yaml["sequence_length"]
 
 mu_history = []
 input_history = []
