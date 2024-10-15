@@ -37,20 +37,22 @@ from keras.optimizers import Adam
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
-model_name = "GRU_Test"
-seq_length = 2
+model_name = "GRU_6_s1"
+dataset_name = "MPC_Original"
+
+
+
+seq_length = 1
 washout_steps = 0
 
-number_of_epochs = 3
+number_of_epochs = 10
 shuffle = False
 
-train_on_output_sequences = True
+train_on_output_sequences = False
 
 
 base_dir = os.path.join(experiment_path, 'models')
 model_dir = os.path.join(base_dir, model_name)
-
-
 if os.path.exists(model_dir):
     shutil.rmtree(model_dir)
 os.makedirs(model_dir, exist_ok=True)
@@ -219,8 +221,8 @@ if not os.path.exists(model_dir):
 
 # Define the GRU network
 model = Sequential()
-model.add(LSTM(64, input_shape=(seq_length, features), return_sequences=True))
-model.add(LSTM(64, return_sequences=False))
+model.add(GRU(64, input_shape=(seq_length, features), return_sequences=True))
+model.add(GRU(64, return_sequences=False))
 model.add(Dense(len(output_cols)))
 # model.add(TimeDistributed(Dense(len(output_cols))))
 
