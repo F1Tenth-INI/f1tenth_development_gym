@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import os
 from scipy.signal import find_peaks
 import yaml
+import csv
 
 # get current working directory
 def path_dir(file_path):
@@ -41,9 +42,10 @@ def get_extrema(waypoints_df, x_col, y_col):
 
     return extrema_list_sorted, minima_list, maxima_list
 
-def save_extrema_to_yaml(extrema_list_sorted, min_list, max_list, output_dir, default_global_speed=0.5):
+def save_extrema_to_csv(extrema_list_sorted, map_name, min_list, max_list, output_dir, default_global_speed=0.5):
     
     modified_list = []
+    modified_list.append(list([0.0,0.5]))
     
     # go through the list and check if the difference between the values is greater than 0.6
     if extrema_list_sorted[0][1] < extrema_list_sorted[1][1]:
@@ -69,16 +71,30 @@ def save_extrema_to_yaml(extrema_list_sorted, min_list, max_list, output_dir, de
     for i in range(len(modified_list)-1):
         sector_dic['Sector' + str(i+1)] = {'start': int(modified_list[i][0]), 'end': int(modified_list[i+1][0]), 'scaling': default_global_speed}
     
-    # split the extrema list into maxima and minima
-    num_sector = {'n_sectors': int(len(modified_list))}
-    default_speed = {'global_limit': default_global_speed}
-    output_file = output_dir+ '/' + 'speed_scaling.yaml'
+    # uncomment if you want the yaml output file
+    # # split the extrema list into maxima and minima
+    # num_sector = {'n_sectors': int(len(modified_list))}
+    # default_speed = {'global_limit': default_global_speed}
+    # output_file = output_dir+ '/' + 'speed_scaling.yaml'
     
-    # Save the dictionary to a YAML file
-    with open(output_file, 'w') as file:
-        yaml.dump(sector_dic, file, default_flow_style=False, sort_keys=False)
-        yaml.dump(default_speed, file, default_flow_style=False)
-        yaml.dump(num_sector, file, default_flow_style=False)
+    # # Save the dictionary to a YAML file
+    # with open(output_file, 'w') as file:
+    #     yaml.dump(sector_dic, file, default_flow_style=False, sort_keys=False)
+    #     yaml.dump(default_speed, file, default_flow_style=False)
+    #     yaml.dump(num_sector, file, default_flow_style=False)
+    
+    # Create the new csv_list with the first column converted to float
+    csv_list = []
+    for z in modified_list:
+        start_value = float(z[0])  # Convert the first column to float
+        csv_list.append([start_value, default_global_speed])
+        
+    # Save the csv_list to a CSV file
+    with open(output_dir + '/' + map_name + '_speed_scaling.csv', 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['# Start', ' Sector'])
+        for row in csv_list:
+            writer.writerow(row)
 
 # Map parameters
 map_name = 'RCA1'
@@ -97,5 +113,5 @@ waypoints_df = pd.read_csv(path_dir(waypoints_file))
 extrema, min, max = get_extrema(waypoints_df, '# s_m', ' vx_mps')
 
 dir_path = path_dir(map_dir)
-save_extrema_to_yaml(extrema, min, max, dir_path)
+save_extrema_to_csv(extrema, map_name, min, max, dir_path)
 

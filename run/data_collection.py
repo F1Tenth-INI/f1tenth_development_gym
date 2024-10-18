@@ -9,9 +9,9 @@ import subprocess
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA2'
+Settings.MAP_NAME = 'hangar9'
 
-Settings.EXPERIMENT_LENGTH = 300  
+Settings.EXPERIMENT_LENGTH = 3000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
 
 # Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
@@ -26,7 +26,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "test1"
+Settings.DATASET_NAME = "PP_hangar12_hangar9_no_delay"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'pp'
@@ -38,23 +38,18 @@ Settings.RENDER_MODE = None
 # Dont touch:
 Settings.SAVE_RECORDINGS = True 
 Settings.SAVE_PLOTS = True
-Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
+Settings.APPLY_SPEED_SCALING_FROM_CSV = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 5
+runs_without_obstacles = 10
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [ 0.6, 0.8, 1.0, 1.1]
-global_surface_friction_values = [ 0.7]
+global_waypoint_velocity_factors = [ 0.5, 0.4, 0.6, 0.7]
+global_surface_friction_values = [0.5, 0.7, 0.8, 0.9, 0.3]
 zero_angle_offset_values = [0.0]
 reverse_direction_values = [False, True]
 big_loop = 1
 
 
-# Settings for tuning before recoriding
-# Comment out during data collection
-# Settings.EXPERIMENT_LENGTH = 1000  
-# global_waypoint_velocity_factors = [0.8]
-# Settings.RENDER_MODE = "human_fast"
 if big_loop == 1:
     for reverse_direction in reverse_direction_values:
         

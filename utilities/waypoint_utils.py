@@ -331,7 +331,7 @@ class WaypointUtils:
         else:
             path_reverse  = ''
         global_limit = 10
-        if Settings.APPLY_SPEED_SCALING_FROM_YAML:
+        if Settings.APPLY_SPEED_SCALING_FROM_CSV:
             
             # Check if file exists, otherwise create very simple sample file
             speed_scaling_pth = os.path.join(self.map_path,Settings.MAP_NAME +"_"+'speed_scaling'+path_reverse+'.csv')
