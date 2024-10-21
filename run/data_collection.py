@@ -9,7 +9,7 @@ import subprocess
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'hangar9'
+Settings.MAP_NAME = 'RCA1'
 
 Settings.EXPERIMENT_LENGTH = 3000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
@@ -26,7 +26,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "PP_hangar12_hangar9_no_delay"
+Settings.DATASET_NAME = "NigalsanSim2"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'pp'
@@ -41,10 +41,12 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_CSV = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 10
+# runs_without_obstacles = 10
+runs_without_obstacles = 80
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [ 0.5, 0.4, 0.6, 0.7]
-global_surface_friction_values = [0.5, 0.7, 0.8, 0.9, 0.3]
+global_waypoint_velocity_factors = [0.5, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0]
+# global_surface_friction_values = [0.5, 0.7, 0.8, 0.9, 0.3, 0.4, 0.6, 1.0]
+global_surface_friction_values = [0.4]
 zero_angle_offset_values = [0.0]
 reverse_direction_values = [False, True]
 big_loop = 1

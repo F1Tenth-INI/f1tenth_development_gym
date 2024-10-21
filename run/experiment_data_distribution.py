@@ -92,7 +92,7 @@ validate_distribution = 0.1
 
 # Change to desired directory in Experiment
 root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "/MPPI-pacejka"
+experiment_dir = "/NigalsanSim1"
 
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"

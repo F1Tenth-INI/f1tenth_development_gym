@@ -124,7 +124,7 @@ def distribute_files_to_subfolders(folder_path, probabilities, shift_values, col
                 print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
 
 # parameter to modify
-folder_path = 'ExperimentRecordings'
+folder_path = 'SI_Toolkit_ASF/Experiments/NigalsanSim1/Recordings/Validate'
 probabilities = [0.65, 0.35]
 shift_values = [-3, -4]
 column_names = ['angular_control_calculated', 'translational_control_calculated']
