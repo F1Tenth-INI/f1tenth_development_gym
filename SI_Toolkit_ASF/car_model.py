@@ -431,6 +431,8 @@ class car_model:
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, self.v_switch)
         pos_limit = self.lib.where(velocity_too_high_indices, (self.a_max * self.v_switch) / vel, self.a_max)
+        # The warning of division by zero appearing above is not relevant,
+        # as for small velocities self.a_max, not (self.a_max * self.v_switch) / vel is used.
 
         # mbakka commented the following paragraph
         """
