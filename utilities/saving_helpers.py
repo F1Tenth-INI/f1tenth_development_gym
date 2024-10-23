@@ -40,7 +40,7 @@ def save_experiment_data(csv_filepath):
 
     if not os.path.exists(save_path):
         os.mkdir(save_path)
-    df = pd.read_csv(csv_filepath, header=0, skiprows=range(0, 8))
+    df = pd.read_csv(csv_filepath, comment='#')
 
     # read out all states
 
