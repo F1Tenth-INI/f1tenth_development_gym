@@ -1,39 +1,36 @@
-
-
+import os
+import gym
 import time
 import yaml
-import gym
+
 import numpy as np
-from argparse import Namespace
+import pandas as pd
 
 from tqdm import trange
-from utilities.Settings import Settings
-from utilities.Recorder import Recorder
-from utilities.car_system import CarSystem
-from utilities.car_files.vehicle_parameters import VehicleParameters
+from argparse import Namespace
+
+from f110_gym.envs.base_classes import wrap_angle_rad
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
-import pandas as pd
-import os
+from utilities.Settings import Settings
+from utilities.car_system import CarSystem
+from utilities.random_obstacle_creator import RandomObstacleCreator
+from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.saving_csv_header import augment_csv_header_with_laptime
+from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
+from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
+from utilities.state_utilities import (
+    STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
+    full_state_alphabetical_to_original, full_state_original_to_alphabetical)
 
-from f110_gym.envs.dynamic_models import pid
-from f110_gym.envs.base_classes import wrap_angle_rad
-from utilities.waypoint_utils import *
 
-# Utilities
-from utilities.state_utilities import * 
-from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
-
-from time import sleep
 
 if Settings.DISABLE_GPU:
-    import os
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
+Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
-Settings.ROS_BRIDGE = False # No ros bridge if this script is running
-
-control_noise = [0,0]
+control_noise = [0, 0]
 
 
 # Noise Level can now be set in Settings.py
@@ -339,43 +336,31 @@ def main():
                     # Save all recordings
                     driver.recorder.push_on_buffer()
                     driver.recorder.save_csv()
-                    driver.recorder.save_experiment_data()
-                    driver.recorder.move_csv_to_crash_folder()
+                    path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
+                    move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
                     raise Exception("The car has crashed.")
 
         # End of controller time step
-        if (Settings.SAVE_RECORDINGS):
+        if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(drivers):
-                if(driver.save_recordings):
+                if driver.save_recordings:
                     driver.recorder.push_on_buffer()
                     
                     if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
-                        if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
+                        if simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0:
                             driver.recorder.save_csv()
-                            driver.recorder.save_experiment_data()
+                            save_experiment_data(driver.recorder.csv_filepath)
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
-    
-    # Adding Laptime to the recordings
-    stop_timer_after_n_laps = str(Settings.STOP_TIMER_AFTER_N_LAPS)
-    if laptime - 3*Settings.TIMESTEP_CONTROL <= obs['lap_times'][0]:
-        lap_timee = str(round(laptime,3)) + ' s (uncomplete)'
-    else:
-        lap_timee = str(round(obs['lap_times'][0],3)) + ' s'
-    N_laptime = '# ' + stop_timer_after_n_laps + '-laptime: ' + lap_timee 
-        
-    # End of similation
-    if (Settings.SAVE_RECORDINGS):
-        driver.recorder.save_custom_csv(N_laptime)
-        for index, driver in enumerate(drivers):
-            if(driver.save_recordings):
-                driver.recorder.save_csv()
 
-    if Settings.SAVE_RECORDINGS and Settings.SAVE_PLOTS:
-        driver.recorder.save_custom_csv(N_laptime)
+    # End of similation
+    if Settings.SAVE_RECORDINGS:
         for index, driver in enumerate(drivers):
-            if(driver.save_recordings):
-                driver.recorder.save_experiment_data()
+            if driver.save_recordings:
+                augment_csv_header_with_laptime(laptime, obs, Settings, driver.recorder.csv_filepath)
+                driver.recorder.save_csv()
+                if Settings.SAVE_PLOTS:
+                    save_experiment_data(driver.recorder.csv_filepath)
     
     env.close()
 
