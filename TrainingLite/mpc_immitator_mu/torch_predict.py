@@ -18,7 +18,7 @@ import yaml
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
-model_name = "tGRU_6_stateful3"
+model_name = "tGRU7_b16_files_shuf_mpc2"
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
@@ -43,6 +43,8 @@ with open(experiment_path + '/models/'+model_name+'/network.yaml', 'r') as file:
 
 mu_history = []
 input_history = []
+
+
 
 
 
@@ -72,6 +74,8 @@ class GRUNetwork(nn.Module):
         self.hidden_size = hidden_size
         self.gru1 = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
+        
+        self.hidden = self.reset_hidden_state(1)
 
     def forward(self, x, hidden):
         out, hidden = self.gru1(x, hidden)
@@ -102,7 +106,6 @@ model.eval()
 
 
 
-
 def predict(input):
     # Assume `X_new` is the new input data you want to make predictions on
     # Preprocess the data (e.g., scaling it)
@@ -117,11 +120,12 @@ def predict(input):
 
 
     # Reset the hidden state for the new input
-    hidden = model.reset_hidden_state(X_new_tensor.size(0))
+    # hidden = model.reset_hidden_state(X_new_tensor.size(0))
+    # hidden = model.init_hidden_state(1)
 
     # Perform inference
     with torch.no_grad():
-        output, hidden = model(X_new_tensor, hidden)
+        output, model.hidden = model(X_new_tensor, model.hidden)
 
     # Inverse transform the output (if scaling was used)
     predictions = output_scaler.inverse_transform(output.cpu().numpy())
