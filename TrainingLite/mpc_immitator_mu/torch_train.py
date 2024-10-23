@@ -14,16 +14,20 @@ import zipfile
 from joblib import dump
 import yaml
 
+from tqdm import trange
 
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "tGRU_6_stateful4"
+model_name = "tLSTM7_b16_files_shuf_mpc2"
 dataset_name = "_MPC_Noise2"
 seq_length = 1
 washout_steps = 0
-number_of_epochs = 5
-shuffle_data = False
+number_of_epochs = 20
+batch_size = 16
+
+
+shuffle_data = True
 train_on_output_sequences = False
 
 base_dir = os.path.join(experiment_path, 'models')
@@ -57,12 +61,30 @@ for i, file in enumerate(csv_files):
     df = df[df['d_pose_x'] <= 20.]
     df = df[df['d_pose_y'] <= 20.]
 
-    # if i % 2 == 0:
+    df['source'] = file
+    
+    # if i % 4 == 0:
     #     df_list.append(df)
     df_list.append(df)
 
 
 df = pd.concat(df_list, ignore_index=True)
+file_change_indices = df.index[df['source'].ne(df['source'].shift())].tolist()
+
+
+batches = []
+
+
+# batch = []
+# for i in range(3):  # Adjust the range as needed
+#     batch.append(df.iloc[i][index])
+
+
+# for i, df in enumerate(df_list):
+#     batch.append(df.iloc[i][index])
+    
+    
+
 df = df.dropna()
 
 # Define input and output columns
@@ -112,18 +134,23 @@ y_val_tensor = torch.tensor(y_val, dtype=torch.float32)
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=False)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+losses = []
 
 class GRUNetwork(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_layers=2):
+    def __init__(self, input_size, output_size):
         super(GRUNetwork, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.gru1 = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
+
+        self.num_layers = 2
+        self.hidden_size = 64
+        
+        self.gru1 = nn.GRU(input_size, self.hidden_size, num_layers=self.num_layers , batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x, hidden):
+        # print(hidden)
         out, hidden = self.gru1(x, hidden)
         out = self.fc(out[:, -1, :])  # Take the output at the last time step
         return out, hidden
@@ -137,42 +164,99 @@ class GRUNetwork(nn.Module):
 
 
       
-input_size = X_train.shape[1]
+input_size = len(input_cols)
 output_size = len(output_cols)
 hidden_size = 64
-batch_size = 32
 
 
 # Initialize the model
-model = GRUNetwork(input_size, hidden_size, output_size, num_layers=2)
+model = GRUNetwork(input_size, output_size)
 model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
 
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
+
+# Cut training data suchthat it is dividable by batch size (all batches have the same size)
+num_batches = len(X_train) // batch_size
+X_train = X_train[:num_batches * batch_size]
+y_train = y_train[:num_batches * batch_size]
+
 # Training loop
+train_losses = []
+val_losses = []
+
+print(f"Training {model_name} started.")
+
+
+def shuffle_by_files(X_train, y_train, file_change_indices):
+    # Function to split arrays at given indices
+    def split_at_indices(arr, indices):
+        return np.split(arr, indices)
+
+    # Split X_train and Y_train at file_change_indices
+    X_train_splits = split_at_indices(X_train, file_change_indices)
+    y_train_splits = split_at_indices(y_train, file_change_indices)
+
+    # Shuffle the sequences
+    shuffled_indices = np.random.permutation(len(X_train_splits))
+    X_train_shuffled = [X_train_splits[i] for i in shuffled_indices]
+    y_train_shuffled = [y_train_splits[i] for i in shuffled_indices]
+
+    # Concatenate the shuffled sequences back together
+    X_train = np.concatenate(X_train_shuffled)
+    y_train = np.concatenate(y_train_shuffled)
+
+    # Update file_change_indices
+    file_change_indices = np.cumsum([len(seq) for seq in X_train_shuffled[:-1]])
+    
+    return X_train, y_train, file_change_indices
+
+# Epoch loop
 for epoch in range(number_of_epochs):
+    
     model.train()
-    
+
     hidden = model.reset_hidden_state(batch_size)  # Initialize hidden state once per epoch
+
+    if shuffle_data:
+        X_train, y_train, file_change_indices = shuffle_by_files(X_train, y_train, file_change_indices)
     
-    # Loop over batches
-    for i in range(0, len(X_train), batch_size):
-        X_batch = torch.tensor(X_train[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
-        y_batch = torch.tensor(y_train[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
+    
+    
+    # Batch loop
+    with trange(0, len(X_train), batch_size, desc=f"Epoch {epoch+1}/{number_of_epochs}") as pbar:
+        for i in pbar:
+            
+            
+            num_batches = len(X_train) / batch_size
+            
+            X_batch = torch.tensor(X_train[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
+            y_batch = torch.tensor(y_train[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
 
-        # Adjust hidden state size to match current batch size (in case the last batch is smaller)
-        hidden = model.reset_hidden_state(X_batch.size(0))  # Adjust batch size dynamically
+    
+            
+            for value in file_change_indices:
+                if i <= value <= i+batch_size:
+                    hidden = model.reset_hidden_state(X_batch.size(0))
+                    break # discard batches that overlap file borders
+                    
+            
+            optimizer.zero_grad()
+            outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
+            loss = criterion(outputs, y_batch)
+            
 
-        optimizer.zero_grad()
-        outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
-        loss = criterion(outputs, y_batch)
 
-        loss.backward()
-        optimizer.step()
-
-        # Detach hidden state to prevent backprop through time
-        hidden = hidden.detach()
+            loss.backward()
+            optimizer.step()
+            hidden = hidden.detach()
+            
+            # print losses during training
+            pbar.set_postfix(loss=f"{loss.item():.5f}")
+            
+            train_losses.append(loss.item())
+            
 
     # Validation step
     model.eval()
@@ -192,7 +276,25 @@ for epoch in range(number_of_epochs):
             hidden_val = hidden_val.detach()
 
     val_loss /= len(X_val) / batch_size
+    val_losses.append(val_loss)
     print(f"Epoch [{epoch+1}/{number_of_epochs}], Validation Loss: {val_loss}")
+    torch.save(model.state_dict(), os.path.join(model_dir, "gru_model.pth"))
 
 # Save the model
 torch.save(model.state_dict(), os.path.join(model_dir, "gru_model.pth"))
+
+# Plot the loss values
+plt.figure(figsize=(10, 5))
+plt.plot(train_losses, label='Training Loss')
+plt.plot(val_losses, label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Training and Validation Loss')
+plt.grid(True)
+plt.savefig(os.path.join(model_dir, 'loss_plot.png'))
+
+print(f"Model {model_name} training completed successfully")
+
+
+
