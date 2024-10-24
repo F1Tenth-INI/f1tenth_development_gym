@@ -143,11 +143,11 @@ class WaypointUtils:
             next_waypoints_including_ignored.append(next_waypoint)
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
         
-        self.next_waypoints = next_waypoints_including_ignored[self.ignore_steps:]
+        self.next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
         self.current_waypoint_cache = next_waypoints_including_ignored
         
         self.next_waypoint_positions = WaypointUtils.get_waypoint_positions(self.next_waypoints)
-        self.next_waypoint_positions_relative = WaypointUtils.get_relative_positions(self.next_waypoints, car_state)
+        self.next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(self.next_waypoints, car_state)
         self.nearest_waypoint_index = nearest_waypoint_index
 
     def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
