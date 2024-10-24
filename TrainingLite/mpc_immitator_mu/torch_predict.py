@@ -22,6 +22,9 @@ from utilities.waypoint_utils import *
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir)
 from TrainingHelper import TrainingHelper
+from TorchNetworks import LSTM as Network
+
+
 model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test_dataloader"
 
 experiment_path = os.path.dirname(os.path.realpath(__file__))
@@ -46,31 +49,13 @@ def predict_next_control(s, waypoints_relative, waypoints):
     return control
 
 # Recreate the model class with LSTM
-class Network(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_layers=2):
-        super(Network, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)
-        
-        self.hidden = self.reset_hidden_state(1)
 
-    def forward(self, x, hidden):
-        out, hidden = self.lstm(x, hidden)
-        out = self.fc(out[:, -1, :])  # Take the output at the last time step
-        return out, hidden
-
-    def reset_hidden_state(self, batch_size):
-        device = next(self.parameters()).device
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device),
-                torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device))
 
 # Specify the model parameters (same as during training)
 input_size = len(network_yaml["input_cols"])  # Number of input features
 output_size = len(network_yaml["output_cols"])  # Number of output features
-hidden_size = 64
-num_layers = 2
+hidden_size = network_yaml["hidden_size"]
+num_layers = network_yaml["num_layers"]
 
 # Create an instance of the model
 model = Network(input_size, hidden_size, output_size, num_layers)
