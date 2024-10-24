@@ -159,6 +159,31 @@ class ExperimentAnalyzer:
         ax.set_title('Position error with Recording of '+controller_name+' and waypoints on '+ self.map_name)
         ax.boxplot(self.position_errors)    
         plt.savefig(os.path.join(self.experiment_data_path, "position_error_boxplot.png" ))
+
+
+        # Plot estimated mu along track        
+        try:
+            
+            mus = self.recording['mu'].values
+            mus_predicted = self.recording['mu_predicted'].values
+            mu_error = mus_predicted - mus
+            max_abs_mu_error = np.max(np.abs(mu_error[10:]))
+
+        
+            plt.clf()   
+            plt.figure(figsize=(8, 6), dpi=150)
+            # Cut away first 10 values because they are not accurate and mess up color scale
+            sc = plt.scatter(recorded_x[10:], recorded_y[10:], c=mu_error[10:], cmap='seismic', vmin=-max_abs_mu_error, vmax=max_abs_mu_error, label="Position")
+            plt.colorbar(sc, label='Mu error')
+            plt.xlabel('X Position')
+            plt.ylabel('Y Position')
+            plt.title(f'Car Position with Mu Predicted ({Settings.SURFACE_FRICITON})')
+            plt.legend()
+            plt.savefig(os.path.join(self.experiment_data_path, "mu_predicted.png" ))
+        except Exception as e:
+            print(f"Warning: No mu values found in recording: {e}")
+
+
     
     def save_error_stats(self):
         error_stats = self.get_error_stats()

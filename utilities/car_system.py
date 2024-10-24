@@ -186,6 +186,9 @@ class CarSystem:
         self.planner.imu_data = imu_array
         imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
+        if hasattr(self.planner, 'mu_predicted'):
+            imu_dict['mu_predicted'] = self.planner.mu_predicted
+        
         
         ranges = np.array(ranges)
         self.LIDAR.load_lidar_measurement(ranges)
