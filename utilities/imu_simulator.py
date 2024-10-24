@@ -9,6 +9,8 @@ class IMUSimulator:
     dx_idx = 0
     dy_idx = 1
     dtheta_idx = 2
+
+    imu_dict_keys = ['imu_dd_x', 'imu_dd_y', 'imu_dd_yaw']
  
     def __init__(self):
         

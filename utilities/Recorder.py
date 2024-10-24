@@ -1,164 +1,215 @@
-"""
-This is the class saving data for F1TENTH
-"""
-
-import csv
 import numpy as np
 
-from utilities.Settings import Settings
-from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
-from utilities.state_utilities import STATE_VARIABLES, ANGULAR_CONTROL_IDX, TRANSLATIONAL_CONTROL_IDX
+from SI_Toolkit.General.data_manager import DataManager
+from SI_Toolkit.Functions.FunctionalDict import FunctionalDict
 
-from utilities.saving_csv_header import create_csv_header
+from utilities.Settings import Settings
+from utilities.state_utilities import STATE_VARIABLES
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
+from utilities.csv_logger import create_csv_file_name, create_csv_header, create_csv_file
+
 from utilities.path_helper_ros import get_gym_path
-gym_path = get_gym_path()
+gym_path = get_gym_path()  # FIXME: Do we need it here?
 
 rounding_decimals = 5
 
-
 class Recorder:
-    def __init__(self, recorder_index=None):
+    def __init__(self, driver):
 
-        # Settings
+        self.driver = driver
+
+        self.dict_data_to_save_basic = FunctionalDict(get_basic_data_dict(driver))
+
+        self.data_to_save_measurement = {}
+        self.data_to_save_controller = {}
+
+        self.data_manager = DataManager(create_csv_file, rounding_decimals)
+
+        self.csv_name = None
+        self.recording_length = rounding_decimals
+        self.start_recording_flag = False  # Gives signal to start recording during the current control iteration, starting recording may take more than one control iteration
+
+        self.recording_mode = Settings.RECORDING_MODE
         self.path_to_experiment_recordings = Settings.RECORDING_FOLDER
-        self.rounding_decimals = 3
+        self.time_limited_recording_length = Settings.TIME_LIMITED_RECORDING_LENGTH
 
-        # Init
-        self.headers_already_saved = False
+        self.dt = Settings.TIMESTEP_CONTROL
+
+        self.controller_info = ''
+
         self.csv_filepath = None
 
-        self.dict_to_save = dict()
-        self.dict_buffer = []  # Buffer to save dicts on RAM instead of disk
+    def step(self):
+        self.csv_recording_step()
 
-        controller_name = Settings.CONTROLLER
-        controller_name = controller_name if recorder_index is None else controller_name + '-' + str(recorder_index)
-        
-        if not self.path_to_experiment_recordings.endswith('/'):
-            self.path_to_experiment_recordings += '/'
-        self.csv_filepath, self.experiment_name = create_csv_header(
+    @property
+    def recording_running(self):
+        return self.data_manager.recording_running
+
+    @property
+    def starting_recording(self):
+        return self.data_manager.starting_recording
+
+    def start_csv_recording(self, time_limited_recording=False):
+        self.recording_on_off(time_limited_recording)
+        self.start_csv_recording_if_requested()
+
+    def recording_on_off(self, time_limited_recording=False):
+        # (Exclude situation when recording is just being initialized, it may take more than one control iteration)
+        if not self.starting_recording:
+            if not self.recording_running:
+
+                self.controller_info = self.driver.controller_name
+
+                self.csv_name = create_csv_file_name(Settings)
+
+                if time_limited_recording:
+                    self.recording_length = self.time_limited_recording_length
+                else:
+                    self.recording_length = np.inf
+
+                self.start_recording_flag = True
+
+            else:
+                self.finish_csv_recording(wait_till_complete=True)
+
+
+    def start_csv_recording_if_requested(self):
+
+        if self.start_recording_flag:
+            self.start_recording_flag = False
+            combined_keys = list(self.dict_data_to_save_basic.keys()) + list(
+                self.data_to_save_measurement.keys()) + list(self.data_to_save_controller.keys())
+
+            self.data_manager.start_csv_recording(
+                self.csv_name,
+                combined_keys,
+                None,
+                create_csv_header(Settings, self.controller_info, self.dt),
                 self.path_to_experiment_recordings,
-                controller_name,
-                Settings.TIMESTEP_CONTROL,
+                mode=self.recording_mode,
+                wait_till_complete=True,
+                recording_length=self.recording_length
             )
-    
-    '''
-    Pass data to the recorder:
-    The recorder builds up a dictionary, which is saved every timestep.
-    For some complex or required data types, the creation uf the dict is already implemented ( time, state, next_waypoints, etc)
-    For non pre defined data, you can use custom_dict.
-    @param custom_dict: dictionary, is appended at the end of the recording
-    
-    Note: set_data will not save the data. Make sure you call Recorder.push_on_buffer() after set_data
-    Note: Also make sure to call save_csv at the end of the simulation
-    '''
-    def set_data(
-            self, 
-            time=None,                          # float32
-            control_inputs_applied=None,        # Control Input (float32)[2]
-            control_inputs_calculated=None,     # Control Input (float32)[2]
-            odometry=None,                      # Dict???
-            lidar_ranges=None,                  # Lidar Ranges (float32)[0:1080]
-            lidar_indices=None,                 # Lidar Indices between 0 and 1080 (int32)[0:1080]
-            state=None,                         # Car State (float32)[9]
-            next_waypoints=None, 
-            next_waypoints_relative=None,
-            custom_dict = None):                # Custom Dictionary appended to the recording data
-        
-        data_dict = dict() 
-        
-        if(time is not None):
-            data_dict['time'] = time
-            
-        if(state is not None):
-            for index, state_variable in enumerate(STATE_VARIABLES):
-                data_dict[state_variable] = state[index]
-        
-        if(control_inputs_applied is not None):
-            data_dict['angular_control_applied'] = control_inputs_applied[ANGULAR_CONTROL_IDX]
-            data_dict['translational_control_applied'] = control_inputs_applied[TRANSLATIONAL_CONTROL_IDX]
-            
-        if(control_inputs_calculated is not None):
-            data_dict['angular_control_calculated'] = control_inputs_calculated[ANGULAR_CONTROL_IDX]
-            data_dict['translational_control_calculated'] = control_inputs_calculated[TRANSLATIONAL_CONTROL_IDX]
-        
-        if(next_waypoints is not None):
-            waypoint_dict = get_next_waypoints_dict(next_waypoints)
-            data_dict.update(waypoint_dict)
-        
-        if(next_waypoints_relative is not None):
-            waypoint_relative_dict = get_next_waypoints_relative_dict(next_waypoints_relative)
-            data_dict.update(waypoint_relative_dict)
+            self.csv_filepath = self.data_manager.csv_filepath
 
-        if(lidar_ranges is not None and lidar_indices is not None):
-            lidar_names = ['LIDAR_' + str(i).zfill(4) for i in lidar_indices]
-            lidar_dict = dict(zip(lidar_names, lidar_ranges))
-            data_dict.update(lidar_dict)
-        
-        if(custom_dict is not None):
-            data_dict.update(custom_dict)
+    def csv_recording_step(self):
+        if self.recording_running:
+            self.data_manager.step([
+                self.dict_data_to_save_basic,
+                self.data_to_save_measurement,
+                self.data_to_save_controller
+            ])
 
-        self.dict_to_save.update(data_dict)
-
-    
-    '''
-    Push data passed by Recorder.set_data() to the data buffer on RAM (very fast)
-    '''
-    def push_on_buffer(self,): # Do at every control stel
-        self.dict_buffer.append(self.dict_to_save.copy())
-    
-    '''
-    Save data buffer array to CSV
-    Please only call once in a while but not every timestep
-    Dont forget to call at the end of simulation
-    '''
-    def save_csv(self):
-
-        # Save this dict
-        with open(self.csv_filepath, "a") as outfile:
-            writer = csv.writer(outfile)
-
-            if not self.headers_already_saved:
-                
-                if len(self.dict_buffer) > 0:
-                    writer.writerow(self.dict_buffer[-1].keys())
-                    self.headers_already_saved = True
-
-            for single_dict in self.dict_buffer:
-                single_dict = {key: np.around(value, self.rounding_decimals) for key, value in single_dict.items()}
-                writer.writerow([float(x) for x in single_dict.values()])
-        self.dict_buffer = []
+    def finish_csv_recording(self, wait_till_complete=True):
+        if self.recording_running:
+            self.data_manager.finish_experiment(wait_till_complete=wait_till_complete)
+        self.recording_length = np.inf
 
 
-def get_next_waypoints_dict(next_waypoints):
 
-    waypoints_x_to_save = next_waypoints[:, WP_X_IDX]
-    waypoints_y_to_save = next_waypoints[:, WP_Y_IDX]
-    waypoints_vel_to_save = next_waypoints[:, WP_VX_IDX]
+def get_basic_data_dict(driver):
+    # The below dict lists variables to be logged with csv file when recording is on
+    # Just add new variable here and it will be logged
+    time_dict = {
+        'time': lambda: driver.time,
+    }
 
-    # Initialise
-    keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
-    keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
-    keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+    state_dict = {
+        state_variable: (lambda index=idx: driver.car_state[index])
+        for idx, state_variable in enumerate(STATE_VARIABLES)
+    }
 
-    next_waypoints_dict = dict(zip(keys_next_x_waypoints, waypoints_x_to_save))
-    next_waypoints_dict.update(zip(keys_next_y_waypoints, waypoints_y_to_save))
-    next_waypoints_dict.update(zip(keys_next_vx_waypoints, waypoints_vel_to_save))
+    control_input_calculated_dict = {
+        'angular_control_calculated': lambda: driver.angular_control,
+        'translational_control_calculated': lambda: driver.translational_control,
+    }
+
+    # Creating lidar_names based on indices
+    lidar_names = ['LIDAR_' + str(i).zfill(4) for i in driver.LIDAR.processed_scan_indices]
+
+    # Creating lidar_ranges_dict with lambda functions that retrieve current lidar values
+    lidar_ranges_dict = {
+        lidar_name: (lambda index=idx: driver.LIDAR.processed_scans[index])
+        for idx, lidar_name in enumerate(lidar_names)
+    }
+
+    next_waypoints_dict = get_next_waypoints_dict(driver)
+    next_waypoints_relative_dict = get_next_waypoints_relative_dict(driver)
+
+    imu_dict = {
+        key: (lambda k=key: driver.current_imu_dict[k])
+        for key in driver.current_imu_dict.keys()
+    }
+
+    # Combine all dictionaries into one
+    combined_dict = {
+        **time_dict,
+        **state_dict,
+        **control_input_calculated_dict,
+        **lidar_ranges_dict,
+        **next_waypoints_dict,
+        **next_waypoints_relative_dict,
+        **imu_dict,
+    }
+
+    return combined_dict
+
+
+def get_next_waypoints_dict(driver):
+
+    # Retrieve the next waypoints
+    next_waypoints = driver.waypoint_utils.next_waypoints
+
+    # Initialise keys for X, Y, and Velocity waypoints
+    num_waypoints = next_waypoints.shape[0]  # Assuming waypoints are rows in a 2D array
+    keys_next_x_waypoints = ['WYPT_X_' + str(i).zfill(2) for i in range(num_waypoints)]
+    keys_next_y_waypoints = ['WYPT_Y_' + str(i).zfill(2) for i in range(num_waypoints)]
+    keys_next_vx_waypoints = ['WYPT_VX_' + str(i).zfill(2) for i in range(num_waypoints)]
+
+    # Create dictionary with lambda functions to dynamically retrieve the X values
+    next_waypoints_dict = {
+        key: (lambda index=idx: next_waypoints[index, WP_X_IDX])
+        for idx, key in enumerate(keys_next_x_waypoints)
+    }
+
+    # Update dictionary with lambda functions for Y values
+    next_waypoints_dict.update({
+        key: (lambda index=idx: driver.waypoint_utils.next_waypoints[index, WP_Y_IDX])
+        for idx, key in enumerate(keys_next_y_waypoints)
+    })
+
+    # Update dictionary with lambda functions for Velocity (VX) values
+    next_waypoints_dict.update({
+        key: (lambda index=idx: driver.waypoint_utils.next_waypoints[index, WP_VX_IDX])
+        for idx, key in enumerate(keys_next_vx_waypoints)
+    })
 
     return next_waypoints_dict
 
 
-def get_next_waypoints_relative_dict(next_waypoints_relative):
 
-    waypoints_to_save = np.array(next_waypoints_relative[::Settings.INTERPOLATION_STEPS])
-    waypoints_x_to_save = waypoints_to_save[:, 0]
-    waypoints_y_to_save = waypoints_to_save[:, 1]
+def get_next_waypoints_relative_dict(driver):
 
-    # Initialise
-    keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(len(waypoints_x_to_save))]
-    keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(len(waypoints_y_to_save))]
+    next_waypoints_relative = driver.waypoint_utils.next_waypoint_positions_relative
 
-    next_waypoints_dict = dict(zip(keys_next_x_waypoints_rel, waypoints_x_to_save))
-    next_waypoints_dict.update(zip(keys_next_y_waypoints_rel, waypoints_y_to_save))
+    num_waypoints = np.array(next_waypoints_relative[::Settings.INTERPOLATION_STEPS]).shape[0]  # Number of waypoints (rows)
 
-    return next_waypoints_dict
+    # Initialise keys for next X and Y waypoints relative using the number of waypoints
+    keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(num_waypoints)]
+    keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(num_waypoints)]
 
+    # Create dictionary with lambda functions to dynamically retrieve the values
+    next_waypoints_relative_dict = {
+        key: (lambda:
+              driver.waypoint_utils.next_waypoint_positions_relative[::Settings.INTERPOLATION_STEPS][idx][0])
+        for idx, key in enumerate(keys_next_x_waypoints_rel)
+    }
+
+    next_waypoints_relative_dict.update({
+        key: (lambda:
+              driver.waypoint_utils.next_waypoint_positions_relative[::Settings.INTERPOLATION_STEPS][idx][1])
+        for idx, key in enumerate(keys_next_y_waypoints_rel)
+    })
+
+    return next_waypoints_relative_dict

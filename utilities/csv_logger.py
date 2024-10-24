@@ -14,66 +14,103 @@ except ModuleNotFoundError:
     pass
 
 
-def create_csv_header(path_to_recordings,
-                      controller_name,
-                      dt,
-                      csv_name=None):
+def create_csv_file(
+        csv_name=None,
+        keys=None,
+        path_to_experiment_recordings=None,
+        title=None,
+        header=None
+):
 
     # Make folder to save data (if not yet existing)
-    Path(path_to_recordings).mkdir(parents=True, exist_ok=True)
+    Path(path_to_experiment_recordings).mkdir(parents=True, exist_ok=True)
 
-    # Set path where to save the data
+    csv_filepath = os.path.join(path_to_experiment_recordings, csv_name)
+    # If such file exists, append index to the end (do not overwrite)
+    csv_filepath = csv_append_index_if_file_exists(csv_filepath)
+
+    with open(csv_filepath, "a", newline='') as outfile:
+        writer = csv.writer(outfile)
+        writer.writerows(header)
+
+        writer.writerow(keys)
+
+    return csv_filepath
+
+
+def csv_append_index_if_file_exists(csv_filepath):
+    """
+    Checks if the file at the given file exists.
+    If it does, appends an index to the file name and checks again.
+    Repeats until a non-existing file name is found.
+    Returns the new file name.
+    Args:
+        csv_filepath:
+
+    Returns:
+        csv_filepath:
+    """
+    index = 1
+    logpath_new = csv_filepath
+    while True:
+        if os.path.isfile(logpath_new):
+            logpath_new = csv_filepath[:-4]
+        else:
+            csv_filepath = logpath_new
+            break
+        logpath_new = logpath_new + '-' + str(index) + '.csv'
+        index += 1
+    return csv_filepath
+
+
+def create_csv_file_name(Settings, csv_name=None):
     if csv_name is None or csv_name == '':
 
         dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(
             int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
             Settings.SURFACE_FRICITON)
-        experiment_name = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S')) + Settings.DATASET_NAME + '_' + dataset_name
-        csv_filepath = os.path.join(path_to_recordings, experiment_name + '.csv')
+        timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + dataset_name + '.csv'
     else:
-        csv_filepath = csv_name
         if csv_name[-4:] != '.csv':
-            csv_filepath += '.csv'
+            csv_name += '.csv'
+        csv_file_name = csv_name
 
-        # If such file exists, append index to the end (do not overwrite)
-        net_index = 1
-        logpath_new = csv_filepath
-        while True:
-            if os.path.isfile(logpath_new):
-                logpath_new = csv_filepath[:-4]
-            else:
-                csv_filepath = logpath_new
-                break
-            logpath_new = logpath_new + '-' + str(net_index) + '.csv'
-            net_index += 1
+    return csv_file_name
 
-    # Write the header of .csv file
-    with open(csv_filepath, "a", newline='') as outfile:
-        writer = csv.writer(outfile)
 
-        writer.writerow(['# ' + 'This is F1TENTH simulation from {} at time {}'
-                        .format(datetime.now().strftime('%d.%m.%Y'), datetime.now().strftime('%H:%M:%S'))])
-        try:
-            repo = Repo()
-            git_revision = repo.head.object.hexsha
-        except:
-            git_revision = 'unknown'
-        writer.writerow(['# ' + 'Done with git-revision: {}'
-                        .format(git_revision)])
 
-        writer.writerow(['# Starting position :', *np.array(Settings.STARTING_POSITION).tolist()])
 
-        writer.writerow(['# Timestep: {} s'.format(dt)])
+def create_csv_header(Settings, controller_name, dt):
 
-        writer.writerow(['# Speedfactor {}'.format(Settings.GLOBAL_WAYPOINT_VEL_FACTOR)])
+    # Initialize a list to store all rows to be written to the CSV header
+    header = []
 
-        writer.writerow(['# Controller: {}'.format(controller_name)])
+    # Append rows to the list
+    header.append([
+                        f'# This is F1TENTH simulation from {datetime.now().strftime("%d.%m.%Y")} at time {datetime.now().strftime("%H:%M:%S")}'])
 
-        writer.writerow(['#'])
-        writer.writerow(['# Data:'])
+    try:
+        repo = Repo()
+        git_revision = repo.head.object.hexsha
+    except:
+        git_revision = 'unknown'
 
-    return csv_filepath, experiment_name
+    header.append([f'# Done with git-revision: {git_revision}'])
+
+    header.append([f'# Starting position :', *np.array(Settings.STARTING_POSITION).tolist()])
+
+    header.append([f'# Timestep: {dt} s'])
+
+    header.append([f'# Speedfactor {Settings.GLOBAL_WAYPOINT_VEL_FACTOR}'])
+
+    header.append([f'# Controller: {controller_name}'])
+
+    header.append(['#'])
+    header.append(['# Data:'])
+
+    return header
 
 
 def augment_csv_header(s: str, p: str, i: int = 0, after_header: bool = False):

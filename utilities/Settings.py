@@ -44,6 +44,8 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
     DATASET_NAME = "Recording1"
+    RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
+    TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
 
     # Oponents

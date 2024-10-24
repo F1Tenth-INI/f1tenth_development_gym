@@ -16,7 +16,7 @@ from utilities.Settings import Settings
 from utilities.car_system import CarSystem
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.saving_csv_header import augment_csv_header_with_laptime
+from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
 from utilities.state_utilities import (
@@ -38,6 +38,8 @@ def add_noise(x, noise_level=1.0):
     return x+noise_level*np.random.uniform(-1.0, 1.0)
 
 
+control_with_noise = np.zeros(2)
+
 
 def main():
     """
@@ -56,7 +58,7 @@ def main():
     # overwrite config.yaml files 
     map_config_file = Settings.MAP_CONFIG_FILE
     
-    vehicle_parameters = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+    vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
 
     # First planner settings
@@ -210,6 +212,19 @@ def main():
     current_time_in_simulation = 0.0
     cars = [env.sim.agents[i] for i in range(number_of_drivers)]
     obs, step_reward, done, info = env.reset(poses=np.array(starting_positions) )
+
+    for index, driver in enumerate(drivers):
+        if Settings.SAVE_RECORDINGS and driver.save_recordings:
+            driver.recorder.dict_data_to_save_basic.update(
+                {
+                    'translational_control_applied': lambda: control_with_noise[0],
+                    'angular_control_applied': lambda: control_with_noise[1],
+                    'v_y': lambda: env.sim.agents[index].state[StateIndices.v_y],
+                    'mu': lambda: vehicle_parameters_instance.mu,
+                    # 'estimated_mu': lambda: driver.estimated_mu,
+                }
+            )
+            driver.recorder.start_csv_recording()
     
     # Set Starting position for Settings
     
@@ -291,22 +306,9 @@ def main():
             
         for index, driver in enumerate(drivers):
 
-            control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
+            control_with_noise[:] = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
-            
-            
-            if (Settings.SAVE_RECORDINGS):
-                if(driver.save_recordings):
-                    driver.recorder.set_data(
-                        custom_dict={
-                            'v_y': env.sim.agents[index].state[StateIndices.v_y],
-                            'translational_control_applied':control_with_noise[0],
-                            'angular_control_applied':control_with_noise[1],
-                            'mu': vehicle_parameters.mu,
-                            #'estimated_mu': driver.estimated_mu,
-                        }
-                    )
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         # Add zero angle offset to the steering angle
@@ -333,23 +335,21 @@ def main():
             # Collision ends simulation
             if Settings.CRASH_DETECTION:
                 if obs['collisions'][0] == 1:
-                    # Save all recordings
-                    driver.recorder.push_on_buffer()
-                    driver.recorder.save_csv()
-                    path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
-                    move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
+                    for index, driver in enumerate(drivers):
+                        if Settings.SAVE_RECORDINGS and driver.save_recordings:
+                            driver.recorder.finish_csv_recording()
+                            if Settings.SAVE_PLOTS:
+                                path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
+                            else:
+                                path_to_plots = None
+                            move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
                     raise Exception("The car has crashed.")
 
         # End of controller time step
         if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(drivers):
                 if driver.save_recordings:
-                    driver.recorder.push_on_buffer()
-                    
-                    if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
-                        if simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0:
-                            driver.recorder.save_csv()
-                            save_experiment_data(driver.recorder.csv_filepath)
+                    driver.recorder.step()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
 
@@ -357,8 +357,9 @@ def main():
     if Settings.SAVE_RECORDINGS:
         for index, driver in enumerate(drivers):
             if driver.save_recordings:
-                augment_csv_header_with_laptime(laptime, obs, Settings, driver.recorder.csv_filepath)
-                driver.recorder.save_csv()
+                if driver.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
+                    augment_csv_header_with_laptime(laptime, obs, Settings, driver.recorder.csv_filepath)
+                driver.recorder.finish_csv_recording()
                 if Settings.SAVE_PLOTS:
                     save_experiment_data(driver.recorder.csv_filepath)
     
