@@ -5,16 +5,21 @@ import glob
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+import yaml
+from typing import Optional
+from joblib import load
 
 from joblib import dump
 
 
 class TrainingHelper:
-    def __init__(self, experiment_path: str, model_name: str, dataset_name: str):
+    def __init__(self, experiment_path: str, model_name: str, dataset_name: Optional[str] = None):
         
+        self.model_name = model_name
         self.experiment_path = experiment_path
         self.model_dir = os.path.join(experiment_path,'models', model_name)
-        self.dataset_dir = os.path.join(experiment_path, '..','Datasets', dataset_name)
+        if dataset_name:
+            self.dataset_dir = os.path.join(experiment_path, '..','Datasets', dataset_name)
   
         return
     
@@ -40,7 +45,7 @@ class TrainingHelper:
         return
  
  
-    def load_dataset(self):
+    def load_dataset(self, reduce_size_by: int = 1):
         csv_files = glob.glob(self.dataset_dir + '/*.csv')
         df_list = []
         for i, file in enumerate(csv_files):
@@ -60,14 +65,34 @@ class TrainingHelper:
 
             df['source'] = file
             
-            # if i % 4 == 0:
-            #     df_list.append(df)
-            df_list.append(df)
+            if i % reduce_size_by == 0:
+                df_list.append(df)
+            # df_list.append(df)
 
 
         df = pd.concat(df_list, ignore_index=True)
         file_change_indices = df.index[df['source'].ne(df['source'].shift())].tolist()
         return df, file_change_indices
+    
+    def shuffle_dataset_by_files(self, X, y, file_change_indices):
+ 
+        # Split X_train and Y_train at file_change_indices
+        X_splits = np.split(X, file_change_indices)
+        y_splits = np.split(y, file_change_indices)
+
+        # Shuffle the sequences
+        shuffled_indices = np.random.permutation(len(X_splits))
+        X_shuffled = [X_splits[i] for i in shuffled_indices]
+        y_shuffled = [y_splits[i] for i in shuffled_indices]
+
+        # Concatenate the shuffled sequences back together
+        X = np.concatenate(X_shuffled)
+        y = np.concatenate(y_shuffled)
+
+        # Update file_change_indices
+        file_change_indices = np.cumsum([len(seq) for seq in X_shuffled[:-1]])
+        
+        return X, y, file_change_indices
     
     
     def fit_trainsform_save_scalers(self, X, y):
@@ -85,5 +110,15 @@ class TrainingHelper:
         
         return X, y
                 
-
-        
+    def save_network_metadata(self, input_cols, output_cols):
+        cols_dict = {"input_cols": input_cols, "output_cols": output_cols}
+        with open(self.model_dir+'/network.yaml', 'w') as file:
+            yaml.dump(cols_dict, file)
+        return
+    
+    def load_network_meta_data_and_scalers(self):
+        input_scaler = load(self.experiment_path + '/models/' + self.model_name + '/input_scaler.joblib')
+        output_scaler = load(self.experiment_path + '/models/' + self.model_name + '/output_scaler.joblib')
+        with open(self.experiment_path + '/models/' + self.model_name + '/network.yaml', 'r') as file:
+            network_yaml = yaml.safe_load(file)
+        return network_yaml, input_scaler, output_scaler
