@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -12,22 +13,22 @@ import glob
 import shutil
 import zipfile
 from joblib import load
-
 import yaml
 
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
-model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr"
+
+current_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(current_dir)
+from TrainingHelper import TrainingHelper
+model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test_dataloader"
 
 experiment_path = os.path.dirname(os.path.realpath(__file__))
 
-# Load the model
-model_dir = experiment_path + '/models/' + model_name
-input_scaler = load(experiment_path + '/models/' + model_name + '/input_scaler.joblib')
-output_scaler = load(experiment_path + '/models/' + model_name + '/output_scaler.joblib')
-with open(experiment_path + '/models/' + model_name + '/network.yaml', 'r') as file:
-    network_yaml = yaml.safe_load(file)
+
+training_helper = TrainingHelper(experiment_path, model_name)
+network_yaml, input_scaler, output_scaler = training_helper.load_network_meta_data_and_scalers()
 
 mu_history = []
 input_history = []
@@ -75,7 +76,7 @@ num_layers = 2
 model = Network(input_size, hidden_size, output_size, num_layers)
 
 # Load the saved model state dictionary
-model.load_state_dict(torch.load(os.path.join(model_dir, "model.pth")))
+model.load_state_dict(torch.load(os.path.join(training_helper.model_dir, "model.pth")))
 
 # Transfer the model to the appropriate device (GPU or CPU)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -85,20 +86,19 @@ model = model.to(device)
 model.eval()
 
 def predict(input):
-    # Assume `X_new` is the new input data you want to make predictions on
-    # Preprocess the data (e.g., scaling it)
-    X_new = [input]
-    X_new_scaled = input_scaler.transform(X_new)
+
+    X = [input]
+    X_scaled = input_scaler.transform(X)
 
     # Convert the preprocessed data into a PyTorch tensor
-    X_new_tensor = torch.tensor(X_new_scaled, dtype=torch.float32).unsqueeze(1)  # Add sequence length dimension
+    X_tensor = torch.tensor(X_scaled, dtype=torch.float32).unsqueeze(1)  # Add sequence length dimension
 
     # Move the tensor to the same device as the model
-    X_new_tensor = X_new_tensor.to(next(model.parameters()).device)
+    X_tensor = X_tensor.to(next(model.parameters()).device)
 
     # Perform inference
     with torch.no_grad():
-        output, model.hidden = model(X_new_tensor, model.hidden)
+        output, model.hidden = model(X_tensor, model.hidden)
 
     # Inverse transform the output (if scaling was used)
     predictions = output_scaler.inverse_transform(output.cpu().numpy())

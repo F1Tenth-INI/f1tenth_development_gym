@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -8,14 +9,18 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import yaml
-from  TrainingHelper import TrainingHelper
 
 from tqdm import trange
+
+current_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(current_dir)
+from  TrainingHelper import TrainingHelper
+
 
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test"
+model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test_dataloader"
 dataset_name = "_MPC_Noise2"
 seq_length = 1
 washout_steps = 0
@@ -35,7 +40,7 @@ training_helper.create_and_clear_model_folder(model_dir)
 training_helper.save_training_scripts(os.path.realpath(__file__))
 
 
-df, file_change_indices = training_helper.load_dataset()
+df, file_change_indices = training_helper.load_dataset(reduce_size_by=10)
 
 batches = []
 
@@ -49,16 +54,16 @@ wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 20)]
 input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols
 output_cols = ["angular_control_calculated", "translational_control_calculated", "mu"]
 
+
+# Shift output to counter act delay
 for col in ["angular_control_calculated", "translational_control_calculated"]:
     df[col] = df[col].shift(-4)
 
 df = df.dropna()
 
 
-cols_dict = {"input_cols": input_cols, "output_cols": output_cols}
-with open(model_dir+'/network.yaml', 'w') as file:
-    yaml.dump(cols_dict, file)
-    
+training_helper.save_network_metadata(input_cols, output_cols)
+
 
 # Scaling input and output data
 X = df[input_cols].to_numpy()
@@ -72,6 +77,8 @@ X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_st
 
 features = X_train.shape[1]  # Number of input features
 
+
+# Prepare dataset for torch
 X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
 y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
 X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
@@ -133,29 +140,6 @@ val_losses = []
 print(f"Training {model_name} started.")
 
 
-def shuffle_by_files(X_train, y_train, file_change_indices):
-    # Function to split arrays at given indices
-    def split_at_indices(arr, indices):
-        return np.split(arr, indices)
-
-    # Split X_train and Y_train at file_change_indices
-    X_train_splits = split_at_indices(X_train, file_change_indices)
-    y_train_splits = split_at_indices(y_train, file_change_indices)
-
-    # Shuffle the sequences
-    shuffled_indices = np.random.permutation(len(X_train_splits))
-    X_train_shuffled = [X_train_splits[i] for i in shuffled_indices]
-    y_train_shuffled = [y_train_splits[i] for i in shuffled_indices]
-
-    # Concatenate the shuffled sequences back together
-    X_train = np.concatenate(X_train_shuffled)
-    y_train = np.concatenate(y_train_shuffled)
-
-    # Update file_change_indices
-    file_change_indices = np.cumsum([len(seq) for seq in X_train_shuffled[:-1]])
-    
-    return X_train, y_train, file_change_indices
-
 # Epoch loop
 for epoch in range(number_of_epochs):
     
@@ -164,32 +148,43 @@ for epoch in range(number_of_epochs):
     hidden = model.reset_hidden_state(batch_size)  # Initialize hidden state once per epoch
 
     if shuffle_data:
-        X_train, y_train, file_change_indices = shuffle_by_files(X_train, y_train, file_change_indices)
+        X_train, y_train, file_change_indices = training_helper.shuffle_dataset_by_files(X_train, y_train, file_change_indices)
+        
+    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
     
     # Batch loop
-    with trange(0, len(X_train), batch_size, desc=f"Epoch {epoch+1}/{number_of_epochs}") as pbar:
-        for i in pbar:
+    with trange(0, len(X_train), batch_size, desc=f"Epoch {epoch+1}/{number_of_epochs}") as progress_bar_loop:
+        for i in progress_bar_loop:
             
-            num_batches = len(X_train) / batch_size
+            # Select batch from training data
+            X_batch = X_train_tensor[i:i+batch_size]
+            y_batch = y_train_tensor[i:i+batch_size]
             
-            X_batch = torch.tensor(X_train[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
-            y_batch = torch.tensor(y_train[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
-
+            # Add sequence dimension (not used -> 1)
+            X_batch = X_batch.unsqueeze(1)
+            
+            # Send to device
+            X_batch = X_batch.to(model.fc.weight.device)
+            y_batch = y_batch.to(model.fc.weight.device)
+            
+            # Check if batch overlaps file borders and reset internal state
             for value in file_change_indices:
                 if i <= value <= i+batch_size:
                     hidden = model.reset_hidden_state(X_batch.size(0))
                     break  # discard batches that overlap file borders
             
-            optimizer.zero_grad()
+            optimizer.zero_grad() #clear existing gradients from previous epoch
+            
             outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
             loss = criterion(outputs, y_batch)
 
-            loss.backward()
+            loss.backward() # compute new gradients of current ba
             optimizer.step()
             hidden = (hidden[0].detach(), hidden[1].detach())
             
             # print losses during training
-            pbar.set_postfix(loss=f"{loss.item():.5f}")
+            progress_bar_loop.set_postfix(loss=f"{loss.item():.5f}")
             
             train_losses.append(loss.item())
 
