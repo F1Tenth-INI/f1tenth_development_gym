@@ -15,7 +15,7 @@ from tqdm import trange
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir)
 from  TrainingHelper import TrainingHelper
-
+from TorchNetworks import LSTM as Network
 
 
 # Setup experiment paths and parameters
@@ -40,7 +40,7 @@ training_helper.create_and_clear_model_folder(model_dir)
 training_helper.save_training_scripts(os.path.realpath(__file__))
 
 
-df, file_change_indices = training_helper.load_dataset(reduce_size_by=10)
+df, file_change_indices = training_helper.load_dataset(reduce_size_by=1)
 
 batches = []
 
@@ -62,7 +62,6 @@ for col in ["angular_control_calculated", "translational_control_calculated"]:
 df = df.dropna()
 
 
-training_helper.save_network_metadata(input_cols, output_cols)
 
 
 # Scaling input and output data
@@ -92,35 +91,19 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 losses = []
 
-class Network(nn.Module):
-    def __init__(self, input_size, output_size):
-        super(Network, self).__init__()
-
-        self.num_layers = 2
-        self.hidden_size = 64
-        
-        self.lstm = nn.LSTM(input_size, self.hidden_size, num_layers=self.num_layers, batch_first=True)
-        self.fc = nn.Linear(self.hidden_size, output_size)
-
-    def forward(self, x, hidden):
-        out, hidden = self.lstm(x, hidden)
-        out = self.fc(out[:, -1, :])  # Take the output at the last time step
-        return out, hidden
-
-    def reset_hidden_state(self, batch_size):
-        # Use model's parameters to get the device
-        device = next(self.parameters()).device
-        return (torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device),
-                torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device))
 
 
 input_size = len(input_cols)
 output_size = len(output_cols)
-hidden_size = 64
+hidden_size = 128
+num_layers = 3
 
 
 # Initialize the model
-model = Network(input_size, output_size)
+model = Network(input_size, hidden_size, output_size, num_layers)
+training_helper.save_network_metadata(input_cols, output_cols, model)
+
+
 model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
 
 criterion = nn.MSELoss()
