@@ -4,22 +4,18 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import glob
-import shutil
-import zipfile
-from joblib import dump
 import yaml
+from  TrainingHelper import TrainingHelper
 
 from tqdm import trange
 
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "tLSTM7_b16_files_shuf_mpc2"
+model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test"
 dataset_name = "_MPC_Noise2"
 seq_length = 1
 washout_steps = 0
@@ -30,60 +26,18 @@ batch_size = 16
 shuffle_data = True
 train_on_output_sequences = False
 
-base_dir = os.path.join(experiment_path, 'models')
-model_dir = os.path.join(base_dir, model_name)
-if os.path.exists(model_dir):
-    shutil.rmtree(model_dir)
-os.makedirs(model_dir, exist_ok=True)
-
-# Zip the training script for reconstruction
-this_file_path = os.path.realpath(__file__)
-zip_file_path = os.path.join(model_dir, 'train.py.zip')
-with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    zipf.write(this_file_path, arcname=os.path.basename(this_file_path))
-
-# Load CSV files and preprocess data
-csv_files = glob.glob(experiment_path + '/../Datasets/' + dataset_name + '/*.csv')
-
-df_list = []
-for i, file in enumerate(csv_files):
-    df = pd.read_csv(file, comment='#')
-    df['pose_theta_cos'] = np.cos(df['pose_theta'])
-    df['pose_theta_sin'] = np.sin(df['pose_theta'])
-    df['d_time'] = df['time'].diff()
-
-    state_variables = ['angular_vel_z', 'linear_vel_x', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_theta', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
-    for var in state_variables:
-        df['d_' + var] = df[var].diff() / df['d_time']
-
-    df = df[df['d_angular_vel_z'] <= 60]
-    df = df[df['linear_vel_x'] <= 20]
-    df = df[df['d_pose_x'] <= 20.]
-    df = df[df['d_pose_y'] <= 20.]
-
-    df['source'] = file
-    
-    # if i % 4 == 0:
-    #     df_list.append(df)
-    df_list.append(df)
+model_dir = os.path.join(experiment_path,'models', model_name)
+dataset_dir = os.path.join(experiment_path,'..','Datasets', dataset_name)
 
 
-df = pd.concat(df_list, ignore_index=True)
-file_change_indices = df.index[df['source'].ne(df['source'].shift())].tolist()
+training_helper = TrainingHelper(experiment_path, model_name, dataset_name)
+training_helper.create_and_clear_model_folder(model_dir)
+training_helper.save_training_scripts(os.path.realpath(__file__))
 
+
+df, file_change_indices = training_helper.load_dataset()
 
 batches = []
-
-
-# batch = []
-# for i in range(3):  # Adjust the range as needed
-#     batch.append(df.iloc[i][index])
-
-
-# for i, df in enumerate(df_list):
-#     batch.append(df.iloc[i][index])
-    
-    
 
 df = df.dropna()
 
@@ -110,16 +64,8 @@ with open(model_dir+'/network.yaml', 'w') as file:
 X = df[input_cols].to_numpy()
 y = df[output_cols].to_numpy()
 
-input_scaler = MinMaxScaler(feature_range=(-1, 1))
-output_scaler = MinMaxScaler(feature_range=(-1, 1))
 
-X = input_scaler.fit_transform(X)
-y = output_scaler.fit_transform(y)
-
-
-# save the scaler for denormalization
-dump(input_scaler, model_dir+'/input_scaler.joblib')
-dump(output_scaler, model_dir+'/output_scaler.joblib')
+X, y = training_helper.fit_trainsform_save_scalers(X, y)
 
 # Split the data
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -139,45 +85,43 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 losses = []
 
-class GRUNetwork(nn.Module):
+class Network(nn.Module):
     def __init__(self, input_size, output_size):
-        super(GRUNetwork, self).__init__()
+        super(Network, self).__init__()
 
         self.num_layers = 2
         self.hidden_size = 64
         
-        self.gru1 = nn.GRU(input_size, self.hidden_size, num_layers=self.num_layers , batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)
+        self.lstm = nn.LSTM(input_size, self.hidden_size, num_layers=self.num_layers, batch_first=True)
+        self.fc = nn.Linear(self.hidden_size, output_size)
 
     def forward(self, x, hidden):
-        # print(hidden)
-        out, hidden = self.gru1(x, hidden)
+        out, hidden = self.lstm(x, hidden)
         out = self.fc(out[:, -1, :])  # Take the output at the last time step
         return out, hidden
 
     def reset_hidden_state(self, batch_size):
         # Use model's parameters to get the device
         device = next(self.parameters()).device
-        return torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device)
+        return (torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device),
+                torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device))
 
 
-
-
-      
 input_size = len(input_cols)
 output_size = len(output_cols)
 hidden_size = 64
 
 
 # Initialize the model
-model = GRUNetwork(input_size, output_size)
+model = Network(input_size, output_size)
 model = model.to('cuda' if torch.cuda.is_available() else 'cpu')
 
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
 
 
-# Cut training data suchthat it is dividable by batch size (all batches have the same size)
+# Cut training data such that it is divisible by batch size (all batches have the same size)
 num_batches = len(X_train) // batch_size
 X_train = X_train[:num_batches * batch_size]
 y_train = y_train[:num_batches * batch_size]
@@ -222,41 +166,32 @@ for epoch in range(number_of_epochs):
     if shuffle_data:
         X_train, y_train, file_change_indices = shuffle_by_files(X_train, y_train, file_change_indices)
     
-    
-    
     # Batch loop
     with trange(0, len(X_train), batch_size, desc=f"Epoch {epoch+1}/{number_of_epochs}") as pbar:
         for i in pbar:
-            
             
             num_batches = len(X_train) / batch_size
             
             X_batch = torch.tensor(X_train[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
             y_batch = torch.tensor(y_train[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
 
-    
-            
             for value in file_change_indices:
                 if i <= value <= i+batch_size:
                     hidden = model.reset_hidden_state(X_batch.size(0))
-                    break # discard batches that overlap file borders
-                    
+                    break  # discard batches that overlap file borders
             
             optimizer.zero_grad()
             outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
             loss = criterion(outputs, y_batch)
-            
-
 
             loss.backward()
             optimizer.step()
-            hidden = hidden.detach()
+            hidden = (hidden[0].detach(), hidden[1].detach())
             
             # print losses during training
             pbar.set_postfix(loss=f"{loss.item():.5f}")
             
             train_losses.append(loss.item())
-            
 
     # Validation step
     model.eval()
@@ -273,15 +208,24 @@ for epoch in range(number_of_epochs):
             val_outputs, hidden_val = model(X_batch_val, hidden_val)
             val_loss += criterion(val_outputs, y_batch_val).item()
 
-            hidden_val = hidden_val.detach()
+            hidden_val = (hidden_val[0].detach(), hidden_val[1].detach())
 
     val_loss /= len(X_val) / batch_size
     val_losses.append(val_loss)
     print(f"Epoch [{epoch+1}/{number_of_epochs}], Validation Loss: {val_loss}")
-    torch.save(model.state_dict(), os.path.join(model_dir, "gru_model.pth"))
+    
+    # Reduce LR
+    current_lr = optimizer.param_groups[0]['lr']
+    scheduler.step(val_loss)
+    new_lr = optimizer.param_groups[0]['lr']
+    if new_lr != current_lr:
+        print(f"Learning rate changed from {current_lr} to {new_lr}")
 
-# Save the model
-torch.save(model.state_dict(), os.path.join(model_dir, "gru_model.pth"))
+    # Save the model after every epoch
+    torch.save(model.state_dict(), os.path.join(model_dir, "model.pth"))
+
+# finally save the model
+torch.save(model.state_dict(), os.path.join(model_dir, "model.pth"))
 
 # Plot the loss values
 plt.figure(figsize=(10, 5))
@@ -295,6 +239,3 @@ plt.grid(True)
 plt.savefig(os.path.join(model_dir, 'loss_plot.png'))
 
 print(f"Model {model_name} training completed successfully")
-
-
-
