@@ -110,10 +110,19 @@ class TrainingHelper:
         
         return X, y
                 
-    def save_network_metadata(self, input_cols, output_cols):
-        cols_dict = {"input_cols": input_cols, "output_cols": output_cols}
+    def save_network_metadata(self, input_cols, output_cols, model):
+            
+        cols_dict = {"input_cols": input_cols, 
+                     "output_cols": output_cols,
+                     "input_size": model.input_size,
+                     "output_size": model.output_size, 
+                     "hidden_size": model.hidden_size, 
+                     "num_layers": model.num_layers}
         with open(self.model_dir+'/network.yaml', 'w') as file:
             yaml.dump(cols_dict, file)
+            
+
+
         return
     
     def load_network_meta_data_and_scalers(self):
@@ -122,3 +131,4 @@ class TrainingHelper:
         with open(self.experiment_path + '/models/' + self.model_name + '/network.yaml', 'r') as file:
             network_yaml = yaml.safe_load(file)
         return network_yaml, input_scaler, output_scaler
+    
