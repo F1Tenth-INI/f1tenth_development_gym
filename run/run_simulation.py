@@ -40,13 +40,14 @@ def add_noise(x, noise_level=1.0):
 
 control_with_noise = np.zeros(2)
 
+repeat_because_of_crash = None
 
 def main():
     """
     main entry point
     """
-    
-        
+    global repeat_because_of_crash
+    repeat_because_of_crash = False
     if Settings.REPLAY_RECORDING:
         state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
         time_axis = state_recording['time'].to_numpy()
@@ -343,8 +344,15 @@ def main():
                             else:
                                 path_to_plots = None
                             move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
-                    raise Exception("The car has crashed.")
 
+                    if Settings.REPEAT_IF_CRASHED:
+                        repeat_because_of_crash = True
+                        break
+                    else:
+                        raise Exception("The car has crashed.")
+
+        if repeat_because_of_crash:
+            break
         # End of controller time step
         if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(drivers):
@@ -353,6 +361,9 @@ def main():
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
 
+    if repeat_because_of_crash:
+        env.close()
+        return
     # End of similation
     if Settings.SAVE_RECORDINGS:
         for index, driver in enumerate(drivers):
@@ -371,17 +382,21 @@ def main():
 def run_experiments():
     for i in range(Settings.NUMBER_OF_EXPERIMENTS):
         print('Experiment nr.: {}'.format(i+1))
-        if Settings.EXPERIMENTS_IN_SEPARATE_PROGRAMS:
-            import subprocess
-            import sys
-            program = '''
-from run.run_simulation import main
-main()
-'''
-            result = subprocess.run([sys.executable, "-c", program])
-        else:
-            main()
 
+        global repeat_because_of_crash
+        while repeat_because_of_crash in (True, None):
+            if Settings.EXPERIMENTS_IN_SEPARATE_PROGRAMS:
+                import subprocess
+                import sys
+                program = '''
+    from run.run_simulation import main
+    main()
+    '''
+                result = subprocess.run([sys.executable, "-c", program])
+            else:
+                main()
+
+        repeat_because_of_crash = None
 
 if __name__ == '__main__':
     run_experiments()
