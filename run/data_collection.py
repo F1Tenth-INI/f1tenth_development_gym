@@ -5,8 +5,31 @@ import time
 import os
 import zipfile
 import subprocess 
+import argparse
+
+import numpy as np
 
 
+def args_fun():
+    """
+    This function is for use with Euler cluster to differentiate parallel runs with an index.
+    Returns:
+
+    """
+    parser = argparse.ArgumentParser(description='Generate F1T data.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-i', '--euler_experiment_index', default=-1, type=int,
+                        help='Additional index. -1 to skip.')
+
+
+    args = parser.parse_args()
+
+    if args.euler_experiment_index == -1:
+        args.euler_experiment_index = None
+
+    return args
+
+
+euler_index = args_fun().euler_experiment_index
 
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA1'
@@ -26,10 +49,10 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "NigalsanSim2"
+Settings.DATASET_NAME = "MarcinFineGrained"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
-Settings.CONTROLLER = 'pp'
+Settings.CONTROLLER = 'mpc'
 Settings.CONTROL_AVERAGE_WINDOW = (1, 1)     # Window for avg filter [angular, translational]
 Settings.SURFACE_FRICITON = 0.8
 
@@ -42,15 +65,19 @@ Settings.APPLY_SPEED_SCALING_FROM_CSV = False
 
 runs_with_obstacles = 0
 # runs_without_obstacles = 10
-runs_without_obstacles = 80
+runs_without_obstacles = 1
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.5, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0]
-# global_surface_friction_values = [0.5, 0.7, 0.8, 0.9, 0.3, 0.4, 0.6, 1.0]
-global_surface_friction_values = [0.4]
+
+global_waypoint_velocity_factors_all = np.round(np.arange(0.30, 1.101, 0.01), 2).tolist()
+global_surface_friction_values = np.round(np.arange(0.20, 1.101, 0.01), 2).tolist()
+global_waypoint_velocity_factors = [global_waypoint_velocity_factors_all[(euler_index-1)]]
+
 zero_angle_offset_values = [0.0]
 reverse_direction_values = [False, True]
 big_loop = 1
 
+expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
+print(f"Expected number of experiments: {expected_number_of_experiments}")
 
 if big_loop == 1:
     for reverse_direction in reverse_direction_values:
