@@ -12,6 +12,7 @@ from utilities.Recorder import Recorder
 from utilities.car_system import CarSystem
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from f110_gym.envs.dynamic_models_pacejka import StateIndices
+from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
 
 import pandas as pd
 import os
@@ -253,8 +254,13 @@ def main():
             break
 
         ranges = obs['scans']
-
         for index, driver in enumerate(drivers):
+            if Settings.DYNAMIC_SURFACE_FRICTION[0]:
+                if(simulation_index > Settings.DYNAMIC_SURFACE_FRICTION[1]):
+                    # print("Setting friction to 0.5")
+                    Settings.SURFACE_FRICITON = 0.5
+                    vehicle_parameters.mu = Settings.SURFACE_FRICITON
+                    # env.sim.agents[index].car_model.car_parameters.mu = 0.5
             if Settings.REPLAY_RECORDING:
                 # sleep(0.05)
                 driver.set_car_state(state_recording[simulation_index])
@@ -307,7 +313,7 @@ def main():
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
                             'mu': vehicle_parameters.mu,
-                            #'estimated_mu': driver.estimated_mu,
+                            'estimated_mu': driver.friction,
                         }
                     )
 

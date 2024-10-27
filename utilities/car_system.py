@@ -57,7 +57,7 @@ class CarSystem:
         car_index = 1
         self.scans = None
         self.control_index = 0
-        
+        self.friction = 0
         
         # Utilities 
         self.waypoint_utils = WaypointUtils()
@@ -90,6 +90,7 @@ class CarSystem:
         elif controller == 'neural':
             from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
             self.planner =  NeuralNetImitatorPlanner()
+            self.friction = NeuralNetImitatorPlanner.get_friction(self)
         elif controller == 'nni-lite':
             from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
             self.planner =  NNLitePlanner()
@@ -218,6 +219,7 @@ class CarSystem:
         # Control step 
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
+            self.friction = round(float(self.planner.get_friction()),3)
 
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):

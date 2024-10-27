@@ -55,7 +55,9 @@ class NeuralNetImitatorPlanner(template_planner):
 
         # Starte die Hauptschleife des Fensters
         window.mainloop()
-
+    
+    def get_friction(self):
+        return self.friction
         
     
     
