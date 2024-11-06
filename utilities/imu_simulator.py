@@ -6,25 +6,22 @@ from utilities.state_utilities import *
 class IMUSimulator:
     
     # Indices
-    dx_idx = 0
-    dy_idx = 1
-    dtheta_idx = 2
+    ddx_idx = 0     # Acceleration in x direction
+    ddy_idx = 1     # Acceleration in y direction
+    dyaw_idx = 2    # Angular velocity in z direction
  
     def __init__(self):
         
         # Last car state variables
         self.last_x = 0.0
         self.last_y = 0.0
-        self.last_theta = 0.0
+        self.last_yaw = 0.0
         
-        self.last_dx = 0.0
-        self.last_dy = 0.0
-        self.last_dtheta = 0.0
+        self.last_vx = 0.0
+        self.last_vy = 0.0
+        self.last_avz = 0.0
         
-        
-
-        
-
+    
     def update_car_state(self, car_state, delta_time=Settings.TIMESTEP_CONTROL):
         """
         Update the car state and calculate the acceleration in the car's coordinate frame.
@@ -41,52 +38,40 @@ class IMUSimulator:
         
    
         # Extract current and last state variables
-        current_pose_x = car_state[POSE_X_IDX]
-        current_pose_y = car_state[POSE_Y_IDX]
-        current_yaw = car_state[POSE_THETA_IDX]
+        pose_x = car_state[POSE_X_IDX]
+        pose_y = car_state[POSE_Y_IDX]
+        yaw = car_state[POSE_THETA_IDX]
         
-        # Calculate the change in position
-        delta_pose_x = current_pose_x - self.last_x
-        delta_pose_y = current_pose_y - self.last_y
-        
-        # Calculate the linear velocity based on the change in position
-        current_linear_vel_x = delta_pose_x / delta_time
-        current_linear_vel_y = delta_pose_y / delta_time
+        # Calculate velocity based on the change in position
+        v_x = (pose_x - self.last_x) / delta_time
+        v_y = (pose_y - self.last_y) / delta_time
         
         # Calculate the change in orientation
-        delta_yaw = current_yaw - self.last_theta
+        delta_yaw = yaw - self.last_yaw
         delta_yaw = math.atan2(math.sin(delta_yaw), math.cos(delta_yaw))
+        av_z = delta_yaw / delta_time
         
-        # Calculate the angular velocity based on the change in orientation
-        current_angular_vel_z = delta_yaw / delta_time
-        
-        delta_linear_vel_x = current_linear_vel_x - self.last_dx
-        delta_linear_vel_y = current_linear_vel_y -  self.last_dy
-        delta_angular_vel_z = current_angular_vel_z - self.last_dtheta
-        
-        
-        # Calculate the acceleration in the car's coordinate frame
-        accel_x = delta_linear_vel_x / delta_time
-        accel_y = delta_linear_vel_y / delta_time
-        accel_angular_z = delta_angular_vel_z / delta_time
+        # Calculate the acceleration 
+        a_x = (v_x - self.last_vx) / delta_time
+        a_y = (v_y -  self.last_vy) / delta_time        
         
         # Rotate the acceleration to the car's coordinate frame
-        accel_x_car = accel_x * np.cos(current_yaw) + accel_y * np.sin(current_yaw)
-        accel_y_car = -accel_x * np.sin(current_yaw) + accel_y * np.cos(current_yaw)
+        a_x_car = a_x * np.cos(yaw) + a_y * np.sin(yaw)
+        a_y_car = -a_x * np.sin(yaw) + a_y * np.cos(yaw)
         
         # Print or store the calculated acceleration
-        # print(f"Acceleration in car's frame: accel_x_car={accel_x_car}, accel_y_car={accel_y_car}, accel_angular_z={accel_angular_z}")
+        # print(f"Acceleration in car's frame: accel_x_car={a_x_car}, accel_y_car={a_y_car}, angular_vel_z={av_z}")
         
         # Update the last car state
-        self.last_x = current_pose_x
-        self.last_y = current_pose_y
-        self.last_theta = current_yaw
+        self.last_x = pose_x
+        self.last_y = pose_y
+        self.last_yaw = yaw
         
-        self.last_dx = current_linear_vel_x
-        self.last_dy = current_linear_vel_y
-        self.last_dtheta = current_angular_vel_z
+        self.last_vx = v_x
+        self.last_vy = v_y
+        self.last_avz = av_z
         
-        imu_array = np.array([accel_x_car, accel_y_car, accel_angular_z])
+        imu_array = np.array([a_x_car, a_y_car, av_z])
         return imu_array
     
     
@@ -94,9 +79,9 @@ class IMUSimulator:
     @staticmethod
     def array_to_dict(imu_array):
         imu_dict = {
-            'imu_dd_x': imu_array[IMUSimulator.dx_idx],
-            'imu_dd_y': imu_array[IMUSimulator.dy_idx],
-            'imu_dd_yaw': imu_array[IMUSimulator.dtheta_idx],
+            'imu_a_x': imu_array[IMUSimulator.ddx_idx], 
+            'imu_a_y': imu_array[IMUSimulator.ddy_idx],
+            'imu_av_z': imu_array[IMUSimulator.dyaw_idx],
         }
         
         return imu_dict
