@@ -6,7 +6,6 @@ from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
 
 from Control_Toolkit_ASF.Controllers import template_planner
-from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
 
 # from TrainingLite.mpc_immitator_mu.predict import predict_next_control
 from TrainingLite.mpc_immitator_mu.torch_predict import predict_next_control
@@ -15,7 +14,7 @@ from TrainingLite.mpc_immitator_mu.torch_predict import predict_next_control
 
 class NNLitePlanner(template_planner):
 
-    def __init__(self, speed_fraction=1, batch_size=1):
+    def __init__(self):
 
         print('Loading NNLitePlanner')
 
@@ -29,6 +28,7 @@ class NNLitePlanner(template_planner):
         self.car_state_history = []
         
         self.render_utils = RenderUtils()
+        self.send_to_recorder = None
 
         
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
@@ -38,10 +38,8 @@ class NNLitePlanner(template_planner):
         
         self.control_index = 0
         
+        self.mu_predicted = 0
         self.predicted_frictions = []
-
-
-    
 
     def process_observation(self, ranges=None, ego_odom=None):
         
@@ -64,24 +62,29 @@ class NNLitePlanner(template_planner):
         # self.car_state[SLIP_ANGLE_IDX] = 0 
         
         
-        controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints)
+        
+        
+        controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints, self.imu_data)
         control = controls[0]
         
         # print("control", control)
         
         if len(control) == 3:
 
-            predicted_friction = control[2]
+            predicted_friction = float(control[2].item())
             self.predicted_frictions.append(predicted_friction)
-            
+            self.mu_predicted = predicted_friction
             if len(self.predicted_frictions) > Settings.AVERAGE_WINDOW:
                 self.predicted_frictions.pop(0)
             average_friction = sum(self.predicted_frictions) / len(self.predicted_frictions)
-            self.render_utils.set_label_dict({
-                # '3: slip_angle_predicted': slip_angle_predicted,
-                '5: predicted_friction': average_friction,
-            })
-
+            
+            record_dict = {
+                'predicted_friction': predicted_friction,
+                'average_friction': average_friction,
+                'true_friction': Settings.SURFACE_FRICITON,
+            }
+            self.render_utils.set_label_dict(record_dict)
+            self.mu_predicted=predicted_friction
         
         self.angular_control = control[0]
         self.translational_control = control[1]

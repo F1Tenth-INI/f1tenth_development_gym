@@ -8,9 +8,10 @@ from sklearn.preprocessing import MinMaxScaler
 import yaml
 from typing import Optional
 from joblib import load
-
+from matplotlib import pyplot as plt
 from joblib import dump
-
+import time
+import torch
 
 class TrainingHelper:
     def __init__(self, experiment_path: str, model_name: str, dataset_name: Optional[str] = None):
@@ -22,8 +23,6 @@ class TrainingHelper:
             self.dataset_dir = os.path.join(experiment_path, '..','Datasets', dataset_name)
   
         return
-    
- 
     
     def create_and_clear_model_folder(self, model_dir: str):
         if os.path.exists(model_dir):
@@ -42,8 +41,7 @@ class TrainingHelper:
         with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(this_file_path, arcname=os.path.basename(this_file_path))
             
-        return
- 
+        return 
  
     def load_dataset(self, reduce_size_by: int = 1):
         csv_files = glob.glob(self.dataset_dir + '/*.csv')
@@ -62,6 +60,14 @@ class TrainingHelper:
             df = df[df['linear_vel_x'] <= 20]
             df = df[df['d_pose_x'] <= 20.]
             df = df[df['d_pose_y'] <= 20.]
+            
+            df = df[df['imu_dd_x'] <= 20.]
+            df = df[df['imu_dd_y'] <= 20.]
+            df = df[df['imu_dd_yaw'] <= 20.]
+            
+            df = df[df['imu_dd_x'] >= -20.]
+            df = df[df['imu_dd_y'] >= -20.]
+            df = df[df['imu_dd_yaw'] >= -20.]
 
             df['source'] = file
             
@@ -71,8 +77,29 @@ class TrainingHelper:
 
 
         df = pd.concat(df_list, ignore_index=True)
+        df = df.dropna()
         file_change_indices = df.index[df['source'].ne(df['source'].shift())].tolist()
         return df, file_change_indices
+    
+    def create_histograms(self, df, input_cols, output_cols):
+        
+        print("Creating histograms, might take a while...")
+        for col in df[input_cols]:
+            plt.figure()
+            df[col].hist(bins=100)  # Increase the number of bins to 100
+            plt.title(col)
+            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+
+            time.sleep(0.15)  # Sleep for 50 milliseconds
+            
+        for col in df[output_cols]:
+            plt.figure()
+            df[col].hist(bins=100)  # Increase the number of bins to 100
+            plt.title(col)
+            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+
+            time.sleep(0.15)  # Sleep for 150 milliseconds
+        print("Histograms created.")
     
     def shuffle_dataset_by_files(self, X, y, file_change_indices):
  
@@ -132,3 +159,17 @@ class TrainingHelper:
             network_yaml = yaml.safe_load(file)
         return network_yaml, input_scaler, output_scaler
     
+ 
+    def save_torch_model(self, model, train_losses, val_losses):
+        torch.save(model.state_dict(), os.path.join(self.model_dir, "model.pth"))
+
+        # Plot the loss values
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_losses, label='Training Loss')
+        plt.plot(val_losses, label='Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.title('Training and Validation Loss')
+        plt.grid(True)
+        plt.savefig(os.path.join(self.model_dir, 'loss_plot.png'))

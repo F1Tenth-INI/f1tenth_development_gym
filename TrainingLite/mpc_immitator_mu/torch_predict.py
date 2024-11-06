@@ -3,17 +3,9 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import glob
-import shutil
-import zipfile
+
 from joblib import load
-import yaml
 
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
@@ -25,7 +17,7 @@ from TrainingHelper import TrainingHelper
 from TorchNetworks import LSTM as Network
 
 
-model_name = "tLSTM7_b16_files_shuf_mpc2_reduce_lr_test_dataloader"
+model_name = "tLSTM9_imu_mu_reduce_wp"
 
 experiment_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -36,11 +28,12 @@ network_yaml, input_scaler, output_scaler = training_helper.load_network_meta_da
 mu_history = []
 input_history = []
 
-def predict_next_control(s, waypoints_relative, waypoints):
-    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[POSE_THETA_IDX], s[STEERING_ANGLE_IDX], s[SLIP_ANGLE_IDX]]
-    waypoints_x = waypoints_relative[:, 0]
-    waypoints_y = waypoints_relative[:, 1]
-    waypoints_vx = waypoints[:, WP_VX_IDX]
+def predict_next_control(s, waypoints_relative, waypoints, imu_data):
+    
+    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX], imu_data[0], imu_data[1], imu_data[2]]
+    waypoints_x = waypoints_relative[::3, 0]
+    waypoints_y = waypoints_relative[::3, 1]
+    waypoints_vx = waypoints[::3, WP_VX_IDX]
 
     input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx))
     output = predict(input)
