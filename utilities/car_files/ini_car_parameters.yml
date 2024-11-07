@@ -23,7 +23,7 @@ sv_max: 3.2
 
 # Acceleration Constraints
 a_max: 9.51
-a_min: -3
+a_min: -5
 v_min: -5.0
 v_max: 20
 v_switch: 7.319
