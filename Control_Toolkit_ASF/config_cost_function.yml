@@ -20,10 +20,10 @@ Car:
     velocity_diff_to_waypoints_cost_weight: 0.0
     angular_velocity_cost_weight: 0.01
     angle_difference_to_wp_cost_weight: 0. #1.
-    speed_control_diff_to_waypoints_cost_weight: 0.0 # Penalize difference between desired speed of control and the position's closest waypoint
+    speed_control_diff_to_waypoints_cost_weight: 10.0 # Penalize difference between desired speed of control and the position's closest waypoint
 
-    slipping_cost_weight: 0.00
-    steering_cost_weight: 0.0
+    slipping_cost_weight: 0.01
+    steering_cost_weight: 0.1
     terminal_speed_cost_weight: 0.0
     target_distance_cost_weight: 0.0 #only if you want to follow a target on an empty map
     waypoint_velocity_factor: 1.0 # Dont touch... adjust in maps/speed_scalling.yaml

@@ -48,7 +48,7 @@ class next_state_predictor_ODE():
 
     def _step(self, s, Q):
 
-        s_next = self.env.step_dynamics(s, Q, None)
+        s_next = self.env.step_dynamics(s, Q)
         return s_next
 
 

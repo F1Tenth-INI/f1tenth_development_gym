@@ -316,7 +316,7 @@ class RaceCar(object):
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32) 
         
-            s = self.step_dynamics(s, u, None)[0]
+            s = self.step_dynamics(s, u)[0]
 
             self.state = full_state_alphabetical_to_original(s)
             
@@ -463,7 +463,10 @@ class Simulator(object):
         # get vertices of all agents
         all_vertices = np.empty((self.num_agents, 4, 2))
         for i in range(self.num_agents):
-            all_vertices[i, :, :] = get_vertices(np.append(self.agents[i].state[0:2],self.agents[i].state[4]), self.params['length'], self.params['width'])
+            pos_x = self.agents[i].state[StateIndices.pose_x]
+            pos_y = self.agents[i].state[StateIndices.pose_y]
+            yaw = self.agents[i].state[StateIndices.yaw_angle]
+            all_vertices[i, :, :] = get_vertices(np.append([pos_x, pos_y], yaw), self.params['length'], self.params['width'])
         self.collisions, self.collision_idx = collision_multiple(all_vertices)
 
 
@@ -488,7 +491,10 @@ class Simulator(object):
             agent_scans.append(current_scan)
 
             # update sim's information of agent poses
-            self.agent_poses[i, :] = np.append(agent.state[0:2], agent.state[4])
+            pos_x = agent.state[StateIndices.pose_x]
+            pos_y = agent.state[StateIndices.pose_y]
+            yaw = agent.state[StateIndices.yaw_angle]
+            self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
 
         # check collisions between all agents
         self.check_collision()
