@@ -2,7 +2,6 @@ import yaml
 import math
 from utilities.path_helper_ros import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.state_utilities import *
 from SI_Toolkit.computation_library import NumpyLibrary
 
 from utilities.state_utilities import (
@@ -307,7 +306,7 @@ class car_model:
     def _step_dynamics_pacejka(self, s, Q, params):
         
         # Q: Control after PID (steering velocity: delta_dot, acceleration_x: v_x_dot)
-        
+                
         # params
         mu = self.car_parameters.mu  # friction coefficient  [-]
         lf = self.car_parameters.lf  # distance from center of gravity to front axle [m]
@@ -409,15 +408,8 @@ class car_model:
 
         counter_weights = self.lib.ones(self.lib.shape(weights)) - weights
         counter_weights = self.lib.reshape(counter_weights, [-1, 1]) 
-        
         # Interpolate between the simple and complex models
         next_step = counter_weights * s_next_ks + weights * s_next_ts
-        
-        # Average theta doe not work because we wrap it between -pi, pi, so we need to overwrite it with the atan2 of sin/cos
-        sin_avg = counter_weights * s_next_ks[:, POSE_THETA_SIN_IDX] + weights * s_next_ts[:, POSE_THETA_SIN_IDX]
-        cos_avg = counter_weights * s_next_ks[:, POSE_THETA_COS_IDX] + weights * s_next_ts[:, POSE_THETA_COS_IDX]
-        theta_avg = np.arctan2(sin_avg, cos_avg)
-        next_step[:, POSE_THETA_IDX] = theta_avg
 
         return next_step
 
