@@ -345,7 +345,7 @@ class f1t_cost_function(cost_function_base):
     def normed_discount(self, array_to_discount, model_array, discount_factor):
         discount_vector = self.lib.ones_like(model_array) * discount_factor
         discount_vector = self.lib.cumprod(discount_vector, 0)
-        norm_factor = self.lib.to_tensor(self.lib.sum(self.lib.ones_like(discount_vector), 0), self.lib.float32)/self.lib.sum(discount_vector, 0)
+        norm_factor = self.lib.sum(self.lib.ones_like(discount_vector), 0)/self.lib.sum(discount_vector, 0)
         discount_vector = norm_factor*discount_vector
         return array_to_discount*discount_vector
 

@@ -195,7 +195,14 @@ class DynamicModelPacejka:
         d_pos_y = x[StateIndices.v_x]*math.sin(x[StateIndices.yaw_angle]) + x[StateIndices.v_y]*math.cos(x[StateIndices.yaw_angle])
         d_yaw_angle = x[StateIndices.yaw_rate]
         d_v_x = acceleration_x
+        
+        #  1/m * (F_yr + F_yf): tire force
+        #  x[StateIndices.v_x] * x[StateIndices.yaw_rate] centri petal force
+        #  Slipping occurs if centripetal force and tire forces are not balanced
         d_v_y = 1/m * (F_yr + F_yf) - x[StateIndices.v_x] * x[StateIndices.yaw_rate]
+        
+        # Check if IMU should be abel to read just tire part  1/m * (F_yr + F_yf)
+        
         d_yaw_rate = 1/I_z * (-lr * F_yr + lf * F_yf)
         d_steering_angle = steering_velocity
         
