@@ -316,7 +316,10 @@ class RaceCar(object):
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32) 
         
-            s = self.step_dynamics(s, u)[0]
+            s = self.step_dynamics(s, u)[0] 
+            
+            # wrap yaw angle
+            s[StateIndices.yaw_angle] = wrap_angle_rad(s[StateIndices.yaw_angle])
 
             self.state = full_state_alphabetical_to_original(s)
             

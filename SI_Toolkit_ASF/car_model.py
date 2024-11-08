@@ -223,20 +223,20 @@ class car_model:
         next_step = counter_weights * s_next_ks + weights * s_next_ts
         
     
-        # Wrap angle after model fusion
-        pose_theta = self.lib.atan2(next_step[:, POSE_THETA_SIN_IDX], next_step[:, POSE_THETA_COS_IDX])
+        # # Wrap angle after model fusion
+        # pose_theta = self.lib.atan2(next_step[:, POSE_THETA_SIN_IDX], next_step[:, POSE_THETA_COS_IDX])
         
 
-        return self.next_step_output(   next_step[:, ANGULAR_VEL_Z_IDX],
-                                        next_step[:, LINEAR_VEL_X_IDX],
-                                        next_step[:, LINEAR_VEL_Y_IDX],
-                                        pose_theta,
-                                        next_step[:, POSE_THETA_COS_IDX],
-                                        next_step[:, POSE_THETA_SIN_IDX],
-                                        next_step[:, POSE_X_IDX],
-                                        next_step[:, POSE_Y_IDX],
-                                        next_step[:, SLIP_ANGLE_IDX],
-                                        next_step[:, STEERING_ANGLE_IDX])
+        # return self.next_step_output(   next_step[:, ANGULAR_VEL_Z_IDX],
+        #                                 next_step[:, LINEAR_VEL_X_IDX],
+        #                                 next_step[:, LINEAR_VEL_Y_IDX],
+        #                                 pose_theta,
+        #                                 next_step[:, POSE_THETA_COS_IDX],
+        #                                 next_step[:, POSE_THETA_SIN_IDX],
+        #                                 next_step[:, POSE_X_IDX],
+        #                                 next_step[:, POSE_Y_IDX],
+        #                                 next_step[:, SLIP_ANGLE_IDX],
+        #                                 next_step[:, STEERING_ANGLE_IDX])
      
 
         return next_step
