@@ -43,7 +43,7 @@ from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
 from SI_Toolkit_ASF.car_model import car_model
 from utilities.Settings import Settings
-from utilities.state_utilities import full_state_alphabetical_to_original, full_state_original_to_alphabetical
+from utilities.state_utilities import *
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -319,8 +319,7 @@ class RaceCar(object):
             s = self.step_dynamics(s, u)[0] 
             
             # wrap yaw angle
-            s[StateIndices.yaw_angle] = wrap_angle_rad(s[StateIndices.yaw_angle])
-
+            s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
             self.state = full_state_alphabetical_to_original(s)
             
             
