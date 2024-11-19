@@ -7,7 +7,7 @@ Car:
   racing:
     # cc_weight: 0.05                        # control cost; for mppi, to concord with theory, check that cc, ccrc and R are the same as in config_optimizers.yml
     cc_weight: [0.4, 0.0]
-    ccrc_weight: [10.0, 0.0] # Steering and throttle; penalty of instant control change
+    ccrc_weight: [100.0, 500.0] # Steering and throttle; penalty of instant control change
     ccocrc_weight: [0.0, 0.0] # Steering and throttle; penalizing |∆u(t)-∆u(t-1)|
     icdc_weight: [0.0, 0.0] # Steering and throttle; special penalty to discourage change at the very first control input
 
