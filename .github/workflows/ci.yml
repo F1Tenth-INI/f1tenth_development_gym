@@ -43,3 +43,8 @@ jobs:
         run: python run/ci_test.py
         env:
           CI_TEST: true
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: ExperimentRecordings
+          path: ExperimentRecordings/
