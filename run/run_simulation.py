@@ -20,7 +20,7 @@ from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
 from utilities.state_utilities import (
-    STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
+    STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     full_state_alphabetical_to_original, full_state_original_to_alphabetical)
 
 

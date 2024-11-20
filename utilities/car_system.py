@@ -46,7 +46,8 @@ class CarSystem:
         self.lidar_visualization_color = (255, 0, 255)
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
-        self.current_imu_dict = {key: 0.0 for key in IMUSimulator.imu_dict_keys}
+        self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
+       
 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]

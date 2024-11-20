@@ -4,7 +4,7 @@ modeling:
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/MPC_Noise_1/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/RPGD_Fresh/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -66,9 +66,9 @@ training_default:
       "WYPT_VX_14",
       "angular_vel_z",
       "linear_vel_x",
-      'slip_angle',
-      "steering_angle",
-      # "v_y"
+      "linear_vel_y",
+      # 'slip_angle',
+      # "steering_angle",
     ]
 
   # state_inputs: []
@@ -240,3 +240,5 @@ PRUNING: # TF only for the moment
       frequency_per_epoch: 1000 # fraction of epoch allowed
 
 FILTERS: False
+
+CONFIG_SERIES_MODIFICATION: False
