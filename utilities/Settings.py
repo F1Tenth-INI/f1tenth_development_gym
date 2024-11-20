@@ -23,15 +23,15 @@ class Settings():
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
     # Zero Angle offset
-    ZERO_ANGLE_OFFSET = 0.0  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
+    ZERO_ANGLE_OFFSET = 0.00  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
     
     ## driving behaviour ## 
     START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
-    APPLY_SPEED_SCALING_FROM_CSV = True # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
+    APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
@@ -71,10 +71,10 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
-    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
@@ -85,7 +85,7 @@ class Settings():
 
     ## waypoints generation ##
     MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
-    LOOK_AHEAD_STEPS = 20                    # Number of original waypoints that are considered for cost
+    LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
@@ -128,7 +128,7 @@ class Settings():
     ANALYZE_COST = False # Analyze and plot diufferent parts of the MPC cost
     ANALYZE_COST_PERIOD = 100 # Period for analyzing the cost
     
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 2 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     WAYPOINTS_FROM_MPC = False # Use waypoints generated from MPC instead of the map
     PLAN_EVERY_N_STEPS = 4 # in case of waypoints from MPC, plan the waypoints every Nth step

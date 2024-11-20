@@ -44,7 +44,7 @@ time.sleep(1)
 Settings.CONTROLLER = 'mpc'
 Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
 Settings.CONTROL_DELAY = 0.08
-Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
+Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 2
 
 
 time.sleep(1)

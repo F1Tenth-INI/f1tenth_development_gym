@@ -25,5 +25,6 @@ setup(name='f110_gym',
                         'pynput',
                         'gitpython',
                         'pandas',
+                        'shapely',
                         ]
       )
