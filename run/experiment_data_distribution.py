@@ -6,6 +6,10 @@ from datetime import datetime
 import sys
 import time
 
+
+# This file automatically distributes the data into the SI_Toolkit_ASK experiment recordings folder
+# The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
+
 # Fortschrittszeilenfunktion
 def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, fill='█'):
     """

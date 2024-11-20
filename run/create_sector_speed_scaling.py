@@ -5,6 +5,12 @@ from scipy.signal import find_peaks
 import yaml
 import csv
 
+# This file creates automatic sectors for the map selected in Settings.MAP_NAME.
+# The sectors are created based on the extrema points of the waypoint curvature.
+# Speed is set to 0.5 for all sectors by default.
+
+
+
 # get current working directory
 def path_dir(file_path):
     current_working_dir = os.getcwd()
