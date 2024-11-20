@@ -28,7 +28,7 @@ rpgd-tf:
   rtol: 1.0e-3
   num_rollouts: 32
   opt_keep_k_ratio: 0.75
-  outer_its: 10
+  outer_its: 12
   resamp_per: 5
   #  sample_stdev: 0.2
   #  sample_mean: 0.0

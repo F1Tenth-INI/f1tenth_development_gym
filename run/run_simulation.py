@@ -307,8 +307,9 @@ def main():
             
         for index, driver in enumerate(drivers):
 
-            control_with_noise[:] = np.array([driver.angular_control, driver.translational_control]) + control_noise
-            
+            control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
+            # control_with_noise[:] = np.array([driver.angular_control, driver.translational_control]) + control_noise
+
             agent_control_with_noise.append(control_with_noise)
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
