@@ -5,12 +5,13 @@ import math
 STATE_VARIABLES = np.sort([
     'angular_vel_z',  # x5: yaw rate
     'linear_vel_x',   # x3: velocity in x direction
+    'linear_vel_y',   # x6: velocity in y direction 
     'pose_theta',  # x4: yaw angle
     'pose_theta_cos',
     'pose_theta_sin',
     'pose_x',  # x0: x position in global coordinates
     'pose_y',  # x1: y position in global coordinates
-    'slip_angle',  # x6: slip angle at vehicle center
+    'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
     'steering_angle'  # x2: steering angle of front wheels
 ])
 
@@ -28,6 +29,7 @@ POSE_THETA_SIN_IDX = STATE_INDICES['pose_theta_sin']
 POSE_X_IDX = STATE_INDICES['pose_x']
 POSE_Y_IDX = STATE_INDICES['pose_y']
 LINEAR_VEL_X_IDX = STATE_INDICES['linear_vel_x']
+LINEAR_VEL_Y_IDX = STATE_INDICES['linear_vel_y']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
@@ -51,7 +53,7 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
     s = np.zeros_like(STATE_VARIABLES, dtype=np.float32)
     for i, v in enumerate(STATE_VARIABLES):
-        s[i] = state.get(v) if v in state.keys() else s[i]
+        s[i] = state.get(v) if v in state.keys() else s[ i]
     return s
 
 
@@ -59,17 +61,17 @@ def full_state_original_to_alphabetical(o):
     from f110_gym.envs.dynamic_models_pacejka import StateIndices, ControlIndices
     
     slipping_angle = 0 if o[StateIndices.v_x] == 0 else np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
-    velocity = np.sqrt(o[StateIndices.v_x] ** 2 + o[StateIndices.v_y] ** 2)
-    alphabetical = np.zeros(9)
+    alphabetical = np.zeros(len(STATE_VARIABLES))
     
     alphabetical[ANGULAR_VEL_Z_IDX] = o[StateIndices.yaw_rate]
-    alphabetical[LINEAR_VEL_X_IDX] = velocity
+    alphabetical[LINEAR_VEL_X_IDX] = o[StateIndices.v_x]
+    alphabetical[LINEAR_VEL_Y_IDX] = o[StateIndices.v_y]
     alphabetical[POSE_THETA_IDX] = o[StateIndices.yaw_angle]
     alphabetical[POSE_THETA_COS_IDX] = np.cos(o[StateIndices.yaw_angle])
     alphabetical[POSE_THETA_SIN_IDX] = np.sin(o[StateIndices.yaw_angle])
     alphabetical[POSE_X_IDX] = o[StateIndices.pose_x]
     alphabetical[POSE_Y_IDX] = o[StateIndices.pose_y]
-    alphabetical[SLIP_ANGLE_IDX] = slipping_angle
+    alphabetical[SLIP_ANGLE_IDX] = 0 #slipping_angle
     alphabetical[STEERING_ANGLE_IDX] = o[StateIndices.steering_angle]
     # alphabetical[9] = o[StateIndices.v_y]
     
@@ -80,17 +82,14 @@ def full_state_alphabetical_to_original(a):
     
     from f110_gym.envs.dynamic_models_pacejka import StateIndices, ControlIndices
 
-    v_x = a[LINEAR_VEL_X_IDX] * math.cos(a[SLIP_ANGLE_IDX])
-    v_y = a[LINEAR_VEL_X_IDX] * math.sin(a[SLIP_ANGLE_IDX])
-
     original = np.zeros(7)
-    original[StateIndices.pose_x] = a[5]
-    original[StateIndices.pose_y] = a[6]
-    original[StateIndices.yaw_angle] = a[2]
-    original[StateIndices.v_x] = v_x
-    original[StateIndices.v_y] = v_y
-    original[StateIndices.yaw_rate] = a[0]
-    original[StateIndices.steering_angle] = a[8]
+    original[StateIndices.pose_x] = a[POSE_X_IDX]
+    original[StateIndices.pose_y] = a[POSE_Y_IDX]
+    original[StateIndices.yaw_angle] = a[POSE_THETA_IDX]
+    original[StateIndices.v_x] = a[LINEAR_VEL_X_IDX]
+    original[StateIndices.v_y] = a[LINEAR_VEL_Y_IDX]
+    original[StateIndices.yaw_rate] = a[ANGULAR_VEL_Z_IDX]
+    original[StateIndices.steering_angle] = a[STEERING_ANGLE_IDX]
     # original[7] = a[SLIP_ANGLE_IDX]
     
     return original
@@ -111,3 +110,11 @@ def get_control_limits(clip_control_input):
 
 control_limits_low, control_limits_high = get_control_limits([[-0.8 , -1], [0.8, 18]])
 control_limits_max_abs = np.max(np.vstack((np.abs(control_limits_low), np.abs(control_limits_high))), axis=0)
+
+
+
+class StateUtilities:
+
+    @staticmethod
+    def state_to_dict(s):
+        return {k: s[i] for i, k in enumerate(STATE_VARIABLES)}

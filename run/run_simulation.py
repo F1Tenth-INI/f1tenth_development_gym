@@ -26,7 +26,6 @@ from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle c
 
 from time import sleep
 
-
 if Settings.DISABLE_GPU:
     import os
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -165,17 +164,21 @@ def main():
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
             top, bottom, left, right = max(y), min(y), min(x), max(x)
+            
             e.score_label.x = left
             e.score_label.y = top - 700
             e.left = left - 800
             e.right = right + 800
             e.top = top + 800
             e.bottom = bottom - 800
+            
+            e.info_label.x = left - 150 
+            e.info_label.y = top +750
 
         for driver in drivers:
             if hasattr(driver, 'render'):
                 driver.render(env_renderer)
-
+        
     racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
     
         
@@ -263,12 +266,12 @@ def main():
                 odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
                 # Add Noise to the car state
                 car_state_without_noise = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
-                car_state_with_noise = np.zeros(9)
-                for state_index in range(9):
+                car_state_with_noise = np.zeros(len(STATE_VARIABLES))
+                for state_index in range(len(car_state_with_noise)):
                     car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
                 # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta
-                car_state_with_noise[3] = np.cos(car_state_with_noise[2])
-                car_state_with_noise[4] = np.sin(car_state_with_noise[2])
+                car_state_with_noise[POSE_THETA_COS_IDX] = np.cos(car_state_with_noise[POSE_THETA_COS_IDX])
+                car_state_with_noise[POSE_THETA_SIN_IDX] = np.sin(car_state_with_noise[POSE_THETA_SIN_IDX])
                 
                 driver.set_car_state(car_state_with_noise)
 
@@ -294,7 +297,8 @@ def main():
             control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
             
             agent_control_with_noise.append(control_with_noise)
-                        
+            
+            
             if (Settings.SAVE_RECORDINGS):
                 if(driver.save_recordings):
                     driver.recorder.set_data(
@@ -302,11 +306,16 @@ def main():
                             'v_y': env.sim.agents[index].state[StateIndices.v_y],
                             'translational_control_applied':control_with_noise[0],
                             'angular_control_applied':control_with_noise[1],
-                            'mu': vehicle_parameters.mu
+                            'mu': vehicle_parameters.mu,
+                            #'estimated_mu': driver.estimated_mu,
                         }
                     )
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
+        # Add zero angle offset to the steering angle
+        if Settings.ZERO_ANGLE_OFFSET is not None:
+            env.sim.agents[index].state[StateIndices.steering_angle] = env.sim.agents[index].state[StateIndices.steering_angle] + Settings.ZERO_ANGLE_OFFSET
+            
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
         for i in range(int(intermediate_steps)):
             
@@ -317,8 +326,8 @@ def main():
             controlls = []
             for index, driver in enumerate(drivers):
                 angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
-        
-                controlls.append([angular_control_ecexuted, translational_control_executed]) # Steering velocity, acceleration
+
+                controlls.append([angular_control_ecexuted , translational_control_executed]) # Steering velocity, acceleration
 
             # From here on, controls have to be in [steering angle, speed ]
             obs, step_reward, done, info = env.step(np.array(controlls))
@@ -330,7 +339,7 @@ def main():
                     # Save all recordings
                     driver.recorder.push_on_buffer()
                     driver.recorder.save_csv()
-                    driver.recorder.plot_data()
+                    driver.recorder.save_experiment_data()
                     driver.recorder.move_csv_to_crash_folder()
                     raise Exception("The car has crashed.")
 
@@ -343,7 +352,7 @@ def main():
                     if Settings.SAVE_REVORDING_EVERY_NTH_STEP is not None:
                         if(simulation_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0):
                             driver.recorder.save_csv()
-                            driver.recorder.plot_data()
+                            driver.recorder.save_experiment_data()
 
         current_time_in_simulation += Settings.TIMESTEP_CONTROL
     
@@ -366,7 +375,7 @@ def main():
         driver.recorder.save_custom_csv(N_laptime)
         for index, driver in enumerate(drivers):
             if(driver.save_recordings):
-                driver.recorder.plot_data()
+                driver.recorder.save_experiment_data()
     
     env.close()
 

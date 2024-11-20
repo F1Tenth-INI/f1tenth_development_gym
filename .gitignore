@@ -36,7 +36,7 @@ SI_Toolkit_ASF/Experiments/*
 SI_Toolkit_ASF/Experiments/*
 /PycharmRunConfigurations/*
 
-AnalyseData
+AnalyzeData/Datasets/*
 
 utilities/maps/*
 utilities/maps_files/*
@@ -57,9 +57,13 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 
 
 # TrainingLite
+
 TrainingLite/**/data/*
 TrainingLite/**/models/*
 TrainingLite/**/figures/*
 Datasets/
 
 !TrainingLite/mpc_immitator/models/GRU1-Example
+!TrainingLite/mpc_immitator_mu/models/GRU_Example
+!TrainingLite/slip_prediction/models/GRU_Example
+!TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4

@@ -20,5 +20,9 @@ setup(name='f110_gym',
                         'ruamel.yaml',
                         'pyserial',
                         'matplotlib',
+                        'trajectory_planning_helpers==0.76',
+                        'casadi',
+                        'pynput',
+                        'shapely',
                         ]
       )

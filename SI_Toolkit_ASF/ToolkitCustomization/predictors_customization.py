@@ -1,6 +1,4 @@
-import tensorflow as tf
 
-from SI_Toolkit.Functions.TF.Compile import CompileTF
 
 from utilities.state_utilities import *
 from utilities.Settings import Settings
@@ -18,6 +16,8 @@ class next_state_predictor_ODE():
                  batch_size=1,
                  variable_parameters=None,
                  disable_individual_compilation=False):
+        
+        import tensorflow as tf # Lazy import to avoid 
         self.s = tf.convert_to_tensor(create_car_state())
 
         self.params = None
@@ -32,6 +32,7 @@ class next_state_predictor_ODE():
                 batch_size=batch_size,
                 car_parameter_file=car_parameter_file,
                 dt=dt,
+                computation_lib=lib,
                 intermediate_steps=intermediate_steps,
                                  )  # Environment model, keeping car ODEs
         else:
@@ -42,11 +43,12 @@ class next_state_predictor_ODE():
         if disable_individual_compilation:
             self.step = self._step
         else:
+            from SI_Toolkit.Functions.TF.Compile import CompileTF # Lazy import 
             self.step = CompileTF(self._step)
 
     def _step(self, s, Q):
 
-        s_next = self.env.step_dynamics(s, Q, None)
+        s_next = self.env.step_dynamics(s, Q)
         return s_next
 
 
@@ -98,6 +100,7 @@ class predictor_output_augmentation_tf:
         if disable_individual_compilation:
             self.augment = self._augment
         else:
+            from SI_Toolkit.Functions.TF.Compile import CompileTF # Lazy import
             self.augment = CompileTF(self._augment)
 
     def get_indices_augmentation(self):

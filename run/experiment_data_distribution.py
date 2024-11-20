@@ -92,7 +92,7 @@ validate_distribution = 0.1
 
 # Change to desired directory in Experiment
 root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "MPPI-pacejka"
+experiment_dir = "/MPPI-pacejka"
 
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
@@ -118,7 +118,7 @@ subfolder_data_compression(input_folder)
 csv_files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
 
 # Calculate the number of files for each category
-total_files = len(csv_files)
+total_files = 200 #len(csv_files)
 num_files_train = int(total_files * train_distribution)
 num_files_test = int(total_files * test_distribution)
 num_files_validate = int(total_files * validate_distribution)
@@ -134,8 +134,10 @@ for i, file in enumerate(csv_files):
         destination_folder = output_folder_train
     elif i < num_files_train + num_files_test:
         destination_folder = output_folder_test
-    else:
+    elif i < total_files:
         destination_folder = output_folder_validate
+    else:
+        break
 
     destination_path = os.path.join(destination_folder, file)
     shutil.copy(source_path, destination_path)

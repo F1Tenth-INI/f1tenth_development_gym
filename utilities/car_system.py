@@ -6,6 +6,7 @@ from argparse import Namespace
 from tqdm import trange
 from utilities.Settings import Settings
 from utilities.Recorder import Recorder
+from utilities.imu_simulator import IMUSimulator
 import pandas as pd
                 
 import os
@@ -24,8 +25,8 @@ if(Settings.ROS_BRIDGE):
     from utilities.waypoint_utils_ros import WaypointUtils
 else:
     from utilities.waypoint_utils import WaypointUtils
-from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
-from SI_Toolkit.computation_library import TensorFlowLibrary
+# from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
+# from SI_Toolkit.computation_library import TensorFlowLibrary
 
 # from TrainingLite.slip_prediction import predict
 
@@ -44,6 +45,7 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.LIDAR = LidarHelper()
+        self.imu_simulator = IMUSimulator()
 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -126,15 +128,15 @@ class CarSystem:
 
             if Settings.CONTROLLER == 'mpc':    
                     self.predictor = self.planner.mpc.predictor
-            else:
-                self.predictor = PredictorWrapper()
-                self.predictor.configure(
-                    batch_size=1,
-                    horizon=1,
-                    dt=Settings.TIMESTEP_CONTROL,
-                    computation_library=TensorFlowLibrary,
-                    predictor_specification="neural_parameter_determination"
-                )
+            # else:
+            #     self.predictor = PredictorWrapper()
+            #     self.predictor.configure(
+            #         batch_size=1,
+            #         horizon=1,
+            #         dt=Settings.TIMESTEP_CONTROL,
+            #         computation_library=TensorFlowLibrary,
+            #         predictor_specification="neural_parameter_determination"
+            #     )
                 
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
@@ -179,7 +181,13 @@ class CarSystem:
         # output = predict.predict_slip_angle_from_car_state(car_state)
         # print("output", output)
         
+                
+        imu_array = self.imu_simulator.update_car_state(car_state)
+        self.planner.imu_data = imu_array
+        imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
+        if hasattr(self.planner, 'mu_predicted'):
+            imu_dict['mu_predicted'] = self.planner.mu_predicted
         
         
         ranges = np.array(ranges)
@@ -246,6 +254,14 @@ class CarSystem:
             
         
         # Rendering and recording
+        label_dict = {
+            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
+            '0: angular_control': self.angular_control,
+            '1: translational_control': self.translational_control,
+            '4: Surface Friction': Settings.SURFACE_FRICITON,
+        }
+        self.render_utils.set_label_dict(label_dict)
+        
         self.render_utils.update(
             lidar_points= lidar_points,
             next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
@@ -263,6 +279,7 @@ class CarSystem:
                 state=self.car_state,
                 next_waypoints=self.waypoint_utils.next_waypoints,
                 next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
+                custom_dict=imu_dict,
             )     
         
         self.control_index += 1

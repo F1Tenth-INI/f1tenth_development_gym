@@ -110,6 +110,20 @@ class EnvRenderer(pyglet.window.Window):
                 color=(255, 255, 255, 255),
                 multiline=True,
                 batch=self.batch)
+        
+        self.info_label = pyglet.text.Label(
+                '',
+                font_size=22,
+                x=0,
+                y=0,
+                anchor_x='center',
+                anchor_y='top',
+                width=1200,
+                align='left',
+                # height=0.01,
+                color=(255, 255, 255, 255),
+                multiline=True,
+                batch=self.batch)
 
         self.fps_display = pyglet.window.FPSDisplay(self)
 
@@ -301,6 +315,7 @@ class EnvRenderer(pyglet.window.Window):
         # Remove default modelview matrix
         glPopMatrix()
 
+
     def update_obs(self, obs):
         """
         Updates the renderer with the latest observation from the gym environment, including the agent poses, and the information text.
@@ -316,6 +331,7 @@ class EnvRenderer(pyglet.window.Window):
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
         poses_theta = obs['poses_theta']
+        # estimate_friction = Settings.SURFACE_FRICITON
         
         num_agents = len(poses_x)
         if self.poses is None:

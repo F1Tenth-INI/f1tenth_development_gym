@@ -13,27 +13,27 @@ class VehicleParameters:
     l_wb: float # Wheelbase [m]
     h: float # Height of the center of mass [m]
     m: float  # mass of the car [kg]
-    I_z: float
-    g: float
-    width: float
-    length: float
-    s_min: float
-    s_max: float
-    sv_min: float
-    sv_max: float
-    a_max: float
-    a_min: float
-    v_min: float
-    v_max: float
-    v_switch: float
-    servo_p: float
+    I_z: float # Moment of inertia around the z-axis [kg*m^2]
+    g: float # Gravitational acceleration [m/s^2]
+    width: float # Width of the car [m]
+    length: float # Length of the car [m]
+    s_min: float # Minimum steering angle [rad]
+    s_max: float # Maximum steering angle [rad]
+    sv_min: float # Minimum steering velocity [rad/s]
+    sv_max: float # Maximum steering velocity [rad/s]
+    a_max: float # Maximum acceleration [m/s^2]
+    a_min: float # Minimum acceleration [m/s^2]
+    v_min: float # Minimum velocity [m/s]
+    v_max: float # Maximum velocity [m/s]
+    v_switch: float # Switching velocity [m/s]: From here accelerating is harder
+    servo_p: float # Servo proportional gain
     steering_diff_low: float
     min_speed_st: float
     
     # Pacejka parameters
-    C_0d: float
-    C_Pf: List[float]
-    C_Pr: List[float]
+    C_0d: float 
+    C_Pf: List[float] # Pacejka parameters for the front tires [B, C, D, E]
+    C_Pr: List[float] # Pacejka parameters for the rear tires [B, C, D, E]
 
 
     """

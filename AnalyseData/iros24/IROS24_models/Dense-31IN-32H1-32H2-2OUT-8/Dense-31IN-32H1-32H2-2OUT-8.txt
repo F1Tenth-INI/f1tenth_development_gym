@@ -1,0 +1,62 @@
+CREATED:
+2024-02-24 at time 16:00:47
+
+WITH GIT REVISION:
+unknown
+
+LIBRARY:
+TF
+
+NET NAME:
+Dense-32H1-32H2
+
+NET FULL NAME:
+Dense-31IN-32H1-32H2-2OUT-8
+
+INPUTS:
+WYPT_REL_X_01, WYPT_REL_X_03, WYPT_REL_X_05, WYPT_REL_X_07, WYPT_REL_X_09, WYPT_REL_X_11, WYPT_REL_X_13, WYPT_REL_X_15, WYPT_REL_X_17, WYPT_REL_Y_01, WYPT_REL_Y_01, WYPT_REL_Y_03, WYPT_REL_Y_05, WYPT_REL_Y_07, WYPT_REL_Y_09, WYPT_REL_Y_11, WYPT_REL_Y_13, WYPT_REL_Y_15, WYPT_REL_Y_17, WYPT_VX_03, WYPT_VX_05, WYPT_VX_07, WYPT_VX_09, WYPT_VX_11, WYPT_VX_13, WYPT_VX_15, WYPT_VX_17, angular_vel_z, linear_vel_x, slip_angle, steering_angle
+
+OUTPUTS:
+cs_a_4, cs_t_4
+
+TRANSLATION INVARIANT VARIABLES:
+
+
+TYPE:
+Dense
+
+NORMALIZATION:
+./SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Models/Dense-31IN-32H1-32H2-2OUT-8/NI_2024-02-07_13-30-13.csv
+
+NORMALIZE:
+True
+
+PARENT NET:
+Network trained from scratch
+
+WASH OUT LENGTH:
+20
+
+POST WASH OUT LENGTH:
+1
+
+SHIFT LABELS:
+0
+
+CONSTRUCT NETWORK:
+with cells
+
+TRAINING_FILES:
+./SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Recordings/Train
+
+VALIDATION_FILES:
+./SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Recordings/Validate
+
+TEST_FILES:
+./SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Recordings/Test
+
+TIMESTEP MEAN [s]:
+0.0
+
+TIMESTEP STD [s]:
+0.0

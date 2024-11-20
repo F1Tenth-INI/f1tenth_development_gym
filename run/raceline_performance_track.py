@@ -1,3 +1,8 @@
+# DEPRECATED
+# The functionality of this script is now integrated in the utilities/ExperimentAnalysis.py script
+# And is automatically called when running the experiment
+
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt

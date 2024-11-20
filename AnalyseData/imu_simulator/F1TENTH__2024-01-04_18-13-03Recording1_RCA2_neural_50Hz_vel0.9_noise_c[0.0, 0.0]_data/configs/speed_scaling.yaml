@@ -1,0 +1,22 @@
+Sector0:
+  start: 0
+  end: 290
+  scaling: 0.95
+Sector1:
+  start: 291
+  end: 580
+  scaling: 1.0
+Sector2:
+  start: 581
+  end: 700
+  scaling: 0.75
+Sector3:
+  start: 701
+  end: 780
+  scaling: 0.85
+Sector4:
+  start: 781
+  end: 912
+  scaling: 0.95
+global_limit: 0.6
+n_sectors: 5
