@@ -81,7 +81,7 @@ class WaypointUtils:
             ]
             next_waypoints.append(waypoint)
             next_waypoint_positions.append([ wpnt.x_m, wpnt.y_m,])
-        self.next_waypoints = np.array(next_waypoints)
+        self.next_waypoints[:] = np.array(next_waypoints)
         self.next_waypoint_positions = np.array(next_waypoint_positions)
 
 

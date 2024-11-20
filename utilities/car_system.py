@@ -46,6 +46,8 @@ class CarSystem:
         self.lidar_visualization_color = (255, 0, 255)
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
+        self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
+       
 
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -65,7 +67,7 @@ class CarSystem:
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
         self.save_recording = save_recording
         if save_recording:
-            self.recorder = Recorder(name='Blank-MPPI-{}'.format(str(car_index)))
+            self.recorder = Recorder(driver=self)
         self.obstacle_detector = ObstacleDetector()
 
         self.waypoints_for_controller = None
@@ -79,6 +81,7 @@ class CarSystem:
         
         # Planner
         self.planner = None
+        self.controller_name = controller
         if(controller is None):
             controller = Settings.CONTROLLER
         if controller == 'mpc':
@@ -184,7 +187,7 @@ class CarSystem:
                 
         imu_array = self.imu_simulator.update_car_state(car_state)
         self.planner.imu_data = imu_array
-        imu_dict = self.imu_simulator.array_to_dict(imu_array)
+        self.current_imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
         if hasattr(self.planner, 'mu_predicted'):
             imu_dict['mu_predicted'] = self.planner.mu_predicted
@@ -269,18 +272,6 @@ class CarSystem:
         )
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
-        if (Settings.SAVE_RECORDINGS and self.save_recordings):
-                    
-            self.recorder.set_data(
-                time=self.time,
-                control_inputs_calculated=( self.angular_control, self.translational_control),
-                lidar_ranges = self.LIDAR.processed_scans,
-                lidar_indices = self.LIDAR.processed_scan_indices,
-                state=self.car_state,
-                next_waypoints=self.waypoint_utils.next_waypoints,
-                next_waypoints_relative=self.waypoint_utils.next_waypoint_positions_relative,
-                custom_dict=imu_dict,
-            )     
         
         self.control_index += 1
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)

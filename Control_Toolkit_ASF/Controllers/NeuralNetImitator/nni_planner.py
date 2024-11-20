@@ -3,6 +3,7 @@ import sklearn # Don't touch
 # https://forums.developer.nvidia.com/t/sklearn-skimage-cannot-allocate-memory-in-static-tls-block/236960
 
 from utilities.waypoint_utils import *
+from utilities.render_utilities import RenderUtils
 
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
@@ -22,6 +23,8 @@ class NeuralNetImitatorPlanner(template_planner):
         self.friction_estimate = []
         self.friction = 0
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
+
+        self.render_utils = RenderUtils()
 
         self.nni = controller_neural_imitator(
             environment_name="Car",
@@ -112,7 +115,8 @@ class NeuralNetImitatorPlanner(template_planner):
                 self.friction_estimate.append(fricition)
                 self.friction = np.mean(self.friction_estimate)
             
-            print("Estimated friction: ", self.friction)
+            self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
+            # print("Estimated friction: ", self.friction)
         else:
             self.angular_control = net_output[0, 0, 0]
             self.translational_control = net_output[0, 0, 1]

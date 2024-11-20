@@ -23,6 +23,8 @@ setup(name='f110_gym',
                         'trajectory_planning_helpers==0.76',
                         'casadi',
                         'pynput',
+                        'gitpython',
+                        'pandas',
                         'shapely',
                         ]
       )

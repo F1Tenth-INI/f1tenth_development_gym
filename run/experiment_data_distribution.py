@@ -6,6 +6,10 @@ from datetime import datetime
 import sys
 import time
 
+
+# This file automatically distributes the data into the SI_Toolkit_ASK experiment recordings folder
+# The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
+
 # Fortschrittszeilenfunktion
 def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, fill='█'):
     """
@@ -92,7 +96,7 @@ validate_distribution = 0.1
 
 # Change to desired directory in Experiment
 root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "/MPPI-pacejka"
+experiment_dir = "/NigalsanSim1"
 
 # Input folder with CSV files
 input_folder = "./ExperimentRecordings"
@@ -118,7 +122,7 @@ subfolder_data_compression(input_folder)
 csv_files = [f for f in os.listdir(input_folder) if f.endswith(".csv")]
 
 # Calculate the number of files for each category
-total_files = 200 #len(csv_files)
+total_files = len(csv_files)
 num_files_train = int(total_files * train_distribution)
 num_files_test = int(total_files * test_distribution)
 num_files_validate = int(total_files * validate_distribution)

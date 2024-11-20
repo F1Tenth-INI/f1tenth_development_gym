@@ -123,26 +123,15 @@ def distribute_files_to_subfolders(folder_path, probabilities, shift_values, col
                 shift_column_with_comments(input_file, output_file, shift_values[i], column_names)
                 print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
 
-
 # parameter to modify
-folder_path = 'ExperimentRecordings'
-probabilities = [0.2, 0.6, 0.2]
-shift_values = [-2, -3, -4]
+folder_path = 'SI_Toolkit_ASF/Experiments/NigalsanSim1/Recordings/Validate'
+probabilities = [0.65, 0.35]
+shift_values = [-3, -4]
 column_names = ['angular_control_calculated', 'translational_control_calculated']
 
-# distribute_files_to_subfolders(folder_path, probabilities, shift_values, column_names)
+distribute_files_to_subfolders(folder_path, probabilities, shift_values, column_names)
 
-# Distribute files
-# distribute_files_to_subfolders(input_folder, probabilities)
-# # Loop through all CSV files in the input folder
-# for filename in os.listdir(input_folder):
-#     if filename.endswith('.csv'):
-#         # Construct the full file paths
-#         input_file = os.path.join(input_folder, filename)
-#         output_file = os.path.join(output_folder, filename)
-#         shift_column_with_comments(input_file, output_file, shift_value, column_names)
-#         print(f"the file '{filename}' was successfully copied and saved as '{output_file}'.")
-
-output = 'SI_Toolkit_ASF/Experiments/MPPI-pacejka/Recordings/Validate'
-
-trim_csvs_with_comments_in_folder(output, output)
+# if distrbute_files_to_subfolders used, then you shouldn't change output
+output = [folder_path + '/'+ f'columns_shifted_by_{abs(shift_value)}' for shift_value in shift_values]
+for x in output : 
+    trim_csvs_with_comments_in_folder(x, x)

@@ -18,7 +18,7 @@ time.sleep(1)
 Settings.RENDER_MODE = None
 Settings.REVERSE_DIRECTION = False # Drive reverse waypoints
 Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
-Settings.APPLY_SPEED_SCALING_FROM_YAML = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+Settings.APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     
 Settings.MAP_NAME = "RCA2"
 Settings.START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)

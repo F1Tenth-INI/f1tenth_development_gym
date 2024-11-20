@@ -4,12 +4,35 @@ from utilities.Settings import Settings
 import time
 import os
 import zipfile
-import subprocess
+import subprocess 
+import argparse
+
+import numpy as np
 
 
+def args_fun():
+    """
+    This function is for use with Euler cluster to differentiate parallel runs with an index.
+    Returns:
+
+    """
+    parser = argparse.ArgumentParser(description='Generate F1T data.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-i', '--euler_experiment_index', default=-1, type=int,
+                        help='Additional index. -1 to skip.')
+
+
+    args = parser.parse_args()
+
+    if args.euler_experiment_index == -1:
+        args.euler_experiment_index = None
+
+    return args
+
+
+euler_index = args_fun().euler_experiment_index
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA2'
+Settings.MAP_NAME = 'RCA1'
 
 Settings.EXPERIMENT_LENGTH = 2000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
@@ -36,7 +59,7 @@ Settings.RENDER_MODE = None
 # Dont touch:
 Settings.SAVE_RECORDINGS = True 
 Settings.SAVE_PLOTS = True
-Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
+Settings.APPLY_SPEED_SCALING_FROM_CSV = False 
 
 runs_with_obstacles = 0
 runs_without_obstacles = 4
@@ -45,6 +68,8 @@ global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 global_surface_friction_values = [ 0.5, 0.7, 0.9, 1.1]
 reverse_direction_values = [False, True]
 
+expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
+print(f"Expected number of experiments: {expected_number_of_experiments}")
 
 # Settings for tuning before recoriding
 # # Comment out during data collection
@@ -121,5 +146,4 @@ for reverse_direction in reverse_direction_values:
         #     print("runs_with_oponents", i)
         #     time.sleep(1)
         #     run_experiments()
-
 

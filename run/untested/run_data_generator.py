@@ -13,7 +13,7 @@ from SI_Toolkit.computation_library import TensorFlowLibrary
 from SI_Toolkit.load_and_normalize import append_derivatives_to_df
 
 from DataGen.Utilities import get_initial_states
-from utilities.Recorder import create_csv_header
+from utilities.csv_logger import create_csv_header, create_csv_file
 
 
 try:
@@ -85,11 +85,13 @@ def save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_nu
             for i, dataset_type in enumerate(['Train', 'Test', 'Validate']):
                 path = f'{record_path}/{dataset_type}/'
                 csv_path = f'{path}/Trajectories.csv'
-                csv_path = create_csv_header(path, controller_name='data_generator', dt=dt, csv_name=csv_path)
+                header = create_csv_header(Settings, controller_name='data_generator', dt=dt)
+                csv_path = create_csv_file(path, csv_name=csv_path, header=header)
                 df[df.experiment_index.isin(indices_split[i])].to_csv(csv_path, index=False, mode='a')
         else:
             csv_path = f'{record_path}/Trajectories.csv'
-            csv_path = create_csv_header(record_path, controller_name='data_generator', dt=dt, csv_name=csv_path)
+            header = create_csv_header(Settings, controller_name='data_generator', dt=dt)
+            csv_path = create_csv_file(record_path, csv_name=csv_path, header=header)
             df[df.experiment_index.isin(indices_split[i])].to_csv(csv_path, index=False, mode='a')
     else:
         for experiment in trange(len(experiment_indices)):
@@ -109,7 +111,8 @@ def save_dataframe_to_csv(df, config, run_for_ML_Pipeline, record_path, total_nu
 
             csv_path = f'{path}Trajectory-{str(index)}.csv'
             if not df[df.experiment_index == experiment_indices[experiment]].empty:
-                csv_path = create_csv_header(path, controller_name='Random input', dt=dt, csv_name=csv_path)
+                header = create_csv_header(Settings, controller_name='Random input', dt=dt)
+                csv_path = create_csv_file(path, csv_name=csv_path, header=header)
                 df[df.experiment_index == experiment_indices[experiment]].to_csv(csv_path, index=False, mode='a')
             index += 1
 
