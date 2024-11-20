@@ -25,7 +25,7 @@ Settings.START_FROM_RANDOM_POSITION = True
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "RPGD_fixedspeed"
+Settings.DATASET_NAME = "RPGD_fresh"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'mpc'
@@ -39,17 +39,19 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_YAML = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 7
+runs_without_obstacles = 4
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.8]
-global_surface_friction_values = [ 0.3, 0.5, 0.7, 0.9, 1.1]
+global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+global_surface_friction_values = [ 0.5, 0.7, 0.9, 1.1]
 reverse_direction_values = [False, True]
 
 
 # Settings for tuning before recoriding
-# Comment out during data collection
+# # Comment out during data collection
 # Settings.EXPERIMENT_LENGTH = 1000  
-# global_waypoint_velocity_factors = [0.8] 
+# global_waypoint_velocity_factors = [1.0] 
+# global_surface_friction_values = [ 0.7 ]
+
 # Settings.RENDER_MODE = "human_fast"
 
 

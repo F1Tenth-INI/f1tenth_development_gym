@@ -26,7 +26,7 @@ rpgd-tf:
   adam_epsilon: 1.0e-08
   gradmax_clip: 5
   rtol: 1.0e-3
-  num_rollouts: 64
+  num_rollouts: 32
   opt_keep_k_ratio: 0.75
   outer_its: 10
   resamp_per: 5
