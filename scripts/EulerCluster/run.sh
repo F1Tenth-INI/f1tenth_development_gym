@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --array=25-25             # Create an array job with task IDs from 1 to 12
 #SBATCH --cpus-per-task=12        # Assign the required number of CPUs per task
+#SBATCH --mem=4G  # Request 4GB of memory for the job
 #SBATCH --time=8:00:00           # Set the maximum job time
 #SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
 
