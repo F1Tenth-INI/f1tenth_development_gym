@@ -32,7 +32,7 @@ def args_fun():
 euler_index = args_fun().euler_experiment_index
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA1'
+Settings.MAP_NAME = 'RCA2'
 
 Settings.EXPERIMENT_LENGTH = 2000  
 Settings.NUMBER_OF_EXPERIMENTS = 1 
@@ -43,8 +43,12 @@ Settings.NUMBER_OF_EXPERIMENTS = 1
 
 
 # Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.0]
-Settings.NOISE_LEVEL_CONTROL = [0.1, 0.1] # noise level [angular, translational]
+Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+Settings.CONTROL_DELAY = 0.0
+Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0
+
 Settings.START_FROM_RANDOM_POSITION = True 
+Settings.RECORDING_INDEX = euler_index
 
 
 Settings.START_FROM_RANDOM_POSITION = True
@@ -72,11 +76,10 @@ expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(glo
 print(f"Expected number of experiments: {expected_number_of_experiments}")
 
 # Settings for tuning before recoriding
-# # Comment out during data collection
+# Comment out during data collection
 # Settings.EXPERIMENT_LENGTH = 1000  
 # global_waypoint_velocity_factors = [1.0] 
 # global_surface_friction_values = [ 0.7 ]
-
 # Settings.RENDER_MODE = "human_fast"
 
 

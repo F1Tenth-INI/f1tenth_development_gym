@@ -71,7 +71,7 @@ def create_csv_file_name(Settings, csv_name=None):
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
             Settings.SURFACE_FRICITON)
         timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-        csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + Settings.RECORDING_INDEX + '_' + dataset_name + '.csv'
+        csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + str(Settings.RECORDING_INDEX) + '_' + dataset_name + '.csv'
     else:
         if csv_name[-4:] != '.csv':
             csv_name += '.csv'
