@@ -5,7 +5,7 @@ import numpy as np
 from argparse import Namespace
 from tqdm import trange
 from utilities.Settings import Settings
-from utilities.Recorder import Recorder
+from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.imu_simulator import IMUSimulator
 import pandas as pd
                 
@@ -272,6 +272,9 @@ class CarSystem:
         )
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
+        
+        basic_dict = get_basic_data_dict(self)
+        self.recorder.dict_data_to_save_basic.update(basic_dict)
         
         self.control_index += 1
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
