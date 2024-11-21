@@ -23,7 +23,7 @@ SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 
 # Experiment data
 main/maps/WithRandomObstacles/*
-Experimentrecordings/*
+ExperimentRecordings/*
 Quadruped/plots
 
 # Submodule specific config files
@@ -67,3 +67,5 @@ Datasets/
 !TrainingLite/mpc_immitator_mu/models/GRU_Example
 !TrainingLite/slip_prediction/models/GRU_Example
 !TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4
+
+scripts/EulerCluster/out/*
