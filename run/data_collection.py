@@ -7,19 +7,16 @@ import zipfile
 import subprocess 
 import argparse
 
-import numpy as np
-
-
 def args_fun():
     """
     This function is for use with Euler cluster to differentiate parallel runs with an index.
     Returns:
-
     """
     parser = argparse.ArgumentParser(description='Generate F1T data.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--euler_experiment_index', default=-1, type=int,
                         help='Additional index. -1 to skip.')
-
+    parser.add_argument('-s', '--speed_factor', type=float, default=None,
+                        help='Float values for global speed factor')
 
     args = parser.parse_args()
 
@@ -28,8 +25,8 @@ def args_fun():
 
     return args
 
-
 euler_index = args_fun().euler_experiment_index
+speed_factor = args_fun().speed_factor
 
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA2'
@@ -52,7 +49,7 @@ Settings.RECORDING_INDEX = euler_index
 
 
 Settings.START_FROM_RANDOM_POSITION = True
-Settings.DATASET_NAME = "RPGD_fresh"
+Settings.DATASET_NAME = "Euler_test"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'mpc'
@@ -66,10 +63,11 @@ Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_CSV = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 4
+runs_without_obstacles = 1
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-global_surface_friction_values = [ 0.5, 0.7, 0.9, 1.1]
+# global_waypoint_velocity_factors = [0.8,]
+global_surface_friction_values = [0.5, 1.1]
 reverse_direction_values = [False, True]
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
@@ -82,6 +80,10 @@ print(f"Expected number of experiments: {expected_number_of_experiments}")
 # global_surface_friction_values = [ 0.7 ]
 # Settings.RENDER_MODE = "human_fast"
 
+
+if speed_factor is not None:
+    global_waypoint_velocity_factors = [speed_factor]
+    
 
 # Save this file to the recordings for perfect reconstruction
 def save_this_file():

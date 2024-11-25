@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --array=25-48             # Create an array job with task IDs from 1 to 12
+#SBATCH --array=0-47
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
-#SBATCH --mem-per-cpu=4G  # Request 2GB of memory per CPU
+#SBATCH --mem-per-cpu=4G        # Request 2GB of memory per CPU
 #SBATCH --time=8:00:00           # Set the maximum job time
 #SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
 
@@ -17,6 +17,17 @@ cd $HOME/f1tenth_development_gym/
 # Use SLURM_ARRAY_TASK_ID for the model index directly since it ranges from 1 to 50
 i=$SLURM_ARRAY_TASK_ID
 
-# Run the Python script with the specific index
-python run/data_collection.py -i $i
+# Define the speed factors and repetitions
+speed_factors=(0.4 0.6 0.8 1.0)
+repetitions=12
+
+# Calculate the speed factor and repetition index
+speed_factor_index=$((SLURM_ARRAY_TASK_ID / repetitions))
+repetition_index=$((SLURM_ARRAY_TASK_ID % repetitions))
+
+# Get the speed factor
+speed_factor=${speed_factors[$speed_factor_index]}
+
+# Run the Python script with the speed factor
+python run/data_collection.py -s $speed_factor -i $i
 
