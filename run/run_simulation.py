@@ -198,6 +198,9 @@ def main():
         
         starting_positions[0] = random_wp[1:4]
         print("Starting position: ", random_wp[1:4])
+        
+        if Settings.REVERSE_DIRECTION:
+            starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
     
         
     # Tobi: Place random obstacles on the track

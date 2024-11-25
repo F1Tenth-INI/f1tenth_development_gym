@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.7  # Surface friction coefficient
+    SURFACE_FRICITON = 0.5  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -29,13 +29,13 @@ class Settings():
     START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
-    REVERSE_DIRECTION = False # Drive reverse waypoints
+    REVERSE_DIRECTION = True # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
-    
+
     SAVE_RECORDINGS = True
     SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -65,7 +65,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 1000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
