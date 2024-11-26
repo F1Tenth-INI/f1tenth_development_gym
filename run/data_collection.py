@@ -44,7 +44,6 @@ Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
 Settings.CONTROL_DELAY = 0.0
 Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0
 
-Settings.START_FROM_RANDOM_POSITION = True 
 Settings.RECORDING_INDEX = euler_index
 
 
@@ -67,7 +66,7 @@ runs_without_obstacles = 1
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 # global_waypoint_velocity_factors = [0.8,]
-global_surface_friction_values = [0.5, 1.1]
+global_surface_friction_values = [0.5]
 reverse_direction_values = [False, True]
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)

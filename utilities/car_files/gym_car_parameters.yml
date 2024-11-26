@@ -29,7 +29,7 @@ v_max: 20
 v_switch: 7.319
 
 # Servo
-servo_p: 10 # proportional factor of servo PID
+servo_p: 5 # proportional factor of servo PID
 steering_diff_low: 0.001 # [rad] Steering angle difference below is considered as 0
 
 # Other
