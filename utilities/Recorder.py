@@ -141,7 +141,17 @@ def get_basic_data_dict(driver):
         key: (lambda k=key: driver.current_imu_dict[k])
         for key in driver.current_imu_dict.keys()
     }
-
+    
+    angular_control_dict = {
+        key: (lambda k=key: driver.angular_control_dict[k])
+        for key in driver.angular_control_dict.keys()
+    }
+    
+    translational_control_dict = {
+        key: (lambda k=key: driver.translational_control_dict[k])
+        for key in driver.translational_control_dict.keys()
+    }
+            
     # Combine all dictionaries into one
     combined_dict = {
         **time_dict,
@@ -151,6 +161,8 @@ def get_basic_data_dict(driver):
         **next_waypoints_dict,
         **next_waypoints_relative_dict,
         **imu_dict,
+        **angular_control_dict,
+        **translational_control_dict
     }
 
     return combined_dict

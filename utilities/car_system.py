@@ -48,7 +48,9 @@ class CarSystem:
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
        
-
+        self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(50)}
+        self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(50)}
+        
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
         self.angular_control_history = np.zeros(self.control_average_window[0], dtype=np.int32)
@@ -78,7 +80,8 @@ class CarSystem:
             from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
             self.waypoints_planner = mpc_planner()
             self.waypoints_planner.waypoint_utils = self.waypoint_utils
-        
+
+
         # Planner
         self.planner = None
         self.controller_name = controller
@@ -246,11 +249,10 @@ class CarSystem:
             translational_control_sequence = optimal_control_sequence[:, 1]
             
             # Convert MPC's control sequence to dictionary for recording
-            angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
-            translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
+            self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
+            self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
             
             
-            control_sequence_dict = {**angular_control_dict, **translational_control_dict}
             
             # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
             self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
