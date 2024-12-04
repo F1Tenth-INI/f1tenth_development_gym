@@ -51,6 +51,7 @@ class racing(f1t_cost_function):
         # It is not used while writing...
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
+        ccrh = self.get_control_change_rate_within_horizon_cost(u)
         ccocrc = self.get_control_change_of_change_rate_cost(u, u_prev)
         icdc = self.get_immediate_control_discontinuity_cost(u, u_prev)
 
@@ -97,6 +98,7 @@ class racing(f1t_cost_function):
                 + crash_cost
                 + cc
                 + ccrc
+                + ccrh
                 # + ccocrc
                 # + icdc
                 + angular_velocity_cost
