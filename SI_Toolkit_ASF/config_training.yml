@@ -1,10 +1,10 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "LSTM-64H1-64H2"
+  NET_NAME: "Dense-64H1-64H2"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/RPGD_Fresh/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Desperate/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -64,9 +64,9 @@ training_default:
       "WYPT_VX_12",
       "WYPT_VX_13",
       "WYPT_VX_14",
-      "angular_vel_z",
-      "linear_vel_x",
-      "linear_vel_y",
+      # "angular_vel_z",
+      # "linear_vel_x",
+      # "linear_vel_y",
       # 'slip_angle',
       # "steering_angle",
     ]
@@ -76,7 +76,7 @@ training_default:
 
   setpoint_inputs: []
   outputs:
-    ["angular_control_calculated", "translational_control_calculated", "mu"]
+    ["angular_control_calculated", "translational_control_calculated"]
 
   EPOCHS: 10
   BATCH_SIZE: 16

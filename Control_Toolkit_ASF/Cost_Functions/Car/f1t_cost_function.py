@@ -24,6 +24,7 @@ R = config["Car"]["racing"]["R"]
 
 cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 icdc_weight = config["Car"]["racing"]["icdc_weight"]
 
@@ -121,6 +122,23 @@ class f1t_cost_function(cost_function_base):
         ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
         return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
+
+    def get_control_change_rate_within_horizon_cost(self, u):
+        """
+        Compute penalty of instant control change within the horizon.
+        Args:
+        u (tf.Tensor): Tensor of shape (#rollouts, horizon, #control_inputs) representing the control actions.
+        Returns:
+        tf.Tensor: Tensor of shape (#rollouts, horizon) representing the sum of absolute differences between consecutive control actions.
+        """
+        # Calculate the absolute differences between consecutive control actions
+        control_diff = tf.abs(u[:, 1:, :] - u[:, :-1, :])
+        control_diff = self.lib.square(control_diff)
+        weighted_control_diff = control_diff * ccrh_weight
+        control_change = tf.reduce_sum(weighted_control_diff, axis=-1) # sum over the control inputs     
+        control_change_padded = tf.pad(control_change, [[0, 0], [1, 0]]) # pad with zeros to match the shape of u
+        
+        return control_change_padded
 
     def get_control_change_of_change_rate_cost(self, u, u_prev):
         """

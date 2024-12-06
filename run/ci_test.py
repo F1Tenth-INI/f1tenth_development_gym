@@ -1,7 +1,6 @@
 # This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
 
 
-
 import os
 import sys
 import time
@@ -51,4 +50,6 @@ time.sleep(1)
 
 from run.run_simulation import run_experiments
 time.sleep(1)
-run_experiments()
+
+if __name__ == "__main__":
+    run_experiments()
