@@ -98,7 +98,7 @@ class RenderUtils:
         if(Settings.ROS_BRIDGE):
             print("initialising render utilities for ROS")
 
-            rospy.init_node('gym_bridge_driver', anonymous=True)
+            # rospy.init_node('gym_bridge_driver', anonymous=True)
             self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
             self.pub_target_point = rospy.Publisher('/pp/lookahead', Marker, queue_size=1)
         

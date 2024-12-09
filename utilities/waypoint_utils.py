@@ -42,6 +42,7 @@ WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
 WP_KAPPA_IDX = 4 # Relative angle
 WP_VX_IDX = 5 # Suggested velocity 
 WP_A_X_IDX = 6 # Suggested acceleration
+WP_GLOBID_IDX = 7
 
 
 # Indices for sectors
@@ -53,7 +54,7 @@ SECTOR_LENGTH_IDX = 3
 
 class WaypointUtils:
     
-    def __init__(self, map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME ,waypoint_file_name=Settings.MAP_NAME+"_wp"):
+    def __init__(self,waypoint_file_name=Settings.MAP_NAME+"_wp", map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME ):
         
         self.map_path = map_path
         self.map_name = map_name
@@ -90,10 +91,10 @@ class WaypointUtils:
         self.nearest_waypoint_index = None
         
         # next waypoints including the ones ignored by index offset: Relevant for looking for next (cache for looking for next one)
-        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 7), dtype=np.float32) 
+        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 8), dtype=np.float32) 
         
          # next waypoints considering ignored waypoints index offset
-        self.next_waypoints = np.zeros((self.look_ahead_steps, 7), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
         self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
@@ -138,12 +139,17 @@ class WaypointUtils:
             self.automatic_sector_tuning(nearest_waypoint_index, car_state)
         
         next_waypoints_including_ignored = []
+        next_waypoints_indices_including_ignored = []
         for j in range(self.look_ahead_steps + self.ignore_steps):
-            next_waypoint = self.waypoints[(nearest_waypoint_index + j) % len(self.waypoints)]
+            next_waypoint_idx = (nearest_waypoint_index + j) % len(self.waypoints)
+            next_waypoint = self.waypoints[next_waypoint_idx]
+            next_waypoints_indices_including_ignored.append(next_waypoint_idx)
             next_waypoints_including_ignored.append(next_waypoint)
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
+        next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
         
-        self.next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
+        self.next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
+        self.next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
         self.current_waypoint_cache = next_waypoints_including_ignored
         
         self.next_waypoint_positions = WaypointUtils.get_waypoint_positions(self.next_waypoints)
