@@ -141,7 +141,17 @@ def get_basic_data_dict(driver):
         key: (lambda k=key: driver.current_imu_dict[k])
         for key in driver.current_imu_dict.keys()
     }
-
+    
+    angular_control_dict = {
+        key: (lambda k=key: driver.angular_control_dict[k])
+        for key in driver.angular_control_dict.keys()
+    }
+    
+    translational_control_dict = {
+        key: (lambda k=key: driver.translational_control_dict[k])
+        for key in driver.translational_control_dict.keys()
+    }
+            
     # Combine all dictionaries into one
     combined_dict = {
         **time_dict,
@@ -151,6 +161,8 @@ def get_basic_data_dict(driver):
         **next_waypoints_dict,
         **next_waypoints_relative_dict,
         **imu_dict,
+        **angular_control_dict,
+        **translational_control_dict
     }
 
     return combined_dict
@@ -198,17 +210,16 @@ def get_next_waypoints_relative_dict(driver):
     # Initialise keys for next X and Y waypoints relative using the number of waypoints
     keys_next_x_waypoints_rel = ['WYPT_REL_X_' + str(i).zfill(2) for i in range(num_waypoints)]
     keys_next_y_waypoints_rel = ['WYPT_REL_Y_' + str(i).zfill(2) for i in range(num_waypoints)]
-
-    # Create dictionary with lambda functions to dynamically retrieve the values
+    
+     # Create dictionary with lambda functions to dynamically retrieve the X values
     next_waypoints_relative_dict = {
-        key: (lambda:
-              driver.waypoint_utils.next_waypoint_positions_relative[::Settings.INTERPOLATION_STEPS][idx][0])
+        key: (lambda index=idx: next_waypoints_relative[index, 0])
         for idx, key in enumerate(keys_next_x_waypoints_rel)
     }
 
+    # Update dictionary with lambda functions for Y values
     next_waypoints_relative_dict.update({
-        key: (lambda:
-              driver.waypoint_utils.next_waypoint_positions_relative[::Settings.INTERPOLATION_STEPS][idx][1])
+        key: (lambda index=idx: next_waypoints_relative[index, 1])
         for idx, key in enumerate(keys_next_y_waypoints_rel)
     })
 

@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.7  # Surface friction coefficient
+    SURFACE_FRICITON = 0.5  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -35,11 +35,12 @@ class Settings():
 
     ## Recordings ##
     REPLAY_RECORDING = False
-    
+
     SAVE_RECORDINGS = True
     SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
+    RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
@@ -71,7 +72,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -128,7 +129,7 @@ class Settings():
     ANALYZE_COST = False # Analyze and plot diufferent parts of the MPC cost
     ANALYZE_COST_PERIOD = 100 # Period for analyzing the cost
     
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 2 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     WAYPOINTS_FROM_MPC = False # Use waypoints generated from MPC instead of the map
     PLAN_EVERY_N_STEPS = 4 # in case of waypoints from MPC, plan the waypoints every Nth step
