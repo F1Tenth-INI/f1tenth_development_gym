@@ -53,10 +53,10 @@ SECTOR_LENGTH_IDX = 3
 
 class WaypointUtils:
     
-    def __init__(self, waypoint_file_name=Settings.MAP_NAME+"_wp"):
+    def __init__(self, map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME ,waypoint_file_name=Settings.MAP_NAME+"_wp"):
         
-        self.map_path = Settings.MAP_PATH
-        self.map_name = Settings.MAP_NAME
+        self.map_path = map_path
+        self.map_name = map_name
         self.waypoint_file_name = waypoint_file_name
         
         self.interpolation_steps = Settings.INTERPOLATION_STEPS
