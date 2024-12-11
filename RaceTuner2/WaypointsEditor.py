@@ -1,3 +1,5 @@
+# main_app.py
+
 import os
 import sys
 import numpy as np
@@ -10,6 +12,12 @@ from copy import deepcopy
 import datetime
 import matplotlib
 import yaml
+import threading
+import rospy  # Import rospy here
+
+# Import the CarStateListener
+from car_state_listener import CarStateListener
+
 
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
@@ -138,11 +146,13 @@ class WaypointDataManager:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
 
+
 class WaypointEditorUI:
-    def __init__(self, waypoint_manager, map_config, initial_scale=20.0):
+    def __init__(self, waypoint_manager, map_config, car_state_listener, initial_scale=20.0):
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
+        self.car_state_listener = car_state_listener  # Reference to CarStateListener
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
@@ -159,7 +169,9 @@ class WaypointEditorUI:
         self.dragging_vx = False
         self.drag_index_vx = None
         self.image_loaded = False
-        self.car_x, self.car_y, self.car_v = None, None, None
+        self.car_marker = None
+        self.car_speed_line = None
+        self.update_interval = 200  # in milliseconds
 
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
@@ -180,23 +192,37 @@ class WaypointEditorUI:
         if self.image_loaded:
             self.load_image_background()
         wm = self.waypoint_manager
-        self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--")
-        self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
-        self.ax.scatter(wm.x, wm.y, color="red")
-        if self.car_x is not None and self.car_y is not None:
-            self.ax.plot(self.car_x, self.car_y, 'o', color='orange')  # car position
+        self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Waypoints")
+        self.ax.plot(wm.x, wm.y, color="green", linestyle="-", label="Adjusted Waypoints")
+        self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
+
+        # Update car position
+        car_x, car_y, car_v = self.car_state_listener.get_car_state()
+        if car_x is not None and car_y is not None:
+            if self.car_marker is None:
+                self.car_marker, = self.ax.plot(car_x, car_y, 'o', color='orange', label="Car Position")
+            else:
+                self.car_marker.set_data(car_x, car_y)
+
         if self.ax2 and wm.vx is not None:
             self.ax2.clear()
-            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-")
+            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-", label="vx_mps")
             self.ax2.scatter(wm.t, wm.vx, color="red")
-            if self.car_v is not None:
-                self.ax2.plot([wm.t[0], wm.t[-1]], [self.car_v, self.car_v], color='orange')  # car speed marker line
+            if car_v is not None:
+                if self.car_speed_line is None:
+                    self.car_speed_line, = self.ax2.plot([wm.t[0], wm.t[-1]], [car_v, car_v], color='orange',
+                                                         linestyle='--', label="Car Speed")
+                else:
+                    self.car_speed_line.set_ydata([car_v, car_v])
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("vx_mps")
             self.ax2.grid()
+            self.ax2.legend()
+
         self.ax.set_xlabel("X (m)")
         self.ax.set_ylabel("Y (m)")
         self.ax.grid()
+        self.ax.legend()
         plt.draw()
         self.update_text_box(f"Waypoints updated. Current scale: {self.scale:.1f}")
 
@@ -268,7 +294,7 @@ class WaypointEditorUI:
                 self.update_text_box("No more undo steps available.")
 
     def setup_ui_elements(self):
-        plt.subplots_adjust(bottom=0.2)
+        plt.subplots_adjust(bottom=0.25)
         ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
@@ -281,25 +307,35 @@ class WaypointEditorUI:
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.fig.canvas.mpl_connect("key_press_event", self.key_press_handler)
 
+    def start_periodic_update(self):
+        # Start a timer to update the car position every 0.2 seconds
+        self.timer = self.fig.canvas.new_timer(interval=self.update_interval)
+        self.timer.add_callback(self.periodic_update)
+        self.timer.start()
+
+    def periodic_update(self):
+        # Update car state
+        self.redraw_plot()
+
+
 class WaypointsEditorApp:
     def __init__(self, map_name="RCA1", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
-
-    def get_car_state(self):
-        # Placeholder, will be implemented later
-        return None, None, None
+        self.car_state_listener = CarStateListener()  # Initialize the ROS listener
 
     def run(self):
+        # Continue with the GUI
         self.waypoint_manager.create_backup_if_needed()
         self.waypoint_manager.load_waypoints()
-        self.ui = WaypointEditorUI(self.waypoint_manager, self.map_config, initial_scale=20.0)
-        self.ui.car_x, self.ui.car_y, self.ui.car_v = self.get_car_state()
+        self.ui = WaypointEditorUI(self.waypoint_manager, self.map_config, self.car_state_listener, initial_scale=20.0)
         self.ui.load_image_background()
         self.ui.redraw_plot()
         self.ui.setup_ui_elements()
         self.ui.connect_events()
+        self.ui.start_periodic_update()  # Start updating car position
         plt.show()
+
 
 if __name__ == "__main__":
     app = WaypointsEditorApp()
