@@ -47,9 +47,10 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
-       
-        self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(50)}
-        self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(50)}
+    
+        self.angular_control_dict = {}
+        self.translational_control_dict = {}
+      
         
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -67,9 +68,7 @@ class CarSystem:
         self.waypoint_utils = WaypointUtils()
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
-        self.save_recording = save_recording
-        if save_recording:
-            self.recorder = Recorder(driver=self)
+
         self.obstacle_detector = ObstacleDetector()
 
         self.waypoints_for_controller = None
@@ -90,6 +89,9 @@ class CarSystem:
         if controller == 'mpc':
             from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
             self.planner = mpc_planner()
+            horizon = self.planner.mpc.predictor.horizon
+            # self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+            # self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
         elif controller =='ftg':
             from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
             self.planner =  FollowTheGapPlanner()
@@ -120,6 +122,9 @@ class CarSystem:
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
+        self.savse_recording = save_recording
+        if save_recording:
+            self.recorder = Recorder(driver=self)
         
         
         self.config_onlinelearning = yaml.load(
@@ -249,8 +254,8 @@ class CarSystem:
             translational_control_sequence = optimal_control_sequence[:, 1]
             
             # Convert MPC's control sequence to dictionary for recording
-            self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
-            self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
+            # self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
+            # self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
             
             
             
