@@ -5,23 +5,40 @@ from rospy.msg import AnyMsg
 import struct
 import threading
 
+
 class CarStateListener:
     def __init__(self):
-
-        os.environ['ROS_MASTER_URI'] = 'http://192.168.116.46:11311'  # Ubuntu machine with ros master
-        os.environ['ROS_IP'] = '192.168.194.233'  # MacOs IP which I am running this script on
+        # Set ROS environment variables
+        os.environ['ROS_MASTER_URI'] = 'http://192.168.116.46:11311'  # Ubuntu machine with ROS master
+        os.environ['ROS_IP'] = '192.168.194.233'  # MacOS IP where this script is running
         os.environ['ROS_LOG_DIR'] = '/tmp'  # Replace '/tmp' with your preferred log directory
 
-        rospy.init_node('car_listener', anonymous=True, log_level=rospy.DEBUG)
+        # Initialize ROS node
+        rospy.init_node('car_listener', anonymous=True, log_level=rospy.INFO)
 
+        # Initialize car state variables
         self.car_x = None
         self.car_y = None
         self.car_v = None
 
+        # Initialize a lock for thread-safe operations
+        self.lock = threading.Lock()
+
+        # Subscribe to the car state topic
         rospy.Subscriber("/car_state/tum_state", AnyMsg, self.car_state_callback)
         rospy.loginfo("CarStateListener subscribed to /car_state/tum_state.")
 
-        rospy.spin()
+        # Start ROS spin in a separate thread to prevent blocking
+        self.spin_thread = threading.Thread(target=self._ros_spin)
+        self.spin_thread.daemon = True  # Daemonize thread to exit when main program exits
+        self.spin_thread.start()
+
+    def _ros_spin(self):
+        """Run rospy.spin() in a separate thread."""
+        try:
+            rospy.spin()
+        except rospy.ROSInterruptException:
+            pass
 
     def car_state_callback(self, msg):
         """
@@ -45,9 +62,10 @@ class CarStateListener:
                 'slipping_angle': unpacked_data[6],
             }
 
-            self.car_x = decoded_message['s_x']
-            self.car_y = decoded_message['s_y']
-            self.car_v = decoded_message['velocity']
+            with self.lock:
+                self.car_x = decoded_message['s_x']
+                self.car_y = decoded_message['s_y']
+                self.car_v = decoded_message['velocity']
 
             rospy.loginfo(f"Updated car state: x={self.car_x}, y={self.car_y}, v={self.car_v}")
 
@@ -57,3 +75,8 @@ class CarStateListener:
     def get_car_state(self):
         with self.lock:
             return self.car_x, self.car_y, self.car_v
+
+    def shutdown(self):
+        """Shutdown the ROS node gracefully."""
+        rospy.signal_shutdown('Shutting down CarStateListener')
+        self.spin_thread.join()

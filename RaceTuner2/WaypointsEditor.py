@@ -200,7 +200,7 @@ class WaypointEditorUI:
         car_x, car_y, car_v = self.car_state_listener.get_car_state()
         if car_x is not None and car_y is not None:
             if self.car_marker is None:
-                self.car_marker, = self.ax.plot(car_x, car_y, 'o', color='orange', label="Car Position")
+                self.ax.scatter(car_x, car_y, s=200, marker='o', color='orange', label="Car Position")
             else:
                 self.car_marker.set_data(car_x, car_y)
 
@@ -319,22 +319,28 @@ class WaypointEditorUI:
 
 
 class WaypointsEditorApp:
-    def __init__(self, map_name="RCA1", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0):
+    def __init__(self, map_name="IPZ16", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
         self.car_state_listener = CarStateListener()  # Initialize the ROS listener
 
     def run(self):
-        # Continue with the GUI
-        self.waypoint_manager.create_backup_if_needed()
-        self.waypoint_manager.load_waypoints()
-        self.ui = WaypointEditorUI(self.waypoint_manager, self.map_config, self.car_state_listener, initial_scale=20.0)
-        self.ui.load_image_background()
-        self.ui.redraw_plot()
-        self.ui.setup_ui_elements()
-        self.ui.connect_events()
-        self.ui.start_periodic_update()  # Start updating car position
-        plt.show()
+        try:
+            # Continue with the GUI
+            self.waypoint_manager.create_backup_if_needed()
+            self.waypoint_manager.load_waypoints()
+            self.ui = WaypointEditorUI(self.waypoint_manager, self.map_config, self.car_state_listener, initial_scale=20.0)
+            self.ui.load_image_background()
+            self.ui.redraw_plot()
+            self.ui.setup_ui_elements()
+            self.ui.connect_events()
+            self.ui.start_periodic_update()  # Start updating car position
+            plt.show()
+        except KeyboardInterrupt:
+            print("Shutting down WaypointsEditorApp.")
+        finally:
+            # Ensure ROS is shut down gracefully
+            self.car_state_listener.shutdown()
 
 
 if __name__ == "__main__":
