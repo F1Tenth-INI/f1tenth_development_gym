@@ -29,7 +29,7 @@ class ExperimentAnalyzer:
         self.waypoints_file = os.path.join(self.experiment_configs_path, self.map_name + "_wp")
         
         # Waypoints from 
-        self.waypoints: pd.DataFrame = pd.read_csv(self.waypoints_file + ".csv")
+        self.waypoints: pd.DataFrame = pd.read_csv(self.waypoints_file + ".csv", comment='#')   
         self.waypoints.columns = self.waypoints.columns.str.replace(' ', '') # Remove spaces from column names
         
         # Recording from csv file (cut alreay)

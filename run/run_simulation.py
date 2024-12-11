@@ -66,7 +66,7 @@ def main():
     driver = CarSystem(Settings.CONTROLLER)
 
     opponents = []
-    waypoint_velocity_factor = np.min((np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR / driver.waypoint_utils.global_limit, 0.5))
+    waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
     for i in range(Settings.NUMBER_OF_OPPONENTS):
         opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
         opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
@@ -98,21 +98,6 @@ def main():
     
     conf = Namespace(**conf_dict)
         
-    # Determine Starting positions [pos_x, pos_y, absolut_angle_car]
-    if hasattr(conf, 'starting_positions'):
-        starting_positions =  conf.starting_positions[0:number_of_drivers]
-    else:
-        print("No starting positions in INI.yaml. Taking 0, 0, 0 as default value")
-        starting_positions = [[0,0,0]]
-
-    if(len(starting_positions) < number_of_drivers):
-        print("No starting positions found")
-        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-        print("You can also let oponents start at random waypoint positions")
-        exit()
-
-    conf = Namespace(**conf_dict)
-    
     # Determine Starting positions
     
     if hasattr(conf, 'starting_positions'):
@@ -126,7 +111,27 @@ def main():
         print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
         print("You can also let oponents start at random waypoint positions")
         exit()
+    
+          
+    
+    # Starting from random position near a waypoint
+    if Settings.START_FROM_RANDOM_POSITION:
+        import random
         
+        wu = WaypointUtils()
+        random_wp = random.choice(wu.waypoints)
+        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[2] += 0.5 * np.pi
+        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
+        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+        
+        starting_positions[0] = random_wp[1:4]
+        print("Starting position: ", random_wp[1:4])
+        
+        if Settings.REVERSE_DIRECTION:
+            starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
+            
     if Settings.REVERSE_DIRECTION:
         starting_positions = [[0,0,-3.0]]
         new_starting_positions = []
@@ -184,25 +189,6 @@ def main():
         
             
     
-    # Starting from random position near a waypoint
-    if Settings.START_FROM_RANDOM_POSITION:
-        import random
-        
-        wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)
-        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
-        # random_wp[2] += 0.5 * np.pi
-        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
-        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
-        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-        
-        starting_positions[0] = random_wp[1:4]
-        print("Starting position: ", random_wp[1:4])
-        
-        if Settings.REVERSE_DIRECTION:
-            starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
-    
-        
     # Tobi: Place random obstacles on the track
     # For obstacle settings, look @ random_obstacles.yaml
     if(Settings.PLACE_RANDOM_OBSTACLES):

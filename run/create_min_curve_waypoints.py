@@ -256,7 +256,7 @@ class GlobalPlanner:
         
         # global_trajectory_iqp[:,3] += 0.5 * np.pi
         
-        np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2')
+        np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2', comments='')
         
         # Save image of track including waypoints
         plt.clf()
