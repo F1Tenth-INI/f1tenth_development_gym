@@ -120,7 +120,7 @@ def main():
         
         wu = WaypointUtils()
         random_wp = random.choice(wu.waypoints)
-        random_wp[WP_PSI_IDX] -= 0.5 * np.pi
+        # random_wp[WP_PSI_IDX] -= 0.5 * np.pi
         # random_wp[2] += 0.5 * np.pi
         random_wp[WP_X_IDX] += random.uniform(0., 0.2)
         random_wp[WP_Y_IDX] += random.uniform(0., 0.2)

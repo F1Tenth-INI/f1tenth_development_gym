@@ -13,8 +13,10 @@ import datetime  # For timestamping
 import matplotlib
 import yaml
 
-path_to_maps = "../../racecar/racecar/maps/"
-map_name = "IPZ15"
+# path_to_maps = "../../racecar/racecar/maps/"
+# map_name = "IPZ15"
+path_to_maps = "utilities/maps/"
+map_name = "RCA1"
 
 waypoints_new_file_name = None  # If None, overwrites
 scale_initial = 20.0  # Smoothness parameter for Gaussian weight
@@ -40,30 +42,14 @@ text_box = None
 original_data = None
 
 
-def get_column_names(file_path):
-    # Step 1: Read all lines from the file
-    with open(file_path, 'r') as file:
-        lines = file.readlines()
-
-    # Step 2: Extract the last commented line for column names
-    commented_lines = [line.strip() for line in lines if line.startswith('#')]
-    if not commented_lines:
-        raise ValueError("No commented lines found in the file to extract column names.")
-
-    # Get the last commented line
-    last_commented = commented_lines[-1]
-
-    # Remove the '#' and any leading/trailing whitespace, then split by comma
-    column_names = last_commented.lstrip('#').strip().split(', ')
-
-    return column_names
-
 
 def load_waypoints(csv_path):
     """Load waypoints from a CSV file."""
     global x, y, t, cs_x, cs_y, dense_t, dense_x, dense_y, initial_x, initial_y, original_data
-    column_names = get_column_names(csv_path)
-    original_data = pd.read_csv(csv_path, comment="#", header=None, names=column_names)
+    original_data = pd.read_csv(csv_path, comment="#")
+    original_data.columns = original_data.columns.str.strip()
+    
+    
     x = original_data['x_m'].to_numpy()
     y = original_data['y_m'].to_numpy()
     # Save the initial waypoints
