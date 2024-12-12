@@ -15,6 +15,10 @@ import socket
 import json
 import threading
 
+from utilities.Settings import Settings
+
+from utilities.waypoint_utils import get_speed_scaling
+
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
         self.map_name = map_name
@@ -42,6 +46,8 @@ class WaypointDataManager:
         self.x = None
         self.y = None
         self.vx = None
+        self.vx_original = None  # Store original speeds
+        self.scale = 1.0  # Scaling factor
         self.initial_x = None
         self.initial_y = None
         self.t = None
@@ -57,7 +63,9 @@ class WaypointDataManager:
         self.x = self.original_data['x_m'].to_numpy()
         self.y = self.original_data['y_m'].to_numpy()
         if 'vx_mps' in self.original_data.columns:
-            self.vx = self.original_data['vx_mps'].to_numpy()
+            self.vx_original = self.original_data['vx_mps'].to_numpy()
+            self.scale = get_speed_scaling(len(self.x), Settings)  # Get scaling factor
+            self.vx = self.vx_original * self.scale  # Apply scaling
         self.initial_x = self.x.copy()
         self.initial_y = self.y.copy()
         self.t = np.arange(len(self.x))
@@ -124,7 +132,7 @@ class WaypointDataManager:
         for col in self.original_data.columns:
             if col not in data.columns:
                 if col == 'vx_mps' and self.vx is not None:
-                    data[col] = self.vx
+                    data[col] = self.vx / self.scale  # Unscale before saving
                 else:
                     data[col] = self.original_data[col]
         data = data[self.original_data.columns]
@@ -366,12 +374,12 @@ class WaypointEditorUI:
             self.car_x = car_state.get('car_x')
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global')
-            # print(f"Received car state: x={self.car_x}, y={self.car_y}, v={self.car_v}, idx_global={self.car_wpt_idx}")
+            self.car_wpt_idx = car_state.get('idx_global')*Settings.DECREASE_RESOLUTION_FACTOR
+            print(f"Received car state: x={self.car_x}, y={self.car_y}, v={self.car_v}, idx_global={self.car_wpt_idx}")
         self.redraw_plot()
 
 class WaypointsEditorApp:
-    def __init__(self, map_name="RCA2", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+    def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
         self.socket_client = SocketClient()  # Initialize the socket client
@@ -385,7 +393,7 @@ class WaypointsEditorApp:
                 self.waypoint_manager,
                 self.map_config,
                 self.socket_client,
-                initial_scale=20.0,
+                initial_scale=20.0,  # You can set this to waypoint_manager.scale if desired
                 update_frequency=5.0  # Default frequency
             )
             self.ui.load_image_background()

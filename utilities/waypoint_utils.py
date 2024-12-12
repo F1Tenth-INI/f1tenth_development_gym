@@ -331,65 +331,77 @@ class WaypointUtils:
         return next_waypoint_positions_relative
     
     def correct_velocity(self, waypoints):
-        map_name = Settings.MAP_NAME
-        if Settings.REVERSE_DIRECTION:
-            path_reverse = '_reverse'
-        else:
-            path_reverse  = ''
-        global_limit = 10
-        if Settings.APPLY_SPEED_SCALING_FROM_CSV:
-            
-            # Check if file exists, otherwise create very simple sample file
-            speed_scaling_pth = os.path.join(self.map_path,Settings.MAP_NAME +"_"+'speed_scaling'+path_reverse+'.csv')
-            self.speed_scaling_pth = speed_scaling_pth
-            
-            if(not os.path.isfile(speed_scaling_pth)):
-                # Create default speed scaling file
-                print("No Speed scaling file defined. Creating new speed_scaling.csv with default values")
-                with open(speed_scaling_pth, 'w') as f:
-                    f.write('#start,scaling\n')
-                    f.write('0,0.5\n')
-                    
-            
-            # Load Speed scaling csv file and apply to waypoints 
-            sectors = []
-            speed_scaling_csv = pd.read_csv(speed_scaling_pth, comment='#', header=None).to_numpy()   
-            # csv_line: [sector, start, scaling]
-            # sector: [index, start, end, scaling, length]
-            for i, csv_line in enumerate(speed_scaling_csv):
-                start = int(csv_line[0])
-                
-                #Last sector goes till the end
-                if(i == speed_scaling_csv.shape[0] -1 ): 
-                    end = int(waypoints.shape[0]) - 1
-                else: # normal sector
-                    end = int(speed_scaling_csv[i +1, 0]) - 1
-                
-                length = (end - start) + 1
-                sector = [start, end, csv_line[1], length]
-                sectors.append(sector)
-                
-            self.sectors = np.array(sectors)                                 
-            warn = False
-            
-            speed_scaling_array = []
-            for sector in self.sectors:
-                length = int(sector[SECTOR_LENGTH_IDX])
-                x = sector[SECTOR_SCALING_IDX]
-                repeated_values = np.full(length, x)
-                speed_scaling_array.append(repeated_values)
-                
-            speed_scaling_array = np.concatenate(speed_scaling_array)
-                            
-            if warn: print("warning: invalid speed scaling")
-            # TODO: Interpolate at edges
-            # TODO: Drop error when not all sectors are defined
-            
-            speed_scaling_array = np.clip(speed_scaling_array, 0, global_limit)
-            waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * speed_scaling_array
-        
-        
-        waypoints[:,WP_VX_IDX ] = waypoints[:,WP_VX_IDX] * Settings.GLOBAL_WAYPOINT_VEL_FACTOR
-        return waypoints, global_limit
+        correct_velocity(waypoints, Settings)
+        return waypoints, Settings.GLOBAL_SPEED_LIMIT
+
+
+# Utility functions
+def get_path_suffix(reverse_direction):
+    return '_reverse' if reverse_direction else ''
+
+
+def create_default_speed_scaling_file(speed_scaling_pth):
+    print("No Speed scaling file defined. Creating new speed_scaling.csv with default values")
+    with open(speed_scaling_pth, 'w') as f:
+        f.write('#start,scaling\n')
+        f.write('0,0.5\n')
+
+
+def create_sectors(speed_scaling_csv, waypoints_len):
+    sectors = []
+    for i, csv_line in enumerate(speed_scaling_csv):
+        start = int(csv_line[0])
+        end = (int(waypoints_len) - 1) if (i == speed_scaling_csv.shape[0] - 1) else (int(speed_scaling_csv[i + 1, 0]) - 1)
+        length = (end - start) + 1
+        sector = [start, end, csv_line[1], length]
+        sectors.append(sector)
+    return np.array(sectors)
+
+
+def generate_speed_scaling_array(sectors):
+    speed_scaling_array = []
+
+    for sector in sectors:
+        length = int(sector[SECTOR_LENGTH_IDX])
+        scaling_value = sector[SECTOR_SCALING_IDX]
+        repeated_values = np.full(length, scaling_value)
+        speed_scaling_array.append(repeated_values)
+
+    speed_scaling_array = np.concatenate(speed_scaling_array)
+
+    return speed_scaling_array
+
+
+def get_speed_scaling_from_sectors(waypoints_len, settings):
+    # TODO: Interpolate at edges
+    # TODO: Drop error when not all sectors are defined
+    path_reverse = get_path_suffix(settings.REVERSE_DIRECTION)
+
+    speed_scaling_pth = os.path.join(settings.map_path, f"{settings.MAP_NAME}_speed_scaling{path_reverse}.csv")
+
+    if not os.path.isfile(speed_scaling_pth):
+        create_default_speed_scaling_file(speed_scaling_pth)
+
+    speed_scaling_csv = pd.read_csv(speed_scaling_pth, comment='#', header=None).to_numpy()
+    sectors = create_sectors(speed_scaling_csv, waypoints_len)
+
+    speed_scaling_array = generate_speed_scaling_array(sectors)
+
+    return speed_scaling_array
+
+
+def get_speed_scaling(waypoints_len, settings):
+    speed_scaling = settings.GLOBAL_WAYPOINT_VEL_FACTOR
+    if settings.APPLY_SPEED_SCALING_FROM_CSV:
+        speed_scaling *= get_speed_scaling_from_sectors(waypoints_len, settings)
+    speed_scaling = np.clip(speed_scaling, 0, settings.GLOBAL_SPEED_LIMIT)
+    return speed_scaling
+
+
+def correct_velocity(waypoints, settings):
+    speed_scaling = get_speed_scaling(waypoints.shape[0], settings)
+    waypoints[:, WP_VX_IDX] *= speed_scaling
+    return waypoints
+
 
          
