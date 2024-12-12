@@ -11,10 +11,8 @@ from matplotlib.widgets import Slider
 import datetime
 import matplotlib
 import yaml
-import socket
-import json
-import threading
 
+from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from utilities.Settings import Settings
 
 from utilities.waypoint_utils import get_speed_scaling
@@ -150,55 +148,6 @@ class WaypointDataManager:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
 
-class SocketClient:
-    def __init__(self, host='localhost', port=5005):
-        self.host = host
-        self.port = port
-        self.sock = None
-        self.lock = threading.Lock()
-
-    def connect(self):
-        """Establish a connection to the socket server."""
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((self.host, self.port))
-            print(f"Connected to CarStateListener at {self.host}:{self.port}")
-        except socket.error as e:
-            print(f"Failed to connect to CarStateListener: {e}")
-            self.sock = None
-
-    def get_car_state(self):
-        """Request and receive the latest car state."""
-        if self.sock is None:
-            self.connect()
-            if self.sock is None:
-                return None  # Connection failed
-
-        try:
-            with self.lock:
-                self.sock.sendall(b"GET_CAR_STATE\n")
-                received = self.sock.recv(4096).decode('utf-8')
-            if received:
-                car_state = json.loads(received)
-                return car_state
-            else:
-                print("No data received from CarStateListener.")
-                return None
-        except socket.error as e:
-            print(f"Socket error during communication: {e}")
-            self.sock.close()
-            self.sock = None
-            return None
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            return None
-
-    def close(self):
-        """Close the socket connection."""
-        if self.sock:
-            self.sock.close()
-            self.sock = None
-            print("Socket connection closed.")
 
 class WaypointEditorUI:
     def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0):
@@ -382,7 +331,7 @@ class WaypointsEditorApp:
     def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="../utilities/maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
-        self.socket_client = SocketClient()  # Initialize the socket client
+        self.socket_client = SocketWatpointEditor()  # Initialize the socket client
 
     def run(self):
         try:
