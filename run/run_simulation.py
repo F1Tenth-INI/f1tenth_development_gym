@@ -23,7 +23,7 @@ from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     full_state_alphabetical_to_original, full_state_original_to_alphabetical)
 
-
+from RaceTuner.TunerConnectorSim import TunerConnectorSim
 
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -54,6 +54,8 @@ def main():
         state_recording = state_recording[STATE_VARIABLES].to_numpy()
     else:
         state_recording = None
+
+    tuner_connector = TunerConnectorSim()
 
     # Config
     # overwrite config.yaml files 
@@ -343,6 +345,16 @@ def main():
 
         if repeat_because_of_crash:
             break
+
+        tuner_connector.update_car_state(
+            {
+                'car_x': drivers[0].car_state[POSE_X_IDX],
+                'car_y': drivers[0].car_state[POSE_Y_IDX],
+                'car_v': drivers[0].car_state[LINEAR_VEL_X_IDX],
+                'idx_global': float(drivers[0].waypoint_utils.next_waypoints[0, -1])
+            }
+        )
+
         # End of controller time step
         if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(drivers):

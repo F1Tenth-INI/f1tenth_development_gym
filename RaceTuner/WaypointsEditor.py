@@ -197,8 +197,8 @@ class WaypointEditorUI:
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
-        self.socket_client = socket_client  # Reference to SocketClient
-        self.update_frequency = update_frequency  # in Hz
+        self.socket_client = socket_client
+        self.update_frequency = update_frequency
 
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
@@ -249,23 +249,17 @@ class WaypointEditorUI:
         self.ax.plot(wm.x, wm.y, color="green", linestyle="-", label="Adjusted Waypoints")
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
-        # Update car position
+        # Plot the car position
         if self.car_x is not None and self.car_y is not None:
-            if self.car_marker is None:
-                self.car_marker = self.ax.scatter(self.car_x, self.car_y, s=200, marker='o', color='orange', label="Car Position")
-            else:
-                self.car_marker.set_offsets([self.car_x, self.car_y])
+            self.ax.scatter(self.car_x, self.car_y, s=200, marker='o', color='orange', label="Car Position")
 
+        # Plot speed on the second axis if available
         if self.ax2 and wm.vx is not None:
             self.ax2.clear()
             self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-", label="vx_mps")
             self.ax2.scatter(wm.t, wm.vx, color="red")
             if self.car_v is not None and self.car_wpt_idx is not None:
-                if self.car_speed_line is None:
-                    self.car_speed_line = self.ax2.scatter(self.car_wpt_idx, self.car_v, s=200, color='orange',
-                                                         marker='o', label="Car Speed")
-                else:
-                    self.car_speed_line.set_offsets([self.car_wpt_idx, self.car_v])
+                self.ax2.scatter(self.car_wpt_idx, self.car_v, s=200, color='orange', marker='o', label="Car Speed")
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("vx_mps")
             self.ax2.grid()
@@ -373,10 +367,11 @@ class WaypointEditorUI:
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
             self.car_wpt_idx = car_state.get('idx_global')
+            # print(f"Received car state: x={self.car_x}, y={self.car_y}, v={self.car_v}, idx_global={self.car_wpt_idx}")
         self.redraw_plot()
 
 class WaypointsEditorApp:
-    def __init__(self, map_name="IPZ16", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+    def __init__(self, map_name="RCA2", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
         self.socket_client = SocketClient()  # Initialize the socket client
