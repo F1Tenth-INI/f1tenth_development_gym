@@ -48,6 +48,7 @@ class WaypointDataManager:
         self.scale = 1.0  # Scaling factor
         self.initial_x = None
         self.initial_y = None
+        self.initial_vx = None
         self.t = None
         self.cs_x = None
         self.cs_y = None
@@ -64,6 +65,7 @@ class WaypointDataManager:
             self.vx_original = self.original_data['vx_mps'].to_numpy()
             self.scale = get_speed_scaling(len(self.x), Settings)  # Get scaling factor
             self.vx = self.vx_original * self.scale  # Apply scaling
+            self.initial_vx = self.vx.copy()
         self.initial_x = self.x.copy()
         self.initial_y = self.y.copy()
         self.t = np.arange(len(self.x))
@@ -203,7 +205,7 @@ class WaypointEditorUI:
             self.load_image_background()
         wm = self.waypoint_manager
         self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Waypoints")
-        self.ax.plot(wm.x, wm.y, color="green", linestyle="-", label="Adjusted Waypoints")
+        self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
         # Plot the car position
@@ -213,12 +215,13 @@ class WaypointEditorUI:
         # Plot speed on the second axis if available
         if self.ax2 and wm.vx is not None:
             self.ax2.clear()
-            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-", label="vx_mps")
-            self.ax2.scatter(wm.t, wm.vx, color="red")
+            self.ax2.plot(wm.t, wm.initial_vx, color="blue", linestyle="--", label="Initial Target Speed")
+            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-")
+            self.ax2.scatter(wm.t, wm.vx, color="red", label="Target Speed")
             if self.car_v is not None and self.car_wpt_idx is not None:
                 self.ax2.scatter(self.car_wpt_idx, self.car_v, s=200, color='orange', marker='o', label="Car Speed")
             self.ax2.set_xlabel("Waypoint Index")
-            self.ax2.set_ylabel("vx_mps")
+            self.ax2.set_ylabel("Speed vx (m/s)")
             self.ax2.grid()
             self.ax2.legend()
 
