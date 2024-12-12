@@ -379,7 +379,7 @@ class WaypointEditorUI:
         self.redraw_plot()
 
 class WaypointsEditorApp:
-    def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+    def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="../utilities/maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
         self.socket_client = SocketClient()  # Initialize the socket client
