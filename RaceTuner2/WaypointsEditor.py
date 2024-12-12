@@ -1,4 +1,4 @@
-# main_app.py
+# WaypointsEditor.py
 
 import os
 import sys
@@ -11,10 +11,9 @@ from matplotlib.widgets import Slider
 import datetime
 import matplotlib
 import yaml
-
-# Import the CarStateListener
-from car_state_listener import CarStateListener
-
+import socket
+import json
+import threading
 
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
@@ -143,13 +142,64 @@ class WaypointDataManager:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
 
+class SocketClient:
+    def __init__(self, host='localhost', port=5005):
+        self.host = host
+        self.port = port
+        self.sock = None
+        self.lock = threading.Lock()
+
+    def connect(self):
+        """Establish a connection to the socket server."""
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.connect((self.host, self.port))
+            print(f"Connected to CarStateListener at {self.host}:{self.port}")
+        except socket.error as e:
+            print(f"Failed to connect to CarStateListener: {e}")
+            self.sock = None
+
+    def get_car_state(self):
+        """Request and receive the latest car state."""
+        if self.sock is None:
+            self.connect()
+            if self.sock is None:
+                return None  # Connection failed
+
+        try:
+            with self.lock:
+                self.sock.sendall(b"GET_CAR_STATE\n")
+                received = self.sock.recv(4096).decode('utf-8')
+            if received:
+                car_state = json.loads(received)
+                return car_state
+            else:
+                print("No data received from CarStateListener.")
+                return None
+        except socket.error as e:
+            print(f"Socket error during communication: {e}")
+            self.sock.close()
+            self.sock = None
+            return None
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
+            return None
+
+    def close(self):
+        """Close the socket connection."""
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+            print("Socket connection closed.")
 
 class WaypointEditorUI:
-    def __init__(self, waypoint_manager, map_config, car_state_listener, initial_scale=20.0):
+    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0):
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
-        self.car_state_listener = car_state_listener  # Reference to CarStateListener
+        self.socket_client = socket_client  # Reference to SocketClient
+        self.update_frequency = update_frequency  # in Hz
+
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
@@ -168,7 +218,13 @@ class WaypointEditorUI:
         self.image_loaded = False
         self.car_marker = None
         self.car_speed_line = None
-        self.update_interval = 200  # in milliseconds
+        self.update_interval = 1000 / self.update_frequency  # in milliseconds
+
+        # Initialize car state
+        self.car_x = None
+        self.car_y = None
+        self.car_v = None
+        self.car_wpt_idx = None
 
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
@@ -194,21 +250,22 @@ class WaypointEditorUI:
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
         # Update car position
-        car_x, car_y, car_v, car_wpt_idx = self.car_state_listener.get_car_state()
-        if car_x is not None and car_y is not None:
+        if self.car_x is not None and self.car_y is not None:
             if self.car_marker is None:
-                self.ax.scatter(car_x, car_y, s=200, marker='o', color='orange', label="Car Position")
+                self.car_marker = self.ax.scatter(self.car_x, self.car_y, s=200, marker='o', color='orange', label="Car Position")
             else:
-                self.car_marker.set_data(car_x, car_y)
+                self.car_marker.set_offsets([self.car_x, self.car_y])
 
         if self.ax2 and wm.vx is not None:
             self.ax2.clear()
             self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-", label="vx_mps")
             self.ax2.scatter(wm.t, wm.vx, color="red")
-            if car_v is not None:
-                if self.car_speed_line is None and car_wpt_idx is not None:
-                    self.car_speed_line = self.ax2.scatter(car_wpt_idx, car_v, s=200, color='orange',
+            if self.car_v is not None and self.car_wpt_idx is not None:
+                if self.car_speed_line is None:
+                    self.car_speed_line = self.ax2.scatter(self.car_wpt_idx, self.car_v, s=200, color='orange',
                                                          marker='o', label="Car Speed")
+                else:
+                    self.car_speed_line.set_offsets([self.car_wpt_idx, self.car_v])
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("vx_mps")
             self.ax2.grid()
@@ -303,28 +360,39 @@ class WaypointEditorUI:
         self.fig.canvas.mpl_connect("key_press_event", self.key_press_handler)
 
     def start_periodic_update(self):
-        # Start a timer to update the car position every 0.2 seconds
+        # Start a timer to update the car position based on the update_frequency
         self.timer = self.fig.canvas.new_timer(interval=self.update_interval)
         self.timer.add_callback(self.periodic_update)
         self.timer.start()
 
     def periodic_update(self):
-        # Update car state
+        # Fetch the latest car state from the socket server
+        car_state = self.socket_client.get_car_state()
+        if car_state:
+            self.car_x = car_state.get('car_x')
+            self.car_y = car_state.get('car_y')
+            self.car_v = car_state.get('car_v')
+            self.car_wpt_idx = car_state.get('idx_global')
         self.redraw_plot()
 
-
 class WaypointsEditorApp:
-    def __init__(self, map_name="IPZ16", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0):
+    def __init__(self, map_name="IPZ16", path_to_maps="./maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
-        self.car_state_listener = CarStateListener()  # Initialize the ROS listener
+        self.socket_client = SocketClient()  # Initialize the socket client
 
     def run(self):
         try:
             # Continue with the GUI
             self.waypoint_manager.create_backup_if_needed()
             self.waypoint_manager.load_waypoints()
-            self.ui = WaypointEditorUI(self.waypoint_manager, self.map_config, self.car_state_listener, initial_scale=20.0)
+            self.ui = WaypointEditorUI(
+                self.waypoint_manager,
+                self.map_config,
+                self.socket_client,
+                initial_scale=20.0,
+                update_frequency=5.0  # Default frequency
+            )
             self.ui.load_image_background()
             self.ui.redraw_plot()
             self.ui.setup_ui_elements()
@@ -334,9 +402,8 @@ class WaypointsEditorApp:
         except KeyboardInterrupt:
             print("Shutting down WaypointsEditorApp.")
         finally:
-            # Ensure ROS is shut down gracefully
-            self.car_state_listener.shutdown()
-
+            # Ensure the socket client is closed gracefully
+            self.socket_client.close()
 
 if __name__ == "__main__":
     app = WaypointsEditorApp()

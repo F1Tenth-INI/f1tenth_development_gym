@@ -1,12 +1,15 @@
+# car_state_listener.py
+
 import os
 import rospy
 from rospy.msg import AnyMsg
 import struct
 import threading
-
+import socket
+import json
 
 class CarStateListener:
-    def __init__(self):
+    def __init__(self, host='localhost', port=5005):
         # Set ROS environment variables
         os.environ['ROS_MASTER_URI'] = 'http://192.168.116.46:11311'  # Ubuntu machine with ROS master
         os.environ['ROS_IP'] = '192.168.194.233'  # MacOS IP where this script is running
@@ -37,12 +40,70 @@ class CarStateListener:
         self.spin_thread.daemon = True  # Daemonize thread to exit when main program exits
         self.spin_thread.start()
 
+        # Start the socket server in a separate thread
+        self.server_thread = threading.Thread(target=self._start_socket_server, args=(host, port))
+        self.server_thread.daemon = True
+        self.server_thread.start()
+
     def _ros_spin(self):
         """Run rospy.spin() in a separate thread."""
         try:
             rospy.spin()
         except rospy.ROSInterruptException:
             pass
+
+    def _start_socket_server(self, host, port):
+        """Starts a TCP socket server to serve car state data."""
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind((host, port))
+        server_socket.listen(5)  # Allow up to 5 pending connections
+        rospy.loginfo(f"CarStateListener socket server started on {host}:{port}")
+
+        while not rospy.is_shutdown():
+            try:
+                client_socket, addr = server_socket.accept()
+                rospy.loginfo(f"Accepted connection from {addr}")
+                client_handler = threading.Thread(
+                    target=self._handle_client,
+                    args=(client_socket,)
+                )
+                client_handler.daemon = True
+                client_handler.start()
+            except socket.error as e:
+                rospy.logerr(f"Socket error: {e}")
+                break
+
+        server_socket.close()
+
+    def _handle_client(self, client_socket):
+        """Handles client requests."""
+        with client_socket:
+            while not rospy.is_shutdown():
+                try:
+                    data = client_socket.recv(1024).decode('utf-8').strip()
+                    if not data:
+                        break  # No more data from client
+                    rospy.loginfo(f"Received request: {data}")
+                    if data.upper() == "GET_CAR_STATE":
+                        with self.lock:
+                            car_state = {
+                                'car_x': self.car_x,
+                                'car_y': self.car_y,
+                                'car_v': self.car_v,
+                                'idx_global': self.idx_global
+                            }
+                        response = json.dumps(car_state)
+                        client_socket.sendall(response.encode('utf-8'))
+                        rospy.loginfo("Sent car state data to client.")
+                    else:
+                        rospy.logwarn(f"Unknown request: {data}")
+                        client_socket.sendall(b"UNKNOWN_REQUEST")
+                except socket.error as e:
+                    rospy.logerr(f"Socket communication error: {e}")
+                    break
+                except Exception as e:
+                    rospy.logerr(f"Unexpected error: {e}")
+                    break
 
     def car_state_callback(self, msg):
         """
@@ -87,7 +148,7 @@ class CarStateListener:
 
             # Define header size and waypoint size
             header_size = 12  # Example header size (adjust as needed)
-            waypoint_size = struct.calcsize('ii8f')  # 2 int32 + 8 float32 fields
+            waypoint_size = struct.calcsize('ii10f')  # 2 int32 + 10 float32 fields
 
             # Check if buffer size is sufficient
             if len(msg._buff) < header_size:
@@ -132,9 +193,25 @@ class CarStateListener:
 
     def get_car_state(self):
         with self.lock:
-            return self.car_x, self.car_y, self.car_v, self.idx_global
+            return {
+                'car_x': self.car_x,
+                'car_y': self.car_y,
+                'car_v': self.car_v,
+                'idx_global': self.idx_global
+            }
 
     def shutdown(self):
         """Shutdown the ROS node gracefully."""
         rospy.signal_shutdown('Shutting down CarStateListener')
         self.spin_thread.join()
+        rospy.loginfo("CarStateListener has been shut down.")
+
+if __name__ == "__main__":
+    listener = CarStateListener()
+    try:
+        while not rospy.is_shutdown():
+            rospy.sleep(1)
+    except KeyboardInterrupt:
+        rospy.loginfo("KeyboardInterrupt received. Shutting down CarStateListener.")
+    finally:
+        listener.shutdown()
