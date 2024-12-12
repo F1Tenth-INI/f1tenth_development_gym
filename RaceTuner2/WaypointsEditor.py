@@ -8,12 +8,9 @@ from scipy.interpolate import CubicSpline
 import pandas as pd
 from matplotlib.image import imread
 from matplotlib.widgets import Slider
-from copy import deepcopy
 import datetime
 import matplotlib
 import yaml
-import threading
-import rospy  # Import rospy here
 
 # Import the CarStateListener
 from car_state_listener import CarStateListener
