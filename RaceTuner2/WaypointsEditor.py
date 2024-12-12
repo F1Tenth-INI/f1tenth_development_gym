@@ -197,7 +197,7 @@ class WaypointEditorUI:
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
         # Update car position
-        car_x, car_y, car_v = self.car_state_listener.get_car_state()
+        car_x, car_y, car_v, car_wpt_idx = self.car_state_listener.get_car_state()
         if car_x is not None and car_y is not None:
             if self.car_marker is None:
                 self.ax.scatter(car_x, car_y, s=200, marker='o', color='orange', label="Car Position")
@@ -209,11 +209,9 @@ class WaypointEditorUI:
             self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-", label="vx_mps")
             self.ax2.scatter(wm.t, wm.vx, color="red")
             if car_v is not None:
-                if self.car_speed_line is None:
-                    self.car_speed_line, = self.ax2.plot([wm.t[0], wm.t[-1]], [car_v, car_v], color='orange',
-                                                         linestyle='--', label="Car Speed")
-                else:
-                    self.car_speed_line.set_ydata([car_v, car_v])
+                if self.car_speed_line is None and car_wpt_idx is not None:
+                    self.car_speed_line = self.ax2.scatter(car_wpt_idx, car_v, s=200, color='orange',
+                                                         marker='o', label="Car Speed")
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("vx_mps")
             self.ax2.grid()
