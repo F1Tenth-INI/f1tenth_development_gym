@@ -1,11 +1,12 @@
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
-import csv
+import time
+import threading
+
 import os.path
 import numpy as np
 import pandas as pd
-import yaml
 
 '''
 HOW TO USE:
@@ -88,8 +89,8 @@ class WaypointUtils:
         self.nearest_waypoint_index = None
         
         # next waypoints including the ones ignored by index offset: Relevant for looking for next (cache for looking for next one)
-        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 8), dtype=np.float32) 
-        
+        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
+
          # next waypoints considering ignored waypoints index offset
         self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
@@ -101,9 +102,20 @@ class WaypointUtils:
             self.current_waypoint_cache = np.array([])
             self.next_waypoints = np.array([])
             self.next_waypoint_positions = np.array([])
-        
-        
-        
+
+        # Start the thread that reloads waypoints every 5 seconds
+        self.start_reload_waypoints_thread()
+
+    def start_reload_waypoints_thread(self):
+        def reload_loop():
+            while True:
+                self.reload_waypoints()
+                time.sleep(5)
+        thread = threading.Thread(target=reload_loop)
+        thread.daemon = True  # Daemonize thread to exit when main program exits
+        thread.start()
+
+
     def update_next_waypoints(self, car_state):
         if self.waypoints is None: return
         
@@ -120,7 +132,7 @@ class WaypointUtils:
             car_cos_theta = car_state[POSE_THETA_COS_IDX]
         if self.nearest_waypoint_index is None:
             # Run initial search of starting waypoint (all waypoints)
-            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)  
+            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
         else: # only look for next waypoint in the current waypoint cache
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position,  self.waypoints)
             # nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
@@ -129,7 +141,7 @@ class WaypointUtils:
         if(self.sectors is not None):
             for i in range(self.sectors.shape[0]):
                 if self.sectors[i, SECTOR_START_IDX] <= nearest_waypoint_index * self.decrease_resolution_factor < self.sectors[i, SECTOR_END_IDX]:
-                    self.sector_index = i  
+                    self.sector_index = i
                     break
         
         if(Settings.AUTOMATIC_SECTOR_TUNING):
@@ -162,7 +174,7 @@ class WaypointUtils:
             self.sector_number_of_states +=1
         else: # new sector
             # Normalize sector error
-            self.sector_error = self.sector_error / self.sector_number_of_states 
+            self.sector_error = self.sector_error / self.sector_number_of_states
             print("sector error", self.sector_error)
             print("New sector", self.sector_index)
             
