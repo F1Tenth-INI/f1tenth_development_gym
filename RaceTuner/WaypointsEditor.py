@@ -234,7 +234,7 @@ class WaypointEditorUI:
             origin[1],
             origin[1] + img.shape[0] * resolution
         ]
-        self.ax.imshow(img, extent=extent, aspect='auto', cmap='gray' if grayscale else None)
+        self.ax.imshow(img, extent=extent, aspect='equal', cmap='gray' if grayscale else None)  # Set aspect to 'equal'
         self.image_loaded = True
 
     def setup_static_plot(self):
