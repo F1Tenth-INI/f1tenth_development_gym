@@ -10,7 +10,7 @@ class HoverMarker:
         self.threshold_speed = threshold_speed
         self.threshold_wpt_idx = threshold_wpt_idx
         self.last_hovered_index = None
-        self.planted_markers = []  # List to store tuples of (index, marker_artist, color)
+        self.planted_markers = []  # List to store tuples of (x, y, vx, index, color)
         self.planted_markers_viz = []  # List of matplotlib objects associated with planted markers
         self.planted_markers_speed_viz = []  # List of matplotlib objects associated with planted markers
 
@@ -150,11 +150,25 @@ class HoverMarker:
             # Store the planted marker information
             self.planted_markers.append((x, y, vx, index, color))
 
+            # Create visualization for the main axis
+            marker_viz, = self.ax.plot(x, y, 'o', color=color, markersize=11, alpha=0.8)
+            self.planted_markers_viz.append(marker_viz)
+
+            # Create visualization for the speed axis if available
+            if self.ax2 and self.wm.vx is not None:
+                marker_speed_viz, = self.ax2.plot(index, vx, 'o', color=color, markersize=11, alpha=0.8)
+                self.planted_markers_speed_viz.append(marker_speed_viz)
+
             # Change hover marker color to the next color in the cycle
             self.hover_color_idx = (self.hover_color_idx + 1) % len(self.color_cycle)
             self.hover_marker_main.set_color(self.color_cycle[self.hover_color_idx])
             if self.hover_marker_speed:
                 self.hover_marker_speed.set_color(self.color_cycle[self.hover_color_idx])
+
+            # Trigger a redraw to display the new marker immediately
+            self.ax.figure.canvas.draw_idle()
+            if self.ax2:
+                self.ax2.figure.canvas.draw_idle()
 
         print(self.planted_markers)
 
@@ -165,6 +179,16 @@ class HoverMarker:
         """
         if self.planted_markers:
             self.planted_markers.pop()
+
+            # Remove the corresponding visualization from the main axis
+            if self.planted_markers_viz:
+                marker_viz = self.planted_markers_viz.pop()
+                marker_viz.remove()
+
+            # Remove the corresponding visualization from the speed axis if available
+            if self.ax2 and self.planted_markers_speed_viz:
+                marker_speed_viz = self.planted_markers_speed_viz.pop()
+                marker_speed_viz.remove()
 
             # Decrement the hover_color_idx to go back to the previous color
             self.hover_color_idx = (self.hover_color_idx - 1) % len(self.color_cycle)
@@ -180,7 +204,8 @@ class HoverMarker:
         Returns the most recently planted color for the given index.
         If no markers are planted at this index, returns None.
         """
-        for planted_index, _, color in reversed(self.planted_markers):
+        for planted_marker in reversed(self.planted_markers):
+            _, _, _, planted_index, color = planted_marker
             if planted_index == index:
                 return color
         return None
