@@ -19,14 +19,19 @@ from utilities.Settings import Settings
 
 from utilities.waypoint_utils import get_speed_scaling
 
-
+MAP_NAME = Settings.MAP_NAME
+PATH_TO_MAPS = "../utilities/maps/"
+REMOTE_PATH = "catkin_ws/src/f1tenth_system/racecar/racecar/maps/"+Settings.MAP_NAME
 remote_config = {
     "host": "ini-xavier.local",
     "port": 22,
     "username": "racecar",
     "password": "Inivincible",
-    "remotePath": "catkin_ws/src/"
+    "remotePath": REMOTE_PATH
 }
+
+MAP_LIMITS_X = [-5.0, 8.1]
+MAP_LIMITS_Y = [-1.5, 9.1]
 
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
@@ -193,6 +198,7 @@ class WaypointEditorUI:
         plt.rcParams.update({'font.size': 15})
         if self.waypoint_manager.vx is not None:
             self.fig, (self.ax, self.ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=False)
+            plt.subplots_adjust(hspace=0.3)
         else:
             self.fig, self.ax = plt.subplots(figsize=(16, 10))
             self.ax2 = None
@@ -242,25 +248,34 @@ class WaypointEditorUI:
         if self.image_loaded:
             self.load_image_background()
         wm = self.waypoint_manager
-        self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Waypoints")
+        self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Raceline")
         self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
-        self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
+        self.ax.scatter(wm.x, wm.y, color="red", label="Target Raceline")
 
         # Set labels and grid for main axis
         self.ax.set_xlabel("X (m)")
         self.ax.set_ylabel("Y (m)")
         self.ax.grid()
-        self.ax.legend(loc='upper right')
 
-        # Speed subplot if available
         if self.ax2 and wm.vx is not None:
-            self.ax2.plot(wm.t, wm.initial_vx, color="blue", linestyle="--", label="Initial Target Speed")
+            self.ax2.plot(wm.t, wm.initial_vx, color="blue", linestyle="--", label="Initial Speed")
             self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-")
             self.ax2.scatter(wm.t, wm.vx, color="red", label="Target Speed")
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("Speed vx (m/s)")
             self.ax2.grid()
-            self.ax2.legend(loc='upper right')
+
+        # Combine legends from both subplots
+
+        _, labels = self.ax.get_legend_handles_labels()
+        if self.ax2:
+            labels[0] = 'Initial Raceline & Speed'
+            labels[1] = "Target Raceline & Speed"
+
+        self.ax.legend(labels, loc="upper right", bbox_to_anchor=(2.0, 1), frameon=False)
+
+        self.ax.set_xlim(MAP_LIMITS_X)
+        self.ax.set_ylim(MAP_LIMITS_Y)
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
@@ -481,7 +496,7 @@ class WaypointEditorUI:
 
 
 class WaypointsEditorApp:
-    def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="../utilities/maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+    def __init__(self, map_name=MAP_NAME, path_to_maps=PATH_TO_MAPS, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
         self.map_config = MapConfig(map_name, path_to_maps)
         self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
         self.socket_client = SocketWatpointEditor()  # Initialize the socket client
