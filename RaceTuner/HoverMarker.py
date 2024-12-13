@@ -11,6 +11,8 @@ class HoverMarker:
         self.threshold_wpt_idx = threshold_wpt_idx
         self.last_hovered_index = None
         self.planted_markers = []  # List to store tuples of (index, marker_artist, color)
+        self.planted_markers_viz = []  # List of matplotlib objects associated with planted markers
+        self.planted_markers_speed_viz = []  # List of matplotlib objects associated with planted markers
 
         # Define a list of colors to cycle through
         self.color_cycle = ['yellow', 'green', 'blue', 'red', 'cyan', 'magenta', 'orange', 'purple', 'brown']
@@ -32,12 +34,29 @@ class HoverMarker:
         else:
             self.hover_marker_speed = None
 
+        self.planted_markers_viz = []
+        self.planted_markers_speed_viz = []
+        for marker in self.planted_markers:
+            x, y, vx, idx, color = marker
+            marker_viz, = self.ax.plot(x, y, 'o', color=color, markersize=11, alpha=0.8)
+            self.planted_markers_viz.append(marker_viz)
+            if self.ax2:
+                marker_speed_viz, = self.ax2.plot(idx, vx, 'o', color=color, markersize=11, alpha=0.8)
+                self.planted_markers_speed_viz.append(marker_speed_viz)
+
     def reconnect_markers(self):
         # Remove existing markers
         if hasattr(self, 'hover_marker_main'):
             self.hover_marker_main.remove()
         if self.hover_marker_speed:
             self.hover_marker_speed.remove()
+
+        if hasattr(self, 'planted_markers_viz'):
+            for marker in self.planted_markers_viz:
+                marker.remove()
+        if hasattr(self, 'planted_markers_speed_viz'):
+            for marker in self.planted_markers_speed_viz:
+                marker.remove()
 
         # Recreate markers
         self.create_markers()
@@ -103,6 +122,13 @@ class HoverMarker:
             self.ax.draw_artist(self.hover_marker_main)
             if self.ax2 and self.hover_marker_speed:
                 self.ax2.draw_artist(self.hover_marker_speed)
+
+        for marker in self.planted_markers_viz:
+            self.ax.draw_artist(marker)
+
+        if self.ax2:
+            for marker in self.planted_markers_speed_viz:
+                self.ax2.draw_artist(marker)
 
     def plant_marker(self):
         """

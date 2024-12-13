@@ -298,6 +298,12 @@ class WaypointEditorUI:
             self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
 
     def on_press(self, event):
+
+        # Detect if Ctrl or Cmd is pressed
+        if event.key in ['control', 'ctrl', 'command', 'cmd']:
+            self.hover_marker.plant_marker()
+            return  # Early exit to prevent other click handling
+
         if event.inaxes == self.ax:
             wm = self.waypoint_manager
             for i, (px, py) in enumerate(zip(wm.x, wm.y)):
@@ -359,6 +365,9 @@ class WaypointEditorUI:
                 self.redraw_plot()
             else:
                 self.update_text_box("No more undo steps available.")
+        # Check for "Ctrl+C" or "Cmd+C" to erase marker
+        elif key in ["ctrl+c", "cmd+c"]:
+            self.hover_marker.erase_marker()
 
     def setup_ui_elements(self):
         plt.subplots_adjust(bottom=0.25)
