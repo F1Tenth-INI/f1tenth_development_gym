@@ -55,7 +55,10 @@ def main():
     else:
         state_recording = None
 
-    tuner_connector = TunerConnectorSim()
+    try:
+        tuner_connector = TunerConnectorSim()
+    except OSError:
+        print("Tunner connection not possible.")
 
     # Config
     # overwrite config.yaml files 
