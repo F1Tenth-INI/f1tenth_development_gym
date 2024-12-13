@@ -175,8 +175,13 @@ class WaypointEditorUI:
         self.dragging_vx = False
         self.drag_index_vx = None
         self.image_loaded = False
+
+        # Dynamic elements
         self.car_marker = None
-        self.car_speed_line = None
+        self.car_speed_marker = None
+        self.background_main = None
+        self.background_speed = None
+
         self.update_interval = 1000 / self.update_frequency  # in milliseconds
 
         # Initialize car state
@@ -199,37 +204,73 @@ class WaypointEditorUI:
         self.ax.imshow(img, extent=extent, aspect='auto', cmap='gray' if grayscale else None)
         self.image_loaded = True
 
-    def redraw_plot(self):
-        self.ax.clear()
+    def setup_static_plot(self):
+        # Plot static elements
         if self.image_loaded:
             self.load_image_background()
         wm = self.waypoint_manager
         self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Waypoints")
-        self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
+        self.ax.plot(wm.x, wm.y, color="green", linestyle="-", label="Current Waypoints")
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
-        # Plot the car position
-        if self.car_x is not None and self.car_y is not None:
-            self.ax.scatter(self.car_x, self.car_y, s=200, marker='o', color='orange', label="Car Position")
-
-        # Plot speed on the second axis if available
-        if self.ax2 and wm.vx is not None:
-            self.ax2.clear()
-            self.ax2.plot(wm.t, wm.initial_vx, color="blue", linestyle="--", label="Initial Target Speed")
-            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-")
-            self.ax2.scatter(wm.t, wm.vx, color="red", label="Target Speed")
-            if self.car_v is not None and self.car_wpt_idx is not None:
-                self.ax2.scatter(self.car_wpt_idx, self.car_v, s=200, color='orange', marker='o', label="Car Speed")
-            self.ax2.set_xlabel("Waypoint Index")
-            self.ax2.set_ylabel("Speed vx (m/s)")
-            self.ax2.grid()
-            self.ax2.legend()
-
+        # Set labels and grid for main axis
         self.ax.set_xlabel("X (m)")
         self.ax.set_ylabel("Y (m)")
         self.ax.grid()
-        self.ax.legend()
-        plt.draw()
+        self.ax.legend(loc='upper right')
+
+        # Speed subplot if available
+        if self.ax2 and wm.vx is not None:
+            self.ax2.plot(wm.t, wm.initial_vx, color="blue", linestyle="--", label="Initial Target Speed")
+            self.ax2.plot(wm.t, wm.vx, color="green", linestyle="-")
+            self.ax2.scatter(wm.t, wm.vx, color="red", label="Target Speed")
+            self.ax2.set_xlabel("Waypoint Index")
+            self.ax2.set_ylabel("Speed vx (m/s)")
+            self.ax2.grid()
+            self.ax2.legend(loc='upper right')
+
+    def setup_dynamic_artists(self):
+        # Initialize dynamic artists for car position
+        if self.car_x is not None and self.car_y is not None:
+            self.car_marker, = self.ax.plot(self.car_x, self.car_y, 'o', color='orange', markersize=12,
+                                            label="Car Position")
+            if not any(label.get_text() == "Car Position" for label in self.ax.get_legend().get_texts()):
+                self.ax.legend(loc='upper right')
+        else:
+            self.car_marker, = self.ax.plot([], [], 'o', color='orange', markersize=12, label="Car Position")
+
+        # Initialize dynamic artists for car speed
+        if self.ax2 and self.car_v is not None and self.car_wpt_idx is not None:
+            self.car_speed_marker, = self.ax2.plot(self.car_wpt_idx, self.car_v, 'o', color='orange', markersize=12,
+                                                   label="Car Speed")
+            if not any(label.get_text() == "Car Speed" for label in self.ax2.get_legend().get_texts()):
+                self.ax2.legend(loc='upper right')
+        elif self.ax2:
+            self.car_speed_marker, = self.ax2.plot([], [], 'o', color='orange', markersize=12, label="Car Speed")
+
+    def capture_background(self):
+        # Capture background for main axis
+        self.fig.canvas.draw()
+        self.background_main = self.fig.canvas.copy_from_bbox(self.ax.bbox)
+        # Capture background for speed axis
+        if self.ax2:
+            self.background_speed = self.fig.canvas.copy_from_bbox(self.ax2.bbox)
+
+    def redraw_static_elements(self):
+        # Restore the figure and redraw static elements
+        self.ax.clear()
+        if self.ax2:
+            self.ax2.clear()
+
+        self.setup_static_plot()
+        self.setup_dynamic_artists()
+        self.fig.canvas.draw()
+        self.capture_background()
+
+    def redraw_plot(self):
+        # Redraw everything and recapture backgrounds
+        self.redraw_static_elements()
+        # Update text box
         self.update_text_box(f"Waypoints updated. Current scale: {self.scale:.1f}")
 
     def update_text_box(self, message):
@@ -238,7 +279,12 @@ class WaypointEditorUI:
             self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
             self.text_box.set_xticks([])
             self.text_box.set_yticks([])
-            plt.draw()
+            self.text_box.set_frame_on(False)
+        else:
+            # Create text box if it doesn't exist
+            self.text_box = self.fig.add_axes([0.1, 0.05, 0.8, 0.05])
+            self.text_box.axis('off')
+            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
 
     def on_press(self, event):
         if event.inaxes == self.ax:
@@ -275,16 +321,18 @@ class WaypointEditorUI:
             dx = event.xdata - wm.x[self.drag_index]
             dy = event.ydata - wm.y[self.drag_index]
             wm.apply_weighted_adjustment_2d(dx, dy, self.drag_index, self.scale)
-            self.redraw_plot()
+            # Update static plot and recapture background
+            self.redraw_static_elements()
         if self.dragging_vx and self.drag_index_vx is not None and event.inaxes == self.ax2:
             wm = self.waypoint_manager
             dv = event.ydata - wm.vx[self.drag_index_vx]
             wm.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
-            self.redraw_plot()
+            # Update static plot and recapture background
+            self.redraw_static_elements()
 
     def update_sigma(self, val):
         self.scale = val
-        self.update_text_box(f"Scale updated to: {self.scale}")
+        self.update_text_box(f"Scale updated to: {self.scale:.1f}")
         self.redraw_plot()
 
     def key_press_handler(self, event):
@@ -292,10 +340,12 @@ class WaypointEditorUI:
         wm = self.waypoint_manager
         if key in ["ctrl+s", "cmd+s"]:
             wm.save_waypoints_to_file(self.update_text_box)
+            # After saving, refresh the plot to reflect any changes
+            self.redraw_plot()
         elif key in ["ctrl+z", "cmd+z"]:
             if wm.undo():
-                self.redraw_plot()
                 self.update_text_box("Undo successful.")
+                self.redraw_plot()
             else:
                 self.update_text_box("No more undo steps available.")
 
@@ -312,6 +362,11 @@ class WaypointEditorUI:
         self.fig.canvas.mpl_connect("button_release_event", self.on_release)
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.fig.canvas.mpl_connect("key_press_event", self.key_press_handler)
+        self.fig.canvas.mpl_connect("resize_event", self.on_resize)
+
+    def on_resize(self, event):
+        # On resize, redraw static elements and recapture background
+        self.redraw_plot()
 
     def start_periodic_update(self):
         # Start a timer to update the car position based on the update_frequency
@@ -326,9 +381,51 @@ class WaypointEditorUI:
             self.car_x = car_state.get('car_x')
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global')*Settings.DECREASE_RESOLUTION_FACTOR
-            print(f"Received car state: x={self.car_x}, y={self.car_y}, v={self.car_v}, idx_global={self.car_wpt_idx}")
+            self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
+
+        # Update dynamic artists if they exist, else create them
+        if self.car_marker is None:
+            self.car_marker, = self.ax.plot([], [], 'o', color='orange', markersize=12, label="Car Position")
+            # Avoid adding duplicate legend entries
+            if not any(label.get_text() == "Car Position" for label in self.ax.get_legend().get_texts()):
+                self.ax.legend(loc='upper right')
+        if self.ax2 and self.car_speed_marker is None:
+            self.car_speed_marker, = self.ax2.plot([], [], 'o', color='orange', markersize=12, label="Car Speed")
+            if not any(label.get_text() == "Car Speed" for label in self.ax2.get_legend().get_texts()):
+                self.ax2.legend(loc='upper right')
+
+        # Update car position
+        if self.car_marker is not None and self.car_x is not None and self.car_y is not None:
+            self.car_marker.set_data([self.car_x], [self.car_y])
+
+        # Update car speed
+        if self.ax2 and self.car_speed_marker is not None and self.car_v is not None and self.car_wpt_idx is not None:
+            self.car_speed_marker.set_data([self.car_wpt_idx], [self.car_v])
+
+        # Efficiently redraw only the dynamic elements
+        self.fig.canvas.restore_region(self.background_main)
+        self.ax.draw_artist(self.car_marker)
+        self.fig.canvas.blit(self.ax.bbox)
+
+        if self.ax2:
+            self.fig.canvas.restore_region(self.background_speed)
+            self.ax2.draw_artist(self.car_speed_marker)
+            self.fig.canvas.blit(self.ax2.bbox)
+
+    def run_blitting(self):
+        # Initial draw and capture background
         self.redraw_plot()
+        self.capture_background()
+
+    def run(self):
+        self.setup_ui_elements()
+        self.setup_static_plot()
+        self.setup_dynamic_artists()
+        self.run_blitting()
+        self.connect_events()
+        self.start_periodic_update()
+        plt.show()
+
 
 class WaypointsEditorApp:
     def __init__(self, map_name=Settings.MAP_NAME, path_to_maps="../utilities/maps/", waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
@@ -346,14 +443,10 @@ class WaypointsEditorApp:
                 self.map_config,
                 self.socket_client,
                 initial_scale=20.0,  # You can set this to waypoint_manager.scale if desired
-                update_frequency=5.0  # Default frequency
+                update_frequency=20.0  # Default frequency
             )
             self.ui.load_image_background()
-            self.ui.redraw_plot()
-            self.ui.setup_ui_elements()
-            self.ui.connect_events()
-            self.ui.start_periodic_update()  # Start updating car position
-            plt.show()
+            self.ui.run()
         except KeyboardInterrupt:
             print("Shutting down WaypointsEditorApp.")
         finally:
