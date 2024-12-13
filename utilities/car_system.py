@@ -90,8 +90,8 @@ class CarSystem:
             from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
             self.planner = mpc_planner()
             horizon = self.planner.mpc.predictor.horizon
-            # self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-            # self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+            self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+            self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
         elif controller =='ftg':
             from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
             self.planner =  FollowTheGapPlanner()
@@ -254,10 +254,8 @@ class CarSystem:
             translational_control_sequence = optimal_control_sequence[:, 1]
             
             # Convert MPC's control sequence to dictionary for recording
-            # self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
-            # self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
-            
-            
+            self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
+            self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
             
             # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
             self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
