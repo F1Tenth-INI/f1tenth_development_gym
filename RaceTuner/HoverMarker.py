@@ -9,16 +9,25 @@ class HoverMarker:
         self.threshold_main = threshold_main
         self.threshold_speed = threshold_speed
         self.threshold_wpt_idx = threshold_wpt_idx
-        self.create_markers()
         self.last_hovered_index = None
+        self.planted_markers = []  # List to store tuples of (index, marker_artist, color)
+
+        # Define a list of colors to cycle through
+        self.color_cycle = ['yellow', 'green', 'blue', 'red', 'cyan', 'magenta', 'orange', 'purple', 'brown']
+        self.next_color_idx = 0  # Pointer to the next color in the cycle
+
+        # Initialize hover_color_idx to manage hover_marker_main's color independently
+        self.hover_color_idx = 0
+
+        self.create_markers()
 
     def create_markers(self):
         # Create markers for visual feedback when hovering over a waypoint.
-        self.hover_marker_main, = self.ax.plot([], [], 'o', color='yellow', markersize=11, alpha=0.8)
+        self.hover_marker_main, = self.ax.plot([], [], 'o', color=self.color_cycle[self.hover_color_idx], markersize=11, alpha=0.8)
         self.hover_marker_main.set_visible(False)
 
         if self.ax2 and self.wm.vx is not None:
-            self.hover_marker_speed, = self.ax2.plot([], [], 'o', color='yellow', markersize=11, alpha=0.8)
+            self.hover_marker_speed, = self.ax2.plot([], [], 'o', color=self.color_cycle[self.hover_color_idx], markersize=11, alpha=0.8)
             self.hover_marker_speed.set_visible(False)
         else:
             self.hover_marker_speed = None
@@ -76,8 +85,6 @@ class HoverMarker:
             self.hover_marker_speed.set_data([self.wm.t[index]], [self.wm.vx[index]])
             self.hover_marker_speed.set_visible(True)
 
-        # Remove the following line to prevent draw_idle conflicts
-        # self.ax.figure.canvas.draw_idle()
 
     def hide_markers(self):
         if self.last_hovered_index is not None:
@@ -86,8 +93,9 @@ class HoverMarker:
                 self.hover_marker_speed.set_visible(False)
             self.last_hovered_index = None
 
-            # Remove the following line to prevent draw_idle conflicts
-            # self.ax.figure.canvas.draw_idle()
+            self.hover_marker_main.set_color(self.color_cycle[self.hover_color_idx])
+            if self.hover_marker_speed:
+                self.hover_marker_speed.set_color(self.color_cycle[self.hover_color_idx])
 
     def draw_markers(self):
         # Method to draw hover markers if they are visible
@@ -95,3 +103,58 @@ class HoverMarker:
             self.ax.draw_artist(self.hover_marker_main)
             if self.ax2 and self.hover_marker_speed:
                 self.ax2.draw_artist(self.hover_marker_speed)
+
+    def plant_marker(self):
+        """
+        Adds the currently hovered marker to the list of planted markers.
+        Changes the hover marker's color to the next color from the color cycle.
+        """
+        if self.last_hovered_index is not None:
+            index = self.last_hovered_index
+
+            # Get the next color from the cycle
+            color = self.color_cycle[self.next_color_idx]
+            self.next_color_idx = (self.next_color_idx + 1) % len(self.color_cycle)
+
+            # Plot the planted marker with the selected color
+            x = self.wm.x[index]
+            y = self.wm.y[index]
+            vx = self.wm.vx[index]
+
+            # Store the planted marker information
+            self.planted_markers.append((x, y, vx, index, color))
+
+            # Change hover marker color to the next color in the cycle
+            self.hover_color_idx = (self.hover_color_idx + 1) % len(self.color_cycle)
+            self.hover_marker_main.set_color(self.color_cycle[self.hover_color_idx])
+            if self.hover_marker_speed:
+                self.hover_marker_speed.set_color(self.color_cycle[self.hover_color_idx])
+
+        print(self.planted_markers)
+
+    def erase_marker(self):
+        """
+        Removes the most recently planted marker from the list.
+        Reverts the hover marker's color to the previous color in the color cycle.
+        """
+        if self.planted_markers:
+            self.planted_markers.pop()
+
+            # Decrement the hover_color_idx to go back to the previous color
+            self.hover_color_idx = (self.hover_color_idx - 1) % len(self.color_cycle)
+
+            # Change hover marker color to the previous color in the cycle
+            self.hover_marker_main.set_color(self.color_cycle[self.hover_color_idx])
+            if self.hover_marker_speed:
+                self.hover_marker_speed.set_color(self.color_cycle[self.hover_color_idx])
+
+
+    def get_latest_color_for_index(self, index):
+        """
+        Returns the most recently planted color for the given index.
+        If no markers are planted at this index, returns None.
+        """
+        for planted_index, _, color in reversed(self.planted_markers):
+            if planted_index == index:
+                return color
+        return None
