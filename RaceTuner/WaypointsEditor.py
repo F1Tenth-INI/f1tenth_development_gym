@@ -11,12 +11,22 @@ from matplotlib.widgets import Slider
 import datetime
 import matplotlib
 import yaml
+import paramiko
 
 from RaceTuner.HoverMarker import HoverMarker
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from utilities.Settings import Settings
 
 from utilities.waypoint_utils import get_speed_scaling
+
+
+remote_config = {
+    "host": "ini-xavier.local",
+    "port": 22,
+    "username": "racecar",
+    "password": "Inivincible",
+    "remotePath": "catkin_ws/src/"
+}
 
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
@@ -143,6 +153,8 @@ class WaypointDataManager:
             f.write(header_comment)
             data.to_csv(f, index=False, float_format="%.6f")
         message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
+        self._upload_to_remote(file_path, message_box_update_callback)
+
 
     def create_backup_if_needed(self):
         backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
@@ -150,6 +162,22 @@ class WaypointDataManager:
             with open(self.path_to_waypoints, 'r') as original_file:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
+
+    def _upload_to_remote(self, local_file_path, message_box_update_callback):
+        config = remote_config
+        try:
+            transport = paramiko.Transport((config["host"], config["port"]))
+            transport.connect(username=config["username"], password=config["password"])
+            sftp = paramiko.SFTPClient.from_transport(transport)
+
+            remote_file_path = os.path.join(config["remotePath"], os.path.basename(local_file_path))
+            sftp.put(local_file_path, remote_file_path)
+            message_box_update_callback(f"File synchronized to {remote_file_path} on remote server.")
+
+            sftp.close()
+            transport.close()
+        except Exception as e:
+            message_box_update_callback(f"Failed to synchronize file: {str(e)}")
 
 
 class WaypointEditorUI:
