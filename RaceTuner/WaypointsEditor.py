@@ -12,6 +12,7 @@ import datetime
 import matplotlib
 import yaml
 
+from RaceTuner.HoverMarker import HoverMarker
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from utilities.Settings import Settings
 
@@ -190,6 +191,10 @@ class WaypointEditorUI:
         self.car_v = None
         self.car_wpt_idx = None
 
+        self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
+
+
+
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
         yaml_data = self.map_config.load_map_config()
@@ -210,7 +215,7 @@ class WaypointEditorUI:
             self.load_image_background()
         wm = self.waypoint_manager
         self.ax.plot(wm.initial_x, wm.initial_y, color="blue", linestyle="--", label="Initial Waypoints")
-        self.ax.plot(wm.x, wm.y, color="green", linestyle="-", label="Current Waypoints")
+        self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
         self.ax.scatter(wm.x, wm.y, color="red", label="Waypoints")
 
         # Set labels and grid for main axis
@@ -257,13 +262,19 @@ class WaypointEditorUI:
             self.background_speed = self.fig.canvas.copy_from_bbox(self.ax2.bbox)
 
     def redraw_static_elements(self):
-        # Restore the figure and redraw static elements
+        # Clear the axes
         self.ax.clear()
         if self.ax2:
             self.ax2.clear()
 
+        # Redraw static and dynamic plot elements
         self.setup_static_plot()
         self.setup_dynamic_artists()
+
+        # Recreate hover markers after clearing the axes
+        self.hover_marker.reconnect_markers()
+
+        # Redraw the canvas and capture background
         self.fig.canvas.draw()
         self.capture_background()
 
@@ -405,11 +416,15 @@ class WaypointEditorUI:
         # Efficiently redraw only the dynamic elements
         self.fig.canvas.restore_region(self.background_main)
         self.ax.draw_artist(self.car_marker)
+        # Draw hover marker if visible
+        self.hover_marker.draw_markers()
         self.fig.canvas.blit(self.ax.bbox)
 
         if self.ax2:
             self.fig.canvas.restore_region(self.background_speed)
             self.ax2.draw_artist(self.car_speed_marker)
+            # Draw hover speed marker if visible
+            self.hover_marker.draw_markers()
             self.fig.canvas.blit(self.ax2.bbox)
 
     def run_blitting(self):
@@ -423,6 +438,7 @@ class WaypointEditorUI:
         self.setup_dynamic_artists()
         self.run_blitting()
         self.connect_events()
+        self.hover_marker.connect(self.fig.canvas)
         self.start_periodic_update()
         plt.show()
 
