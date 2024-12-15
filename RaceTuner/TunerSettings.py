@@ -3,7 +3,7 @@ import os
 
 USE_REMOTE_FILES = True
 
-MAP_NAME = "RCA1"  # Replace as needed
+MAP_NAME = "IPZ20"  # Replace as needed
 LOCAL_MAP_DIR = "utilities/maps"
 REMOTE_MAP_DIR = "catkin_ws/src/f1tenth_system/racecar/racecar/maps"
 REMOTE_AT_LOCAL_DIR = "./maps/"

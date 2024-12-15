@@ -415,6 +415,82 @@ class WaypointEditorUI:
         # Check for "Ctrl+C" or "Cmd+C" to erase marker
         elif key in ["ctrl+c", "cmd+c"]:
             self.hover_marker.erase_marker()
+        elif key == 'up':
+            self.adjust_all_speeds(delta=0.1)
+        elif key == 'down':
+            self.adjust_all_speeds(delta=-0.1)
+        elif key == 'r':
+            # Check if Shift modifier is held
+            if event.key == 'r' and event.key not in ["ctrl+r", "cmd+r"]:
+                self.reset_xy()
+        elif key in ["ctrl+r", "cmd+r"]:
+            self.reset_vx()
+
+    def adjust_all_speeds(self, delta):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Adjust speeds
+            if wm.vx is not None:
+                wm.vx += delta
+                # Optional: Clamp speeds to a minimum value (e.g., 0 m/s)
+                wm.vx = np.maximum(wm.vx, 0.0)
+
+                # Recalculate any dependent variables if necessary
+                wm.modifier.recalculate_splines()
+
+                # Update the speed plot
+                self.redraw_plot()
+
+                # Provide feedback to the user
+                action = "Increased" if delta > 0 else "Decreased"
+                self.update_text_box(f"{action} all waypoint speeds by {abs(delta):.1f} m/s.")
+
+    def reset_xy(self):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Reset x and y to initial values
+            wm.x = wm.initial_x.copy()
+            wm.y = wm.initial_y.copy()
+
+            # Recalculate splines
+            wm.modifier.recalculate_splines()
+
+            # Update the plot
+            self.redraw_plot()
+
+            # Provide feedback to the user
+            self.update_text_box("Reset all waypoint X and Y coordinates to initial values.")
+
+
+    def reset_vx(self):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Check if vx exists
+            if wm.vx_original is None:
+                self.update_text_box("No speed data (vx) to reset.")
+                return
+
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Reset vx to initial values and apply scaling
+            wm.vx = wm.vx_original.copy() * wm.scale
+
+            # Recalculate splines if necessary
+            wm.modifier.recalculate_splines()
+
+            # Update the plot
+            self.redraw_plot()
+
+            # Provide feedback to the user
+            self.update_text_box("Reset all waypoint speeds (vx) to initial values.")
+
 
     def setup_ui_elements(self):
         plt.subplots_adjust(bottom=0.25)
@@ -443,12 +519,12 @@ class WaypointEditorUI:
 
     def periodic_update(self):
         # Fetch the latest car state from the socket server
-        car_state = self.socket_client.get_car_state()
-        if car_state:
-            self.car_x = car_state.get('car_x')
-            self.car_y = car_state.get('car_y')
-            self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
+        # car_state = self.socket_client.get_car_state()
+        # if car_state:
+        #     self.car_x = car_state.get('car_x')
+        #     self.car_y = car_state.get('car_y')
+        #     self.car_v = car_state.get('car_v')
+        #     self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
