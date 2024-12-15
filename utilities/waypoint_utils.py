@@ -53,6 +53,10 @@ SECTOR_SCALING_IDX = 2
 SECTOR_LENGTH_IDX = 3
 
 
+def squared_distance(p1, p2):
+    squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
+    return squared_distance
+
 class WaypointUtils:
     
     def __init__(self,waypoint_file_name=Settings.MAP_NAME+"_wp", map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME ):
@@ -133,9 +137,16 @@ class WaypointUtils:
         if self.nearest_waypoint_index is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
-        else: # only look for next waypoint in the current waypoint cache
-            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position,  self.waypoints)
-            # nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
+        else:  # only look for next waypoint in the current waypoint cache
+            if Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
+                nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
+            else:
+                dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
+                nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
+                dist_current_waypoint = squared_distance(self.current_waypoint_cache[nearest_waypoint_index-self.nearest_waypoint_index, 1:3], car_position)
+                print(dist_current_waypoint)
+                if dist_current_waypoint > dist_max**2:
+                    nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
 
         # Find out in which sector the car is
         if(self.sectors is not None):
@@ -268,10 +279,6 @@ class WaypointUtils:
 
         min_dist = 10000
         min_dist_index = 0
-
-        def squared_distance(p1, p2):
-            squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
-            return squared_distance
 
         waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
         for i in range(len(waypoint_positions)):
