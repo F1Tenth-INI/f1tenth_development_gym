@@ -86,6 +86,44 @@ class WaypointDataManager:
             self._recalculate_splines(full_init=(not self.initial_load_done))
             self.initial_load_done = True  # Mark that initial load is complete now
 
+    def save_waypoints_to_file(self, message_box_update_callback):
+        file_path = self.waypoints_new_file_name if self.waypoints_new_file_name else self.path_to_waypoints
+        data = pd.DataFrame({"x_m": self.x, "y_m": self.y})
+        for col in self.original_data.columns:
+            if col not in data.columns:
+                if col == 'vx_mps' and self.vx is not None:
+                    data[col] = self.vx / self.scale  # Unscale before saving
+                else:
+                    data[col] = self.original_data[col]
+        data = data[self.original_data.columns]
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        header_comment = f"# Updated waypoints saved on {timestamp}\n"
+        with open(file_path, "w") as f:
+            f.write(header_comment)
+            data.to_csv(f, index=False, float_format="%.6f")
+        message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
+
+        if USE_REMOTE_FILES:
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp.csv"))
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
+
+    def create_backup_if_needed(self):
+        backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
+        if not os.path.exists(backup_path):
+            with open(self.path_to_waypoints, 'r') as original_file:
+                with open(backup_path, 'w') as backup_file:
+                    backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup.csv"))
+
+
+        backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
+        if not os.path.exists(backup_path):
+            with open(self.path_to_waypoints_reverse, 'r') as original_file:
+                with open(backup_path, 'w') as backup_file:
+                    backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
+
+
     def _recalculate_splines(self, full_init=False):
         self.cs_x = CubicSpline(self.t, self.x)
         self.cs_y = CubicSpline(self.t, self.y)
@@ -140,44 +178,6 @@ class WaypointDataManager:
             self._recalculate_splines()
             return True
         return False
-
-    def save_waypoints_to_file(self, message_box_update_callback):
-        file_path = self.waypoints_new_file_name if self.waypoints_new_file_name else self.path_to_waypoints
-        data = pd.DataFrame({"x_m": self.x, "y_m": self.y})
-        for col in self.original_data.columns:
-            if col not in data.columns:
-                if col == 'vx_mps' and self.vx is not None:
-                    data[col] = self.vx / self.scale  # Unscale before saving
-                else:
-                    data[col] = self.original_data[col]
-        data = data[self.original_data.columns]
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        header_comment = f"# Updated waypoints saved on {timestamp}\n"
-        with open(file_path, "w") as f:
-            f.write(header_comment)
-            data.to_csv(f, index=False, float_format="%.6f")
-        message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
-
-        if USE_REMOTE_FILES:
-            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp.csv"))
-            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
-
-
-    def create_backup_if_needed(self):
-        backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
-        if not os.path.exists(backup_path):
-            with open(self.path_to_waypoints, 'r') as original_file:
-                with open(backup_path, 'w') as backup_file:
-                    backup_file.write(original_file.read())
-            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup.csv"))
-
-
-        backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
-        if not os.path.exists(backup_path):
-            with open(self.path_to_waypoints_reverse, 'r') as original_file:
-                with open(backup_path, 'w') as backup_file:
-                    backup_file.write(original_file.read())
-            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
 
 
 class WaypointEditorUI:
