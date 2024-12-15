@@ -31,6 +31,45 @@ from TunerSettings import (
 from utilities.waypoint_utils import get_speed_scaling
 
 
+class WaypointsModifier:
+    def __init__(self, waypoint_manager):
+        self.waypoint_manager = waypoint_manager
+        self.cs_x = None
+        self.cs_y = None
+        self.dense_t = None
+        self.dense_x = None
+        self.dense_y = None
+
+    def recalculate_splines(self, full_init=False):
+        wm = self.waypoint_manager
+        self.cs_x = CubicSpline(wm.t, wm.x)
+        self.cs_y = CubicSpline(wm.t, wm.y)
+        self.dense_t = np.linspace(wm.t[0], wm.t[-1], 500)
+        self.dense_x = self.cs_x(self.dense_t)
+        self.dense_y = self.cs_y(self.dense_t)
+        if full_init:
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+    def apply_weighted_adjustment_2d(self, dx, dy, drag_index, scale):
+        wm = self.waypoint_manager
+        n = len(wm.x)
+        for i in range(n):
+            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
+            w = np.exp(-0.5 * (d / scale) ** 2)
+            wm.x[i] += dx * w
+            wm.y[i] += dy * w
+
+    def apply_weighted_adjustment_1d(self, dv, drag_index, scale):
+        wm = self.waypoint_manager
+        if wm.vx is None:
+            return
+        n = len(wm.vx)
+        for i in range(n):
+            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
+            w = np.exp(-0.5 * (d / scale) ** 2)
+            wm.vx[i] += dv * w
+
+
 class WaypointDataManager:
     def __init__(self, map_name, path_to_maps, waypoints_new_file_name=None):
         self.map_name = map_name
@@ -48,8 +87,6 @@ class WaypointDataManager:
         self.initial_y = None
         self.initial_vx = None
         self.t = None
-        self.cs_x = None
-        self.cs_y = None
         self.dense_t = None
         self.dense_x = None
         self.dense_y = None
@@ -60,6 +97,9 @@ class WaypointDataManager:
 
         # Initialize a separate manager to handle history and undo operations
         self.history_manager = WaypointHistoryManager()
+
+        # Initialize WaypointsModifier
+        self.modifier = WaypointsModifier(self)
 
     def load_waypoints_from_file(self):
         """Load waypoints from the waypoint CSV file."""
@@ -86,7 +126,7 @@ class WaypointDataManager:
                     self.initial_vx = self.vx.copy()
 
             self.t = np.arange(len(self.x))
-            self._recalculate_splines(full_init=(not self.initial_load_done))
+            self.modifier.recalculate_splines(full_init=(not self.initial_load_done))
             self.initial_load_done = True  # Mark that initial load is complete now
 
     def save_waypoints_to_file(self, message_box_update_callback):
@@ -126,33 +166,6 @@ class WaypointDataManager:
                     backup_file.write(original_file.read())
             upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
 
-
-    def _recalculate_splines(self, full_init=False):
-        self.cs_x = CubicSpline(self.t, self.x)
-        self.cs_y = CubicSpline(self.t, self.y)
-        self.dense_t = np.linspace(self.t[0], self.t[-1], 500)
-        self.dense_x = self.cs_x(self.dense_t)
-        self.dense_y = self.cs_y(self.dense_t)
-        if full_init:
-            self.history_manager.save_waypoint_state(self.x, self.y, self.vx)
-
-    def apply_weighted_adjustment_2d(self, dx, dy, drag_index, scale):
-        n = len(self.x)
-        for i in range(n):
-            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
-            w = np.exp(-0.5 * (d / scale) ** 2)
-            self.x[i] += dx * w
-            self.y[i] += dy * w
-
-    def apply_weighted_adjustment_1d(self, dv, drag_index, scale):
-        if self.vx is None:
-            return
-        n = len(self.vx)
-        for i in range(n):
-            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
-            w = np.exp(-0.5 * (d / scale) ** 2)
-            self.vx[i] += dv * w
-
     def undo(self):
         state = self.history_manager.undo()
         if state is not None:
@@ -161,7 +174,7 @@ class WaypointDataManager:
             self.y = state[1].copy()
             if len(state) > 2:
                 self.vx = state[2].copy()
-            self._recalculate_splines()
+            self.modifier.recalculate_splines()
             return True
         return False
 
@@ -348,18 +361,22 @@ class WaypointEditorUI:
         if self.dragging:
             self.dragging = False
             self.drag_index = None
-            self.waypoint_manager._recalculate_splines()
+            self.waypoint_manager.modifier.recalculate_splines()
             # After position changes are finalized, record the new state
-            self.waypoint_manager.history_manager.save_waypoint_state(self.waypoint_manager.x,
-                                                                      self.waypoint_manager.y,
-                                                                      self.waypoint_manager.vx)
+            self.waypoint_manager.history_manager.save_waypoint_state(
+                self.waypoint_manager.x,
+                self.waypoint_manager.y,
+                self.waypoint_manager.vx
+            )
             self.redraw_plot()
         if self.dragging_vx:
             self.dragging_vx = False
             self.drag_index_vx = None
-            self.waypoint_manager.history_manager.save_waypoint_state(self.waypoint_manager.x,
-                                                                      self.waypoint_manager.y,
-                                                                      self.waypoint_manager.vx)
+            self.waypoint_manager.history_manager.save_waypoint_state(
+                self.waypoint_manager.x,
+                self.waypoint_manager.y,
+                self.waypoint_manager.vx
+            )
             self.redraw_plot()
 
     def on_motion(self, event):
@@ -367,13 +384,13 @@ class WaypointEditorUI:
             wm = self.waypoint_manager
             dx = event.xdata - wm.x[self.drag_index]
             dy = event.ydata - wm.y[self.drag_index]
-            wm.apply_weighted_adjustment_2d(dx, dy, self.drag_index, self.scale)
+            wm.modifier.apply_weighted_adjustment_2d(dx, dy, self.drag_index, self.scale)
             # Update static plot and recapture background
             self.redraw_static_elements()
         if self.dragging_vx and self.drag_index_vx is not None and event.inaxes == self.ax2:
             wm = self.waypoint_manager
             dv = event.ydata - wm.vx[self.drag_index_vx]
-            wm.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
+            wm.modifier.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
             # Update static plot and recapture background
             self.redraw_static_elements()
 
