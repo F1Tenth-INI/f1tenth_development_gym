@@ -6,15 +6,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
 import pandas as pd
-from matplotlib.image import imread
 from matplotlib.widgets import Slider
 import datetime
 import matplotlib
-import yaml
 import threading
 
 from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sftp, download_map_files_via_sftp
 from RaceTuner.HoverMarker import HoverMarker
+from RaceTuner.MapHelper import MapConfig
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from utilities.Settings import Settings
 
@@ -30,23 +29,6 @@ from TunerSettings import (
 
 from utilities.waypoint_utils import get_speed_scaling
 
-
-class MapConfig:
-    def __init__(self, map_name, path_to_maps):
-        self.map_name = map_name
-        self.path_to_maps = path_to_maps
-        self.path_to_map_png = os.path.join(path_to_maps, map_name, map_name + ".png")
-        self.path_to_map_config = os.path.join(path_to_maps, map_name, map_name + ".yaml")
-
-    def load_map_image(self, grayscale=True):
-        img = imread(self.path_to_map_png)
-        if grayscale and img.ndim == 3:
-            img = np.dot(img[..., :3], [0.2989, 0.587, 0.114])
-        return img
-
-    def load_map_config(self):
-        with open(self.path_to_map_config, 'r') as file:
-            return yaml.safe_load(file)
 
 class WaypointDataManager:
     def __init__(self, map_name, path_to_maps, waypoints_new_file_name=None):
