@@ -372,12 +372,12 @@ def generate_speed_scaling_array(sectors):
     return speed_scaling_array
 
 
-def get_speed_scaling_from_sectors(waypoints_len, settings):
+def get_speed_scaling_from_sectors(waypoints_len, map_path, map_name, settings):
     # TODO: Interpolate at edges
     # TODO: Drop error when not all sectors are defined
     path_reverse = get_path_suffix(settings.REVERSE_DIRECTION)
 
-    speed_scaling_pth = os.path.join(settings.map_path, f"{settings.MAP_NAME}_speed_scaling{path_reverse}.csv")
+    speed_scaling_pth = os.path.join(map_path, f"{map_name}_speed_scaling{path_reverse}.csv")
 
     if not os.path.isfile(speed_scaling_pth):
         create_default_speed_scaling_file(speed_scaling_pth)
@@ -390,16 +390,18 @@ def get_speed_scaling_from_sectors(waypoints_len, settings):
     return speed_scaling_array
 
 
-def get_speed_scaling(waypoints_len, settings):
+def get_speed_scaling(waypoints_len, map_path, map_name, settings):
     speed_scaling = settings.GLOBAL_WAYPOINT_VEL_FACTOR
     if settings.APPLY_SPEED_SCALING_FROM_CSV:
-        speed_scaling *= get_speed_scaling_from_sectors(waypoints_len, settings)
+        speed_scaling *= get_speed_scaling_from_sectors(waypoints_len, map_path, map_name, settings)
     speed_scaling = np.clip(speed_scaling, 0, settings.GLOBAL_SPEED_LIMIT)
     return speed_scaling
 
 
 def correct_velocity(waypoints, settings):
-    speed_scaling = get_speed_scaling(waypoints.shape[0], settings)
+    map_path = settings.MAP_PATH
+    map_name = settings.MAP_NAME
+    speed_scaling = get_speed_scaling(waypoints.shape[0], map_path, map_name, settings)
     waypoints[:, WP_VX_IDX] *= speed_scaling
     return waypoints
 

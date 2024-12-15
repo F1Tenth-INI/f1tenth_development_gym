@@ -11,27 +11,25 @@ from matplotlib.widgets import Slider
 import datetime
 import matplotlib
 import yaml
-import paramiko
+import threading
 
+from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sftp, download_map_files_via_sftp
 from RaceTuner.HoverMarker import HoverMarker
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from utilities.Settings import Settings
 
+from TunerSettings import (
+    MAP_NAME,
+    LOCAL_MAP_DIR,
+    REMOTE_MAP_DIR,
+    REMOTE_AT_LOCAL_DIR,
+    USE_REMOTE_FILES,
+    MAP_LIMITS_X,
+    MAP_LIMITS_Y,
+)
+
 from utilities.waypoint_utils import get_speed_scaling
 
-MAP_NAME = Settings.MAP_NAME
-PATH_TO_MAPS = "../utilities/maps/"
-REMOTE_PATH = "catkin_ws/src/f1tenth_system/racecar/racecar/maps/"+Settings.MAP_NAME
-remote_config = {
-    "host": "ini-xavier.local",
-    "port": 22,
-    "username": "racecar",
-    "password": "Inivincible",
-    "remotePath": REMOTE_PATH
-}
-
-MAP_LIMITS_X = [-5.0, 8.1]
-MAP_LIMITS_Y = [-1.5, 9.1]
 
 class MapConfig:
     def __init__(self, map_name, path_to_maps):
@@ -56,6 +54,7 @@ class WaypointDataManager:
         self.path_to_maps = path_to_maps
         self.waypoints_new_file_name = waypoints_new_file_name
         self.path_to_waypoints = os.path.join(path_to_maps, map_name, map_name + "_wp.csv")
+        self.path_to_waypoints_reverse = os.path.join(path_to_maps, map_name, map_name + "_wp_reverse.csv")
         self.original_data = None
         self.x = None
         self.y = None
@@ -72,20 +71,38 @@ class WaypointDataManager:
         self.dense_x = None
         self.dense_y = None
         self.waypoint_history = []
+        self.initial_load_done = False  # Tracks if initial load has occurred
 
-    def load_waypoints(self):
-        self.original_data = pd.read_csv(self.path_to_waypoints, comment="#")
-        self.x = self.original_data['x_m'].to_numpy()
-        self.y = self.original_data['y_m'].to_numpy()
-        if 'vx_mps' in self.original_data.columns:
-            self.vx_original = self.original_data['vx_mps'].to_numpy()
-            self.scale = get_speed_scaling(len(self.x), Settings)  # Get scaling factor
-            self.vx = self.vx_original * self.scale  # Apply scaling
-            self.initial_vx = self.vx.copy()
-        self.initial_x = self.x.copy()
-        self.initial_y = self.y.copy()
-        self.t = np.arange(len(self.x))
-        self._recalculate_splines(full_init=True)
+        # A lock to ensure thread-safe updates if needed
+        self.lock = threading.Lock()
+
+    def load_waypoints_from_file(self):
+        """Load waypoints from the waypoint CSV file."""
+        with self.lock:
+            # Load waypoints from local (or updated) file
+            self.original_data = pd.read_csv(self.path_to_waypoints, comment="#")
+            self.x = self.original_data['x_m'].to_numpy()
+            self.y = self.original_data['y_m'].to_numpy()
+
+            # If this is the initial load, store initial values
+            # so we can reference them later. Avoid overwriting them on subsequent loads.
+            if not self.initial_load_done:
+                self.initial_x = self.x.copy()
+                self.initial_y = self.y.copy()
+
+            if 'vx_mps' in self.original_data.columns:
+                self.vx_original = self.original_data['vx_mps'].to_numpy()
+                # get_speed_scaling relies on files that must be present locally.
+                # If remote mode is on, they have been downloaded above.
+                self.scale = get_speed_scaling(len(self.x), os.path.join(self.path_to_maps, self.map_name), self.map_name, Settings)
+                self.vx = self.vx_original * self.scale  # Apply scaling
+
+                if not self.initial_load_done:
+                    self.initial_vx = self.vx.copy()
+
+            self.t = np.arange(len(self.x))
+            self._recalculate_splines(full_init=(not self.initial_load_done))
+            self.initial_load_done = True  # Mark that initial load is complete now
 
     def _recalculate_splines(self, full_init=False):
         self.cs_x = CubicSpline(self.t, self.x)
@@ -158,7 +175,10 @@ class WaypointDataManager:
             f.write(header_comment)
             data.to_csv(f, index=False, float_format="%.6f")
         message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
-        self._upload_to_remote(file_path, message_box_update_callback)
+
+        if USE_REMOTE_FILES:
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp.csv"))
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
 
 
     def create_backup_if_needed(self):
@@ -167,31 +187,25 @@ class WaypointDataManager:
             with open(self.path_to_waypoints, 'r') as original_file:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup.csv"))
 
-    def _upload_to_remote(self, local_file_path, message_box_update_callback):
-        config = remote_config
-        try:
-            transport = paramiko.Transport((config["host"], config["port"]))
-            transport.connect(username=config["username"], password=config["password"])
-            sftp = paramiko.SFTPClient.from_transport(transport)
 
-            remote_file_path = os.path.join(config["remotePath"], os.path.basename(local_file_path))
-            sftp.put(local_file_path, remote_file_path)
-            message_box_update_callback(f"File synchronized to {remote_file_path} on remote server.")
-
-            sftp.close()
-            transport.close()
-        except Exception as e:
-            message_box_update_callback(f"Failed to synchronize file: {str(e)}")
+        backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
+        if not os.path.exists(backup_path):
+            with open(self.path_to_waypoints_reverse, 'r') as original_file:
+                with open(backup_path, 'w') as backup_file:
+                    backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
 
 
 class WaypointEditorUI:
-    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0):
+    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0, reload_event=None):
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
         self.socket_client = socket_client
         self.update_frequency = update_frequency
+        self.reload_event = reload_event  # Added to handle reload signaling
 
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
@@ -479,6 +493,12 @@ class WaypointEditorUI:
             self.hover_marker.draw_markers()
             self.fig.canvas.blit(self.ax2.bbox)
 
+        # Check if a reload has been signaled
+        if self.reload_event and self.reload_event.is_set():
+            print("Cleared_event")
+            self.redraw_plot()
+            self.reload_event.clear()  # Reset the event
+
     def run_blitting(self):
         # Initial draw and capture background
         self.redraw_plot()
@@ -496,29 +516,55 @@ class WaypointEditorUI:
 
 
 class WaypointsEditorApp:
-    def __init__(self, map_name=MAP_NAME, path_to_maps=PATH_TO_MAPS, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
-        self.map_config = MapConfig(map_name, path_to_maps)
-        self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
-        self.socket_client = SocketWatpointEditor()  # Initialize the socket client
+    def __init__(self, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+        if USE_REMOTE_FILES:
+            path_to_maps = REMOTE_AT_LOCAL_DIR
+            download_map_files_via_sftp(
+                map_name=MAP_NAME,
+                remote_dir=REMOTE_MAP_DIR,
+                local_dir=path_to_maps,
+                mode='initial'
+            )
+        else:
+            path_to_maps = LOCAL_MAP_DIR
+
+        self.map_config = MapConfig(MAP_NAME, path_to_maps)
+        self.waypoint_manager = WaypointDataManager(MAP_NAME, path_to_maps, waypoints_new_file_name)
+        self.socket_client = SocketWatpointEditor()
+        self.running = True  # If needed to stop threads gracefully later
+
+        # Event to signal UI to reload
+        self.reload_event = threading.Event()
+
+        # Initialize FileSynchronizer
+        self.file_synchronizer = FileSynchronizer(self.waypoint_manager, self.reload_event, interval=5)
 
     def run(self):
         try:
             # Continue with the GUI
             self.waypoint_manager.create_backup_if_needed()
-            self.waypoint_manager.load_waypoints()
+            self.waypoint_manager.load_waypoints_from_file()
+
+            # Start FileSynchronizer thread
+            if USE_REMOTE_FILES:
+                self.file_synchronizer.start()
+
+            # Start the UI
             self.ui = WaypointEditorUI(
                 self.waypoint_manager,
                 self.map_config,
                 self.socket_client,
                 initial_scale=20.0,  # You can set this to waypoint_manager.scale if desired
-                update_frequency=20.0  # Default frequency
+                update_frequency=20.0,  # Default frequency
+                reload_event=self.reload_event  # Pass the event to the UI
             )
             self.ui.load_image_background()
             self.ui.run()
         except KeyboardInterrupt:
             print("Shutting down WaypointsEditorApp.")
         finally:
-            # Ensure the socket client is closed gracefully
+            self.running = False
+            self.file_synchronizer.stop()
             self.socket_client.close()
 
 if __name__ == "__main__":
