@@ -15,6 +15,7 @@ from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sf
 from RaceTuner.HoverMarker import HoverMarker
 from RaceTuner.MapHelper import MapConfig
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
+from RaceTuner.WaypointsHistoryManager import WaypointHistoryManager
 from utilities.Settings import Settings
 
 from TunerSettings import (
@@ -52,11 +53,13 @@ class WaypointDataManager:
         self.dense_t = None
         self.dense_x = None
         self.dense_y = None
-        self.waypoint_history = []
         self.initial_load_done = False  # Tracks if initial load has occurred
 
         # A lock to ensure thread-safe updates if needed
         self.lock = threading.Lock()
+
+        # Initialize a separate manager to handle history and undo operations
+        self.history_manager = WaypointHistoryManager()
 
     def load_waypoints_from_file(self):
         """Load waypoints from the waypoint CSV file."""
@@ -131,7 +134,7 @@ class WaypointDataManager:
         self.dense_x = self.cs_x(self.dense_t)
         self.dense_y = self.cs_y(self.dense_t)
         if full_init:
-            self._save_waypoint_state()
+            self.history_manager.save_waypoint_state(self.x, self.y, self.vx)
 
     def apply_weighted_adjustment_2d(self, dx, dy, drag_index, scale):
         n = len(self.x)
@@ -150,30 +153,13 @@ class WaypointDataManager:
             w = np.exp(-0.5 * (d / scale) ** 2)
             self.vx[i] += dv * w
 
-    def _save_waypoint_state(self):
-        if self.waypoint_history:
-            last_state = self.waypoint_history[-1]
-            if self.vx is not None:
-                if (np.array_equal(last_state[0], self.x) and
-                    np.array_equal(last_state[1], self.y) and
-                    np.array_equal(last_state[2], self.vx)):
-                    return
-            else:
-                if np.array_equal(last_state[0], self.x) and np.array_equal(last_state[1], self.y):
-                    return
-        if self.vx is not None:
-            self.waypoint_history.append((self.x.copy(), self.y.copy(), self.vx.copy()))
-        else:
-            self.waypoint_history.append((self.x.copy(), self.y.copy()))
-        if len(self.waypoint_history) > 10:
-            self.waypoint_history.pop(0)
-
     def undo(self):
-        if len(self.waypoint_history) > 1:
-            self.waypoint_history.pop()
-            state = self.waypoint_history[-1]
-            self.x, self.y = state[0].copy(), state[1].copy()
-            if self.vx is not None and len(state) > 2:
+        state = self.history_manager.undo()
+        if state is not None:
+            # State returned can be (x, y) or (x, y, vx)
+            self.x = state[0].copy()
+            self.y = state[1].copy()
+            if len(state) > 2:
                 self.vx = state[2].copy()
             self._recalculate_splines()
             return True
@@ -363,12 +349,17 @@ class WaypointEditorUI:
             self.dragging = False
             self.drag_index = None
             self.waypoint_manager._recalculate_splines()
-            self.waypoint_manager._save_waypoint_state()
+            # After position changes are finalized, record the new state
+            self.waypoint_manager.history_manager.save_waypoint_state(self.waypoint_manager.x,
+                                                                      self.waypoint_manager.y,
+                                                                      self.waypoint_manager.vx)
             self.redraw_plot()
         if self.dragging_vx:
             self.dragging_vx = False
             self.drag_index_vx = None
-            self.waypoint_manager._save_waypoint_state()
+            self.waypoint_manager.history_manager.save_waypoint_state(self.waypoint_manager.x,
+                                                                      self.waypoint_manager.y,
+                                                                      self.waypoint_manager.vx)
             self.redraw_plot()
 
     def on_motion(self, event):
