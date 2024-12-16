@@ -226,10 +226,10 @@ class GlobalPlanner:
         
         # self.publish_track_bounds(bound_r_iqp, bound_l_iqp, reverse=False)
         path = os.path.join(self.map_dir, 'data', self.map_name+'_bound_l_iqp.csv')
-        np.savetxt( path,bound_l_iqp,delimiter=',', fmt='%f', header='x, y')
+        np.savetxt( path,bound_l_iqp,delimiter=',', fmt='%f', header='x,y')
         
         path = os.path.join(self.map_dir, 'data', self.map_name+'bound_r_iqp.csv')
-        np.savetxt( path,bound_r_iqp,delimiter=',', fmt='%f', header='x, y')
+        np.savetxt( path,bound_r_iqp,delimiter=',', fmt='%f', header='x,y')
        
 
         d_right_iqp, d_left_iqp = self.dist_to_bounds(trajectory=global_trajectory_iqp,
@@ -256,7 +256,7 @@ class GlobalPlanner:
         
         # global_trajectory_iqp[:,3] += 0.5 * np.pi
         
-        np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2', comments='')
+        np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2', comments='')
         
         # Save image of track including waypoints
         plt.clf()
