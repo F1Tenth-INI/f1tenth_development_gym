@@ -30,6 +30,7 @@ from TunerSettings import (
 
 from utilities.waypoint_utils import get_speed_scaling
 
+from matplotlib.gridspec import GridSpec
 
 class WaypointsModifier:
     def __init__(self, waypoint_manager):
@@ -191,12 +192,29 @@ class WaypointEditorUI:
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
+
+        self.fig = plt.figure(figsize=(16, 10))
+        self.divider_line_dragging = False
+        self.divider_y = 0.5  # Initial position of the divider
         if self.waypoint_manager.vx is not None:
-            self.fig, (self.ax, self.ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=False)
+            self.gs = GridSpec(2, 1, height_ratios=[1, 1], figure=self.fig)
+            self.ax = self.fig.add_subplot(self.gs[0, 0])
+            self.ax2 = self.fig.add_subplot(self.gs[1, 0])
             plt.subplots_adjust(hspace=0.3)
+
+            # Add draggable line
+            self.divider_line = plt.Line2D(
+                [0, 1], [self.divider_y, self.divider_y], transform=self.fig.transFigure, color="gray", lw=2, picker=True
+            )
+            self.fig.add_artist(self.divider_line)
+
         else:
             self.fig, self.ax = plt.subplots(figsize=(16, 10))
             self.ax2 = None
+
+            self.divider_line = None
+
+
         self.fig.canvas.manager.set_window_title("INIvincible Waypoints Editor")
         self.text_box = None
         self.sigma_slider = None
@@ -259,6 +277,10 @@ class WaypointEditorUI:
             self.ax2.set_xlabel("Waypoint Index")
             self.ax2.set_ylabel("Speed vx (m/s)")
             self.ax2.grid()
+
+            if self.divider_line:
+                # Update the y-coordinates of the line
+                self.divider_line.set_ydata([self.divider_y, self.divider_y])
 
         # Combine legends from both subplots
 
@@ -337,6 +359,9 @@ class WaypointEditorUI:
 
     def on_press(self, event):
 
+        if self.divider_line.contains(event)[0]:
+            self.divider_line_dragging = True
+
         # Detect if Ctrl or Cmd is pressed
         if event.key in ['control', 'ctrl', 'command', 'cmd']:
             self.hover_marker.plant_marker()
@@ -358,6 +383,9 @@ class WaypointEditorUI:
                     break
 
     def on_release(self, event):
+
+        self.divider_line_dragging = False
+
         if self.dragging:
             self.dragging = False
             self.drag_index = None
@@ -380,6 +408,12 @@ class WaypointEditorUI:
             self.redraw_plot()
 
     def on_motion(self, event):
+
+        if self.divider_line_dragging and event.y is not None:
+            # Normalize y position to figure coordinates
+            self.divider_y = event.y / self.fig.get_size_inches()[1] / self.fig.dpi
+            self.resize_subplots()
+
         if self.dragging and self.drag_index is not None and event.inaxes == self.ax:
             wm = self.waypoint_manager
             dx = event.xdata - wm.x[self.drag_index]
@@ -393,6 +427,16 @@ class WaypointEditorUI:
             wm.modifier.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
             # Update static plot and recapture background
             self.redraw_static_elements()
+
+    def resize_subplots(self):
+        # Update subplot heights based on the divider's position
+        bottom_ratio = self.divider_y
+        top_ratio = 1 - bottom_ratio
+        self.gs.set_height_ratios([top_ratio, bottom_ratio])
+        self.fig.subplots_adjust(hspace=0.3)  # Adjust spacing if needed
+        self.fig.canvas.draw_idle()
+        self.redraw_plot()
+        self.capture_background()
 
     def update_sigma(self, val):
         self.scale = val
