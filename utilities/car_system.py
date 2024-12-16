@@ -206,6 +206,8 @@ class CarSystem:
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
             car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
         self.waypoint_utils.update_next_waypoints(car_state)
+        if Settings.STOP_IF_OBSTACLE_IN_FRONT:
+            self.waypoint_utils.stop_if_obstacle_in_front(ranges, np.linspace(-2.35,2.35, 1080))
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)          
                 
         if self.use_waypoints_from_mpc:
