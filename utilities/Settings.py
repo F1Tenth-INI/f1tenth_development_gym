@@ -12,11 +12,11 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.5  # Surface friction coefficient
+    SURFACE_FRICITON = 0.7  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -30,7 +30,7 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.6
     GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
@@ -113,7 +113,7 @@ class Settings():
 
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = False
-    PP_WAYPOINT_VELOCITY_FACTOR = 1.0
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.3
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.4  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
