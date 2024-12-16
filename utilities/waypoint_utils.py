@@ -341,6 +341,47 @@ class WaypointUtils:
         correct_velocity(waypoints, Settings)
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
+    def calculate_speed_reduction(self, lidar_scans, lidar_angles):
+        """
+        Calculate the speed reduction factor based on lidar scans and angles.
+
+        Parameters:
+            lidar_scans (array-like): Distances from the lidar.
+            lidar_angles (array-like): Corresponding angles in radians for each distance.
+
+        Returns:
+            float: The speed reduction factor (0.0, 0.25, 0.5, or 1.0).
+        """
+        # Convert angles to degrees for easier comparison with conditions
+        lidar_angles_deg = np.degrees(lidar_angles)
+
+        # Condition flags, initialized to the highest factor
+        reduction_factor = 1.0
+
+        # Priority 1: +/- 60 degrees, distance < 0.2m, at least 20 scans
+        mask_60 = (np.abs(lidar_angles_deg) <= 60) & (lidar_scans < 0.2)
+        if np.sum(mask_60) >= 20:
+            return 0.0  # Highest priority condition met
+
+        # Priority 2: +/- 30 degrees, distance < 0.3m, at least 10 scans
+        mask_30 = (np.abs(lidar_angles_deg) <= 30) & (lidar_scans < 0.3)
+        if np.sum(mask_30) >= 10:
+            return 0.25  # Second priority condition met
+
+        # Priority 3: +/- 15 degrees, distance < 0.5m, at least 10 scans
+        mask_15 = (np.abs(lidar_angles_deg) <= 15) & (lidar_scans < 0.5)
+        if np.sum(mask_15) >= 10:
+            return 0.5  # Third priority condition met
+
+        # Default factor if no conditions are met
+        return reduction_factor
+
+    def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
+        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
+        self.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor
+        # if speed_reduction_factor != 1.0:
+        #     print(f"Braking with speed reduction {speed_reduction_factor}")
+
 
 # Utility functions
 def get_path_suffix(reverse_direction):

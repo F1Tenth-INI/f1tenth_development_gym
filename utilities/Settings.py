@@ -31,6 +31,7 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.6
+    STOP_IF_OBSTACLE_IN_FRONT = False
     GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
