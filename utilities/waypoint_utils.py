@@ -72,6 +72,7 @@ class WaypointUtils:
         self.ignore_steps = Settings.IGNORE_STEPS
 
         # sectors
+        self.car_state = None
         self.sector_index = 0
         self.sector_scaling = 0
         self.sectors = None
@@ -115,6 +116,7 @@ class WaypointUtils:
         self.start_reload_waypoints_thread()
         
 
+    
     def start_reload_waypoints_thread(self):
         def reload_loop():
             while True:
@@ -127,7 +129,7 @@ class WaypointUtils:
 
     def update_next_waypoints(self, car_state):
         if self.waypoints is None: return
-        
+        self.car_state = car_state
         car_position = []
         # Main branch uses only car position for waypoints at the moment. 
         # TODO: Use full state everywhere
@@ -268,6 +270,11 @@ class WaypointUtils:
         if Settings.REVERSE_DIRECTION:
             path = path + '_reverse'
         speed_scaling_pth = path + '_speed_scaling.csv'
+        
+        if not os.path.exists(speed_scaling_pth):
+            create_default_speed_scaling_file(speed_scaling_pth)
+
+        
         sector_csv = pd.read_csv(speed_scaling_pth, comment='#', header=None).to_numpy()
         result = []
         for i in range(len(sector_csv)):
@@ -282,10 +289,37 @@ class WaypointUtils:
         return np.array(result)
     
     
-      
+    def add_sector(self):
+        current_sector = self.sectors[self.sector_index]
+        new_sector = np.zeros(4)
+        new_sector[SECTOR_START_IDX] = self.next_waypoints[0, WP_GLOBID_IDX] * Settings.DECREASE_RESOLUTION_FACTOR
+        new_sector[SECTOR_SCALING_IDX] = self.sector_scaling
+        new_sector[SECTOR_END_IDX] = current_sector[SECTOR_END_IDX]
+
+        current_sector[SECTOR_END_IDX] = new_sector[SECTOR_START_IDX] - 1
+        
+        self.sectors[self.sector_index] = current_sector
+        self.sectors = np.insert(self.sectors, self.sector_index + 1, new_sector, axis=0)
+        
+        self.sectors = self.sectors[self.sectors[:, SECTOR_START_IDX].argsort()]
+        self.save_sector_file()
+    
+
+    def delete_current_sector(self):
+        
+        if len(self.sectors) > 1:
+            # Remove the current sector
+            self.sectors = np.delete(self.sectors, self.sector_index, axis=0)
+            # Adjust the sector index if necessary
+            if self.sector_index >= len(self.sectors):
+                self.sector_index = len(self.sectors) - 1
+        self.save_sector_file()
+        
     def change_sector(self, sector_index, new_scaling):
         self.sectors[sector_index][SECTOR_SCALING_IDX] = new_scaling
-        # save sector to file
+        self.save_sector_file()
+    
+    def save_sector_file(self):
         path = os.path.join(self.map_path, self.map_name)
         if Settings.REVERSE_DIRECTION:
             path = path + '_reverse'
@@ -296,7 +330,7 @@ class WaypointUtils:
                 f.write(str(self.sectors[i][SECTOR_START_IDX]) + ',' + str(self.sectors[i][SECTOR_SCALING_IDX]) + '\n')
                 
         self.reload_waypoints()
-     
+    
     @staticmethod
     def get_interpolated_waypoints(waypoints, interpolation_steps):
         if waypoints is None: return None
