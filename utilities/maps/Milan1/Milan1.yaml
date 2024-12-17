@@ -1,0 +1,9 @@
+free_thresh: 0.196
+image: Milan1.png
+negate: 0
+occupied_thresh: 0.45
+origin:
+- -2.959278106689453
+- -8.801399993896485
+- 0.0
+resolution: 0.05000000074505806
