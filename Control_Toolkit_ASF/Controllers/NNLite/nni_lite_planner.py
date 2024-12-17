@@ -54,6 +54,9 @@ class NNLitePlanner(template_planner):
         waypoints_relative_y = waypoints_relative[:, 1]
         next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
         
+        # print("waypoints_relative", waypoints_relative)
+        # print("next_waypoint_vx", next_waypoint_vx)
+        
         # slip_angle_predicted = predict_slip_angle(np.array(self.car_state), np.array(self.imu_data))[0]
         # print("slip_angle", slip_angle, self.car_state[SLIP_ANGLE_IDX])
         
@@ -62,9 +65,9 @@ class NNLitePlanner(template_planner):
         # self.car_state[SLIP_ANGLE_IDX] = 0 
         
         
+        # print(self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[STEERING_ANGLE_IDX])
         
-        
-        controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints, self.imu_data)
+        controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints)
         control = controls[0]
         
         # print("control", control)
