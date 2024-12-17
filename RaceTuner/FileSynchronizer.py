@@ -4,6 +4,7 @@ import hashlib
 import os
 import threading
 import time
+import posixpath  # Import posixpath for remote path manipulations
 
 import paramiko
 
@@ -16,6 +17,11 @@ from TunerSettings import (
     REMOTE_AT_LOCAL_DIR,
     REMOTE_CONFIG,
 )
+
+
+def posix_join(*args):
+    """Join paths using POSIX (Unix) style forward slashes."""
+    return posixpath.join(*args)
 
 
 class FileSynchronizer(threading.Thread):
@@ -48,9 +54,10 @@ class FileSynchronizer(threading.Thread):
 
     def _compute_waypoints_hashes(self):
         """Compute hashes for all relevant waypoint files."""
-        wp_file = os.path.join(self.download_dir, MAP_NAME, f"{MAP_NAME}_wp.csv")
-        wp_reverse_file = os.path.join(self.download_dir, MAP_NAME, f"{MAP_NAME}_wp_reverse.csv")
-        speed_scaling_file = os.path.join(self.download_dir, MAP_NAME, f"{MAP_NAME}_speed_scaling.csv")
+        map_dir = os.path.join(self.download_dir, MAP_NAME)
+        wp_file = os.path.join(map_dir, f"{MAP_NAME}_wp.csv")
+        wp_reverse_file = os.path.join(map_dir, f"{MAP_NAME}_wp_reverse.csv")
+        speed_scaling_file = os.path.join(map_dir, f"{MAP_NAME}_speed_scaling.csv")
         wp_hash = self._compute_file_hash(wp_file)
         wp_rev_hash = self._compute_file_hash(wp_reverse_file)
         speed_hash = self._compute_file_hash(speed_scaling_file)
@@ -109,9 +116,10 @@ def download_map_files_via_sftp(map_name, remote_dir, local_dir, mode=None, reve
         sftp = paramiko.SFTPClient.from_transport(transport)
 
         # Ensure the local directory exists
-        os.makedirs(os.path.join(local_dir, map_name), exist_ok=True)
+        local_map_dir = os.path.join(local_dir, map_name)
+        os.makedirs(local_map_dir, exist_ok=True)
 
-        # Define remote and local file paths
+        # Define remote and local file names
         file_names_initial_only = [
             f"{map_name}.png",
             f"{map_name}.yaml",
@@ -135,17 +143,20 @@ def download_map_files_via_sftp(map_name, remote_dir, local_dir, mode=None, reve
             file_names = file_names_forward
 
         for file in file_names:
-            remote_file = os.path.join(remote_dir, map_name, file)
-            local_file = os.path.join(local_dir, map_name, file)
-            sftp.get(remote_file, local_file)
-            print(f"Downloaded {remote_file} to {local_file}.")
+            remote_file = posix_join(remote_dir, map_name, file)  # Use posix_join for remote paths
+            local_file = os.path.join(local_map_dir, file)  # Use os.path.join for local paths
+            try:
+                sftp.get(remote_file, local_file)
+                print(f"Downloaded {remote_file} to {local_file}.")
+            except FileNotFoundError:
+                print(f"Remote file {remote_file} does not exist. Skipping.")
 
-        if mode == "inital":
+        if mode == "initial":
             backup_files = [f"{map_name}_wp_backup.csv", f"{map_name}_wp_reverse_backup.csv"]
 
             for file in backup_files:
-                remote_file = os.path.join(remote_dir, map_name, file)
-                local_file = os.path.join(local_dir, map_name, file)
+                remote_file = posix_join(remote_dir, map_name, file)  # Use posix_join for remote paths
+                local_file = os.path.join(local_map_dir, file)  # Use os.path.join for local paths
                 try:
                     sftp.get(remote_file, local_file)
                     print(f"Downloaded {remote_file} to {local_file}.")
