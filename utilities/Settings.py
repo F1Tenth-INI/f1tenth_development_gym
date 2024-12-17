@@ -50,6 +50,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
+    CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0

@@ -30,6 +30,8 @@ else:
 
 # from TrainingLite.slip_prediction import predict
 
+from RaceTuner.TunerConnectorSim import TunerConnectorSim
+
 
 
 class CarSystem:
@@ -125,7 +127,8 @@ class CarSystem:
         self.savse_recording = save_recording
         if save_recording:
             self.recorder = Recorder(driver=self)
-        
+
+        self.tuner_connector = None
         
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
@@ -152,7 +155,11 @@ class CarSystem:
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
             
-                
+    def launch_tuner_connector(self):
+        try:
+            self.tuner_connector = TunerConnectorSim()
+        except OSError:
+            print("Tunner connection not possible.")
     
     def set_car_state(self, car_state):
         self.car_state = car_state
