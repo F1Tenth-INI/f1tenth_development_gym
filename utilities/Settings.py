@@ -1,6 +1,8 @@
 import os
 class Settings():
 
+    ALLOW_ALTERNATIVE_RACELINE = True
+
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
