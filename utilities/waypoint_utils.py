@@ -1,3 +1,4 @@
+from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
@@ -114,7 +115,8 @@ class WaypointUtils:
 
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
-        
+
+        self.emergency_slowdown = EmergencySlowdown()
 
     
     def start_reload_waypoints_thread(self):
@@ -419,39 +421,8 @@ class WaypointUtils:
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
     def calculate_speed_reduction(self, lidar_scans, lidar_angles):
-        """
-        Calculate the speed reduction factor based on lidar scans and angles.
-
-        Parameters:
-            lidar_scans (array-like): Distances from the lidar.
-            lidar_angles (array-like): Corresponding angles in radians for each distance.
-
-        Returns:
-            float: The speed reduction factor (0.0, 0.25, 0.5, or 1.0).
-        """
-        # Convert angles to degrees for easier comparison with conditions
-        lidar_angles_deg = np.degrees(lidar_angles)
-
-        # Condition flags, initialized to the highest factor
-        reduction_factor = 1.0
-
-        # Priority 1: +/- 60 degrees, distance < 0.2m, at least 20 scans
-        mask_60 = (np.abs(lidar_angles_deg) <= 60) & (lidar_scans < 0.2)
-        if np.sum(mask_60) >= 20:
-            return 0.0  # Highest priority condition met
-
-        # Priority 2: +/- 30 degrees, distance < 0.3m, at least 10 scans
-        mask_30 = (np.abs(lidar_angles_deg) <= 30) & (lidar_scans < 0.3)
-        if np.sum(mask_30) >= 10:
-            return 0.25  # Second priority condition met
-
-        # Priority 3: +/- 15 degrees, distance < 0.5m, at least 10 scans
-        mask_15 = (np.abs(lidar_angles_deg) <= 15) & (lidar_scans < 0.5)
-        if np.sum(mask_15) >= 10:
-            return 0.5  # Third priority condition met
-
-        # Default factor if no conditions are met
-        return reduction_factor
+        speed_reduction_factor = self.emergency_slowdown.calculate_speed_reduction(lidar_scans)
+        return speed_reduction_factor
 
     def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
         speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
