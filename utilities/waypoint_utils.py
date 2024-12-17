@@ -147,7 +147,6 @@ class WaypointUtils:
                 dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
                 nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
                 dist_current_waypoint = squared_distance(self.current_waypoint_cache[nearest_waypoint_index-self.nearest_waypoint_index, 1:3], car_position)
-                print(dist_current_waypoint)
                 if dist_current_waypoint > dist_max**2:
                     nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
 
