@@ -363,7 +363,7 @@ def get_path_suffix(reverse_direction):
 def create_default_speed_scaling_file(speed_scaling_pth):
     print("No Speed scaling file defined. Creating new speed_scaling.csv with default values")
     with open(speed_scaling_pth, 'w') as f:
-        f.write('#start,scaling\n')
+        f.write('#Start,Scaling\n')
         f.write('0,0.5\n')
 
 
