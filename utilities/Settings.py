@@ -1,7 +1,10 @@
 import os
 class Settings():
 
-    ALLOW_ALTERNATIVE_RACELINE = True
+    STOP_IF_OBSTACLE_IN_FRONT = False
+    ALLOW_ALTERNATIVE_RACELINE = False
+    SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
+    KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
 
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
@@ -32,7 +35,6 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    STOP_IF_OBSTACLE_IN_FRONT = False
     GLOBAL_WAYPOINT_VEL_FACTOR = 0.3
     GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
