@@ -1,6 +1,18 @@
-import os
 import sys
+
+
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
@@ -17,7 +29,7 @@ from TrainingHelper import TrainingHelper
 from TorchNetworks import LSTM as Network
 
 
-model_name = "tLSTM9_imu_mu_reduce_wp"
+model_name = "LSTM11_medium"
 
 experiment_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -28,13 +40,20 @@ network_yaml, input_scaler, output_scaler = training_helper.load_network_meta_da
 mu_history = []
 input_history = []
 
-def predict_next_control(s, waypoints_relative, waypoints, imu_data):
+def predict_next_control(s, waypoints_relative, waypoints ):
     
-    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX], imu_data[0], imu_data[1], imu_data[2]]
-    waypoints_x = waypoints_relative[::3, 0]
-    waypoints_y = waypoints_relative[::3, 1]
-    waypoints_vx = waypoints[::3, WP_VX_IDX]
-
+    # state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX], imu_data[0], imu_data[1], imu_data[2]]
+    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX]]
+    print(state)
+    waypoints_x = waypoints_relative[:25, 0]
+    waypoints_y = waypoints_relative[:25, 1]
+    waypoints_vx = waypoints[:25, WP_VX_IDX]
+    
+    # print('state_here', state)
+    # print('waypoints_x', waypoints_x)
+    # print('waypoints_y', waypoints_y)
+    # print('waypoints_vx', waypoints_vx)
+    
     input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx))
     output = predict(input)
     control = [output]
@@ -57,13 +76,24 @@ model = Network(input_size, hidden_size, output_size, num_layers)
 model.load_state_dict(torch.load(os.path.join(training_helper.model_dir, "model.pth")))
 
 # Transfer the model to the appropriate device (GPU or CPU)
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = 'cpu'
 model = model.to(device)
 
+example_input = torch.rand(1, 1, input_size)
+traced_model = torch.jit.trace(model, example_input)
+
+# Save the TorchScript model
+script_model_path = os.path.join(training_helper.model_dir, "model_traced.pth")
+traced_model.save(script_model_path)
+
+print(f"TorchScript model saved to {script_model_path}")
+exit()
 # Set the model to evaluation mode
 model.eval()
 
 def predict(input):
+
+
 
     X = [input]
     X_scaled = input_scaler.transform(X)
@@ -75,8 +105,10 @@ def predict(input):
     X_tensor = X_tensor.to(next(model.parameters()).device)
 
     # Perform inference
+    
     with torch.no_grad():
         output, model.hidden = model(X_tensor, model.hidden)
+    return [[0,0]]
 
     # Inverse transform the output (if scaling was used)
     predictions = output_scaler.inverse_transform(output.cpu().numpy())

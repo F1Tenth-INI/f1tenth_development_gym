@@ -81,6 +81,7 @@ class PurePursuitPlanner(template_planner):
             current_waypoint[0:2] = wpts[i2, :]
             # speed
             current_waypoint[2] =  waypoints[i, 5]
+            print(current_waypoint[2] )
             return current_waypoint, i, np.maximum(i2, 8)
         elif nearest_dist < self.max_reacquire:
             return np.append(wpts[i, :], waypoints[i, 5]), i, i
@@ -190,6 +191,7 @@ class PurePursuitPlanner(template_planner):
             self.correcting_index = 0
 
         self.speed = speed
+        print(self.speed)
 
         self.angular_control = steering_angle
         self.translational_control = speed

@@ -69,6 +69,7 @@ class NNLitePlanner(template_planner):
         
         controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints)
         control = controls[0]
+        control = [0,0]
         
         # print("control", control)
         
@@ -81,13 +82,13 @@ class NNLitePlanner(template_planner):
                 self.predicted_frictions.pop(0)
             average_friction = sum(self.predicted_frictions) / len(self.predicted_frictions)
             
-            record_dict = {
-                'predicted_friction': predicted_friction,
-                'average_friction': average_friction,
-                'true_friction': Settings.SURFACE_FRICITON,
-            }
-            self.render_utils.set_label_dict(record_dict)
-            self.mu_predicted=predicted_friction
+            # record_dict = {
+            #     'predicted_friction': predicted_friction,
+            #     'average_friction': average_friction,
+            #     'true_friction': Settings.SURFACE_FRICITON,
+            # }
+            # self.render_utils.set_label_dict(record_dict)
+            # self.mu_predicted=predicted_friction
         
         self.angular_control = control[0]
         self.translational_control = control[1]
