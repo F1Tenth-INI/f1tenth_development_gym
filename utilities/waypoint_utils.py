@@ -72,8 +72,9 @@ class WaypointUtils:
         self.look_ahead_steps = self.interpolation_steps * Settings.LOOK_AHEAD_STEPS
         self.ignore_steps = Settings.IGNORE_STEPS
 
-        # sectors
         self.car_state = None
+
+        # sectors
         self.sector_index = 0
         self.sector_scaling = 0
         self.sectors = None
@@ -118,18 +119,70 @@ class WaypointUtils:
 
         self.emergency_slowdown = EmergencySlowdown()
 
-    def start_reload_waypoints_thread(self):
+        if Settings.ALLOW_ALTERNATIVE_RACELINE:
+            self.waypoint_file_name_alternative = waypoint_file_name + "_alternative"
+
+            self.sector_index_alternative = 0
+            self.sector_scaling_alternative = 0
+            self.sectors_alternative = None
+
+            self.original_waypoints_alternative = self.load_waypoints(
+                waypoint_file_name=self.waypoint_file_name_alternative)
+            self.sectors_alternative = self.load_sectors(alternative_waypoints=True)
+
+            self.waypoints_alternative = None
+            self.waypoint_positions_alternative = None
+
+            self.preprocess_waypoints(alternative_waypoints=True)
+
+            self.nearest_waypoint_index_alternative = None
+
+            self.current_waypoint_cache_alternative = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
+
+            self.next_waypoints_alternative = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
+            self.next_waypoint_positions_alternative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+            self.next_waypoint_positions_relative_alternative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+
+            if self.waypoints_alternative is None:
+                self.current_waypoint_cache_alternative = np.array([])
+                self.next_waypoints_alternative = np.array([])
+                self.next_waypoint_positions_alternative = np.array([])
+
+            self.start_reload_waypoints_thread(alternative_waypoints=True)
+
+        self.use_alternative_waypoints_for_control_flag = False
+        self.counter_jam = 0
+        self.counter_freeride = 0
+
+
+    def start_reload_waypoints_thread(self, alternative_waypoints=False):
         def reload_loop():
             while True:
-                self.reload_waypoints()
+                self.reload_waypoints(alternative_waypoints=alternative_waypoints)
                 time.sleep(5)
         thread = threading.Thread(target=reload_loop)
         thread.daemon = True  # Daemonize thread to exit when main program exits
         thread.start()
 
 
-    def update_next_waypoints(self, car_state):
-        if self.waypoints is None: return
+    def update_next_waypoints(self, car_state, alternative_waypoints=False):
+
+        if alternative_waypoints:
+            waypoints = self.waypoints_alternative
+            nearest_waypoint_index = self.nearest_waypoint_index_alternative
+            current_waypoint_cache = self.current_waypoint_cache_alternative
+            sectors = self.sectors_alternative
+            next_waypoints = self.next_waypoints_alternative
+            next_waypoint_positions_relative = self.next_waypoint_positions_relative_alternative
+        else:
+            waypoints = self.waypoints
+            nearest_waypoint_index = self.nearest_waypoint_index
+            current_waypoint_cache = self.current_waypoint_cache
+            sectors = self.sectors
+            next_waypoints = self.next_waypoints
+            next_waypoint_positions_relative = self.next_waypoint_positions_relative
+
+        if waypoints is None: return
         self.car_state = car_state
         car_position = []
         # Main branch uses only car position for waypoints at the moment. 
@@ -142,25 +195,27 @@ class WaypointUtils:
             car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
             car_sin_theta = car_state[POSE_THETA_SIN_IDX]
             car_cos_theta = car_state[POSE_THETA_COS_IDX]
-        if self.nearest_waypoint_index is None:
+        if nearest_waypoint_index is None:
             # Run initial search of starting waypoint (all waypoints)
-            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
+            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
         else:  # only look for next waypoint in the current waypoint cache
             if Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
-                nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
+                nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
             else:
                 dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
-                nearest_waypoint_index = self.nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, self.current_waypoint_cache)
-                dist_current_waypoint = squared_distance(self.current_waypoint_cache[nearest_waypoint_index-self.nearest_waypoint_index, 1:3], car_position)
+                nearest_waypoint_index_glob = nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
+                dist_current_waypoint = squared_distance(current_waypoint_cache[nearest_waypoint_index_glob-nearest_waypoint_index, 1:3], car_position)
                 if dist_current_waypoint > dist_max**2:
-                    nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, self.waypoints)
+                    nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
 
         # Find out in which sector the car is
-        if(self.sectors is not None):
-            for i in range(self.sectors.shape[0]):
-                if self.sectors[i, SECTOR_START_IDX] <= nearest_waypoint_index * self.decrease_resolution_factor < self.sectors[i, SECTOR_END_IDX]:
-                    self.sector_index = i
-                    self.sector_scaling = self.sectors[i, SECTOR_SCALING_IDX]
+        sector_index = None
+        sector_scaling = None
+        if sectors is not None:
+            for i in range(sectors.shape[0]):
+                if sectors[i, SECTOR_START_IDX] <= nearest_waypoint_index * self.decrease_resolution_factor < sectors[i, SECTOR_END_IDX]:
+                    sector_index = i
+                    sector_scaling = self.sectors[i, SECTOR_SCALING_IDX]
                     break
         
         if(Settings.AUTOMATIC_SECTOR_TUNING):
@@ -169,20 +224,39 @@ class WaypointUtils:
         next_waypoints_including_ignored = []
         next_waypoints_indices_including_ignored = []
         for j in range(self.look_ahead_steps + self.ignore_steps):
-            next_waypoint_idx = (nearest_waypoint_index + j) % len(self.waypoints)
-            next_waypoint = self.waypoints[next_waypoint_idx]
+            next_waypoint_idx = (nearest_waypoint_index + j) % len(waypoints)
+            next_waypoint = waypoints[next_waypoint_idx]
             next_waypoints_indices_including_ignored.append(next_waypoint_idx)
             next_waypoints_including_ignored.append(next_waypoint)
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
         next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
+
+        next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
+        next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
+        current_waypoint_cache = next_waypoints_including_ignored
         
-        self.next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
-        self.next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
-        self.current_waypoint_cache = next_waypoints_including_ignored
-        
-        self.next_waypoint_positions = WaypointUtils.get_waypoint_positions(self.next_waypoints)
-        self.next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(self.next_waypoints, car_state)
-        self.nearest_waypoint_index = nearest_waypoint_index
+        next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
+        next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
+        nearest_waypoint_index = nearest_waypoint_index
+
+        if alternative_waypoints:
+            if sector_index is not None:
+                self.sector_index_alternative = sector_index
+            if sector_scaling is not None:
+                self.sector_scaling_alternative = sector_scaling
+            self.current_waypoint_cache_alternative = current_waypoint_cache
+            self.next_waupoints_positions_alternative = next_waypoint_positions
+            self.next_waypoint_positions_relative_alternative = next_waypoint_positions_relative
+            self.nearest_waypoint_index_alternative = nearest_waypoint_index
+        else:
+            if sector_index is not None:
+                self.sector_index = sector_index
+            if sector_scaling is not None:
+                self.sector_scaling = sector_scaling
+            self.current_waypoint_cache = current_waypoint_cache
+            self.next_waypoint_positions = next_waypoint_positions
+            self.next_waypoint_positions_relative = next_waypoint_positions_relative
+            self.nearest_waypoint_index = nearest_waypoint_index
 
     def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
         if self.sector_error_index == self.sector_index:
@@ -227,27 +301,47 @@ class WaypointUtils:
             
             self.reload_waypoints()
 
-    def preprocess_waypoints(self):
+    def preprocess_waypoints(self, alternative_waypoints=False):
+        if alternative_waypoints:
+            original_waypoints = self.original_waypoints_alternative
+        else:
+            original_waypoints = self.original_waypoints
+
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
-        self.waypoints, self.global_limit = self.correct_velocity(self.original_waypoints)
-        self.waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoints, self.interpolation_steps)  # increased resolution
-        self.waypoints = WaypointUtils.get_decreased_resolution_wps(self.waypoints, self.decrease_resolution_factor)  # decreased resolution
-        self.waypoints = WaypointUtils.remove_duplicates(self.waypoints)
+        waypoints, self.global_limit = self.correct_velocity(original_waypoints)
+        waypoints = WaypointUtils.get_interpolated_waypoints(waypoints, self.interpolation_steps)  # increased resolution
+        waypoints = WaypointUtils.get_decreased_resolution_wps(waypoints, self.decrease_resolution_factor)  # decreased resolution
+        waypoints = WaypointUtils.remove_duplicates(waypoints)
 
         # Waypoint positions [x, y]
-        self.waypoint_positions = WaypointUtils.get_waypoint_positions(self.waypoints)
+        waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
+
+        if alternative_waypoints:
+            self.waypoints_alternative = waypoints
+            self.waypoint_positions_alternative = waypoint_positions
+        else:
+            self.waypoints = waypoints
+            self.waypoint_positions = waypoint_positions
 
         # This last line seems to be not used anywhere, for a long time
         # self.trajectory_vectors, self.trajectory_norms, self.directions = self.get_vectors_between_waypoint_positions()
 
-    def reload_waypoints(self):
-        self.original_waypoints = self.load_waypoints()
-        self.sectors = self.load_sectors()
-        self.preprocess_waypoints()
-        
-    def load_waypoints(self):
+    def reload_waypoints(self, alternative_waypoints=False):
 
-        path = os.path.join(self.map_path, self.waypoint_file_name)
+        if alternative_waypoints:
+            waypoint_file_name = self.waypoint_file_name_alternative
+        else:
+            waypoint_file_name = self.waypoint_file_name
+        self.original_waypoints = self.load_waypoints(waypoint_file_name)
+        self.sectors = self.load_sectors(alternative_waypoints)
+        self.preprocess_waypoints(alternative_waypoints)
+        
+    def load_waypoints(self, waypoint_file_name=None):
+
+        if waypoint_file_name is None:
+            waypoint_file_name = self.waypoint_file_name
+
+        path = os.path.join(self.map_path, waypoint_file_name)
 
         if Settings.REVERSE_DIRECTION:
             path = path + '_reverse'
@@ -265,13 +359,17 @@ class WaypointUtils:
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
-
-    def load_sectors(self):
+    
+    def load_sectors(self, alternative_waypoints=False):
         path = os.path.join(self.map_path, self.map_name)
         if Settings.REVERSE_DIRECTION:
             path = path + '_reverse'
-        speed_scaling_pth = path + '_speed_scaling.csv'
 
+        if alternative_waypoints:
+            speed_scaling_pth = path + '_speed_scaling_alternative.csv'
+        else:
+            speed_scaling_pth = path + '_speed_scaling.csv'
+        
         if not os.path.exists(speed_scaling_pth):
             create_default_speed_scaling_file(speed_scaling_pth)
 
@@ -426,6 +524,21 @@ class WaypointUtils:
     def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
         speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
         self.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor
+
+        if speed_reduction_factor < 0.5:
+            self.counter_jam += 1
+            self.counter_freeride = 0
+        else:
+            self.counter_freeride += 1
+
+        if self.counter_jam >= Settings.SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING:
+            self.use_alternative_waypoints_for_control_flag = not self.use_alternative_waypoints_for_control_flag
+            self.counter_jam = 0
+            print("Switching to alternative raceline")
+
+        if self.counter_freeride >= Settings.KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE:
+            self.counter_jam = 0
+
         # if speed_reduction_factor != 1.0:
         #     print(f"Braking with speed reduction {speed_reduction_factor}")
 
