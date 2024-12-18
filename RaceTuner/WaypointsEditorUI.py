@@ -9,6 +9,59 @@ from matplotlib.widgets import Slider
 from RaceTuner.HoverMarker import HoverMarker
 
 
+class DraggableDivider:
+    def __init__(self, fig, gs, initial_y=0.5, color="gray", lw=2, picker=5, on_move=None):
+        self.fig = fig
+        self.gs = gs
+        self.y = initial_y
+        self.on_move = on_move
+        self.divider_line = plt.Line2D(
+            [0, 1], [self.y, self.y], transform=self.fig.transFigure,
+            color=color, lw=lw, picker=picker
+        )
+        self.fig.add_artist(self.divider_line)
+        self.dragging = False
+        self.connect_events()
+
+    def connect_events(self):
+        self.fig.canvas.mpl_connect("pick_event", self.on_pick)
+        self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.fig.canvas.mpl_connect("button_release_event", self.on_release)
+
+    def on_pick(self, event):
+        if event.artist == self.divider_line:
+            self.dragging = True
+
+    def on_motion(self, event):
+        if self.dragging and event.y is not None:
+            fig_height = self.fig.get_size_inches()[1] * self.fig.dpi
+            new_y = event.y / fig_height
+            if abs(new_y - self.y) > 0.001:  # Threshold to prevent excessive redraws
+                self.y = new_y
+                self.gs.set_height_ratios([1 - self.y, self.y])
+                self.fig.subplots_adjust(hspace=0.3)
+                self.divider_line.set_ydata([self.y, self.y])
+                self.fig.canvas.draw_idle()
+                if self.on_move:
+                    self.on_move()
+
+    def on_release(self, event):
+        if self.dragging:
+            self.dragging = False
+
+    def get_position(self) -> float:
+        return self.y
+
+    def set_position(self, y: float):
+        self.y = y
+        self.divider_line.set_ydata([self.y, self.y])
+        self.gs.set_height_ratios([1 - self.y, self.y])
+        self.fig.subplots_adjust(hspace=0.3)
+        self.fig.canvas.draw_idle()
+        if self.on_move:
+            self.on_move()
+
+
 class WaypointEditorUI:
     def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0, reload_event=None):
         self.waypoint_manager = waypoint_manager
@@ -23,26 +76,28 @@ class WaypointEditorUI:
         plt.rcParams.update({'font.size': 15})
 
         self.fig = plt.figure(figsize=(16, 10))
-        self.divider_line_dragging = False
-        self.divider_y = 0.5  # Initial position of the divider
+        self.divider = None  # Placeholder for DraggableDivider instance
+
         if self.waypoint_manager.vx is not None:
             self.gs = GridSpec(2, 1, height_ratios=[1, 1], figure=self.fig)
             self.ax = self.fig.add_subplot(self.gs[0, 0])
             self.ax2 = self.fig.add_subplot(self.gs[1, 0])
             plt.subplots_adjust(hspace=0.3)
 
-            # Add draggable line
-            self.divider_line = plt.Line2D(
-                [0, 1], [self.divider_y, self.divider_y], transform=self.fig.transFigure, color="gray", lw=2, picker=True
+            # Initialize DraggableDivider with callback
+            self.divider = DraggableDivider(
+                self.fig,
+                self.gs,
+                initial_y=0.5,
+                color="gray",
+                lw=2,
+                picker=5,
+                on_move=self.redraw_plot
             )
-            self.fig.add_artist(self.divider_line)
 
         else:
             self.fig, self.ax = plt.subplots(figsize=(16, 10))
             self.ax2 = None
-
-            self.divider_line = None
-
 
         self.fig.canvas.manager.set_window_title("INIvincible Waypoints Editor")
         self.text_box = None
@@ -126,9 +181,6 @@ class WaypointEditorUI:
                     self.ax2.text(t, self.ax2.get_ylim()[1] * (1.0), f"S{i}", color="black", fontsize=12, ha="center",
                                   va="bottom")
 
-            if self.divider_line:
-                # Update the y-coordinates of the line
-                self.divider_line.set_ydata([self.divider_y, self.divider_y])
 
         # Combine legends from both subplots
 
@@ -218,9 +270,6 @@ class WaypointEditorUI:
             self.panning = True
             return
 
-        if self.divider_line.contains(event)[0]:
-            self.divider_line_dragging = True
-
         # Detect if Ctrl or Cmd is pressed
         if event.key in ['control', 'ctrl', 'command', 'cmd']:
             self.hover_marker.plant_marker()
@@ -242,9 +291,6 @@ class WaypointEditorUI:
                     break
 
     def on_release(self, event):
-
-        self.divider_line_dragging = False
-
         if event.button == 3:
             if self.panning:
                 self.panning = False
@@ -272,12 +318,6 @@ class WaypointEditorUI:
             self.redraw_plot()
 
     def on_motion(self, event):
-
-        if self.divider_line_dragging and event.y is not None:
-            # Normalize y position to figure coordinates
-            self.divider_y = event.y / self.fig.get_size_inches()[1] / self.fig.dpi
-            self.resize_subplots()
-
         if self.dragging and self.drag_index is not None and event.inaxes == self.ax:
             wm = self.waypoint_manager
             dx = event.xdata - wm.x[self.drag_index]
@@ -342,16 +382,6 @@ class WaypointEditorUI:
         self.ax.set_ylim(new_ylim)
 
         self.redraw_plot()
-
-    def resize_subplots(self):
-        # Update subplot heights based on the divider's position
-        bottom_ratio = self.divider_y
-        top_ratio = 1 - bottom_ratio
-        self.gs.set_height_ratios([top_ratio, bottom_ratio])
-        self.fig.subplots_adjust(hspace=0.3)  # Adjust spacing if needed
-        self.fig.canvas.draw_idle()
-        self.redraw_plot()
-        self.capture_background()
 
     def update_sigma(self, val):
         self.scale = val
