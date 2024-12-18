@@ -183,8 +183,8 @@ class WaypointDataManager:
         with self.lock:
             # Load waypoints from local (or updated) file
             self.original_sector_data = pd.read_csv(self.path_to_sectors)
-            self.sector_idxs = self.original_sector_data['#Start'].to_numpy().astype(int)
-            self.sector_speeds = self.original_sector_data[' Sector'].to_numpy()
+            self.sector_idxs = self.original_sector_data['#start'].to_numpy().astype(int)
+            self.sector_speeds = self.original_sector_data['scaling'].to_numpy()
 
             # If this is the initial load, store initial values
             # so we can reference them later. Avoid overwriting them on subsequent loads.
