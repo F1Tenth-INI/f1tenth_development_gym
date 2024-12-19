@@ -30,6 +30,8 @@ else:
 
 # from TrainingLite.slip_prediction import predict
 
+from RaceTuner.TunerConnectorSim import TunerConnectorSim
+
 
 
 class CarSystem:
@@ -125,7 +127,8 @@ class CarSystem:
         self.savse_recording = save_recording
         if save_recording:
             self.recorder = Recorder(driver=self)
-        
+
+        self.tuner_connector = None
         
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
@@ -152,7 +155,11 @@ class CarSystem:
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
             
-                
+    def launch_tuner_connector(self):
+        try:
+            self.tuner_connector = TunerConnectorSim()
+        except OSError:
+            print("Tunner connection not possible.")
     
     def set_car_state(self, car_state):
         self.car_state = car_state
@@ -206,6 +213,8 @@ class CarSystem:
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
             car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
         self.waypoint_utils.update_next_waypoints(car_state)
+        if Settings.ALLOW_ALTERNATIVE_RACELINE:
+            self.waypoint_utils.update_next_waypoints(car_state, alternative_waypoints=True)
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
             self.waypoint_utils.stop_if_obstacle_in_front(ranges, np.linspace(-2.35,2.35, 1080))
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)          
@@ -227,7 +236,10 @@ class CarSystem:
                 else:
                     self.waypoints_for_controller = self.waypoint_utils.next_waypoints
         else:
-            self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+            if self.waypoint_utils.use_alternative_waypoints_for_control_flag and Settings.ALLOW_ALTERNATIVE_RACELINE:
+                self.waypoints_for_controller = self.waypoint_utils.next_waypoints_alternative
+            else:
+                self.waypoints_for_controller = self.waypoint_utils.next_waypoints
 
         pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 

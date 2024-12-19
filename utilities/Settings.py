@@ -1,6 +1,11 @@
 import os
 class Settings():
 
+    STOP_IF_OBSTACLE_IN_FRONT = False
+    ALLOW_ALTERNATIVE_RACELINE = False
+    SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
+    KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
+
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
@@ -32,7 +37,6 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
-    STOP_IF_OBSTACLE_IN_FRONT = False
     GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = True # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
@@ -51,6 +55,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
+    CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -95,7 +100,7 @@ class Settings():
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
-    
+
     AUTOMATIC_SECTOR_TUNING = False
     
 

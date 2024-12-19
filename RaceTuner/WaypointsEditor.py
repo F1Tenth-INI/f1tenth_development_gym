@@ -6,49 +6,72 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
 import pandas as pd
-from matplotlib.image import imread
 from matplotlib.widgets import Slider
 import datetime
 import matplotlib
-import yaml
-import paramiko
+import threading
 
+from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sftp, download_map_files_via_sftp
 from RaceTuner.HoverMarker import HoverMarker
+from RaceTuner.MapHelper import MapConfig
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
+from RaceTuner.WaypointsHistoryManager import WaypointHistoryManager
 from utilities.Settings import Settings
+
+from TunerSettings import (
+    MAP_NAME,
+    LOCAL_MAP_DIR,
+    REMOTE_MAP_DIR,
+    REMOTE_AT_LOCAL_DIR,
+    USE_REMOTE_FILES,
+    MAP_LIMITS_X,
+    MAP_LIMITS_Y,
+    AUTO_SCALE_MAP,
+    # MAP_LIMITS_PLZ_WORK
+)
 
 from utilities.waypoint_utils import get_speed_scaling
 
-MAP_NAME = Settings.MAP_NAME
-PATH_TO_MAPS = "../utilities/maps/"
-REMOTE_PATH = "catkin_ws/src/f1tenth_system/racecar/racecar/maps/"+Settings.MAP_NAME
-remote_config = {
-    "host": "ini-xavier.local",
-    "port": 22,
-    "username": "racecar",
-    "password": "Inivincible",
-    "remotePath": REMOTE_PATH
-}
+from matplotlib.gridspec import GridSpec
 
-MAP_LIMITS_X = [-5.0, 8.1]
-MAP_LIMITS_Y = [-1.5, 9.1]
+class WaypointsModifier:
+    def __init__(self, waypoint_manager):
+        self.waypoint_manager = waypoint_manager
+        self.cs_x = None
+        self.cs_y = None
+        self.dense_t = None
+        self.dense_x = None
+        self.dense_y = None
 
-class MapConfig:
-    def __init__(self, map_name, path_to_maps):
-        self.map_name = map_name
-        self.path_to_maps = path_to_maps
-        self.path_to_map_png = os.path.join(path_to_maps, map_name, map_name + ".png")
-        self.path_to_map_config = os.path.join(path_to_maps, map_name, map_name + ".yaml")
+    def recalculate_splines(self, full_init=False):
+        wm = self.waypoint_manager
+        self.cs_x = CubicSpline(wm.t, wm.x)
+        self.cs_y = CubicSpline(wm.t, wm.y)
+        self.dense_t = np.linspace(wm.t[0], wm.t[-1], 500)
+        self.dense_x = self.cs_x(self.dense_t)
+        self.dense_y = self.cs_y(self.dense_t)
+        if full_init:
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
 
-    def load_map_image(self, grayscale=True):
-        img = imread(self.path_to_map_png)
-        if grayscale and img.ndim == 3:
-            img = np.dot(img[..., :3], [0.2989, 0.587, 0.114])
-        return img
+    def apply_weighted_adjustment_2d(self, dx, dy, drag_index, scale):
+        wm = self.waypoint_manager
+        n = len(wm.x)
+        for i in range(n):
+            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
+            w = np.exp(-0.5 * (d / scale) ** 2)
+            wm.x[i] += dx * w
+            wm.y[i] += dy * w
 
-    def load_map_config(self):
-        with open(self.path_to_map_config, 'r') as file:
-            return yaml.safe_load(file)
+    def apply_weighted_adjustment_1d(self, dv, drag_index, scale):
+        wm = self.waypoint_manager
+        if wm.vx is None:
+            return
+        n = len(wm.vx)
+        for i in range(n):
+            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
+            w = np.exp(-0.5 * (d / scale) ** 2)
+            wm.vx[i] += dv * w
+
 
 class WaypointDataManager:
     def __init__(self, map_name, path_to_maps, waypoints_new_file_name=None):
@@ -56,6 +79,7 @@ class WaypointDataManager:
         self.path_to_maps = path_to_maps
         self.waypoints_new_file_name = waypoints_new_file_name
         self.path_to_waypoints = os.path.join(path_to_maps, map_name, map_name + "_wp.csv")
+        self.path_to_waypoints_reverse = os.path.join(path_to_maps, map_name, map_name + "_wp_reverse.csv")
         self.original_data = None
         self.x = None
         self.y = None
@@ -66,81 +90,53 @@ class WaypointDataManager:
         self.initial_y = None
         self.initial_vx = None
         self.t = None
-        self.cs_x = None
-        self.cs_y = None
         self.dense_t = None
         self.dense_x = None
         self.dense_y = None
-        self.waypoint_history = []
+        self.initial_load_done = False  # Tracks if initial load has occurred
+        self.initial_sector_load_done = False
 
-    def load_waypoints(self):
-        self.original_data = pd.read_csv(self.path_to_waypoints, comment="#")
-        self.x = self.original_data['x_m'].to_numpy()
-        self.y = self.original_data['y_m'].to_numpy()
-        if 'vx_mps' in self.original_data.columns:
-            self.vx_original = self.original_data['vx_mps'].to_numpy()
-            self.scale = get_speed_scaling(len(self.x), Settings)  # Get scaling factor
-            self.vx = self.vx_original * self.scale  # Apply scaling
-            self.initial_vx = self.vx.copy()
-        self.initial_x = self.x.copy()
-        self.initial_y = self.y.copy()
-        self.t = np.arange(len(self.x))
-        self._recalculate_splines(full_init=True)
+        self.path_to_sectors = os.path.join(path_to_maps, map_name, map_name + "_speed_scaling.csv")
+        self.original_sector_data = None
+        # A lock to ensure thread-safe updates if needed
+        self.lock = threading.Lock()
 
-    def _recalculate_splines(self, full_init=False):
-        self.cs_x = CubicSpline(self.t, self.x)
-        self.cs_y = CubicSpline(self.t, self.y)
-        self.dense_t = np.linspace(self.t[0], self.t[-1], 500)
-        self.dense_x = self.cs_x(self.dense_t)
-        self.dense_y = self.cs_y(self.dense_t)
-        if full_init:
-            self._save_waypoint_state()
+        # Initialize a separate manager to handle history and undo operations
+        self.history_manager = WaypointHistoryManager()
 
-    def apply_weighted_adjustment_2d(self, dx, dy, drag_index, scale):
-        n = len(self.x)
-        for i in range(n):
-            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
-            w = np.exp(-0.5 * (d / scale) ** 2)
-            self.x[i] += dx * w
-            self.y[i] += dy * w
+        # Initialize WaypointsModifier
+        self.modifier = WaypointsModifier(self)
 
-    def apply_weighted_adjustment_1d(self, dv, drag_index, scale):
-        if self.vx is None:
-            return
-        n = len(self.vx)
-        for i in range(n):
-            d = min(abs(i - drag_index), abs(i - drag_index + n), abs(i - drag_index - n))
-            w = np.exp(-0.5 * (d / scale) ** 2)
-            self.vx[i] += dv * w
 
-    def _save_waypoint_state(self):
-        if self.waypoint_history:
-            last_state = self.waypoint_history[-1]
-            if self.vx is not None:
-                if (np.array_equal(last_state[0], self.x) and
-                    np.array_equal(last_state[1], self.y) and
-                    np.array_equal(last_state[2], self.vx)):
-                    return
-            else:
-                if np.array_equal(last_state[0], self.x) and np.array_equal(last_state[1], self.y):
-                    return
-        if self.vx is not None:
-            self.waypoint_history.append((self.x.copy(), self.y.copy(), self.vx.copy()))
-        else:
-            self.waypoint_history.append((self.x.copy(), self.y.copy()))
-        if len(self.waypoint_history) > 10:
-            self.waypoint_history.pop(0)
 
-    def undo(self):
-        if len(self.waypoint_history) > 1:
-            self.waypoint_history.pop()
-            state = self.waypoint_history[-1]
-            self.x, self.y = state[0].copy(), state[1].copy()
-            if self.vx is not None and len(state) > 2:
-                self.vx = state[2].copy()
-            self._recalculate_splines()
-            return True
-        return False
+    def load_waypoints_from_file(self):
+        """Load waypoints from the waypoint CSV file."""
+        with self.lock:
+            # Load waypoints from local (or updated) file
+            self.original_data = pd.read_csv(self.path_to_waypoints, comment="#")
+            self.x = self.original_data['x_m'].to_numpy()
+            self.y = self.original_data['y_m'].to_numpy()
+
+            # If this is the initial load, store initial values
+            # so we can reference them later. Avoid overwriting them on subsequent loads.
+            if not self.initial_load_done:
+                self.initial_x = self.x.copy()
+                self.initial_y = self.y.copy()
+
+            if 'vx_mps' in self.original_data.columns:
+                self.vx_original = self.original_data['vx_mps'].to_numpy()
+                # get_speed_scaling relies on files that must be present locally.
+                # If remote mode is on, they have been downloaded above.
+                self.scale = get_speed_scaling(len(self.x), os.path.join(self.path_to_maps, self.map_name), self.map_name, Settings)
+                self.vx = self.vx_original * self.scale  # Apply scaling
+
+                if not self.initial_load_done:
+                    self.initial_vx = self.vx.copy()
+
+            self.t = np.arange(len(self.x))
+            self.modifier.recalculate_splines(full_init=(not self.initial_load_done))
+            self.initial_load_done = True  # Mark that initial load is complete now
+
 
     def save_waypoints_to_file(self, message_box_update_callback):
         file_path = self.waypoints_new_file_name if self.waypoints_new_file_name else self.path_to_waypoints
@@ -158,8 +154,10 @@ class WaypointDataManager:
             f.write(header_comment)
             data.to_csv(f, index=False, float_format="%.6f")
         message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
-        self._upload_to_remote(file_path, message_box_update_callback)
 
+        if USE_REMOTE_FILES:
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp.csv"))
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
 
     def create_backup_if_needed(self):
         backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
@@ -167,41 +165,83 @@ class WaypointDataManager:
             with open(self.path_to_waypoints, 'r') as original_file:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup.csv"))
 
-    def _upload_to_remote(self, local_file_path, message_box_update_callback):
-        config = remote_config
-        try:
-            transport = paramiko.Transport((config["host"], config["port"]))
-            transport.connect(username=config["username"], password=config["password"])
-            sftp = paramiko.SFTPClient.from_transport(transport)
 
-            remote_file_path = os.path.join(config["remotePath"], os.path.basename(local_file_path))
-            sftp.put(local_file_path, remote_file_path)
-            message_box_update_callback(f"File synchronized to {remote_file_path} on remote server.")
+        backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
+        if not os.path.exists(backup_path):
+            with open(self.path_to_waypoints_reverse, 'r') as original_file:
+                with open(backup_path, 'w') as backup_file:
+                    backup_file.write(original_file.read())
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
 
-            sftp.close()
-            transport.close()
-        except Exception as e:
-            message_box_update_callback(f"Failed to synchronize file: {str(e)}")
+    def undo(self):
+        state = self.history_manager.undo()
+        if state is not None:
+            # State returned can be (x, y) or (x, y, vx)
+            self.x = state[0].copy()
+            self.y = state[1].copy()
+            if len(state) > 2:
+                self.vx = state[2].copy()
+            self.modifier.recalculate_splines()
+            return True
+        return False
+
+    def load_sectors_from_file(self):
+        with self.lock:
+            # Load waypoints from local (or updated) file
+            self.original_sector_data = pd.read_csv(self.path_to_sectors)
+            self.sector_idxs = self.original_sector_data['#Start'].to_numpy().astype(int)
+            self.sector_speeds = self.original_sector_data[' Sector'].to_numpy()
+
+            # If this is the initial load, store initial values
+            # so we can reference them later. Avoid overwriting them on subsequent loads.
+            if not self.initial_sector_load_done:
+                self.initial_sector_idxs = self.x.copy()
+                self.initial_sector_speeds = self.y.copy()
+
+            self.initial_sector_load_done = True
+
+    def local_reload(self):
+        self.load_waypoints_from_file()
+        self.load_sectors_from_file()
 
 
 class WaypointEditorUI:
-    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0):
+    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0, reload_event=None):
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
         self.socket_client = socket_client
         self.update_frequency = update_frequency
+        self.reload_event = reload_event  # Added to handle reload signaling
 
         if sys.platform == 'darwin':
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
+
+        self.fig = plt.figure(figsize=(16, 10))
+        self.divider_line_dragging = False
+        self.divider_y = 0.5  # Initial position of the divider
         if self.waypoint_manager.vx is not None:
-            self.fig, (self.ax, self.ax2) = plt.subplots(2, 1, figsize=(16, 10), sharex=False)
+            self.gs = GridSpec(2, 1, height_ratios=[1, 1], figure=self.fig)
+            self.ax = self.fig.add_subplot(self.gs[0, 0])
+            self.ax2 = self.fig.add_subplot(self.gs[1, 0])
             plt.subplots_adjust(hspace=0.3)
+
+            # Add draggable line
+            self.divider_line = plt.Line2D(
+                [0, 1], [self.divider_y, self.divider_y], transform=self.fig.transFigure, color="gray", lw=2, picker=True
+            )
+            self.fig.add_artist(self.divider_line)
+
         else:
             self.fig, self.ax = plt.subplots(figsize=(16, 10))
             self.ax2 = None
+
+            self.divider_line = None
+
+
         self.fig.canvas.manager.set_window_title("INIvincible Waypoints Editor")
         self.text_box = None
         self.sigma_slider = None
@@ -210,12 +250,16 @@ class WaypointEditorUI:
         self.dragging_vx = False
         self.drag_index_vx = None
         self.image_loaded = False
+        self.panning = False
+        self.pan_start = None
 
         # Dynamic elements
         self.car_marker = None
         self.car_speed_marker = None
         self.background_main = None
         self.background_speed = None
+        self.x_limit = None
+        self.y_limit = None
 
         self.update_interval = 1000 / self.update_frequency  # in milliseconds
 
@@ -252,6 +296,13 @@ class WaypointEditorUI:
         self.ax.plot(wm.x, wm.y, color="green", linestyle="-")
         self.ax.scatter(wm.x, wm.y, color="red", label="Target Raceline")
 
+        # Highlight sector start points
+        if hasattr(wm, 'sector_idxs'):
+            sector_starts_x = wm.x[wm.sector_idxs]
+            sector_starts_y = wm.y[wm.sector_idxs]
+            for i, (x, y) in enumerate(zip(sector_starts_x, sector_starts_y)):
+                self.ax.text(x, y, f"S{i}", color="black", fontsize=12, ha="center", va="center")
+
         # Set labels and grid for main axis
         self.ax.set_xlabel("X (m)")
         self.ax.set_ylabel("Y (m)")
@@ -265,6 +316,18 @@ class WaypointEditorUI:
             self.ax2.set_ylabel("Speed vx (m/s)")
             self.ax2.grid()
 
+            # Highlight sector start points in the second plot (ax2)
+            if hasattr(wm, 'sector_idxs'):
+                sector_start_times = wm.t[wm.sector_idxs]
+                for i, t in enumerate(sector_start_times):
+                    self.ax2.axvline(x=t, color="black", linestyle="--", label=f"Sector Start {i}")
+                    self.ax2.text(t, self.ax2.get_ylim()[1] * (1.0), f"S{i}", color="black", fontsize=12, ha="center",
+                                  va="bottom")
+
+            if self.divider_line:
+                # Update the y-coordinates of the line
+                self.divider_line.set_ydata([self.divider_y, self.divider_y])
+
         # Combine legends from both subplots
 
         _, labels = self.ax.get_legend_handles_labels()
@@ -274,8 +337,13 @@ class WaypointEditorUI:
 
         self.ax.legend(labels, loc="upper right", bbox_to_anchor=(2.0, 1), frameon=False)
 
-        self.ax.set_xlim(MAP_LIMITS_X)
-        self.ax.set_ylim(MAP_LIMITS_Y)
+        # if AUTO_SCALE_MAP:
+        if self.x_limit == None or self.y_limit == None:
+            self.x_limit = [min(self.waypoint_manager.x) - 4, max(self.waypoint_manager.x) + 4]
+            self.y_limit = [min(self.waypoint_manager.y) - 4, max(self.waypoint_manager.y) + 4]
+
+        self.ax.set_xlim(self.x_limit)
+        self.ax.set_ylim(self.y_limit)
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
@@ -342,6 +410,15 @@ class WaypointEditorUI:
 
     def on_press(self, event):
 
+        #on right click
+        if event.button == 3:
+            self.pan_start = (event.xdata, event.ydata)
+            self.panning = True
+            return
+
+        if self.divider_line.contains(event)[0]:
+            self.divider_line_dragging = True
+
         # Detect if Ctrl or Cmd is pressed
         if event.key in ['control', 'ctrl', 'command', 'cmd']:
             self.hover_marker.plant_marker()
@@ -363,32 +440,116 @@ class WaypointEditorUI:
                     break
 
     def on_release(self, event):
+
+        self.divider_line_dragging = False
+
+        if event.button == 3:
+            if self.panning:
+                self.panning = False
+            return
+
         if self.dragging:
             self.dragging = False
             self.drag_index = None
-            self.waypoint_manager._recalculate_splines()
-            self.waypoint_manager._save_waypoint_state()
+            self.waypoint_manager.modifier.recalculate_splines()
+            # After position changes are finalized, record the new state
+            self.waypoint_manager.history_manager.save_waypoint_state(
+                self.waypoint_manager.x,
+                self.waypoint_manager.y,
+                self.waypoint_manager.vx
+            )
             self.redraw_plot()
         if self.dragging_vx:
             self.dragging_vx = False
             self.drag_index_vx = None
-            self.waypoint_manager._save_waypoint_state()
+            self.waypoint_manager.history_manager.save_waypoint_state(
+                self.waypoint_manager.x,
+                self.waypoint_manager.y,
+                self.waypoint_manager.vx
+            )
             self.redraw_plot()
 
     def on_motion(self, event):
+
+        if self.divider_line_dragging and event.y is not None:
+            # Normalize y position to figure coordinates
+            self.divider_y = event.y / self.fig.get_size_inches()[1] / self.fig.dpi
+            self.resize_subplots()
+
         if self.dragging and self.drag_index is not None and event.inaxes == self.ax:
             wm = self.waypoint_manager
             dx = event.xdata - wm.x[self.drag_index]
             dy = event.ydata - wm.y[self.drag_index]
-            wm.apply_weighted_adjustment_2d(dx, dy, self.drag_index, self.scale)
+            wm.modifier.apply_weighted_adjustment_2d(dx, dy, self.drag_index, self.scale)
             # Update static plot and recapture background
             self.redraw_static_elements()
         if self.dragging_vx and self.drag_index_vx is not None and event.inaxes == self.ax2:
             wm = self.waypoint_manager
             dv = event.ydata - wm.vx[self.drag_index_vx]
-            wm.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
+            wm.modifier.apply_weighted_adjustment_1d(dv, self.drag_index_vx, self.scale)
             # Update static plot and recapture background
             self.redraw_static_elements()
+
+        # does not properly handle when starting drag inside plot an ending outside
+        if self.panning and all(v is not None for v in [event.xdata, event.ydata, self.pan_start]):
+
+            dx = self.pan_start[0] - event.xdata
+            dy = self.pan_start[1] - event.ydata
+
+            # print("x before: ", self.ax.get_xlim())
+            self.x_limit = ([x + dx for x in self.ax.get_xlim()])
+            self.y_limit = ([y + dy for y in self.ax.get_ylim()])
+            # print("x after: ", self.x_limit)
+
+            self.ax.set_xlim(self.x_limit)
+            self.ax.set_ylim(self.y_limit)
+            self.fig.canvas.draw()
+
+            self.redraw_plot()
+
+
+    def on_scroll(self, event):
+        """Handle zoom using scroll wheel"""
+        current_xlim = self.ax.get_xlim()
+        current_ylim = self.ax.get_ylim()
+
+        # Define the zoom scale (how much zoom happens per scroll step)
+        zoom_factor = 1.2
+        if event.button == 'up':  # Zoom in
+            scale = 1 / zoom_factor
+        elif event.button == 'down':  # Zoom out
+            scale = zoom_factor
+        else:
+            return
+
+        wm = self.waypoint_manager
+
+        # Get current axis limits
+        x_center = (current_xlim[0] + current_xlim[1]) / 2
+        y_center = (current_ylim[0] + current_ylim[1]) / 2
+
+        # Adjust the limits based on the zoom factor
+        new_xlim = [(x - x_center) * scale + x_center for x in current_xlim]
+        new_ylim = [(y - y_center) * scale + y_center for y in current_ylim]
+
+        self.x_limit = new_xlim
+        self.y_limit = new_ylim
+
+        # # Apply new limits
+        self.ax.set_xlim(new_xlim)
+        self.ax.set_ylim(new_ylim)
+
+        self.redraw_plot()
+
+    def resize_subplots(self):
+        # Update subplot heights based on the divider's position
+        bottom_ratio = self.divider_y
+        top_ratio = 1 - bottom_ratio
+        self.gs.set_height_ratios([top_ratio, bottom_ratio])
+        self.fig.subplots_adjust(hspace=0.3)  # Adjust spacing if needed
+        self.fig.canvas.draw_idle()
+        self.redraw_plot()
+        self.capture_background()
 
     def update_sigma(self, val):
         self.scale = val
@@ -411,6 +572,94 @@ class WaypointEditorUI:
         # Check for "Ctrl+C" or "Cmd+C" to erase marker
         elif key in ["ctrl+c", "cmd+c"]:
             self.hover_marker.erase_marker()
+        elif key == 'up':
+            self.adjust_all_speeds(delta=0.1)
+        elif key == 'down':
+            self.adjust_all_speeds(delta=-0.1)
+        elif key == 'r':
+            # Check if Shift modifier is held
+            if event.key == 'r' and event.key not in ["ctrl+r", "cmd+r"]:
+                self.reset_xy()
+        elif key in ["ctrl+r", "cmd+r"]:
+            self.reset_vx()
+        elif key == 'v':
+            self.reset_view()
+        elif key == '-':
+            wm.local_reload()
+            self.redraw_plot()
+
+    def adjust_all_speeds(self, delta):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Adjust speeds
+            if wm.vx is not None:
+                wm.vx += delta
+                # Optional: Clamp speeds to a minimum value (e.g., 0 m/s)
+                wm.vx = np.maximum(wm.vx, 0.0)
+
+                # Recalculate any dependent variables if necessary
+                wm.modifier.recalculate_splines()
+
+                # Update the speed plot
+                self.redraw_plot()
+
+                # Provide feedback to the user
+                action = "Increased" if delta > 0 else "Decreased"
+                self.update_text_box(f"{action} all waypoint speeds by {abs(delta):.1f} m/s.")
+
+    def reset_xy(self):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Reset x and y to initial values
+            wm.x = wm.initial_x.copy()
+            wm.y = wm.initial_y.copy()
+
+            # Recalculate splines
+            wm.modifier.recalculate_splines()
+
+            # Update the plot
+            self.redraw_plot()
+
+            # Provide feedback to the user
+            self.update_text_box("Reset all waypoint X and Y coordinates to initial values.")
+
+
+    def reset_vx(self):
+        wm = self.waypoint_manager
+        with wm.lock:
+            # Check if vx exists
+            if wm.vx_original is None:
+                self.update_text_box("No speed data (vx) to reset.")
+                return
+
+            # Save current state for undo
+            wm.history_manager.save_waypoint_state(wm.x, wm.y, wm.vx)
+
+            # Reset vx to initial values and apply scaling
+            wm.vx = wm.vx_original.copy() * wm.scale
+
+            # Recalculate splines if necessary
+            wm.modifier.recalculate_splines()
+
+            # Update the plot
+            self.redraw_plot()
+
+            # Provide feedback to the user
+            self.update_text_box("Reset all waypoint speeds (vx) to initial values.")
+
+    def reset_view(self):
+        self.x_limit = None
+        self.y_limit = None
+        self.redraw_plot()
+        return
+
+
 
     def setup_ui_elements(self):
         plt.subplots_adjust(bottom=0.25)
@@ -426,6 +675,7 @@ class WaypointEditorUI:
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.fig.canvas.mpl_connect("key_press_event", self.key_press_handler)
         self.fig.canvas.mpl_connect("resize_event", self.on_resize)
+        self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
 
     def on_resize(self, event):
         # On resize, redraw static elements and recapture background
@@ -439,12 +689,12 @@ class WaypointEditorUI:
 
     def periodic_update(self):
         # Fetch the latest car state from the socket server
-        car_state = self.socket_client.get_car_state()
-        if car_state:
-            self.car_x = car_state.get('car_x')
-            self.car_y = car_state.get('car_y')
-            self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
+        # car_state = self.socket_client.get_car_state()
+        # if car_state:
+        #     self.car_x = car_state.get('car_x')
+        #     self.car_y = car_state.get('car_y')
+        #     self.car_v = car_state.get('car_v')
+        #     self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
@@ -479,6 +729,12 @@ class WaypointEditorUI:
             self.hover_marker.draw_markers()
             self.fig.canvas.blit(self.ax2.bbox)
 
+        # Check if a reload has been signaled
+        if self.reload_event and self.reload_event.is_set():
+            print("Cleared_event")
+            self.redraw_plot()
+            self.reload_event.clear()  # Reset the event
+
     def run_blitting(self):
         # Initial draw and capture background
         self.redraw_plot()
@@ -496,29 +752,58 @@ class WaypointEditorUI:
 
 
 class WaypointsEditorApp:
-    def __init__(self, map_name=MAP_NAME, path_to_maps=PATH_TO_MAPS, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
-        self.map_config = MapConfig(map_name, path_to_maps)
-        self.waypoint_manager = WaypointDataManager(map_name, path_to_maps, waypoints_new_file_name)
-        self.socket_client = SocketWatpointEditor()  # Initialize the socket client
+    def __init__(self, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+        if USE_REMOTE_FILES:
+            path_to_maps = REMOTE_AT_LOCAL_DIR
+            download_map_files_via_sftp(
+                map_name=MAP_NAME,
+                remote_dir=REMOTE_MAP_DIR,
+                local_dir=path_to_maps,
+                mode='initial'
+            )
+        else:
+            path_to_maps = LOCAL_MAP_DIR
+
+        self.map_config = MapConfig(MAP_NAME, path_to_maps)
+        self.waypoint_manager = WaypointDataManager(MAP_NAME, path_to_maps, waypoints_new_file_name)
+        self.socket_client = SocketWatpointEditor()
+        self.running = True  # If needed to stop threads gracefully later
+
+        # Event to signal UI to reload
+        self.reload_event = threading.Event()
+
+        # Initialize FileSynchronizer
+
+        self.file_synchronizer = FileSynchronizer(self.waypoint_manager, self.reload_event, interval=5)
 
     def run(self):
         try:
             # Continue with the GUI
             self.waypoint_manager.create_backup_if_needed()
-            self.waypoint_manager.load_waypoints()
+            self.waypoint_manager.load_waypoints_from_file()
+            self.waypoint_manager.load_sectors_from_file()
+
+            # Start FileSynchronizer thread
+            # TODO: only synchronizes when this is remote -> added workaround for now, press '-' to reload from local files
+            if USE_REMOTE_FILES:
+                self.file_synchronizer.start()
+
+            # Start the UI
             self.ui = WaypointEditorUI(
                 self.waypoint_manager,
                 self.map_config,
                 self.socket_client,
                 initial_scale=20.0,  # You can set this to waypoint_manager.scale if desired
-                update_frequency=20.0  # Default frequency
+                update_frequency=20.0,  # Default frequency
+                reload_event=self.reload_event  # Pass the event to the UI
             )
             self.ui.load_image_background()
             self.ui.run()
         except KeyboardInterrupt:
             print("Shutting down WaypointsEditorApp.")
         finally:
-            # Ensure the socket client is closed gracefully
+            self.running = False
+            self.file_synchronizer.stop()
             self.socket_client.close()
 
 if __name__ == "__main__":
