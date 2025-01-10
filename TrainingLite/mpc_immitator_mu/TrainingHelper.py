@@ -55,19 +55,24 @@ class TrainingHelper:
             state_variables = ['angular_vel_z', 'linear_vel_x', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_theta', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
             for var in state_variables:
                 df['d_' + var] = df[var].diff() / df['d_time']
+                
+            control_variables = ['angular_control_calculated', 'translational_control_calculated']
+            for var in control_variables:
+                df['prev_' + var] = df[var].shift(1)
+            
 
             df = df[df['d_angular_vel_z'] <= 60]
             df = df[df['linear_vel_x'] <= 20]
             df = df[df['d_pose_x'] <= 20.]
             df = df[df['d_pose_y'] <= 20.]
             
-            df = df[df['imu_dd_x'] <= 20.]
-            df = df[df['imu_dd_y'] <= 20.]
-            df = df[df['imu_dd_yaw'] <= 20.]
+            df = df[df['imu_a_x'] <= 20.]
+            df = df[df['imu_a_y'] <= 20.]
+            df = df[df['imu_av_z'] <= 20.]
             
-            df = df[df['imu_dd_x'] >= -20.]
-            df = df[df['imu_dd_y'] >= -20.]
-            df = df[df['imu_dd_yaw'] >= -20.]
+            df = df[df['imu_a_x'] >= -20.]
+            df = df[df['imu_a_y'] >= -20.]
+            df = df[df['imu_av_z'] >= -20.]
 
             df['source'] = file
             

@@ -17,7 +17,7 @@ from TrainingHelper import TrainingHelper
 from TorchNetworks import LSTM as Network
 
 
-model_name = "tLSTM9_imu_mu_reduce_wp"
+model_name = "LSTM11_medium"
 
 experiment_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -28,13 +28,19 @@ network_yaml, input_scaler, output_scaler = training_helper.load_network_meta_da
 mu_history = []
 input_history = []
 
-def predict_next_control(s, waypoints_relative, waypoints, imu_data):
+def predict_next_control(s, waypoints_relative, waypoints):
     
-    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX], imu_data[0], imu_data[1], imu_data[2]]
-    waypoints_x = waypoints_relative[::3, 0]
-    waypoints_y = waypoints_relative[::3, 1]
-    waypoints_vx = waypoints[::3, WP_VX_IDX]
-
+    # state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX], imu_data[0], imu_data[1], imu_data[2]]
+    state = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX], s[STEERING_ANGLE_IDX]]
+    waypoints_x = waypoints_relative[:25, 0]
+    waypoints_y = waypoints_relative[:25, 1]
+    waypoints_vx = waypoints[:25, WP_VX_IDX]
+    
+    # print('state_here', state)
+    # print('waypoints_x', waypoints_x)
+    # print('waypoints_y', waypoints_y)
+    # print('waypoints_vx', waypoints_vx)
+    
     input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx))
     output = predict(input)
     control = [output]
