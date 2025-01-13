@@ -20,13 +20,13 @@ from TorchNetworks import LSTM as Network
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "LSTM10_vy"
-dataset_name = "_MPC_Noise1"
+model_name = "LSTM11_medium"
+dataset_name = "Euler_realistic"
 seq_length = 1
 washout_steps = 0
-number_of_epochs = 10
+number_of_epochs = 3
 batch_size = 16
-save_historgrams = True
+save_historgrams = False
 
 
 shuffle_data = True
@@ -41,7 +41,7 @@ training_helper.create_and_clear_model_folder(model_dir)
 training_helper.save_training_scripts(os.path.realpath(__file__))
 
 
-df, file_change_indices = training_helper.load_dataset(reduce_size_by=10)
+df, file_change_indices = training_helper.load_dataset(reduce_size_by=5)
 
 batches = []
 
@@ -49,17 +49,18 @@ df = df.dropna()
 
 # Define input and output columns
 # state_cols = ["angular_vel_z", "linear_vel_x", "steering_angle", "imu_dd_x", "imu_dd_y", "imu_dd_yaw"]
-state_cols = ["angular_vel_z", "linear_vel_x", "steering_angle", "v_y"]
+# state_cols = ["angular_vel_z", "linear_vel_x", "prev_angular_control_calculated", "prev_translational_control_calculated"]
+state_cols = ["angular_vel_z", "linear_vel_x", "steering_angle"]
 
-wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 20, 3)]
-wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 20, 3)]
-wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 20, 3)]
+wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 25)]
+wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 25)]
+wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 25)]
 input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols
-output_cols = ["angular_control_calculated", "translational_control_calculated", "mu"]
+output_cols = ["angular_control_calculated", "translational_control_calculated"]
 
 
 # Shift output to counteract delay
-for col in ["angular_control_calculated", "translational_control_calculated", "mu"]:
+for col in ["angular_control_calculated", "translational_control_calculated"]:
     df[col] = df[col].shift(-4)
 
 df = df.dropna()
@@ -97,7 +98,7 @@ losses = []
 
 input_size = len(input_cols)
 output_size = len(output_cols)
-hidden_size = 128
+hidden_size = 64
 num_layers = 3
 
 # Initialize the model
