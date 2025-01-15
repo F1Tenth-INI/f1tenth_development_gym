@@ -184,29 +184,21 @@ class WaypointUtils:
 
         if waypoints is None: return
         self.car_state = car_state
-        car_position = []
-        # Main branch uses only car position for waypoints at the moment. 
-        # TODO: Use full state everywhere
-        if(len(car_state) == 2):
-            car_position = car_state
-            car_sin_theta = None
-            car_cos_theta = None
-        else:
-            car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-            car_sin_theta = car_state[POSE_THETA_SIN_IDX]
-            car_cos_theta = car_state[POSE_THETA_COS_IDX]
-        if nearest_waypoint_index is None:
+        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+
+        if nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-        else:  # only look for next waypoint in the current waypoint cache
-            if Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
+        else:  
+            # only look for next waypoint in the current waypoint cache
+            dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
+            nearest_waypoint_index_glob = nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
+            dist_current_waypoint = squared_distance(current_waypoint_cache[nearest_waypoint_index_glob-nearest_waypoint_index, 1:3], car_position)
+            if dist_current_waypoint > dist_max**2: # if the current waypoint is too far away, fallback to all waypoints
                 nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-            else:
-                dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
-                nearest_waypoint_index_glob = nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
-                dist_current_waypoint = squared_distance(current_waypoint_cache[nearest_waypoint_index_glob-nearest_waypoint_index, 1:3], car_position)
-                if dist_current_waypoint > dist_max**2:
-                    nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
+            else:  
+                #only search in cache
+                nearest_waypoint_index = nearest_waypoint_index_glob
 
         # Find out in which sector the car is
         sector_index = None
