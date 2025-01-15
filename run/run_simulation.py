@@ -23,8 +23,6 @@ from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     full_state_alphabetical_to_original, full_state_original_to_alphabetical)
 
-
-
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
@@ -64,6 +62,9 @@ def main():
 
     # First planner settings
     driver = CarSystem(Settings.CONTROLLER)
+
+    if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+        driver.launch_tuner_connector()
 
     opponents = []
     waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
@@ -343,6 +344,18 @@ def main():
 
         if repeat_because_of_crash:
             break
+
+        for driver in drivers:
+            if driver.tuner_connector is not None:
+                driver.tuner_connector.update_car_state(
+                    {
+                        'car_x': driver.car_state[POSE_X_IDX],
+                        'car_y': driver.car_state[POSE_Y_IDX],
+                        'car_v': driver.car_state[LINEAR_VEL_X_IDX],
+                        'idx_global': float(driver.waypoint_utils.next_waypoints[0, -1])
+                    }
+                )
+
         # End of controller time step
         if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(drivers):

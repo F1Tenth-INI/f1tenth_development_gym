@@ -1,6 +1,11 @@
 import os
 class Settings():
 
+    STOP_IF_OBSTACLE_IN_FRONT = False
+    ALLOW_ALTERNATIVE_RACELINE = False
+    SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
+    KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
+
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
@@ -12,7 +17,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.5  # Surface friction coefficient
+    SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -30,7 +35,8 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
@@ -48,6 +54,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
+    CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -72,7 +79,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -85,13 +92,14 @@ class Settings():
 
 
     ## waypoints generation ##
-    MIN_CURV_SAFETY_WIDTH = 1.0              # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    
+    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+
     AUTOMATIC_SECTOR_TUNING = False
     
 
@@ -129,7 +137,7 @@ class Settings():
     ANALYZE_COST = False # Analyze and plot diufferent parts of the MPC cost
     ANALYZE_COST_PERIOD = 100 # Period for analyzing the cost
     
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     WAYPOINTS_FROM_MPC = False # Use waypoints generated from MPC instead of the map
     PLAN_EVERY_N_STEPS = 4 # in case of waypoints from MPC, plan the waypoints every Nth step
