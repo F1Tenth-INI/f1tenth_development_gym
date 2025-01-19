@@ -1,10 +1,8 @@
 import os
 class Settings():
 
-    STOP_IF_OBSTACLE_IN_FRONT = False
-    ALLOW_ALTERNATIVE_RACELINE = False
-    SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
-    KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
+    STOP_IF_OBSTACLE_IN_FRONT = True
+    ALLOW_ALTERNATIVE_RACELINE = True
 
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped

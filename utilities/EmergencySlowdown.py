@@ -1,5 +1,7 @@
 import numpy as np
 
+SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
+KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
 
 class EmergencySlowdown:
     """
@@ -53,7 +55,21 @@ class EmergencySlowdown:
 
         self.scan_indices_within_alpha_max = np.where(abs(self.lidar_angles) <= alpha_max)
 
-    def calculate_speed_reduction(self, lidar_scans):
+        # Line switching code
+        self.use_alternative_waypoints_for_control_flag = False
+        self.counter_jam = 0
+        self.counter_freeride = 0
+
+    def calculate_speed_reduction(self, lidar_scans, vx, vy, steering_angle):
+        # Calculate heading direction based on velocity vector
+        if vx == 0 and vy == 0:
+            movement_direction = steering_angle  # Default to steering direction if speed is 0
+        else:
+            movement_direction = np.arctan2(vy, vx)  # Velocity direction
+
+        # Adjust lidar angles relative to the heading direction
+        adjusted_lidar_angles = self.lidar_angles - movement_direction
+        adjusted_angles_cos = np.cos(adjusted_lidar_angles)
 
         # initial filtering using precomputed indices to reduce computational load
         scans_within_alpha_max = lidar_scans[self.scan_indices_within_alpha_max]
@@ -66,9 +82,9 @@ class EmergencySlowdown:
         if len(scan_indices_with_measurement_within_stripe) < self.min_number_of_scans_for_obstacle_far:
             return 1.0  # Not enough measurements indicating possible collision within the stripe
         scans_within_stripe = scans_within_alpha_max[scan_indices_with_measurement_within_stripe]
-        angles_cos_within_stripe = self.lidar_angles_cos[self.scan_indices_within_alpha_max][scan_indices_with_measurement_within_stripe]
+        adjusted_angles_cos_within_stripe = adjusted_angles_cos[self.scan_indices_within_alpha_max][scan_indices_with_measurement_within_stripe]
         scans_density_correction_within_stripe = scans_within_stripe * self.scans_threshold_at_L_min_inv
-        collision_distances_within_stripe = angles_cos_within_stripe*scans_within_stripe
+        collision_distances_within_stripe = adjusted_angles_cos_within_stripe * scans_within_stripe
 
         if self.take_minimal_possible_collision_distance:
             L_impact = np.min(collision_distances_within_stripe)  # Not as precise as alternative below, but faster
@@ -115,3 +131,28 @@ class EmergencySlowdown:
         object_weights.append(current_object_total_weight)
 
         return object_collision_distances, object_weights
+
+
+    def stop_if_obstacle_in_front(self, lidar_scans, next_waypoints_vx, vx, vy, steering_angle):
+        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, vx, vy, steering_angle)
+        corrected_next_waypoints_vx = next_waypoints_vx * speed_reduction_factor
+
+        if speed_reduction_factor < 0.5:
+            self.counter_jam += 1
+            self.counter_freeride = 0
+        else:
+            self.counter_freeride += 1
+
+        if self.counter_jam >= SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING:
+            self.use_alternative_waypoints_for_control_flag = not self.use_alternative_waypoints_for_control_flag
+            self.counter_jam = 0
+            print("Switching to alternative raceline")
+
+        if self.counter_freeride >= KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE:
+            self.counter_jam = 0
+
+        # if speed_reduction_factor != 1.0:
+        #     print(f"Braking with speed reduction {speed_reduction_factor}")
+
+
+        return corrected_next_waypoints_vx, self.use_alternative_waypoints_for_control_flag

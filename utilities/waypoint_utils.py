@@ -1,4 +1,3 @@
-from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
@@ -117,8 +116,6 @@ class WaypointUtils:
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
-        self.emergency_slowdown = EmergencySlowdown()
-
         if Settings.ALLOW_ALTERNATIVE_RACELINE:
             self.waypoint_file_name_alternative = waypoint_file_name + "_alternative"
 
@@ -151,8 +148,6 @@ class WaypointUtils:
             self.start_reload_waypoints_thread(alternative_waypoints=True)
 
         self.use_alternative_waypoints_for_control_flag = False
-        self.counter_jam = 0
-        self.counter_freeride = 0
 
 
     def start_reload_waypoints_thread(self, alternative_waypoints=False):
@@ -508,31 +503,6 @@ class WaypointUtils:
         settings.MAP_NAME = self.map_name
         correct_velocity(waypoints, settings)
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
-
-    def calculate_speed_reduction(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.emergency_slowdown.calculate_speed_reduction(lidar_scans)
-        return speed_reduction_factor
-
-    def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
-        self.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor
-
-        if speed_reduction_factor < 0.5:
-            self.counter_jam += 1
-            self.counter_freeride = 0
-        else:
-            self.counter_freeride += 1
-
-        if self.counter_jam >= Settings.SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING:
-            self.use_alternative_waypoints_for_control_flag = not self.use_alternative_waypoints_for_control_flag
-            self.counter_jam = 0
-            print("Switching to alternative raceline")
-
-        if self.counter_freeride >= Settings.KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE:
-            self.counter_jam = 0
-
-        # if speed_reduction_factor != 1.0:
-        #     print(f"Braking with speed reduction {speed_reduction_factor}")
 
 
 # Utility functions
