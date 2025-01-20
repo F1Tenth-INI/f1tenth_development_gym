@@ -22,7 +22,7 @@ class EmergencySlowdown:
             D=0.45,  # Width of the observed stripe
             L_min=0.18,  # Minimum distance at which appearing points are checked
             L_stop=0.5,  # Full breaking distance (reduction_factor =  0.0)
-            L_max=2.0,  # Full speed distance (reduction_factor = 1.0)
+            L_max=1.5,  # Full speed distance (reduction_factor = 1.0)
             min_num_of_scans_for_obstacle=20,  # How many scans need to be registered at a minimal distance to consider it as an obstacle
             min_number_of_scans_for_obstacle_far=2,  # How many scans need to be registered at a maximal distance to consider it as an obstacle
             max_distance_split_of_single_object=0.5,  # We group lidar scans which possibly mean collisions into objects depending on lidar measurement.
