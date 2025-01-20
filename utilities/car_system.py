@@ -298,8 +298,16 @@ class CarSystem:
         self.render_utils.update(
             lidar_points= lidar_points,
             next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
-            car_state = car_state
+            car_state = car_state,
         )
+        if Settings.STOP_IF_OBSTACLE_IN_FRONT:
+            self.emergency_slowdown.update_emergency_slowdown_sprites(
+            car_x=car_state[POSE_X_IDX], car_y=car_state[POSE_Y_IDX], car_yaw=car_state[POSE_THETA_IDX],
+            )
+            self.render_utils.update(
+                emergency_slowdown_sprites=self.emergency_slowdown.emergency_slowdown_sprites,
+            )
+
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
         

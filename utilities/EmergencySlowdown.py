@@ -34,6 +34,8 @@ class EmergencySlowdown:
         self.L_stop = L_stop
         self.L_max = L_max
 
+        self.movement_direction = 0.0
+
         self.take_minimal_possible_collision_distance = take_minimal_possible_collision_distance
 
         self.min_num_of_scans_for_obstacle = min_num_of_scans_for_obstacle
@@ -60,15 +62,19 @@ class EmergencySlowdown:
         self.counter_jam = 0
         self.counter_freeride = 0
 
+        self.emergency_slowdown_sprites = None
+
     def calculate_speed_reduction(self, lidar_scans, vx, vy, steering_angle):
-        # Calculate heading direction based on velocity vector
-        if vx == 0 and vy == 0:
-            movement_direction = steering_angle  # Default to steering direction if speed is 0
-        else:
-            movement_direction = np.arctan2(vy, vx)  # Velocity direction
+
+        self.movement_direction = steering_angle  # Default to steering direction if speed is 0
+        # # Calculate heading direction based on velocity vector
+        # if vx == 0 and vy == 0:
+        #     self.movement_direction = steering_angle  # Default to steering direction if speed is 0
+        # else:
+        #     self.movement_direction = np.arctan2(vy, vx)  # Velocity direction
 
         # Adjust lidar angles relative to the heading direction
-        adjusted_lidar_angles = self.lidar_angles - movement_direction
+        adjusted_lidar_angles = self.lidar_angles - self.movement_direction
         adjusted_angles_cos = np.cos(adjusted_lidar_angles)
 
         # initial filtering using precomputed indices to reduce computational load
@@ -131,6 +137,35 @@ class EmergencySlowdown:
         object_weights.append(current_object_total_weight)
 
         return object_collision_distances, object_weights
+
+
+    def update_emergency_slowdown_sprites(self, car_x, car_y, car_yaw):
+        # Update emergency slowdown boundary lines based on current movement direction.
+        # These lines define the boundaries of the detection stripe in the car's frame.
+        # They are computed in the car's local coordinate system and then rotated to align with movement_direction.
+        def transform_point(x, y, angle):
+            # Transforms a local coordinate (x,y) into global coordinates based on heading angle.
+            cos_a = np.cos(angle)
+            sin_a = np.sin(angle)
+            return np.array((x * cos_a - y * sin_a, x * sin_a + y * cos_a))
+
+        current_position = np.array((car_x, car_y))
+        direction = car_yaw + self.movement_direction
+        self.emergency_slowdown_sprites = {}
+        left_start_global = transform_point(self.L_min, self.D_half, direction) + current_position
+        left_end_global = transform_point(self.L_max, self.D_half, direction) + current_position
+        self.emergency_slowdown_sprites["left_line"] = [left_start_global, left_end_global]
+
+        right_start_global = transform_point(self.L_min, -self.D_half, direction) + current_position
+        right_end_global = transform_point(self.L_max, -self.D_half, direction) + current_position
+        self.emergency_slowdown_sprites["right_line"] = [right_start_global, right_end_global]
+
+        # Stop line: a line perpendicular to movement direction at distance L_stop, spanning the stripe width.
+        # Defined from (L_stop, -D_half) to (L_stop, +D_half) in the local frame.
+        stop_left_global = transform_point(self.L_stop, -self.D_half, direction) + current_position
+        stop_right_global = transform_point(self.L_stop, self.D_half, direction) + current_position
+        self.emergency_slowdown_sprites["stop_line"] = [stop_left_global, stop_right_global]
+
 
 
     def stop_if_obstacle_in_front(self, lidar_scans, next_waypoints_vx, vx, vy, steering_angle):

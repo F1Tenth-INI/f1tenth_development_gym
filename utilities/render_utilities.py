@@ -81,6 +81,7 @@ class RenderUtils:
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
         self.obstacle_vertices = None
+        self.emergency_slowdown_lines = []
 
         self.waypoints = None
         self.next_waypoints = None
@@ -94,7 +95,9 @@ class RenderUtils:
         self.obstacles = None
         
         self.steering_direction = None
-        
+
+        self.emergency_slowdown_sprites = None
+
         if(Settings.ROS_BRIDGE):
             print("initialising render utilities for ROS")
 
@@ -112,7 +115,9 @@ class RenderUtils:
                largest_gap_middle_point=None, 
                target_point=None, 
                next_waypoints=None,
-               car_state = None,):
+               car_state = None,
+               emergency_slowdown_sprites=None,
+               ):
         
         
         if(lidar_points is not None): self.lidar_border_points = lidar_points
@@ -123,6 +128,8 @@ class RenderUtils:
         if(target_point is not None): self.target_point = target_point
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
         if(car_state is not None): self.car_state = car_state
+        if emergency_slowdown_sprites is not None: self.emergency_slowdown_sprites = emergency_slowdown_sprites
+
         
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
@@ -296,6 +303,35 @@ class RenderUtils:
                                             ('c3B', self.obstacle_visualization_color * howmany))
             # else:
             #     self.obstacle_vertices.vertices = scaled_points_flat
+
+        # Render the emergency slowdown boundary lines if they are available.
+        # Render the emergency slowdown boundary lines if they are available.
+        if self.emergency_slowdown_sprites is not None:
+            # Convert the line endpoints to scaled points for rendering.
+            left_line_array = np.array(self.emergency_slowdown_sprites["left_line"])  # Shape (2,2)
+            right_line_array = np.array(self.emergency_slowdown_sprites["right_line"])
+            stop_line_array = np.array(self.emergency_slowdown_sprites["stop_line"])
+            scaled_left_line = RenderUtils.get_scaled_points(left_line_array)
+            scaled_right_line = RenderUtils.get_scaled_points(right_line_array)
+            scaled_stop_line = RenderUtils.get_scaled_points(stop_line_array)
+
+            # Delete existing lines before adding new ones
+            if hasattr(self, 'emergency_slowdown_lines'):
+                for line in self.emergency_slowdown_lines:
+                    line.delete()
+
+            # Draw left and right boundary lines in blue.
+            gl.glLineWidth(2)
+            self.emergency_slowdown_lines = [
+                e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_left_line.flatten()),
+                            ('c3B', (0, 0, 255) * 2)),
+                e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_right_line.flatten()),
+                            ('c3B', (0, 0, 255) * 2)),
+                # Draw stop line in red.
+                e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_stop_line.flatten()),
+                            ('c3B', (255, 0, 0) * 2))
+            ]
+
 
     
     def render_ros(self):
