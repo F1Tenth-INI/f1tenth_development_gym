@@ -58,6 +58,7 @@ class PurePursuitPlanner(template_planner):
 
         self.f_max = 0.0
         self.f_min = 1.0
+        self.lookahead_point = None
 
         print('Initialization done.')
         # Original values 
@@ -102,10 +103,11 @@ class PurePursuitPlanner(template_planner):
             'angular_vel_z': float,
         }
         """
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-        pose_theta = ego_odom['pose_theta']
-        v_x = ego_odom['linear_vel_x']
+        pose_x = self.car_state[POSE_X_IDX]
+        pose_y = self.car_state[POSE_Y_IDX]
+        pose_theta = self.car_state[POSE_THETA_IDX]
+        v_x = self.car_state[LINEAR_VEL_X_IDX]
+
         position = np.array([pose_x, pose_y])
         
         # static lookahead distance
@@ -118,6 +120,7 @@ class PurePursuitPlanner(template_planner):
         
         if(Settings.PP_VEL2LOOKAHEAD):
             self.lookahead_distance = v_x * Settings.PP_VEL2LOOKAHEAD
+            # self.lookahead_distance = self.speed * Settings.PP_VEL2LOOKAHEAD
         self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
         # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
@@ -176,7 +179,8 @@ class PurePursuitPlanner(template_planner):
                 # self.translational_control = 1.
                 # return 1.0, 0.0
         
-       
+        # For rendering
+        self.lookahead_point = lookahead_point
         
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
@@ -190,6 +194,7 @@ class PurePursuitPlanner(template_planner):
             self.correcting_index = 0
 
         self.speed = speed
+        # print(self.speed)
 
         self.angular_control = steering_angle
         self.translational_control = speed
