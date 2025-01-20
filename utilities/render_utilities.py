@@ -311,6 +311,8 @@ class RenderUtils:
             left_line_array = np.array(self.emergency_slowdown_sprites["left_line"])  # Shape (2,2)
             right_line_array = np.array(self.emergency_slowdown_sprites["right_line"])
             stop_line_array = np.array(self.emergency_slowdown_sprites["stop_line"])
+            speed_reduction_factor = self.emergency_slowdown_sprites["speed_reduction_factor"]  # Between 0.0 and 1.0
+
             scaled_left_line = RenderUtils.get_scaled_points(left_line_array)
             scaled_right_line = RenderUtils.get_scaled_points(right_line_array)
             scaled_stop_line = RenderUtils.get_scaled_points(stop_line_array)
@@ -320,14 +322,19 @@ class RenderUtils:
                 for line in self.emergency_slowdown_lines:
                     line.delete()
 
-            # Draw left and right boundary lines in blue.
+            # Interpolate color based on speed_reduction_factor (1.0 = green, 0.0 = red)
+            red = int((1.0 - speed_reduction_factor) * 255)
+            green = int(speed_reduction_factor * 255)
+            line_color = (red, green, 0)  # RGB color interpolated based on factor
+
+            # Draw left and right boundary lines with interpolated color
             gl.glLineWidth(2)
             self.emergency_slowdown_lines = [
                 e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_left_line.flatten()),
-                            ('c3B', (0, 0, 255) * 2)),
+                            ('c3B', line_color * 2)),
                 e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_right_line.flatten()),
-                            ('c3B', (0, 0, 255) * 2)),
-                # Draw stop line in red.
+                            ('c3B', line_color * 2)),
+                # Draw stop line in red
                 e.batch.add(2, GL_LINES, None, ('v2f/stream', scaled_stop_line.flatten()),
                             ('c3B', (255, 0, 0) * 2))
             ]

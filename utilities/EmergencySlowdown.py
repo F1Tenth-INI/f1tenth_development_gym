@@ -62,6 +62,8 @@ class EmergencySlowdown:
         self.counter_jam = 0
         self.counter_freeride = 0
 
+        self.speed_reduction_factor = 1.0
+
         self.emergency_slowdown_sprites = None
 
     def calculate_speed_reduction(self, lidar_scans, vx, vy, steering_angle):
@@ -113,7 +115,6 @@ class EmergencySlowdown:
         first_index_collision = indices_collision[0]
         L_impact = event_collision_distances[first_index_collision]
         speed_reduction_factor = self.speed_reduction_factor_from_L_impact(L_impact)
-        print(f"Speed reduction factor: {speed_reduction_factor}")
         return speed_reduction_factor
 
     def speed_reduction_factor_from_L_impact(self, L_impact):
@@ -166,13 +167,16 @@ class EmergencySlowdown:
         stop_right_global = transform_point(self.L_stop, self.D_half, direction) + current_position
         self.emergency_slowdown_sprites["stop_line"] = [stop_left_global, stop_right_global]
 
+        self.emergency_slowdown_sprites["speed_reduction_factor"] = self.speed_reduction_factor
+        # print(f"Speed reduction factor: {self.speed_reduction_factor}")
+
 
 
     def stop_if_obstacle_in_front(self, lidar_scans, next_waypoints_vx, vx, vy, steering_angle):
-        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, vx, vy, steering_angle)
-        corrected_next_waypoints_vx = next_waypoints_vx * speed_reduction_factor
+        self.speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, vx, vy, steering_angle)
+        corrected_next_waypoints_vx = next_waypoints_vx * self.speed_reduction_factor
 
-        if speed_reduction_factor < 0.5:
+        if self.speed_reduction_factor < 0.5:
             self.counter_jam += 1
             self.counter_freeride = 0
         else:
