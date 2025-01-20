@@ -2,7 +2,8 @@ import time
 
 import numpy as np
 
-MIN_DISTANCE = 100
+MIN_DISTANCE_RUNNING = 200
+MIN_DISTANCE_READOUT = 100
 
 
 class LapTimer:
@@ -28,18 +29,21 @@ class LapTimer:
         last = self.waypoint_log[-1]
 
         # Calculate distance, considering wrapping
-        direct_distance = last - self.waypoint_log
+        waypoint_log_array = np.array(self.waypoint_log)
+
+        # Calculate distance, considering wrapping
+        direct_distance = last - waypoint_log_array
         direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
 
         # Checking if it moved enough
         for i in range(len(direct_distance)):
-            if direct_distance[i] > MIN_DISTANCE:
+            if direct_distance[i] > MIN_DISTANCE_RUNNING:
                 self.ready_for_readout[i] = True  # Never flip True back to False
 
         # Check for entries to delete
         indices_to_check = [
             i for i, (distance, ready) in enumerate(zip(direct_distance, self.ready_for_readout))
-            if distance < MIN_DISTANCE and ready
+            if distance < MIN_DISTANCE_READOUT and ready
         ]
         if indices_to_check:
             # Find the largest index that satisfies the condition

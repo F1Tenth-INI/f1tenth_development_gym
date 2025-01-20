@@ -32,7 +32,7 @@ else:
 
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
-
+from utilities.LapTimer import LapTimer
 
 class CarSystem:
     
@@ -138,7 +138,8 @@ class CarSystem:
             )
         self.online_learning_activated = self.config_onlinelearning.get('activated', False)
         
-        
+        self.lap_timer = LapTimer()
+
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
 
@@ -227,7 +228,11 @@ class CarSystem:
             self.waypoint_utils.next_waypoints[:, WP_VX_IDX] = corrected_next_waypoints_vx
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
-        obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)          
+        obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
+
+        self.lap_timer.update(self.waypoint_utils.nearest_waypoint_index)
+        if self.lap_timer.current_lap_time is not None:
+            print("Lap time: ", self.lap_timer.current_lap_time)
                 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
