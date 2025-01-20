@@ -220,9 +220,8 @@ class CarSystem:
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
             corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
                 ranges,
+                np.linspace(-2.35, 2.35, 1080),
                 self.waypoint_utils.next_waypoints[:, WP_VX_IDX],
-                car_state[LINEAR_VEL_X_IDX],
-                car_state[LINEAR_VEL_Y_IDX],
                 car_state[STEERING_ANGLE_IDX]
             )
             self.waypoint_utils.next_waypoints[:, WP_VX_IDX] = corrected_next_waypoints_vx
