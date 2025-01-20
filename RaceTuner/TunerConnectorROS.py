@@ -13,7 +13,7 @@ class TunerConnectorROS(TunerConnector):
     """
     def __init__(self, host='localhost', port=5005):
         # Set ROS environment variables
-        os.environ['ROS_MASTER_URI'] = 'http://ini-xavier.local:11311'
+        os.environ['ROS_MASTER_URI'] = 'http://ini-nuc.local:11311'
         os.environ['ROS_IP'] = '192.168.194.233'
         os.environ['ROS_LOG_DIR'] = '/tmp'
 
