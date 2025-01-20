@@ -218,8 +218,7 @@ class WaypointUtils:
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
         next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
 
-        next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
-        next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
+        next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
         current_waypoint_cache = next_waypoints_including_ignored
         
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
@@ -341,11 +340,11 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, header=1, comment='#').to_numpy()
-        
+        waypoints = pd.read_csv(file_path, comment='#')
+        waypoints.loc[:, "idx_global"] = np.arange(waypoints.shape[0])
+        waypoints = waypoints.to_numpy()
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
-        # waypoints[:, WP_GLOBID_IDX] = np.arange(waypoints.shape[0])
         return np.array(waypoints)
     
     def load_sectors(self, alternative_waypoints=False):
