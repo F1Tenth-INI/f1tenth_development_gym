@@ -1,9 +1,6 @@
 import os
 class Settings():
 
-    STOP_IF_OBSTACLE_IN_FRONT = True
-    ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
-
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
@@ -59,6 +56,10 @@ class Settings():
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
+    
+    # Head2Head Settings
+    STOP_IF_OBSTACLE_IN_FRONT = True
+    ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
     
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
