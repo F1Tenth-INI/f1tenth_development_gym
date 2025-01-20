@@ -345,7 +345,7 @@ class WaypointUtils:
         
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
-        waypoints[:, WP_GLOBID_IDX] = np.arange(waypoints.shape[0])
+        # waypoints[:, WP_GLOBID_IDX] = np.arange(waypoints.shape[0])
         return np.array(waypoints)
     
     def load_sectors(self, alternative_waypoints=False):
