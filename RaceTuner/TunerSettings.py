@@ -1,11 +1,10 @@
 # TunerSettings.py
 import os
 
-USE_REMOTE_FILES = True
+USE_REMOTE_FILES = False
 
-MAP_NAME = "Milan1"  # Replace as needed
-LOCAL_MAP_DIR = "utilities/maps"
 REMOTE_MAP_DIR = "catkin_ws/src/f1tenth_system/racecar/racecar/maps"
+REMOTE_SETTINGS_DIR = "catkin_ws/src/f1tenth_system/gym/f1tenth_development_gym/utilities"
 REMOTE_AT_LOCAL_DIR = "./maps/"
 
 REVERSE_DIRECTION = False
@@ -15,7 +14,6 @@ REMOTE_CONFIG = {
     "port": int(os.getenv("REMOTE_PORT", "22")),
     "username": os.getenv("REMOTE_USERNAME", "racecar"),
     "password": os.getenv("REMOTE_PASSWORD", "Inivincible"),
-    "remotePath":  os.path.join(REMOTE_MAP_DIR, MAP_NAME)
 }
 
 MAP_LIMITS_X = [-15, 8]

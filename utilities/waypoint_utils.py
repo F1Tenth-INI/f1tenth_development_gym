@@ -1,4 +1,3 @@
-from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
@@ -117,8 +116,6 @@ class WaypointUtils:
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
-        self.emergency_slowdown = EmergencySlowdown()
-
         if Settings.ALLOW_ALTERNATIVE_RACELINE:
             self.waypoint_file_name_alternative = waypoint_file_name + "_alternative"
 
@@ -151,8 +148,6 @@ class WaypointUtils:
             self.start_reload_waypoints_thread(alternative_waypoints=True)
 
         self.use_alternative_waypoints_for_control_flag = False
-        self.counter_jam = 0
-        self.counter_freeride = 0
 
 
     def start_reload_waypoints_thread(self, alternative_waypoints=False):
@@ -223,8 +218,7 @@ class WaypointUtils:
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
         next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
 
-        next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
-        next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
+        next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
         current_waypoint_cache = next_waypoints_including_ignored
         
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
@@ -346,8 +340,9 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, header=1, comment='#').to_numpy()
-        
+        waypoints = pd.read_csv(file_path, comment='#')
+        waypoints.loc[:, "idx_global"] = np.arange(waypoints.shape[0])
+        waypoints = waypoints.to_numpy()
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
@@ -503,36 +498,10 @@ class WaypointUtils:
         return next_waypoint_positions_relative
     
     def correct_velocity(self, waypoints):
-        settings = Settings
-        settings.MAP_PATH = self.map_path
-        settings.MAP_NAME = self.map_name
-        correct_velocity(waypoints, settings)
+        settings = Settings        
+        speed_scaling = get_speed_scaling(waypoints.shape[0], self.map_path, self.map_name, settings)
+        waypoints[:, WP_VX_IDX] *= speed_scaling
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
-
-    def calculate_speed_reduction(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.emergency_slowdown.calculate_speed_reduction(lidar_scans)
-        return speed_reduction_factor
-
-    def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
-        self.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor
-
-        if speed_reduction_factor < 0.5:
-            self.counter_jam += 1
-            self.counter_freeride = 0
-        else:
-            self.counter_freeride += 1
-
-        if self.counter_jam >= Settings.SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING:
-            self.use_alternative_waypoints_for_control_flag = not self.use_alternative_waypoints_for_control_flag
-            self.counter_jam = 0
-            print("Switching to alternative raceline")
-
-        if self.counter_freeride >= Settings.KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE:
-            self.counter_jam = 0
-
-        # if speed_reduction_factor != 1.0:
-        #     print(f"Braking with speed reduction {speed_reduction_factor}")
 
 
 # Utility functions
@@ -598,12 +567,3 @@ def get_speed_scaling(waypoints_len, map_path, map_name, settings):
     return speed_scaling
 
 
-def correct_velocity(waypoints, settings):
-    map_path = settings.MAP_PATH
-    map_name = settings.MAP_NAME
-    speed_scaling = get_speed_scaling(waypoints.shape[0], map_path, map_name, settings)
-    waypoints[:, WP_VX_IDX] *= speed_scaling
-    return waypoints
-
-
-         

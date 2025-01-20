@@ -1,11 +1,6 @@
 import os
 class Settings():
 
-    STOP_IF_OBSTACLE_IN_FRONT = False
-    ALLOW_ALTERNATIVE_RACELINE = False
-    SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING = 400
-    KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE = 20
-
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
@@ -62,6 +57,10 @@ class Settings():
     OPPONENTS_VEL_FACTOR = 0.2
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
     
+    # Head2Head Settings
+    STOP_IF_OBSTACLE_IN_FRONT = True
+    ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
+    
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
@@ -93,9 +92,9 @@ class Settings():
 
     ## waypoints generation ##
     MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
-    LOOK_AHEAD_STEPS = 20                    # Number of original waypoints that are considered for cost
+    LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
-    DECREASE_RESOLUTION_FACTOR = 8           # >= 1 Only take every n^th waypoint to decrease resolution
+    DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search

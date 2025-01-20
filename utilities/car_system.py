@@ -31,7 +31,7 @@ else:
 # from TrainingLite.slip_prediction import predict
 
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
-
+from utilities.EmergencySlowdown import EmergencySlowdown
 
 
 class CarSystem:
@@ -129,6 +129,8 @@ class CarSystem:
             self.recorder = Recorder(driver=self)
 
         self.tuner_connector = None
+
+        self.emergency_slowdown = EmergencySlowdown()
         
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
@@ -216,7 +218,16 @@ class CarSystem:
         if Settings.ALLOW_ALTERNATIVE_RACELINE:
             self.waypoint_utils.update_next_waypoints(car_state, alternative_waypoints=True)
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
-            self.waypoint_utils.stop_if_obstacle_in_front(ranges, np.linspace(-2.35,2.35, 1080))
+            corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
+                ranges,
+                self.waypoint_utils.next_waypoints[:, WP_VX_IDX],
+                car_state[LINEAR_VEL_X_IDX],
+                car_state[LINEAR_VEL_Y_IDX],
+                car_state[STEERING_ANGLE_IDX]
+            )
+            self.waypoint_utils.next_waypoints[:, WP_VX_IDX] = corrected_next_waypoints_vx
+            self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
+
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)          
                 
         if self.use_waypoints_from_mpc:
@@ -287,8 +298,16 @@ class CarSystem:
         self.render_utils.update(
             lidar_points= lidar_points,
             next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
-            car_state = car_state
+            car_state = car_state,
         )
+        if Settings.STOP_IF_OBSTACLE_IN_FRONT:
+            self.emergency_slowdown.update_emergency_slowdown_sprites(
+            car_x=car_state[POSE_X_IDX], car_y=car_state[POSE_Y_IDX], car_yaw=car_state[POSE_THETA_IDX],
+            )
+            self.render_utils.update(
+                emergency_slowdown_sprites=self.emergency_slowdown.emergency_slowdown_sprites,
+            )
+
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
         
