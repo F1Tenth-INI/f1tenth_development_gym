@@ -168,8 +168,14 @@ class EmergencySlowdown:
         self.emergency_slowdown_sprites["stop_line"] = [stop_left_global, stop_right_global]
 
         self.emergency_slowdown_sprites["speed_reduction_factor"] = self.speed_reduction_factor
-        # print(f"Speed reduction factor: {self.speed_reduction_factor}")
 
+        # Compute a display position for the speed reduction factor text.
+        # Use the midpoint of the left line and add a small offset perpendicular to the line (in car's frame, upward is (0,1)).
+        left_midpoint = (left_start_global + left_end_global) / 2
+        offset_distance = 0.5  # Adjust this constant as needed for proper spacing.
+        offset_vector = transform_point(0, offset_distance, direction)
+        text_position = left_midpoint + offset_vector
+        self.emergency_slowdown_sprites["display_position"] = text_position
 
 
     def stop_if_obstacle_in_front(self, lidar_scans, next_waypoints_vx, vx, vy, steering_angle):

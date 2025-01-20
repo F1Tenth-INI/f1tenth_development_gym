@@ -339,8 +339,29 @@ class RenderUtils:
                             ('c3B', (255, 0, 0) * 2))
             ]
 
+            # Delete previous label if it exists to prevent duplicates
+            if hasattr(self, 'emergency_slowdown_text'):
+                self.emergency_slowdown_text.delete()
 
-    
+            # Create a new label with the same interpolated color
+            if speed_reduction_factor < 1.0:
+
+                # Draw the speed reduction factor text near the left line.
+                # Calculate the text display position from the stored "display_position"
+                display_position = self.emergency_slowdown_sprites["display_position"]
+                scaled_display_position = RenderUtils.get_scaled_points(display_position)
+                text = f"{speed_reduction_factor:.2f}"
+
+                self.emergency_slowdown_text = pyglet.text.Label(
+                    text,
+                    font_name='Arial',
+                    font_size=12,
+                    x=scaled_display_position[0],
+                    y=scaled_display_position[1],
+                    color=(line_color[0], line_color[1], line_color[2], 255),  # RGBA tuple
+                    batch=e.batch
+                )
+
     def render_ros(self):
         #  Publish data for RVIZ
         
