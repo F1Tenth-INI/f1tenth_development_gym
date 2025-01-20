@@ -44,18 +44,23 @@ class EmergencySlowdown:
 
         self.max_distance_split_of_single_object = max_distance_split_of_single_object
 
-        self.lidar_angles = np.linspace(-2.35,2.35, 1080)
-        self.lidar_angles_cos = np.cos(self.lidar_angles)
-        self.scans_thresholds = self.D_half / np.sin(abs(self.lidar_angles))  # This is maximal distance which can be observed within the observed stripe with a given angle. Also all smaller distances for this angle will be within relevant stripe. Moreover as the density of scans diminishes with distance, this values are the weight used to assign importance to readings.
+        self.lidar_angles = None
+        self.lidar_angles_cos = None
+        self.scans_thresholds = None
+        # self.lidar_angles = np.linspace(-2.35,2.35, 1080)
+        # self.lidar_angles_cos = np.cos(self.lidar_angles)
+        # self.scans_thresholds = self.D_half / np.sin(abs(self.lidar_angles))  # This is maximal distance which can be observed within the observed stripe with a given angle. Also all smaller distances for this angle will be within relevant stripe. Moreover as the density of scans diminishes with distance, this values are the weight used to assign importance to readings.
+
         self.scans_threshold_at_L_min = np.sqrt(self.D_half**2 + self.L_min**2)
         self.scans_threshold_at_L_min_inv = 1.0/self.scans_threshold_at_L_min
 
-        alpha_max = np.arctan(self.D_half/L_min)
+        self.alpha_max = np.arctan(self.D_half/L_min)
         self.scan_max = np.sqrt(self.D_half**2 + L_max**2)
 
         self.min_number_of_scans_for_obstacle_far = min_number_of_scans_for_obstacle_far
 
-        self.scan_indices_within_alpha_max = np.where(abs(self.lidar_angles) <= alpha_max)
+        self.scan_indices_within_alpha_max = None
+        # self.scan_indices_within_alpha_max = np.where(abs(self.lidar_angles) <= self.alpha_max)
 
         # Line switching code
         self.use_alternative_waypoints_for_control_flag = False
@@ -66,7 +71,7 @@ class EmergencySlowdown:
 
         self.emergency_slowdown_sprites = None
 
-    def calculate_speed_reduction(self, lidar_scans, vx, vy, steering_angle):
+    def calculate_speed_reduction(self, lidar_scans, lidar_angles, steering_angle):
 
         self.movement_direction = steering_angle  # Default to steering direction if speed is 0
         # # Calculate heading direction based on velocity vector
@@ -76,6 +81,12 @@ class EmergencySlowdown:
         #     self.movement_direction = np.arctan2(vy, vx)  # Velocity direction
 
         # Adjust lidar angles relative to the heading direction
+
+        self.lidar_angles = lidar_angles
+        self.lidar_angles_cos = np.cos(self.lidar_angles)
+        self.scans_thresholds = self.D_half / np.sin(abs(self.lidar_angles))  # This is maximal distance which can be observed within the observed stripe with a given angle. Also all smaller distances for this angle will be within relevant stripe. Moreover as the density of scans diminishes with distance, this values are the weight used to assign importance to readings.
+        self.scan_indices_within_alpha_max = np.where(abs(self.lidar_angles) <= self.alpha_max)
+
         adjusted_lidar_angles = self.lidar_angles - self.movement_direction
         adjusted_angles_cos = np.cos(adjusted_lidar_angles)
 
@@ -178,8 +189,8 @@ class EmergencySlowdown:
         self.emergency_slowdown_sprites["display_position"] = text_position
 
 
-    def stop_if_obstacle_in_front(self, lidar_scans, next_waypoints_vx, vx, vy, steering_angle):
-        self.speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, vx, vy, steering_angle)
+    def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles, next_waypoints_vx, steering_angle):
+        self.speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles, steering_angle)
         corrected_next_waypoints_vx = next_waypoints_vx * self.speed_reduction_factor
 
         if self.speed_reduction_factor < 0.5:
