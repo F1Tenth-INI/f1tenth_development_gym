@@ -384,6 +384,23 @@ python run/create_min_curve_waypoints.py
 
 The waypoints (and additional data) will be saved in the map folder.
 
+# RaceTuner
+
+We can modify the raceline / speed profile with the RaceTuner.
+Check RaceTuner/RunerSettings.py.
+
+- Remote: True: Directly operate on the currrent map on the RaceCar, False: Operate on the local map
+- Remote config: For connection to the physical car
+
+Run RaceTunder:
+
+```bash
+export PYTHONPATH=./
+python RaceTuner/WaypointsEditor.py
+```
+
+You can drag&drop any point from the race line / speed profile. Ctrl/Cmd + s to save the waypoints either on the maps folder or on the remote machine.
+
 # Info by the original authors
 
 This is the repository of the F1TENTH Gym environment.

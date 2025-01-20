@@ -498,10 +498,9 @@ class WaypointUtils:
         return next_waypoint_positions_relative
     
     def correct_velocity(self, waypoints):
-        settings = Settings
-        settings.MAP_PATH = self.map_path
-        settings.MAP_NAME = self.map_name
-        correct_velocity(waypoints, settings)
+        settings = Settings        
+        speed_scaling = get_speed_scaling(waypoints.shape[0], self.map_path, self.map_name, settings)
+        waypoints[:, WP_VX_IDX] *= speed_scaling
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
 
@@ -568,12 +567,3 @@ def get_speed_scaling(waypoints_len, map_path, map_name, settings):
     return speed_scaling
 
 
-def correct_velocity(waypoints, settings):
-    map_path = settings.MAP_PATH
-    map_name = settings.MAP_NAME
-    speed_scaling = get_speed_scaling(waypoints.shape[0], map_path, map_name, settings)
-    waypoints[:, WP_VX_IDX] *= speed_scaling
-    return waypoints
-
-
-         
