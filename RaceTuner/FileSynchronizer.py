@@ -12,7 +12,6 @@ from utilities.Settings import Settings
 
 from TunerSettings import (
     USE_REMOTE_FILES,
-    MAP_NAME,
     REMOTE_MAP_DIR,
     REMOTE_AT_LOCAL_DIR,
     REMOTE_CONFIG,
@@ -27,8 +26,9 @@ def posix_join(*args):
 class FileSynchronizer(threading.Thread):
     """Handles initial and periodic synchronization of files from remote server."""
 
-    def __init__(self, waypoint_manager, reload_event, interval=5):
+    def __init__(self, map_name, waypoint_manager, reload_event, interval=5):
         super().__init__(daemon=True)
+        self.map_name = map_name
         self.waypoint_manager = waypoint_manager
         self.reload_event = reload_event
         self.interval = interval  # in seconds
@@ -54,10 +54,10 @@ class FileSynchronizer(threading.Thread):
 
     def _compute_waypoints_hashes(self):
         """Compute hashes for all relevant waypoint files."""
-        map_dir = os.path.join(self.download_dir, MAP_NAME)
-        wp_file = os.path.join(map_dir, f"{MAP_NAME}_wp.csv")
-        wp_reverse_file = os.path.join(map_dir, f"{MAP_NAME}_wp_reverse.csv")
-        speed_scaling_file = os.path.join(map_dir, f"{MAP_NAME}_speed_scaling.csv")
+        map_dir = os.path.join(self.download_dir, self.map_name)
+        wp_file = os.path.join(map_dir, f"{self.map_name}_wp.csv")
+        wp_reverse_file = os.path.join(map_dir, f"{self.map_name}_wp_reverse.csv")
+        speed_scaling_file = os.path.join(map_dir, f"{self.map_name}_speed_scaling.csv")
         wp_hash = self._compute_file_hash(wp_file)
         wp_rev_hash = self._compute_file_hash(wp_reverse_file)
         speed_hash = self._compute_file_hash(speed_scaling_file)
@@ -69,7 +69,7 @@ class FileSynchronizer(threading.Thread):
             time.sleep(self.interval)
 
             if USE_REMOTE_FILES:
-                download_map_files_via_sftp(MAP_NAME, REMOTE_MAP_DIR, REMOTE_AT_LOCAL_DIR, reverse_direction=Settings.REVERSE_DIRECTION)
+                download_map_files_via_sftp(self.map_name, REMOTE_MAP_DIR, REMOTE_AT_LOCAL_DIR, reverse_direction=Settings.REVERSE_DIRECTION)
 
                 # Compute current hashes of downloaded files
                 current_hashes = self._compute_waypoints_hashes()
@@ -167,3 +167,33 @@ def download_map_files_via_sftp(map_name, remote_dir, local_dir, mode=None, reve
         transport.close()
     except Exception as e:
         print(f"Failed to download map files: {str(e)}")
+
+
+
+def download_file_via_sftp(remote_path, local_path):
+    """
+    Downloads a single file from the remote server to the specified local path.
+
+    Args:
+        remote_path (str): Full path to the file on the remote server.
+        local_path (str): Full path where the file will be saved locally.
+    """
+    try:
+        # Establish SFTP connection using Paramiko
+        transport = paramiko.Transport((REMOTE_CONFIG["host"], REMOTE_CONFIG["port"]))
+        transport.connect(username=REMOTE_CONFIG["username"], password=REMOTE_CONFIG["password"])
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        # Ensure the local directory exists
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+
+        # Download the file
+        sftp.get(remote_path, local_path)
+        print(f"Downloaded {remote_path} to {local_path}.")
+
+        sftp.close()
+        transport.close()
+    except FileNotFoundError:
+        print(f"Remote file {remote_path} does not exist.")
+    except Exception as e:
+        print(f"Failed to download file {remote_path}: {e}")

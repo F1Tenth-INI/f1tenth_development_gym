@@ -1,23 +1,23 @@
 # WaypointsEditor.py
 
 import os
+import shutil
+import importlib.util
 import numpy as np
 from scipy.interpolate import CubicSpline
 import pandas as pd
 import datetime
 import threading
 
-from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sftp, download_map_files_via_sftp
+from RaceTuner.FileSynchronizer import FileSynchronizer, upload_to_remote_via_sftp, download_map_files_via_sftp, download_file_via_sftp
 from RaceTuner.MapHelper import MapConfig
 from RaceTuner.SocketWaypointsEditor import SocketWatpointEditor
 from RaceTuner.WaypointsEditorUI import WaypointEditorUI
 from RaceTuner.WaypointsHistoryManager import WaypointHistoryManager
-from utilities.Settings import Settings
 
 from TunerSettings import (
-    MAP_NAME,
-    LOCAL_MAP_DIR,
     REMOTE_MAP_DIR,
+    REMOTE_SETTINGS_DIR,
     REMOTE_AT_LOCAL_DIR,
     USE_REMOTE_FILES,
     # MAP_LIMITS_PLZ_WORK
@@ -66,9 +66,10 @@ class WaypointsModifier:
 
 
 class WaypointDataManager:
-    def __init__(self, map_name, path_to_maps, waypoints_new_file_name=None):
+    def __init__(self, map_name, path_to_maps, settings, waypoints_new_file_name=None):
         self.map_name = map_name
         self.path_to_maps = path_to_maps
+        self.settings = settings
         self.waypoints_new_file_name = waypoints_new_file_name
         self.path_to_waypoints = os.path.join(path_to_maps, map_name, map_name + "_wp.csv")
         self.path_to_waypoints_reverse = os.path.join(path_to_maps, map_name, map_name + "_wp_reverse.csv")
@@ -119,7 +120,7 @@ class WaypointDataManager:
                 self.vx_original = self.original_data['vx_mps'].to_numpy()
                 # get_speed_scaling relies on files that must be present locally.
                 # If remote mode is on, they have been downloaded above.
-                self.scale = get_speed_scaling(len(self.x), os.path.join(self.path_to_maps, self.map_name), self.map_name, Settings)
+                self.scale = get_speed_scaling(len(self.x), os.path.join(self.path_to_maps, self.map_name), self.map_name, self.settings)
                 self.vx = self.vx_original * self.scale  # Apply scaling
 
                 if not self.initial_load_done:
@@ -148,8 +149,8 @@ class WaypointDataManager:
         message_box_update_callback(f"Waypoints saved to {file_path} at {timestamp}")
 
         if USE_REMOTE_FILES:
-            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp.csv"))
-            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp.csv"))
+            upload_to_remote_via_sftp(file_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp_reverse.csv"))  # FIXME: IT should be either or
 
     def create_backup_if_needed(self):
         backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
@@ -157,7 +158,7 @@ class WaypointDataManager:
             with open(self.path_to_waypoints, 'r') as original_file:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
-            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup.csv"))
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp_backup.csv"))
 
 
         backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
@@ -165,7 +166,7 @@ class WaypointDataManager:
             with open(self.path_to_waypoints_reverse, 'r') as original_file:
                 with open(backup_path, 'w') as backup_file:
                     backup_file.write(original_file.read())
-            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, MAP_NAME, MAP_NAME + "_wp_backup_reverse.csv"))
+            upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp_backup_reverse.csv"))
 
     def undo(self):
         state = self.history_manager.undo()
@@ -183,8 +184,8 @@ class WaypointDataManager:
         with self.lock:
             # Load waypoints from local (or updated) file
             self.original_sector_data = pd.read_csv(self.path_to_sectors)
-            self.sector_idxs = self.original_sector_data['#start'].to_numpy().astype(int)
-            self.sector_speeds = self.original_sector_data['scaling'].to_numpy()
+            self.sector_idxs = self.original_sector_data['#Start'].to_numpy().astype(int)
+            self.sector_speeds = self.original_sector_data['Scaling'].to_numpy()
 
             # If this is the initial load, store initial values
             # so we can reference them later. Avoid overwriting them on subsequent loads.
@@ -201,19 +202,51 @@ class WaypointDataManager:
 
 class WaypointsEditorApp:
     def __init__(self, waypoints_new_file_name=None, scale_initial=20.0, update_frequency=5.0):
+
+        copied_settings_dir = os.path.join("RaceTuner", "CopiedSettings")
+        copied_settings_path = os.path.join(copied_settings_dir, "Settings.py")
+        os.makedirs(copied_settings_dir, exist_ok=True)
+        if USE_REMOTE_FILES:
+            # Copy Settings.py to RaceTuner folder (current folder) via SFTP from remote utilities/Settings.py
+            remote_settings_path = os.path.join(REMOTE_SETTINGS_DIR, "Settings.py")
+            download_file_via_sftp(remote_settings_path, copied_settings_path)
+        else:
+            # Copy Settings.py from local utilities/Settings.py
+            local_settings_path = os.path.join("utilities", "Settings.py")
+            shutil.copyfile(local_settings_path, copied_settings_path)
+            settings_path = copied_settings_path
+
+        # Dynamically load the Settings module
+        if copied_settings_path and os.path.exists(copied_settings_path):
+            spec = importlib.util.spec_from_file_location("CopiedSettings.Settings", copied_settings_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            # Access the Settings class or object from the dynamically loaded module
+            if hasattr(module, "Settings"):
+                Settings = module.Settings
+            else:
+                raise AttributeError(f"The module at {settings_path} does not contain 'Settings'.")
+
+        else:
+            raise ImportError("Settings.py could not be found or loaded. Ensure it exists in the expected directory.")
+
+
         if USE_REMOTE_FILES:
             path_to_maps = REMOTE_AT_LOCAL_DIR
             download_map_files_via_sftp(
-                map_name=MAP_NAME,
+                map_name=Settings.MAP_NAME,
                 remote_dir=REMOTE_MAP_DIR,
                 local_dir=path_to_maps,
                 mode='initial'
             )
         else:
-            path_to_maps = LOCAL_MAP_DIR
+            path_to_maps = os.path.split(os.path.normpath(Settings.MAP_PATH))[0]
 
-        self.map_config = MapConfig(MAP_NAME, path_to_maps)
-        self.waypoint_manager = WaypointDataManager(MAP_NAME, path_to_maps, waypoints_new_file_name)
+        self.decrease_wpts_resolution_factor = Settings.DECREASE_RESOLUTION_FACTOR
+
+        self.map_config = MapConfig(Settings.MAP_NAME, path_to_maps)
+        self.waypoint_manager = WaypointDataManager(Settings.MAP_NAME, path_to_maps, Settings, waypoints_new_file_name)
         self.socket_client = SocketWatpointEditor()
         self.running = True  # If needed to stop threads gracefully later
 
@@ -222,7 +255,7 @@ class WaypointsEditorApp:
 
         # Initialize FileSynchronizer
 
-        self.file_synchronizer = FileSynchronizer(self.waypoint_manager, self.reload_event, interval=5)
+        self.file_synchronizer = FileSynchronizer(Settings.MAP_NAME, self.waypoint_manager, self.reload_event, interval=5)
 
     def run(self):
         try:
@@ -241,6 +274,7 @@ class WaypointsEditorApp:
                 self.waypoint_manager,
                 self.map_config,
                 self.socket_client,
+                self.decrease_wpts_resolution_factor,
                 initial_scale=20.0,  # You can set this to waypoint_manager.scale if desired
                 update_frequency=20.0,  # Default frequency
                 reload_event=self.reload_event  # Pass the event to the UI

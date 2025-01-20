@@ -63,11 +63,12 @@ class DraggableDivider:
 
 
 class WaypointEditorUI:
-    def __init__(self, waypoint_manager, map_config, socket_client, initial_scale=20.0, update_frequency=5.0, reload_event=None):
+    def __init__(self, waypoint_manager, map_config, socket_client, decrease_wpts_resolution_factor, initial_scale=20.0, update_frequency=5.0, reload_event=None):
         self.waypoint_manager = waypoint_manager
         self.map_config = map_config
         self.scale = initial_scale
         self.socket_client = socket_client
+        self.decrease_wpts_resolution_factor = decrease_wpts_resolution_factor
         self.update_frequency = update_frequency
         self.reload_event = reload_event  # Added to handle reload signaling
 
