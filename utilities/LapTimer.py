@@ -15,7 +15,7 @@ class LapTimer:
 
     def update(self, nearest_waypoint_index, time_now):
 
-        if not self.waypoint_log or len(self.waypoint_log) < 1:
+        if not self.waypoint_log:
             # Append the waypoint and time to the logs
             self.waypoint_log.append(nearest_waypoint_index)
             self.time_log.append(time_now)
@@ -23,6 +23,19 @@ class LapTimer:
             return  # Not enough data to compare
 
         M = max(self.waypoint_log)
+
+        while self.waypoint_log:
+            last_waypoint = self.waypoint_log[-1]
+            mod_diff = nearest_waypoint_index - last_waypoint
+            if mod_diff < 0:
+                mod_diff += M
+
+            if mod_diff > M/2:
+                self.waypoint_log.pop()
+                self.time_log.pop()
+                self.ready_for_readout.pop()
+            else:
+                break
 
         # Calculate distance, considering wrapping
         waypoint_log_array = np.array(self.waypoint_log)
