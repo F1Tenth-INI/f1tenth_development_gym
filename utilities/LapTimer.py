@@ -13,27 +13,32 @@ class LapTimer:
         self.time_log = []      # Stores times when waypoints were passed
         self.ready_for_readout = []
 
-    def update(self, nearest_waypoint_index):
-        # Get the current time
-        time_now = time.time()
+    def update(self, nearest_waypoint_index, time_now):
+
+        if not self.waypoint_log or len(self.waypoint_log) < 1:
+            # Append the waypoint and time to the logs
+            self.waypoint_log.append(nearest_waypoint_index)
+            self.time_log.append(time_now)
+            self.ready_for_readout.append(False)
+            return  # Not enough data to compare
+
+        M = max(self.waypoint_log)
+
+        # Calculate distance, considering wrapping
+        waypoint_log_array = np.array(self.waypoint_log)
+
+        # Calculate distance, considering wrapping
+        direct_distance = nearest_waypoint_index - waypoint_log_array
+        direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
+
+        if direct_distance[-1] == 0:
+            return
 
         # Append the waypoint and time to the logs
         self.waypoint_log.append(nearest_waypoint_index)
         self.time_log.append(time_now)
         self.ready_for_readout.append(False)
 
-        if not self.waypoint_log or len(self.waypoint_log) < 2:
-            return  # Not enough data to compare
-
-        M = max(self.waypoint_log)
-        last = self.waypoint_log[-1]
-
-        # Calculate distance, considering wrapping
-        waypoint_log_array = np.array(self.waypoint_log)
-
-        # Calculate distance, considering wrapping
-        direct_distance = last - waypoint_log_array
-        direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
 
         # Checking if it moved enough
         for i in range(len(direct_distance)):

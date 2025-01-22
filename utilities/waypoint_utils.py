@@ -184,14 +184,15 @@ class WaypointUtils:
         if nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-        else:  
+        else:
             # only look for next waypoint in the current waypoint cache
             dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
-            nearest_waypoint_index_glob = nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
-            dist_current_waypoint = squared_distance(current_waypoint_cache[nearest_waypoint_index_glob-nearest_waypoint_index, 1:3], car_position)
+            cache_offset = WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
+            nearest_waypoint_index_glob = (nearest_waypoint_index + cache_offset) % len(waypoints)
+            dist_current_waypoint = squared_distance(current_waypoint_cache[cache_offset, 1:3], car_position)
             if dist_current_waypoint > dist_max**2: # if the current waypoint is too far away, fallback to all waypoints
                 nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-            else:  
+            else:
                 #only search in cache
                 nearest_waypoint_index = nearest_waypoint_index_glob
 
