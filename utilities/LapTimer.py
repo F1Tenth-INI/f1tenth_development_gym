@@ -5,42 +5,74 @@ import numpy as np
 MIN_DISTANCE_RUNNING = 200
 MIN_DISTANCE_READOUT = 100
 
-
 class LapTimer:
-    def __init__(self):
+    def __init__(self, total_waypoints=None):
         self.current_lap_time = None
         self.waypoint_log = []  # Stores indices of waypoints passed
         self.time_log = []      # Stores times when waypoints were passed
         self.ready_for_readout = []
+        self.total_waypoints = total_waypoints
 
-    def update(self, nearest_waypoint_index):
-        # Get the current time
-        time_now = time.time()
+    def update(self, nearest_waypoint_index, time_now):
+
+        if not self.waypoint_log:
+            # Append the waypoint and time to the logs
+            self.waypoint_log.append(nearest_waypoint_index)
+            self.time_log.append(time_now)
+            self.ready_for_readout.append(False)
+            return  # Not enough data to compare
+
+        # If total number of waypoints not provided get approximation from current buffer
+        if self.total_waypoints is None:
+            M = max(self.waypoint_log)
+        else:
+            M = self.total_waypoints
+
+        # Check for reverse movement
+        while self.waypoint_log:
+            last_waypoint = self.waypoint_log[-1]
+            mod_diff = nearest_waypoint_index - last_waypoint
+            if mod_diff < 0:
+                mod_diff += M
+
+            if mod_diff > 0.75*M:
+                self.waypoint_log.pop()
+                self.time_log.pop()
+                self.ready_for_readout.pop()
+            else:
+                break
+
+        if not self.waypoint_log:
+            # Append the waypoint and time to the logs
+            self.waypoint_log.append(nearest_waypoint_index)
+            self.time_log.append(time_now)
+            self.ready_for_readout.append(False)
+            return  # Not enough data to compare
+
+
+        # Calculate distance, considering wrapping
+        waypoint_log_array = np.array(self.waypoint_log)
+
+        # Calculate distance, considering wrapping
+        direct_distance = nearest_waypoint_index - waypoint_log_array
+        direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
+
+        # If the last waypoint is the same as the current waypoint, return
+        if direct_distance[-1] == 0:
+            return
 
         # Append the waypoint and time to the logs
         self.waypoint_log.append(nearest_waypoint_index)
         self.time_log.append(time_now)
         self.ready_for_readout.append(False)
 
-        if not self.waypoint_log or len(self.waypoint_log) < 2:
-            return  # Not enough data to compare
 
-        M = max(self.waypoint_log)
-        last = self.waypoint_log[-1]
-
-        # Calculate distance, considering wrapping
-        waypoint_log_array = np.array(self.waypoint_log)
-
-        # Calculate distance, considering wrapping
-        direct_distance = last - waypoint_log_array
-        direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
-
-        # Checking if it moved enough
+        # Checking which waypoints are already enough away to count their revisiting as a new lap
         for i in range(len(direct_distance)):
             if direct_distance[i] > MIN_DISTANCE_RUNNING:
                 self.ready_for_readout[i] = True  # Never flip True back to False
 
-        # Check for entries to delete
+        # Check for entries to delete - finished laps
         indices_to_check = [
             i for i, (distance, ready) in enumerate(zip(direct_distance, self.ready_for_readout))
             if distance < MIN_DISTANCE_READOUT and ready
