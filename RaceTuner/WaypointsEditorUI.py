@@ -188,7 +188,7 @@ class WaypointEditorUI:
             labels[0] = 'Initial Raceline & Speed'
             labels[1] = "Target Raceline & Speed"
 
-        self.ax.legend(labels, loc="upper right", bbox_to_anchor=(2.0, 1), frameon=False)
+        self.fig.legend(labels, loc="upper right", ncol=1, frameon=False)
 
         # if AUTO_SCALE_MAP:
         if self.x_limit == None or self.y_limit == None:
