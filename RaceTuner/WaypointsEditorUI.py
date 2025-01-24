@@ -181,16 +181,20 @@ class WaypointEditorUI:
         if self.ax2:
             self.ax2.clear()
 
-        # Redraw static and dynamic plot elements
+        # Redraw static plot elements
         self.setup_static_plot()
+
+        # Capture the background before adding dynamic artists
+        self.capture_background()
+
+        # Add dynamic artists after capturing the background
         self.setup_dynamic_artists()
 
         # Recreate hover markers after clearing the axes
         self.hover_marker.reconnect_markers()
 
-        # Redraw the canvas and capture background
+        # Redraw the canvas
         self.fig.canvas.draw()
-        self.capture_background()
 
     def redraw_plot(self):
         # Redraw everything and recapture backgrounds
@@ -472,12 +476,12 @@ class WaypointEditorUI:
 
     def periodic_update(self):
         # Fetch the latest car state from the socket server
-        # car_state = self.socket_client.get_car_state()
-        # if car_state:
-        #     self.car_x = car_state.get('car_x')
-        #     self.car_y = car_state.get('car_y')
-        #     self.car_v = car_state.get('car_v')
-        #     self.car_wpt_idx = car_state.get('idx_global') * self.decrease_wpts_resolution_factor
+        car_state = self.socket_client.get_car_state()
+        if car_state:
+            self.car_x = car_state.get('car_x')
+            self.car_y = car_state.get('car_y')
+            self.car_v = car_state.get('car_v')
+            self.car_wpt_idx = car_state.get('idx_global') #* self.decrease_wpts_resolution_factor
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
