@@ -137,8 +137,11 @@ class CarSystem:
                 Loader=yaml.FullLoader
             )
         self.online_learning_activated = self.config_onlinelearning.get('activated', False)
-        
-        self.lap_timer = LapTimer()
+
+        self.lap_timer = LapTimer(
+            total_waypoints=len(self.waypoint_utils.waypoints),
+            lap_finished_callback=lambda lap_time: print('Lap time: ', lap_time),
+        )
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -229,10 +232,6 @@ class CarSystem:
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
-
-        self.lap_timer.update(self.waypoint_utils.nearest_waypoint_index)
-        if self.lap_timer.current_lap_time is not None:
-            print("Lap time: ", self.lap_timer.current_lap_time)
                 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
@@ -314,6 +313,8 @@ class CarSystem:
 
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
+
+        self.lap_timer.update(self.waypoint_utils.nearest_waypoint_index, self.time)
         
         basic_dict = get_basic_data_dict(self)
         self.recorder.dict_data_to_save_basic.update(basic_dict)
