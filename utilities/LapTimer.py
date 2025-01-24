@@ -7,11 +7,12 @@ MIN_DISTANCE_READOUT = 100
 
 
 class LapTimer:
-    def __init__(self):
+    def __init__(self, total_waypoints=None):
         self.current_lap_time = None
         self.waypoint_log = []  # Stores indices of waypoints passed
         self.time_log = []      # Stores times when waypoints were passed
         self.ready_for_readout = []
+        self.total_waypoints = total_waypoints
 
     def update(self, nearest_waypoint_index, time_now):
 
@@ -22,7 +23,10 @@ class LapTimer:
             self.ready_for_readout.append(False)
             return  # Not enough data to compare
 
-        M = max(self.waypoint_log)
+        if self.total_waypoints is None:
+            M = max(self.waypoint_log)
+        else:
+            M = self.total_waypoints
 
         while self.waypoint_log:
             last_waypoint = self.waypoint_log[-1]
