@@ -2,7 +2,7 @@ import numpy as np
 
 
 class LapTimer:
-    def __init__(self, total_waypoints=None):
+    def __init__(self, total_waypoints):
         self.current_lap_time = None
         self.waypoint_log = []  # Stores indices of waypoints passed
         self.time_log = []      # Stores times when waypoints were passed
@@ -18,20 +18,14 @@ class LapTimer:
             self.ready_for_readout.append(False)
             return  # Not enough data to compare
 
-        # If total number of waypoints not provided get approximation from current buffer
-        if self.total_waypoints is None:
-            M = max(self.waypoint_log)
-        else:
-            M = self.total_waypoints
-
         # Check for reverse movement
         while self.waypoint_log:
             last_waypoint = self.waypoint_log[-1]
             mod_diff = nearest_waypoint_index - last_waypoint
             if mod_diff < 0:
-                mod_diff += M
+                mod_diff += self.total_waypoints
 
-            if mod_diff > 0.75*M:
+            if mod_diff > 3 * self.total_waypoints // 4:
                 self.waypoint_log.pop()
                 self.time_log.pop()
                 self.ready_for_readout.pop()
@@ -51,7 +45,7 @@ class LapTimer:
 
         # Calculate distance, considering wrapping
         direct_distance = nearest_waypoint_index - waypoint_log_array
-        direct_distance = np.where(direct_distance < 0, direct_distance + M, direct_distance)
+        direct_distance = np.where(direct_distance < 0, direct_distance + self.total_waypoints, direct_distance)
 
         # If the last waypoint is the same as the current waypoint, return
         if direct_distance[-1] == 0:
@@ -65,13 +59,13 @@ class LapTimer:
 
         # Checking which waypoints are already enough away to count their revisiting as a new lap
         for i in range(len(direct_distance)):
-            if direct_distance[i] > int(0.5*M):
+            if direct_distance[i] > self.total_waypoints // 2:
                 self.ready_for_readout[i] = True  # Never flip True back to False
 
         # Check for entries to delete - finished laps
         indices_to_check = [
             i for i, (distance, ready) in enumerate(zip(direct_distance, self.ready_for_readout))
-            if distance < int(0.25)*M and ready
+            if distance < self.total_waypoints//4 and ready
         ]
         if indices_to_check:
             # Find the largest index that satisfies the condition
