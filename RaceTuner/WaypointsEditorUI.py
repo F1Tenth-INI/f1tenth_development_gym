@@ -205,7 +205,7 @@ class WaypointEditorUI:
     def update_text_box(self, message):
         if self.text_box:
             self.text_box.clear()
-            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
+            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=14)
             self.text_box.set_xticks([])
             self.text_box.set_yticks([])
             self.text_box.set_frame_on(False)
@@ -213,7 +213,7 @@ class WaypointEditorUI:
             # Create text box if it doesn't exist
             self.text_box = self.fig.add_axes([0.1, 0.05, 0.8, 0.05])
             self.text_box.axis('off')
-            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
+            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=14)
 
     def on_press(self, event):
 
