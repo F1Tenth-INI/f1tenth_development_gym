@@ -3,17 +3,34 @@ import sys
 import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from matplotlib.widgets import Slider
 
 from RaceTuner.HoverMarker import HoverMarker
 
 
 class DraggableDivider:
-    def __init__(self, fig, gs, initial_y=0.5, color="gray", lw=2, picker=5, on_move=None):
+    def __init__(self, fig, gs, axs, color="gray", lw=2, picker=5, on_move=None):
         self.fig = fig
         self.gs = gs
-        self.y = initial_y
+        ax1, ax2 = axs
+        pos1 = ax1.get_position()
+        pos2 = ax2.get_position()
+
+        y1_min = pos1.y0
+        y1_max = pos1.y1
+        y2_min = pos2.y0
+        y2_max = pos2.y1
+
+        h1 = y1_max - y1_min
+        h2 = y2_max - y2_min
+
+        y_inbetween = (h1*y2_min + h2*y1_max)/(h1+h2)
+
+        self.y1_max = lambda: ax1.get_position().y1
+        self.y2_min = lambda: ax2.get_position().y0
+
+        self.y = y_inbetween
         self.on_move = on_move
         self.divider_line = plt.Line2D(
             [0, 1], [self.y, self.y], transform=self.fig.transFigure,
@@ -38,7 +55,7 @@ class DraggableDivider:
             new_y = event.y / fig_height
             if abs(new_y - self.y) > 0.001:  # Threshold to prevent excessive redraws
                 self.y = new_y
-                self.gs.set_height_ratios([1 - self.y, self.y, 0.02, 0.02])
+                self.gs.set_height_ratios([self.y1_max()-self.y, self.y-self.y2_min()])
                 self.divider_line.set_ydata([self.y, self.y])
                 self.fig.canvas.draw_idle()
                 if self.on_move:
@@ -54,7 +71,7 @@ class DraggableDivider:
     def set_position(self, y: float):
         self.y = y
         self.divider_line.set_ydata([self.y, self.y])
-        self.gs.set_height_ratios([1 - self.y, self.y, 0.02, 0.02])
+        self.gs.set_height_ratios([self.y1_max()-self.y, self.y-self.y2_min()])
         self.fig.canvas.draw_idle()
         if self.on_move:
             self.on_move()
@@ -75,18 +92,19 @@ class WaypointEditorUI:
         plt.rcParams.update({'font.size': 15})
 
         self.fig = plt.figure(figsize=(16, 10), constrained_layout=True)
-        self.divider = None  # Placeholder for DraggableDivider instance
+        self.gs_ui = GridSpec(3, 1, height_ratios=[1, 0.01, 0.01], figure=self.fig)
 
+        self.divider = None  # Placeholder for DraggableDivider instance
         if self.waypoint_manager.vx is not None:
-            self.gs = GridSpec(4, 1, height_ratios=[1, 1, 0.02, 0.02], figure=self.fig)
-            self.ax = self.fig.add_subplot(self.gs[0, 0])
-            self.ax2 = self.fig.add_subplot(self.gs[1, 0])
+            self.gs_plots = GridSpecFromSubplotSpec(2, 1, height_ratios=[0.5, 0.5], subplot_spec=self.gs_ui[0, 0])
+            self.ax = self.fig.add_subplot(self.gs_plots[0, 0])
+            self.ax2 = self.fig.add_subplot(self.gs_plots[1, 0])
 
             # Initialize DraggableDivider with callback
             self.divider = DraggableDivider(
                 self.fig,
-                self.gs,
-                initial_y=0.5,
+                self.gs_plots,
+                axs=[self.ax, self.ax2],
                 color="gray",
                 lw=2,
                 picker=5,
@@ -493,11 +511,11 @@ class WaypointEditorUI:
 
     def setup_ui_elements(self):
 
-        ax_slider = self.fig.add_subplot(self.gs[2, 0])
+        ax_slider = self.fig.add_subplot(self.gs_ui[1, 0])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
 
-        self.text_box = self.fig.add_subplot(self.gs[3, 0])
+        self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
         self.text_box.set_axis_off()
         self.update_text_box("Drag waypoints to change, CMD+S or Ctrl+S to save, CMD+Z or Ctrl+Z to undo.")
 
