@@ -55,7 +55,6 @@ class DraggableDivider:
         self.y = y
         self.divider_line.set_ydata([self.y, self.y])
         self.gs.set_height_ratios([1 - self.y, self.y, 0.02, 0.02])
-        self.fig.subplots_adjust(hspace=0.3)
         self.fig.canvas.draw_idle()
         if self.on_move:
             self.on_move()
