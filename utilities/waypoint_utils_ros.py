@@ -53,7 +53,7 @@ class WaypointUtils:
         rospy.sleep(0.5)
 
         self.waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
-        self.next_waypoints = np.zeros((self.number_of_waypoints, 7), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.number_of_waypoints, 8), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.number_of_waypoints,2), dtype=np.float32)
 
 
@@ -78,6 +78,7 @@ class WaypointUtils:
                 wpnt.kappa_radpm,
                 wpnt.vx_mps,
                 wpnt.ax_mps2,
+                wpnt.idx_global
             ]
             next_waypoints.append(waypoint)
             next_waypoint_positions.append([ wpnt.x_m, wpnt.y_m,])

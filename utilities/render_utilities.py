@@ -5,8 +5,6 @@ from utilities.state_utilities import *
 from typing import Dict, Any
 import numbers
 
-
-
 # Imports depending on ROS/Gym
 if(Settings.ROS_BRIDGE):
     import rospy
@@ -389,9 +387,6 @@ class RenderUtils:
         rollout_markers = MarkerArray()        
         p = 0
         t = 0
-        t = 0
-        
-        t = 0        
         
         rollout_trajectory = np.array(self.rollout_trajectory)
         rollout_points = rollout_trajectory[:,:,5:7]

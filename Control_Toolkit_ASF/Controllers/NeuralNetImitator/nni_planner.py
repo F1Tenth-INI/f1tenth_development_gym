@@ -83,11 +83,7 @@ class NeuralNetImitatorPlanner(template_planner):
 
         # Carstate dict
         state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
-        
-        state_pacejka = full_state_alphabetical_to_original(self.car_state)[4]
-        state_dict["v_y"] = state_pacejka
-
-        # Combine all dictionaries into one
+        # print("angular_vel_z: ", state_dict.get('angular_vel_z', 'Key not found'))        # Combine all dictionaries into one
         data_dict = {**waypoints_dict, **state_dict, **lidar_dict}
         
         # Check if every key in self.nn_inputs is present in data_dict
