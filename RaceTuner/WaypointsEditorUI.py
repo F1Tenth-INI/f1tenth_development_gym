@@ -38,8 +38,7 @@ class DraggableDivider:
             new_y = event.y / fig_height
             if abs(new_y - self.y) > 0.001:  # Threshold to prevent excessive redraws
                 self.y = new_y
-                self.gs.set_height_ratios([1 - self.y, self.y])
-                self.fig.subplots_adjust(hspace=0.3)
+                self.gs.set_height_ratios([1 - self.y, self.y, 0.02, 0.02])
                 self.divider_line.set_ydata([self.y, self.y])
                 self.fig.canvas.draw_idle()
                 if self.on_move:
@@ -55,7 +54,7 @@ class DraggableDivider:
     def set_position(self, y: float):
         self.y = y
         self.divider_line.set_ydata([self.y, self.y])
-        self.gs.set_height_ratios([1 - self.y, self.y])
+        self.gs.set_height_ratios([1 - self.y, self.y, 0.02, 0.02])
         self.fig.subplots_adjust(hspace=0.3)
         self.fig.canvas.draw_idle()
         if self.on_move:
@@ -76,14 +75,13 @@ class WaypointEditorUI:
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
 
-        self.fig = plt.figure(figsize=(16, 10))
+        self.fig = plt.figure(figsize=(16, 10), constrained_layout=True)
         self.divider = None  # Placeholder for DraggableDivider instance
 
         if self.waypoint_manager.vx is not None:
-            self.gs = GridSpec(2, 1, height_ratios=[1, 1], figure=self.fig)
+            self.gs = GridSpec(4, 1, height_ratios=[1, 1, 0.02, 0.02], figure=self.fig)
             self.ax = self.fig.add_subplot(self.gs[0, 0])
             self.ax2 = self.fig.add_subplot(self.gs[1, 0])
-            plt.subplots_adjust(hspace=0.3)
 
             # Initialize DraggableDivider with callback
             self.divider = DraggableDivider(
@@ -495,11 +493,13 @@ class WaypointEditorUI:
 
 
     def setup_ui_elements(self):
-        plt.subplots_adjust(bottom=0.25)
-        ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
+
+        ax_slider = self.fig.add_subplot(self.gs[2, 0])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
-        self.text_box = plt.axes([0.1, 0.05, 0.8, 0.05])
+
+        self.text_box = self.fig.add_subplot(self.gs[3, 0])
+        self.text_box.set_axis_off()
         self.update_text_box("Drag waypoints to change, CMD+S or Ctrl+S to save, CMD+Z or Ctrl+Z to undo.")
 
     def connect_events(self):
