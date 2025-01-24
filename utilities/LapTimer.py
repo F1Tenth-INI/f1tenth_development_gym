@@ -1,9 +1,5 @@
-import time
-
 import numpy as np
 
-MIN_DISTANCE_RUNNING = 200
-MIN_DISTANCE_READOUT = 100
 
 class LapTimer:
     def __init__(self, total_waypoints=None):
@@ -69,13 +65,13 @@ class LapTimer:
 
         # Checking which waypoints are already enough away to count their revisiting as a new lap
         for i in range(len(direct_distance)):
-            if direct_distance[i] > MIN_DISTANCE_RUNNING:
+            if direct_distance[i] > int(0.5*M):
                 self.ready_for_readout[i] = True  # Never flip True back to False
 
         # Check for entries to delete - finished laps
         indices_to_check = [
             i for i, (distance, ready) in enumerate(zip(direct_distance, self.ready_for_readout))
-            if distance < MIN_DISTANCE_READOUT and ready
+            if distance < int(0.25)*M and ready
         ]
         if indices_to_check:
             # Find the largest index that satisfies the condition
