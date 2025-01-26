@@ -2,7 +2,7 @@ import numpy as np
 from utilities.waypoint_utils import *
 from utilities.state_utilities import *
 
-class LapTimer:
+class LapAnalyzer:
     def __init__(self, total_waypoints, single_measurement_point=True, lap_finished_callback=None):
         self.current_lap_time = None
         self.waypoint_log = []  # Stores indices of waypoints passed
