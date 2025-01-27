@@ -179,6 +179,18 @@ class WaypointEditorUI:
         if lap_time is not None:
             print('Lap time: ', lap_time)
             self.lap_time_label = f"Lap Time: {lap_time:.2f} s"
+            self.lap_time_handle.set_label(self.lap_time_label)
+            self.legend_labels[-1] = self.lap_time_label
+
+            # Remove the previously drawn figure-level legends so they don't overlap
+            while self.fig.legends:
+                self.fig.legends[-1].remove()
+
+            # Redraw the figure-level legend with updated lap time
+            self.fig.legend(self.legend_handles, self.legend_labels, loc="upper right", ncol=1, frameon=False)
+            self.fig.canvas.draw()
+
+
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
