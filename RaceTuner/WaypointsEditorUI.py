@@ -28,7 +28,8 @@ class WaypointEditorUI:
         plt.rcParams.update({'font.size': 15})
 
         self.fig = plt.figure(figsize=(16, 10), constrained_layout=True)
-        self.gs_ui = GridSpec(3, 1, height_ratios=[1, 0.01, 0.01], figure=self.fig)
+        self.gs_ui = GridSpec(3, 1, height_ratios=[0.8, 0.03, 0.03], figure=self.fig)
+        self.gs_sliders = None
 
         self.divider = None  # Placeholder for DraggableDivider instance
         if self.waypoint_manager.vx is not None:
@@ -54,6 +55,7 @@ class WaypointEditorUI:
         self.fig.canvas.manager.set_window_title("INIvincible Waypoints Editor")
         self.text_box = None
         self.sigma_slider = None
+        self.past_states_slider = None
         self.dragging = False
         self.drag_index = None
         self.dragging_vx = False
@@ -423,6 +425,9 @@ class WaypointEditorUI:
     def update_sigma(self, val):
         self.scale = val
         self.update_text_box(f"Scale updated to: {self.scale:.1f}")
+
+    def update_past_slider(self, val):
+        self.num_past_states = int(val)  # store the slider value (0..100)
         self.redraw_plot()
 
     def key_press_handler(self, event):
@@ -534,9 +539,21 @@ class WaypointEditorUI:
 
     def setup_ui_elements(self):
 
-        ax_slider = self.fig.add_subplot(self.gs_ui[1, 0])
+        # 2) Sub-grid for the third row (row 2) for the two sliders
+        self.gs_sliders = GridSpecFromSubplotSpec(
+            1, 3, width_ratios=[0.4, 0.2, 0.4],
+            subplot_spec=self.gs_ui[1, 0]
+        )
+
+        # 3) Left slider: Scale
+        ax_slider = self.fig.add_subplot(self.gs_sliders[0, 0])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
+
+        # 4) Right slider: Past States
+        ax_past_slider = self.fig.add_subplot(self.gs_sliders[0, 2])
+        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, 100, valinit=0, valstep=1)
+        self.past_states_slider.on_changed(self.update_past_slider)
 
         self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
         self.text_box.set_axis_off()
