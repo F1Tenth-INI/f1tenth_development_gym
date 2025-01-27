@@ -86,8 +86,9 @@ class WaypointEditorUI:
 
         self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
 
+        self.number_of_waypoints = len(self.waypoint_manager.x)
         self.lap_analyzer = LapAnalyzer(
-            total_waypoints=len(self.waypoint_manager.x),
+            total_waypoints=self.number_of_waypoints,
             lap_finished_callback=self.update_legend_with_lap_time,
         )
 
@@ -552,7 +553,7 @@ class WaypointEditorUI:
 
         # 4) Right slider: Past States
         ax_past_slider = self.fig.add_subplot(self.gs_sliders[0, 2])
-        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, 100, valinit=0, valstep=1)
+        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, self.number_of_waypoints, valinit=0, valstep=1)
         self.past_states_slider.on_changed(self.update_past_slider)
 
         self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
