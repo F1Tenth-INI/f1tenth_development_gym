@@ -95,13 +95,18 @@ class WaypointEditorUI:
         # **Initialize Circular Buffer for Car States**
         # Define the number of attributes to store: car_x, car_y, car_v, car_wpt_idx, time
         self.num_car_attributes = 5
-        self.max_history_size = self.number_of_waypoints
+        self.max_history_size = 100
         # Initialize the history buffer with zeros
         self.car_state_history = np.zeros((self.max_history_size, self.num_car_attributes))
         # Pointer to the current position in the circular buffer
         self.history_index = 0
         # Optional: Track the number of entries filled (useful if history is not yet full)
         self.history_filled = False
+
+        # **Initialize Variables for History Plotting**
+        self.num_past_states = 0  # Initial value based on slider
+        self.history_scatter = None
+        self.history_speed_scatter = None
 
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
@@ -207,6 +212,31 @@ class WaypointEditorUI:
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
+
+        last_states = self.get_last_n_car_states(self.num_past_states)
+        if last_states.size > 0:
+            history_x = last_states[:, 0]
+            history_y = last_states[:, 1]
+            history_wpt_idx = last_states[:, 3]
+            history_v = last_states[:, 2]
+        else:
+            history_x = None
+            history_y = None
+            history_wpt_idx = None
+            history_v = None
+
+        if history_x is not None and history_y is not None:
+            self.history_scatter = self.ax.scatter(history_x, history_y, color='blue', label="History Positions",
+                                                   alpha=0.6)
+        else:
+            self.history_scatter = self.ax.scatter([], [], color='blue', label="History Positions", alpha=0.6)
+
+        if history_wpt_idx is not None and history_v is not None:
+            self.history_speed_scatter = self.ax2.scatter(history_wpt_idx, history_v, color='blue',
+                                                          label="History Speeds", alpha=0.6)
+        else:
+            self.history_speed_scatter = self.ax2.scatter([], [], color='blue', label="History Speeds", alpha=0.6)
+
         if self.car_x is not None and self.car_y is not None:
             self.car_marker, = self.ax.plot(self.car_x, self.car_y, 'o', color='orange', markersize=12,
                                             label="Car Position")
@@ -614,6 +644,18 @@ class WaypointEditorUI:
             if self.history_index == 0:
                 self.history_filled = True
 
+        last_states = self.get_last_n_car_states(self.num_past_states)
+        if last_states.size > 0:
+            history_x = last_states[:, 0]
+            history_y = last_states[:, 1]
+            history_wpt_idx = last_states[:, 3]
+            history_v = last_states[:, 2]
+        else:
+            history_x = None
+            history_y = None
+            history_wpt_idx = None
+            history_v = None
+
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
             self.car_marker, = self.ax.plot([], [], 'o', color='orange', markersize=12, label="Car Position")
@@ -633,9 +675,22 @@ class WaypointEditorUI:
         if self.ax2 and self.car_speed_marker is not None and self.car_v is not None and self.car_wpt_idx is not None:
             self.car_speed_marker.set_data([self.car_wpt_idx], [self.car_v])
 
+        if history_x is None or history_y is None:
+            self.history_scatter = self.ax.scatter([], [], color='blue', label="History Positions", alpha=0.6)
+
+        if history_wpt_idx is None or history_v is None:
+            self.history_speed_scatter = self.ax2.scatter([], [], color='blue', label="History Speeds", alpha=0.6)
+
+        if self.history_scatter is not None:
+            self.history_scatter.set_offsets(np.c_[history_x, history_y])
+
+        if self.history_speed_scatter is not None:
+            self.history_speed_scatter.set_offsets(np.c_[history_wpt_idx, history_v])
+
         # Efficiently redraw only the dynamic elements
         self.fig.canvas.restore_region(self.background_main)
         self.ax.draw_artist(self.car_marker)
+        self.ax.draw_artist(self.history_scatter)
         # Draw hover marker if visible
         self.hover_marker.draw_markers()
         self.fig.canvas.blit(self.ax.bbox)
@@ -643,6 +698,7 @@ class WaypointEditorUI:
         if self.ax2:
             self.fig.canvas.restore_region(self.background_speed)
             self.ax2.draw_artist(self.car_speed_marker)
+            self.ax2.draw_artist(self.history_speed_scatter)
             # Draw hover speed marker if visible
             self.hover_marker.draw_markers()
             self.fig.canvas.blit(self.ax2.bbox)
