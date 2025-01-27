@@ -9,6 +9,8 @@ from matplotlib.widgets import Slider
 from RaceTuner.DraggableDivider import DraggableDivider
 from RaceTuner.HoverMarker import HoverMarker
 
+from utilities.LapTimer import LapTimer
+
 
 class WaypointEditorUI:
     def __init__(self, waypoint_manager, map_config, socket_client, decrease_wpts_resolution_factor, initial_scale=20.0, update_frequency=5.0, reload_event=None):
@@ -74,8 +76,14 @@ class WaypointEditorUI:
         self.car_y = None
         self.car_v = None
         self.car_wpt_idx = None
+        self.time = None
 
         self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
+
+        self.lap_timer = LapTimer(
+            total_waypoints=len(self.waypoint_manager.x),
+            lap_finished_callback=lambda lap_time: print('Lap time: ', lap_time),
+        )
 
 
 
@@ -482,6 +490,10 @@ class WaypointEditorUI:
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
             self.car_wpt_idx = car_state.get('idx_global') #* self.decrease_wpts_resolution_factor
+            self.time = car_state.get('time')
+
+            if self.car_wpt_idx is not None and self.time is not None:
+                self.lap_timer.update(self.car_wpt_idx, self.time)
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
