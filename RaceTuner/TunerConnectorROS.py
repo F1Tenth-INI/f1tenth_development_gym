@@ -96,28 +96,35 @@ class TunerConnectorROS(TunerConnector):
             rospy.logerr(f"TunerConnectorROS unexpected error in car_state_callback: {e}")
 
     def local_waypoints_callback(self, msg):
-        """
-        Callback function for /local_waypoints topic.
-        Extracts idx_global where id == 0 and updates the car state accordingly.
-        """
         try:
-            # Example header size for your custom message layout (adjust if needed)
-            header_size = 12  # bytes to skip before reading waypoints
+            buffer = msg._buff
+            offset = 0
 
-            # Each waypoint: 2 int32 + 10 float64, which is 2*4 + 10*8 = 88 bytes
+            # Parse Header
+            seq, stamp_sec, stamp_nsec = struct.unpack_from('III', buffer, offset)
+            offset += 12
+
+            # Parse frame_id string
+            frame_id_length = struct.unpack_from('I', buffer, offset)[0]
+            offset += 4
+            frame_id = struct.unpack_from(f'{frame_id_length}s', buffer, offset)[0].decode('utf-8')
+            offset += frame_id_length
+
+            # Parse wpnts_length
+            wpnts_length = struct.unpack_from('I', buffer, offset)[0]
+            offset += 4
+
+            # Each waypoint is 88 bytes
             waypoint_format = 'ii10d'
             waypoint_size = struct.calcsize(waypoint_format)
 
-            # Ensure buffer is large enough for the header
-            if len(msg._buff) < header_size:
-                rospy.logerr("TunerConnectorROS: Buffer size smaller than the expected header size for /local_waypoints.")
-                return
+            for _ in range(wpnts_length):
+                if offset + waypoint_size > len(buffer):
+                    rospy.logerr("TunerConnectorROS: Buffer size smaller than expected for all waypoints.")
+                    break
 
-            current_offset = 0
-            # Read waypoints until we run out of buffer
-            while current_offset + waypoint_size <= len(msg._buff):
-                unpacked_data = struct.unpack_from(waypoint_format, msg._buff, current_offset)
-                current_offset += waypoint_size
+                unpacked_data = struct.unpack_from(waypoint_format, buffer, offset)
+                offset += waypoint_size
 
                 waypoint = {
                     'id': unpacked_data[0],
@@ -134,12 +141,8 @@ class TunerConnectorROS(TunerConnector):
                     'ax_mps2': unpacked_data[11],
                 }
 
-                # We only need to update idx_global if waypoint id is 0
                 if waypoint['id'] == 0:
-                    # print(waypoint)
                     current_car_state = self.get_car_state()
-
-                    # Keep other car_state fields consistent with what's already stored
                     car_state = {
                         'car_x': current_car_state.get('car_x', 0.0),
                         'car_y': current_car_state.get('car_y', 0.0),
@@ -148,7 +151,6 @@ class TunerConnectorROS(TunerConnector):
                     }
                     self.update_car_state(car_state)
                     rospy.loginfo(f"TunerConnectorROS updated idx_global: {waypoint['idx_global']}")
-                    # Stop after the first waypoint with id==0
                     break
 
         except struct.error as e:
