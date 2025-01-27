@@ -10,6 +10,7 @@ from RaceTuner.DraggableDivider import DraggableDivider
 from RaceTuner.HoverMarker import HoverMarker
 
 from utilities.LapTimer import LapTimer
+from matplotlib.lines import Line2D
 
 
 class WaypointEditorUI:
@@ -82,7 +83,7 @@ class WaypointEditorUI:
 
         self.lap_timer = LapTimer(
             total_waypoints=len(self.waypoint_manager.x),
-            lap_finished_callback=lambda lap_time: print('Lap time: ', lap_time),
+            lap_finished_callback=self.update_legend_with_lap_time,
         )
 
 
@@ -140,13 +141,18 @@ class WaypointEditorUI:
 
 
         # Combine legends from both subplots
-
-        _, labels = self.ax.get_legend_handles_labels()
+        self.legend_handles, self.legend_labels = self.ax.get_legend_handles_labels()
         if self.ax2:
-            labels[0] = 'Initial Raceline & Speed'
-            labels[1] = "Target Raceline & Speed"
+            self.legend_labels[0] = 'Initial Raceline & Speed'
+            self.legend_labels[1] = "Target Raceline & Speed"
 
-        self.fig.legend(labels, loc="upper right", ncol=1, frameon=False)
+        # Initialize lap time entry with a dummy handle
+        self.lap_time_handle = Line2D([0], [0], linestyle="", marker="", color='black')
+        self.lap_time_label = "Lap Time: N/A"
+        self.legend_handles.append(self.lap_time_handle)
+        self.legend_labels.append(self.lap_time_label)
+
+        self.fig.legend(self.legend_handles, self.legend_labels, loc="upper right", ncol=1, frameon=False)
 
         # if AUTO_SCALE_MAP:
         if self.x_limit == None or self.y_limit == None:
@@ -155,6 +161,13 @@ class WaypointEditorUI:
 
         self.ax.set_xlim(self.x_limit)
         self.ax.set_ylim(self.y_limit)
+
+
+    def update_legend_with_lap_time(self, lap_time):
+        """Update the legend to include the latest lap time."""
+        if lap_time is not None:
+            print('Lap time: ', lap_time)
+            self.lap_time_label = f"Lap Time: {lap_time:.2f} s"
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
