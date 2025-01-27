@@ -89,6 +89,8 @@ class WaypointUtils:
 
         # print(self.sectors)
         # exit()
+        
+        self.current_distance_to_raceline = 0
 
         self.global_limit = None
         self.waypoints = None
@@ -196,6 +198,16 @@ class WaypointUtils:
                 #only search in cache
                 nearest_waypoint_index = nearest_waypoint_index_glob
 
+        # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
+        nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
+        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
+        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
+        
+        # Calculate the distance to the raceline
+        self.current_distance_to_last = np.linalg.norm(np.cross(nearest_waypoint_position - last_waypoint_position, last_waypoint_position - car_position)) / np.linalg.norm(nearest_waypoint_position - last_waypoint_position)
+        self.current_distance_to_next = np.linalg.norm(np.cross(next_waypoint_position - nearest_waypoint_position, nearest_waypoint_position - car_position)) / np.linalg.norm(next_waypoint_position - nearest_waypoint_position)   
+        self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
+        
         # Find out in which sector the car is
         sector_index = None
         sector_scaling = None

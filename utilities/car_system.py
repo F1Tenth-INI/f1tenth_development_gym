@@ -32,7 +32,7 @@ else:
 
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
-from utilities.LapTimer import LapTimer
+from utilities.LapAnalyzer import LapAnalyzer
 
 class CarSystem:
     
@@ -138,9 +138,11 @@ class CarSystem:
             )
         self.online_learning_activated = self.config_onlinelearning.get('activated', False)
 
-        self.lap_timer = LapTimer(
+        self.lap_analyzer = LapAnalyzer(
             total_waypoints=len(self.waypoint_utils.waypoints),
-            lap_finished_callback=lambda lap_time: print('Lap time: ', lap_time),
+            lap_finished_callback=lambda lap_time, mean_distance, std_distance, max_distance: print(
+                f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}"
+            )
         )
 
         if self.online_learning_activated:
@@ -313,8 +315,12 @@ class CarSystem:
 
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
+                        
+        # Update Lap Analyzer
+        nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
+        distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
+        self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
 
-        self.lap_timer.update(self.waypoint_utils.nearest_waypoint_index, self.time)
         
         basic_dict = get_basic_data_dict(self)
         self.recorder.dict_data_to_save_basic.update(basic_dict)
