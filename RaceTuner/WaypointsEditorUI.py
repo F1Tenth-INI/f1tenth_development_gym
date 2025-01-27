@@ -95,8 +95,9 @@ class WaypointEditorUI:
         # **Initialize Circular Buffer for Car States**
         # Define the number of attributes to store: car_x, car_y, car_v, car_wpt_idx, time
         self.num_car_attributes = 5
+        self.max_history_size = self.number_of_waypoints
         # Initialize the history buffer with zeros
-        self.car_state_history = np.zeros((self.number_of_waypoints, self.num_car_attributes))
+        self.car_state_history = np.zeros((self.max_history_size, self.num_car_attributes))
         # Pointer to the current position in the circular buffer
         self.history_index = 0
         # Optional: Track the number of entries filled (useful if history is not yet full)
@@ -561,7 +562,7 @@ class WaypointEditorUI:
 
         # 4) Right slider: Past States
         ax_past_slider = self.fig.add_subplot(self.gs_sliders[0, 2])
-        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, self.number_of_waypoints, valinit=0, valstep=1)
+        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, self.max_history_size, valinit=0, valstep=1)
         self.past_states_slider.on_changed(self.update_past_slider)
 
         self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
@@ -608,7 +609,7 @@ class WaypointEditorUI:
                 self.time if self.time is not None else 0.0
             ]
             # Update the history index
-            self.history_index = (self.history_index + 1) % self.number_of_waypoints
+            self.history_index = (self.history_index + 1) % self.max_history_size
             # Optionally, set history_filled to True once we've wrapped around
             if self.history_index == 0:
                 self.history_filled = True
@@ -651,6 +652,35 @@ class WaypointEditorUI:
             print("Cleared_event")
             self.redraw_plot()
             self.reload_event.clear()  # Reset the event
+
+    def get_last_n_car_states(self, n):
+        """
+        Retrieve the last n car states from the history.
+        If the history contains fewer than n states, return as many as available.
+
+        Parameters:
+            n (int): The number of recent states to retrieve.
+
+        Returns:
+            np.ndarray: An array of shape (m, 5), where m is min(n, number of available states).
+                        Each row contains [car_x, car_y, car_v, car_wpt_idx, time].
+        """
+        if n <= 0:
+            return np.empty((0, self.num_car_attributes))
+
+        if self.history_filled:
+            n = min(n, self.max_history_size)
+            start = (self.history_index - n) % self.max_history_size
+            if start < self.history_index:
+                return self.car_state_history[start:self.history_index].copy()
+            else:
+                # Wrap around the circular buffer
+                end_part = self.car_state_history[start:]
+                start_part = self.car_state_history[:self.history_index]
+                return np.vstack((end_part, start_part))
+        else:
+            n = min(n, self.history_index)
+            return self.car_state_history[:self.history_index][-n:].copy()
 
     def run_blitting(self):
         # Initial draw and capture background
