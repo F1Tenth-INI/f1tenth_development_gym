@@ -69,6 +69,8 @@ class WaypointEditorUI:
         self.background_speed = None
         self.x_limit = None
         self.y_limit = None
+        self.x2_limit = None
+        self.y2_limit = None
 
         self.update_interval = 1000 / self.update_frequency  # in milliseconds
 
@@ -161,6 +163,15 @@ class WaypointEditorUI:
 
         self.ax.set_xlim(self.x_limit)
         self.ax.set_ylim(self.y_limit)
+
+        if self.ax2:
+            if self.x2_limit is None or self.y2_limit is None:
+                # For example, set them to what ax2 is currently
+                self.x2_limit = list(self.ax2.get_xlim())
+                self.y2_limit = list(self.ax2.get_ylim())
+            else:
+                self.ax2.set_xlim(self.x2_limit)
+                self.ax2.set_ylim(self.y2_limit)
 
 
     def update_legend_with_lap_time(self, lap_time):
@@ -326,8 +337,24 @@ class WaypointEditorUI:
 
     def on_scroll(self, event):
         """Handle zoom using scroll wheel"""
-        current_xlim = self.ax.get_xlim()
-        current_ylim = self.ax.get_ylim()
+        if event.button not in ['up', 'down']:
+            return  # ignore other mouse buttons
+
+        # Decide which axis is active:
+        if event.inaxes == self.ax:
+            axis = self.ax
+            current_xlim = self.ax.get_xlim()
+            current_ylim = self.ax.get_ylim()
+            limit_x_attr = 'x_limit'
+            limit_y_attr = 'y_limit'
+        elif self.ax2 and event.inaxes == self.ax2:
+            axis = self.ax2
+            current_xlim = self.ax2.get_xlim()
+            current_ylim = self.ax2.get_ylim()
+            limit_x_attr = 'x2_limit'
+            limit_y_attr = 'y2_limit'
+        else:
+            return  # Mouse is not over one of our subplots
 
         # Define the zoom scale (how much zoom happens per scroll step)
         zoom_factor = 1.2
@@ -338,7 +365,6 @@ class WaypointEditorUI:
         else:
             return
 
-        wm = self.waypoint_manager
 
         # Get current axis limits
         x_center = (current_xlim[0] + current_xlim[1]) / 2
@@ -348,12 +374,13 @@ class WaypointEditorUI:
         new_xlim = [(x - x_center) * scale + x_center for x in current_xlim]
         new_ylim = [(y - y_center) * scale + y_center for y in current_ylim]
 
-        self.x_limit = new_xlim
-        self.y_limit = new_ylim
+        # Update the stored limits so they are preserved on redraw
+        setattr(self, limit_x_attr, new_xlim)
+        setattr(self, limit_y_attr, new_ylim)
 
         # # Apply new limits
-        self.ax.set_xlim(new_xlim)
-        self.ax.set_ylim(new_ylim)
+        axis.set_xlim(new_xlim)
+        axis.set_ylim(new_ylim)
 
         self.redraw_plot()
 
