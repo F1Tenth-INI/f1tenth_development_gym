@@ -9,7 +9,7 @@ from matplotlib.widgets import Slider
 from RaceTuner.DraggableDivider import DraggableDivider
 from RaceTuner.HoverMarker import HoverMarker
 
-from utilities.LapTimer import LapTimer
+from utilities.LapAnalyzer import LapAnalyzer
 from matplotlib.lines import Line2D
 
 
@@ -83,7 +83,7 @@ class WaypointEditorUI:
 
         self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
 
-        self.lap_timer = LapTimer(
+        self.lap_analyzer = LapAnalyzer(
             total_waypoints=len(self.waypoint_manager.x),
             lap_finished_callback=self.update_legend_with_lap_time,
         )
@@ -545,7 +545,7 @@ class WaypointEditorUI:
             self.time = car_state.get('time')
 
             if self.car_wpt_idx is not None and self.time is not None:
-                self.lap_timer.update(self.car_wpt_idx, self.time)
+                self.lap_analyzer.update(self.car_wpt_idx, self.time)
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:

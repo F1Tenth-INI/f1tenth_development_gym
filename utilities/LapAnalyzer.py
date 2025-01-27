@@ -14,7 +14,7 @@ class LapAnalyzer:
         self.single_measurement_point_index = None  # Index of the measurement point if measurement at single point
         self.single_measurement_point_time = None   # Time when the measurement point was last passed
 
-        self.lap_finished_callback = lap_finished_callback #type: (float, float, float, float) -> None
+        self.lap_finished_callback = lap_finished_callback
 
     def get_distance_stats(self):
         if not self.waypoint_log:
@@ -26,9 +26,10 @@ class LapAnalyzer:
 
         return mean_distance, std_distance, max_distance
 
-    def update(self, nearest_waypoint_index, time_now, distance_to_raceline):
+    def update(self, nearest_waypoint_index, time_now, distance_to_raceline=None):
 
-        self.distance_log.append(distance_to_raceline)
+        if distance_to_raceline is not None:
+            self.distance_log.append(distance_to_raceline)
 
         self.current_lap_time = None
         if not self.waypoint_log:
@@ -111,5 +112,8 @@ class LapAnalyzer:
         self.ready_for_readout.append(False)
 
     def on_lap_complete(self):
-        mean_distance, std_distance, max_distance = self.get_distance_stats()
-        self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)
+        if self.distance_log:
+            mean_distance, std_distance, max_distance = self.get_distance_stats()
+            self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)
+        else:
+            self.lap_finished_callback(self.current_lap_time)
