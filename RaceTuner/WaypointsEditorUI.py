@@ -60,7 +60,8 @@ class WaypointEditorUI:
         self.drag_index_vx = None
         self.image_loaded = False
         self.panning = False
-        self.pan_start = None
+        self.pan_axis = None       # Axis that is being panned (self.ax or self.ax2)
+        self.pan_start = None      # (xdata, ydata) in axis coords
 
         # Dynamic elements
         self.car_marker = None
@@ -263,8 +264,15 @@ class WaypointEditorUI:
 
         #on right click
         if event.button == 3:
-            self.pan_start = (event.xdata, event.ydata)
             self.panning = True
+            self.pan_start = (event.xdata, event.ydata)
+
+            if event.inaxes == self.ax:
+                self.pan_axis = self.ax
+            elif event.inaxes == self.ax2:
+                self.pan_axis = self.ax2
+            else:
+                self.pan_axis = None
             return
 
         # Detect if Ctrl or Cmd is pressed
@@ -291,6 +299,7 @@ class WaypointEditorUI:
         if event.button == 3:
             if self.panning:
                 self.panning = False
+                self.pan_axis = None  # stop tracking the subplot
             return
 
         if self.dragging:
@@ -329,22 +338,37 @@ class WaypointEditorUI:
             # Update static plot and recapture background
             self.redraw_static_elements()
 
-        # does not properly handle when starting drag inside plot an ending outside
-        if self.panning and all(v is not None for v in [event.xdata, event.ydata, self.pan_start]):
+        if self.panning and self.pan_axis is not None:
+            # We only pan if the mouse is still in the same axes
+            if event.inaxes != self.pan_axis:
+                return  # do nothing if user drags outside
 
-            dx = self.pan_start[0] - event.xdata
-            dy = self.pan_start[1] - event.ydata
+            if None not in (event.xdata, event.ydata, self.pan_start):
+                dx = self.pan_start[0] - event.xdata
+                dy = self.pan_start[1] - event.ydata
 
-            # print("x before: ", self.ax.get_xlim())
-            self.x_limit = ([x + dx for x in self.ax.get_xlim()])
-            self.y_limit = ([y + dy for y in self.ax.get_ylim()])
-            # print("x after: ", self.x_limit)
+                # Distinguish which axis we're panning:
+                if self.pan_axis == self.ax:
+                    # Shift x/y limits
+                    self.x_limit = [x + dx for x in self.ax.get_xlim()]
+                    self.y_limit = [y + dy for y in self.ax.get_ylim()]
 
-            self.ax.set_xlim(self.x_limit)
-            self.ax.set_ylim(self.y_limit)
-            self.fig.canvas.draw()
+                    self.ax.set_xlim(self.x_limit)
+                    self.ax.set_ylim(self.y_limit)
+                elif self.ax2 and self.pan_axis == self.ax2:
+                    self.x2_limit = [x + dx for x in self.ax2.get_xlim()]
+                    self.y2_limit = [y + dy for y in self.ax2.get_ylim()]
 
-            self.redraw_plot()
+                    self.ax2.set_xlim(self.x2_limit)
+                    self.ax2.set_ylim(self.y2_limit)
+
+                # Update pan_start so the "reference" updates continuously
+                self.pan_start = (event.xdata, event.ydata)
+
+                self.fig.canvas.draw()
+                # If you want to re-draw all static elements after each pan,
+                # call self.redraw_plot(). But that is often slower.
+                self.redraw_plot()
 
 
     def on_scroll(self, event):
@@ -501,6 +525,8 @@ class WaypointEditorUI:
     def reset_view(self):
         self.x_limit = None
         self.y_limit = None
+        self.x2_limit = None
+        self.y2_limit = None
         self.redraw_plot()
         return
 
