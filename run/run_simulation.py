@@ -352,7 +352,8 @@ def main():
                         'car_x': driver.car_state[POSE_X_IDX],
                         'car_y': driver.car_state[POSE_Y_IDX],
                         'car_v': driver.car_state[LINEAR_VEL_X_IDX],
-                        'idx_global': float(driver.waypoint_utils.next_waypoints[0, -1])
+                        'idx_global': float(driver.waypoint_utils.next_waypoints[0, -1]),
+                        'time': driver.time,
                     }
                 )
 

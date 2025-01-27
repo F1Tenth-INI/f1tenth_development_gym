@@ -82,7 +82,8 @@ class TunerConnectorROS(TunerConnector):
                 'car_y': decoded_message['y'],
                 'car_v': decoded_message['v_x'],  # Using v_x as the main velocity
                 # If idx_global not yet set, default to 0 (the .get(...) call is for safety)
-                'idx_global': self.get_car_state().get('idx_global', 0)
+                'idx_global': self.get_car_state().get('idx_global', 0),
+                'time': self.get_car_state().get('time', 0),  # Adding time in seconds as float32
             }
 
             # Update the car state in your TunerConnector base class
@@ -114,9 +115,14 @@ class TunerConnectorROS(TunerConnector):
             wpnts_length = struct.unpack_from('I', buffer, offset)[0]
             offset += 4
 
-            # Each waypoint is 88 bytes
+            # Each waypoint is 88 bytes (2 int32 + 10 float64)
             waypoint_format = 'ii10d'
             waypoint_size = struct.calcsize(waypoint_format)
+
+            # Compute the timestamp from the header
+            message_time = stamp_sec + stamp_nsec * 1e-9  # Time in seconds as float
+            # Convert to float32 using struct
+            message_time_float32 = struct.unpack('f', struct.pack('f', message_time))[0]
 
             for _ in range(wpnts_length):
                 if offset + waypoint_size > len(buffer):
@@ -147,10 +153,11 @@ class TunerConnectorROS(TunerConnector):
                         'car_x': current_car_state.get('car_x', 0.0),
                         'car_y': current_car_state.get('car_y', 0.0),
                         'car_v': current_car_state.get('car_v', 0.0),
-                        'idx_global': waypoint['idx_global']
+                        'idx_global': waypoint['idx_global'],
+                        'time': message_time_float32  # Adding time in seconds as float32
                     }
                     self.update_car_state(car_state)
-                    rospy.loginfo(f"TunerConnectorROS updated idx_global: {waypoint['idx_global']}")
+                    rospy.loginfo(f"TunerConnectorROS updated idx_global: {waypoint['idx_global']} at time {message_time_float32}")
                     break
 
         except struct.error as e:
