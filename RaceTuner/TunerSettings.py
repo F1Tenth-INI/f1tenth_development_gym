@@ -3,8 +3,8 @@ import os
 
 USE_REMOTE_FILES = False
 
-REMOTE_MAP_DIR = "catkin_ws/src/f1tenth_system/racecar/racecar/maps"
-REMOTE_SETTINGS_DIR = "catkin_ws/src/f1tenth_system/gym/f1tenth_development_gym/utilities"
+REMOTE_MAP_DIR = "catkin_ws/src/f1tenth_system/gym_bridge/f1tenth_development_gym/utilities/maps"
+REMOTE_SETTINGS_DIR = "catkin_ws/src/f1tenth_system/gym_bridge/f1tenth_development_gym/utilities"
 REMOTE_AT_LOCAL_DIR = "./maps/"
 
 REVERSE_DIRECTION = False

@@ -28,7 +28,8 @@ class WaypointEditorUI:
         plt.rcParams.update({'font.size': 15})
 
         self.fig = plt.figure(figsize=(16, 10), constrained_layout=True)
-        self.gs_ui = GridSpec(3, 1, height_ratios=[1, 0.01, 0.01], figure=self.fig)
+        self.gs_ui = GridSpec(3, 1, height_ratios=[0.8, 0.03, 0.03], figure=self.fig)
+        self.gs_sliders = None
 
         self.divider = None  # Placeholder for DraggableDivider instance
         if self.waypoint_manager.vx is not None:
@@ -54,6 +55,7 @@ class WaypointEditorUI:
         self.fig.canvas.manager.set_window_title("INIvincible Waypoints Editor")
         self.text_box = None
         self.sigma_slider = None
+        self.past_states_slider = None
         self.dragging = False
         self.drag_index = None
         self.dragging_vx = False
@@ -84,12 +86,27 @@ class WaypointEditorUI:
 
         self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
 
+        self.number_of_waypoints = len(self.waypoint_manager.x)
         self.lap_analyzer = LapAnalyzer(
-            total_waypoints=len(self.waypoint_manager.x),
+            total_waypoints=self.number_of_waypoints,
             lap_finished_callback=self.update_legend_with_lap_time,
         )
 
+        # **Initialize Circular Buffer for Car States**
+        # Define the number of attributes to store: car_x, car_y, car_v, car_wpt_idx, time
+        self.num_car_attributes = 5
+        self.max_history_size = 100
+        # Initialize the history buffer with zeros
+        self.car_state_history = np.zeros((self.max_history_size, self.num_car_attributes))
+        # Pointer to the current position in the circular buffer
+        self.history_index = 0
+        # Optional: Track the number of entries filled (useful if history is not yet full)
+        self.history_filled = False
 
+        # **Initialize Variables for History Plotting**
+        self.num_past_states = 0  # Initial value based on slider
+        self.history_scatter = None
+        self.history_speed_scatter = None
 
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
@@ -195,6 +212,31 @@ class WaypointEditorUI:
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
+
+        last_states = self.get_last_n_car_states(self.num_past_states)
+        if last_states.size > 0:
+            history_x = last_states[:, 0]
+            history_y = last_states[:, 1]
+            history_wpt_idx = last_states[:, 3]
+            history_v = last_states[:, 2]
+        else:
+            history_x = None
+            history_y = None
+            history_wpt_idx = None
+            history_v = None
+
+        if history_x is not None and history_y is not None:
+            self.history_scatter = self.ax.scatter(history_x, history_y, color='blue', label="History Positions",
+                                                   alpha=0.6)
+        else:
+            self.history_scatter = self.ax.scatter([], [], color='blue', label="History Positions", alpha=0.6)
+
+        if history_wpt_idx is not None and history_v is not None:
+            self.history_speed_scatter = self.ax2.scatter(history_wpt_idx, history_v, color='blue',
+                                                          label="History Speeds", alpha=0.6)
+        else:
+            self.history_speed_scatter = self.ax2.scatter([], [], color='blue', label="History Speeds", alpha=0.6)
+
         if self.car_x is not None and self.car_y is not None:
             self.car_marker, = self.ax.plot(self.car_x, self.car_y, 'o', color='orange', markersize=12,
                                             label="Car Position")
@@ -423,6 +465,9 @@ class WaypointEditorUI:
     def update_sigma(self, val):
         self.scale = val
         self.update_text_box(f"Scale updated to: {self.scale:.1f}")
+
+    def update_past_slider(self, val):
+        self.num_past_states = int(val)  # store the slider value (0..100)
         self.redraw_plot()
 
     def key_press_handler(self, event):
@@ -534,9 +579,21 @@ class WaypointEditorUI:
 
     def setup_ui_elements(self):
 
-        ax_slider = self.fig.add_subplot(self.gs_ui[1, 0])
+        # 2) Sub-grid for the third row (row 2) for the two sliders
+        self.gs_sliders = GridSpecFromSubplotSpec(
+            1, 3, width_ratios=[0.4, 0.2, 0.4],
+            subplot_spec=self.gs_ui[1, 0]
+        )
+
+        # 3) Left slider: Scale
+        ax_slider = self.fig.add_subplot(self.gs_sliders[0, 0])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
+
+        # 4) Right slider: Past States
+        ax_past_slider = self.fig.add_subplot(self.gs_sliders[0, 2])
+        self.past_states_slider = Slider(ax_past_slider, "Past States", 0, self.max_history_size, valinit=0, valstep=1)
+        self.past_states_slider.on_changed(self.update_past_slider)
 
         self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
         self.text_box.set_axis_off()
@@ -573,6 +630,32 @@ class WaypointEditorUI:
             if self.car_wpt_idx is not None and self.time is not None:
                 self.lap_analyzer.update(self.car_wpt_idx, self.time)
 
+            # **Add the new car state to the circular buffer**
+            self.car_state_history[self.history_index] = [
+                self.car_x if self.car_x is not None else 0.0,
+                self.car_y if self.car_y is not None else 0.0,
+                self.car_v if self.car_v is not None else 0.0,
+                self.car_wpt_idx if self.car_wpt_idx is not None else 0,
+                self.time if self.time is not None else 0.0
+            ]
+            # Update the history index
+            self.history_index = (self.history_index + 1) % self.max_history_size
+            # Optionally, set history_filled to True once we've wrapped around
+            if self.history_index == 0:
+                self.history_filled = True
+
+        last_states = self.get_last_n_car_states(self.num_past_states)
+        if last_states.size > 0:
+            history_x = last_states[:, 0]
+            history_y = last_states[:, 1]
+            history_wpt_idx = last_states[:, 3]
+            history_v = last_states[:, 2]
+        else:
+            history_x = None
+            history_y = None
+            history_wpt_idx = None
+            history_v = None
+
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
             self.car_marker, = self.ax.plot([], [], 'o', color='orange', markersize=12, label="Car Position")
@@ -592,9 +675,22 @@ class WaypointEditorUI:
         if self.ax2 and self.car_speed_marker is not None and self.car_v is not None and self.car_wpt_idx is not None:
             self.car_speed_marker.set_data([self.car_wpt_idx], [self.car_v])
 
+        if history_x is None or history_y is None:
+            self.history_scatter = self.ax.scatter([], [], color='blue', label="History Positions", alpha=0.6)
+
+        if history_wpt_idx is None or history_v is None:
+            self.history_speed_scatter = self.ax2.scatter([], [], color='blue', label="History Speeds", alpha=0.6)
+
+        if self.history_scatter is not None:
+            self.history_scatter.set_offsets(np.c_[history_x, history_y])
+
+        if self.history_speed_scatter is not None:
+            self.history_speed_scatter.set_offsets(np.c_[history_wpt_idx, history_v])
+
         # Efficiently redraw only the dynamic elements
         self.fig.canvas.restore_region(self.background_main)
         self.ax.draw_artist(self.car_marker)
+        self.ax.draw_artist(self.history_scatter)
         # Draw hover marker if visible
         self.hover_marker.draw_markers()
         self.fig.canvas.blit(self.ax.bbox)
@@ -602,6 +698,7 @@ class WaypointEditorUI:
         if self.ax2:
             self.fig.canvas.restore_region(self.background_speed)
             self.ax2.draw_artist(self.car_speed_marker)
+            self.ax2.draw_artist(self.history_speed_scatter)
             # Draw hover speed marker if visible
             self.hover_marker.draw_markers()
             self.fig.canvas.blit(self.ax2.bbox)
@@ -611,6 +708,35 @@ class WaypointEditorUI:
             print("Cleared_event")
             self.redraw_plot()
             self.reload_event.clear()  # Reset the event
+
+    def get_last_n_car_states(self, n):
+        """
+        Retrieve the last n car states from the history.
+        If the history contains fewer than n states, return as many as available.
+
+        Parameters:
+            n (int): The number of recent states to retrieve.
+
+        Returns:
+            np.ndarray: An array of shape (m, 5), where m is min(n, number of available states).
+                        Each row contains [car_x, car_y, car_v, car_wpt_idx, time].
+        """
+        if n <= 0:
+            return np.empty((0, self.num_car_attributes))
+
+        if self.history_filled:
+            n = min(n, self.max_history_size)
+            start = (self.history_index - n) % self.max_history_size
+            if start < self.history_index:
+                return self.car_state_history[start:self.history_index].copy()
+            else:
+                # Wrap around the circular buffer
+                end_part = self.car_state_history[start:]
+                start_part = self.car_state_history[:self.history_index]
+                return np.vstack((end_part, start_part))
+        else:
+            n = min(n, self.history_index)
+            return self.car_state_history[:self.history_index][-n:].copy()
 
     def run_blitting(self):
         # Initial draw and capture background
