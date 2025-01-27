@@ -1,6 +1,5 @@
 import numpy as np
-from utilities.waypoint_utils import *
-from utilities.state_utilities import *
+
 
 class LapAnalyzer:
     def __init__(self, total_waypoints, single_measurement_point=True, lap_finished_callback=None):
@@ -15,8 +14,8 @@ class LapAnalyzer:
         self.single_measurement_point_index = None
         self.single_measurement_point_time = None
 
-        self.lap_finished_callback = lap_finished_callback
-        
+        self.lap_finished_callback = lap_finished_callback #type: (float, float, float, float) -> None
+              
     def get_distance_stats(self):
         if not self.waypoint_log:
             return None, None, None
@@ -27,16 +26,11 @@ class LapAnalyzer:
         
         return mean_distance, std_distance, max_distance
 
+    def update(self, nearest_waypoint_index, time_now, distance_to_raceline):
 
-
-    def update(self, nearest_waypoint, time_now, distance):
-
-        nearest_waypoint_index = nearest_waypoint[WP_GLOBID_IDX]    
-        
-        self.distance_log.append(distance)     
+        self.distance_log.append(distance_to_raceline)
         
         self.current_lap_time = None
-
         if not self.waypoint_log:
             # Append the waypoint and time to the logs
             self.waypoint_log.append(nearest_waypoint_index)
@@ -101,14 +95,11 @@ class LapAnalyzer:
                     self.single_measurement_point_index = nearest_waypoint_index
                     self.single_measurement_point_time = time_now
                     if self.lap_finished_callback is not None:
-                        mean_distance, std_distance, max_distance = self.get_distance_stats()
-                        self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)
+                        self.on_lap_complete()
             else:
                 self.current_lap_time = time_now - self.time_log[max_index]
                 if self.lap_finished_callback is not None:
-                    mean_distance, std_distance, max_distance = self.get_distance_stats()
-                    self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)
-
+                    self.on_lap_complete()
             # Delete all entries with indices <= max_index
             self.waypoint_log = self.waypoint_log[max_index + 1:]
             self.time_log = self.time_log[max_index + 1:]
@@ -118,6 +109,7 @@ class LapAnalyzer:
         self.waypoint_log.append(nearest_waypoint_index)
         self.time_log.append(time_now)
         self.ready_for_readout.append(False)
-        
-        
-   
+
+    def on_lap_complete(self):
+        mean_distance, std_distance, max_distance = self.get_distance_stats()
+        self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)

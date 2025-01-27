@@ -138,7 +138,7 @@ class CarSystem:
             )
         self.online_learning_activated = self.config_onlinelearning.get('activated', False)
 
-        self.lap_timer = LapAnalyzer(
+        self.lap_analyzer = LapAnalyzer(
             total_waypoints=len(self.waypoint_utils.waypoints),
             lap_finished_callback=lambda lap_time, mean_distance, std_distance, max_distance: print(
                 f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}"
@@ -315,9 +315,12 @@ class CarSystem:
 
         self.render_utils.update_obstacles(obstacles)
         self.time = self.control_index*self.time_increment
-                
-        nearest_waypoint = self.waypoint_utils.waypoints[self.waypoint_utils.nearest_waypoint_index]
-        self.lap_timer.update(nearest_waypoint, self.time, self.waypoint_utils.current_distance_to_raceline)
+                        
+        # Update Lap Analyzer
+        nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
+        distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
+        self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
+
         
         basic_dict = get_basic_data_dict(self)
         self.recorder.dict_data_to_save_basic.update(basic_dict)
