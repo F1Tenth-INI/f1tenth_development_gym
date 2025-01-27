@@ -92,7 +92,15 @@ class WaypointEditorUI:
             lap_finished_callback=self.update_legend_with_lap_time,
         )
 
-
+        # **Initialize Circular Buffer for Car States**
+        # Define the number of attributes to store: car_x, car_y, car_v, car_wpt_idx, time
+        self.num_car_attributes = 5
+        # Initialize the history buffer with zeros
+        self.car_state_history = np.zeros((self.number_of_waypoints, self.num_car_attributes))
+        # Pointer to the current position in the circular buffer
+        self.history_index = 0
+        # Optional: Track the number of entries filled (useful if history is not yet full)
+        self.history_filled = False
 
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
@@ -590,6 +598,20 @@ class WaypointEditorUI:
 
             if self.car_wpt_idx is not None and self.time is not None:
                 self.lap_analyzer.update(self.car_wpt_idx, self.time)
+
+            # **Add the new car state to the circular buffer**
+            self.car_state_history[self.history_index] = [
+                self.car_x if self.car_x is not None else 0.0,
+                self.car_y if self.car_y is not None else 0.0,
+                self.car_v if self.car_v is not None else 0.0,
+                self.car_wpt_idx if self.car_wpt_idx is not None else 0,
+                self.time if self.time is not None else 0.0
+            ]
+            # Update the history index
+            self.history_index = (self.history_index + 1) % self.number_of_waypoints
+            # Optionally, set history_filled to True once we've wrapped around
+            if self.history_index == 0:
+                self.history_filled = True
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
