@@ -424,7 +424,7 @@ class WaypointUtils:
             path = path + '_reverse'
         speed_scaling_pth = path + '_speed_scaling.csv'
         with open(speed_scaling_pth, 'w') as f:
-            f.write('#start,scaling\n')
+            f.write('#Start,Scaling\n')
             for i in range(len(self.sectors)):
                 f.write(str(self.sectors[i][SECTOR_START_IDX]) + ',' + str(self.sectors[i][SECTOR_SCALING_IDX]) + '\n')
 

@@ -3,63 +3,14 @@ import sys
 import matplotlib
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from matplotlib.widgets import Slider
 
+from RaceTuner.DraggableDivider import DraggableDivider
 from RaceTuner.HoverMarker import HoverMarker
 
-
-class DraggableDivider:
-    def __init__(self, fig, gs, initial_y=0.5, color="gray", lw=2, picker=5, on_move=None):
-        self.fig = fig
-        self.gs = gs
-        self.y = initial_y
-        self.on_move = on_move
-        self.divider_line = plt.Line2D(
-            [0, 1], [self.y, self.y], transform=self.fig.transFigure,
-            color=color, lw=lw, picker=picker
-        )
-        self.fig.add_artist(self.divider_line)
-        self.dragging = False
-        self.connect_events()
-
-    def connect_events(self):
-        self.fig.canvas.mpl_connect("pick_event", self.on_pick)
-        self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
-        self.fig.canvas.mpl_connect("button_release_event", self.on_release)
-
-    def on_pick(self, event):
-        if event.artist == self.divider_line:
-            self.dragging = True
-
-    def on_motion(self, event):
-        if self.dragging and event.y is not None:
-            fig_height = self.fig.get_size_inches()[1] * self.fig.dpi
-            new_y = event.y / fig_height
-            if abs(new_y - self.y) > 0.001:  # Threshold to prevent excessive redraws
-                self.y = new_y
-                self.gs.set_height_ratios([1 - self.y, self.y])
-                self.fig.subplots_adjust(hspace=0.3)
-                self.divider_line.set_ydata([self.y, self.y])
-                self.fig.canvas.draw_idle()
-                if self.on_move:
-                    self.on_move()
-
-    def on_release(self, event):
-        if self.dragging:
-            self.dragging = False
-
-    def get_position(self) -> float:
-        return self.y
-
-    def set_position(self, y: float):
-        self.y = y
-        self.divider_line.set_ydata([self.y, self.y])
-        self.gs.set_height_ratios([1 - self.y, self.y])
-        self.fig.subplots_adjust(hspace=0.3)
-        self.fig.canvas.draw_idle()
-        if self.on_move:
-            self.on_move()
+from utilities.LapAnalyzer import LapAnalyzer
+from matplotlib.lines import Line2D
 
 
 class WaypointEditorUI:
@@ -76,20 +27,20 @@ class WaypointEditorUI:
             matplotlib.use('MacOSX')
         plt.rcParams.update({'font.size': 15})
 
-        self.fig = plt.figure(figsize=(16, 10))
-        self.divider = None  # Placeholder for DraggableDivider instance
+        self.fig = plt.figure(figsize=(16, 10), constrained_layout=True)
+        self.gs_ui = GridSpec(3, 1, height_ratios=[1, 0.01, 0.01], figure=self.fig)
 
+        self.divider = None  # Placeholder for DraggableDivider instance
         if self.waypoint_manager.vx is not None:
-            self.gs = GridSpec(2, 1, height_ratios=[1, 1], figure=self.fig)
-            self.ax = self.fig.add_subplot(self.gs[0, 0])
-            self.ax2 = self.fig.add_subplot(self.gs[1, 0])
-            plt.subplots_adjust(hspace=0.3)
+            self.gs_plots = GridSpecFromSubplotSpec(2, 1, height_ratios=[0.5, 0.5], subplot_spec=self.gs_ui[0, 0])
+            self.ax = self.fig.add_subplot(self.gs_plots[0, 0])
+            self.ax2 = self.fig.add_subplot(self.gs_plots[1, 0])
 
             # Initialize DraggableDivider with callback
             self.divider = DraggableDivider(
                 self.fig,
-                self.gs,
-                initial_y=0.5,
+                self.gs_plots,
+                axs=[self.ax, self.ax2],
                 color="gray",
                 lw=2,
                 picker=5,
@@ -109,7 +60,8 @@ class WaypointEditorUI:
         self.drag_index_vx = None
         self.image_loaded = False
         self.panning = False
-        self.pan_start = None
+        self.pan_axis = None       # Axis that is being panned (self.ax or self.ax2)
+        self.pan_start = None      # (xdata, ydata) in axis coords
 
         # Dynamic elements
         self.car_marker = None
@@ -118,6 +70,8 @@ class WaypointEditorUI:
         self.background_speed = None
         self.x_limit = None
         self.y_limit = None
+        self.x2_limit = None
+        self.y2_limit = None
 
         self.update_interval = 1000 / self.update_frequency  # in milliseconds
 
@@ -126,8 +80,14 @@ class WaypointEditorUI:
         self.car_y = None
         self.car_v = None
         self.car_wpt_idx = None
+        self.time = None
 
         self.hover_marker = HoverMarker(self.ax, self.ax2, self.waypoint_manager)
+
+        self.lap_analyzer = LapAnalyzer(
+            total_waypoints=len(self.waypoint_manager.x),
+            lap_finished_callback=self.update_legend_with_lap_time,
+        )
 
 
 
@@ -184,13 +144,18 @@ class WaypointEditorUI:
 
 
         # Combine legends from both subplots
-
-        _, labels = self.ax.get_legend_handles_labels()
+        self.legend_handles, self.legend_labels = self.ax.get_legend_handles_labels()
         if self.ax2:
-            labels[0] = 'Initial Raceline & Speed'
-            labels[1] = "Target Raceline & Speed"
+            self.legend_labels[0] = 'Initial Raceline & Speed'
+            self.legend_labels[1] = "Target Raceline & Speed"
 
-        self.ax.legend(labels, loc="upper right", bbox_to_anchor=(2.0, 1), frameon=False)
+        # Initialize lap time entry with a dummy handle
+        self.lap_time_handle = Line2D([0], [0], linestyle="", marker="", color='black')
+        self.lap_time_label = "Lap Time: N/A"
+        self.legend_handles.append(self.lap_time_handle)
+        self.legend_labels.append(self.lap_time_label)
+
+        self.fig.legend(self.legend_handles, self.legend_labels, loc="upper right", ncol=1, frameon=False)
 
         # if AUTO_SCALE_MAP:
         if self.x_limit == None or self.y_limit == None:
@@ -199,6 +164,34 @@ class WaypointEditorUI:
 
         self.ax.set_xlim(self.x_limit)
         self.ax.set_ylim(self.y_limit)
+
+        if self.ax2:
+            if self.x2_limit is None or self.y2_limit is None:
+                # For example, set them to what ax2 is currently
+                self.x2_limit = list(self.ax2.get_xlim())
+                self.y2_limit = list(self.ax2.get_ylim())
+            else:
+                self.ax2.set_xlim(self.x2_limit)
+                self.ax2.set_ylim(self.y2_limit)
+
+
+    def update_legend_with_lap_time(self, lap_time):
+        """Update the legend to include the latest lap time."""
+        if lap_time is not None:
+            print('Lap time: ', lap_time)
+            self.lap_time_label = f"Lap Time: {lap_time:.2f} s"
+            self.lap_time_handle.set_label(self.lap_time_label)
+            self.legend_labels[-1] = self.lap_time_label
+
+            # Remove the previously drawn figure-level legends so they don't overlap
+            while self.fig.legends:
+                self.fig.legends[-1].remove()
+
+            # Redraw the figure-level legend with updated lap time
+            self.fig.legend(self.legend_handles, self.legend_labels, loc="upper right", ncol=1, frameon=False)
+            self.fig.canvas.draw()
+
+
 
     def setup_dynamic_artists(self):
         # Initialize dynamic artists for car position
@@ -233,16 +226,20 @@ class WaypointEditorUI:
         if self.ax2:
             self.ax2.clear()
 
-        # Redraw static and dynamic plot elements
+        # Redraw static plot elements
         self.setup_static_plot()
+
+        # Capture the background before adding dynamic artists
+        self.capture_background()
+
+        # Add dynamic artists after capturing the background
         self.setup_dynamic_artists()
 
         # Recreate hover markers after clearing the axes
         self.hover_marker.reconnect_markers()
 
-        # Redraw the canvas and capture background
+        # Redraw the canvas
         self.fig.canvas.draw()
-        self.capture_background()
 
     def redraw_plot(self):
         # Redraw everything and recapture backgrounds
@@ -253,7 +250,7 @@ class WaypointEditorUI:
     def update_text_box(self, message):
         if self.text_box:
             self.text_box.clear()
-            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
+            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=14)
             self.text_box.set_xticks([])
             self.text_box.set_yticks([])
             self.text_box.set_frame_on(False)
@@ -261,14 +258,21 @@ class WaypointEditorUI:
             # Create text box if it doesn't exist
             self.text_box = self.fig.add_axes([0.1, 0.05, 0.8, 0.05])
             self.text_box.axis('off')
-            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=12)
+            self.text_box.text(0.5, 0.5, message, ha="center", va="center", fontsize=14)
 
     def on_press(self, event):
 
         #on right click
         if event.button == 3:
-            self.pan_start = (event.xdata, event.ydata)
             self.panning = True
+            self.pan_start = (event.xdata, event.ydata)
+
+            if event.inaxes == self.ax:
+                self.pan_axis = self.ax
+            elif event.inaxes == self.ax2:
+                self.pan_axis = self.ax2
+            else:
+                self.pan_axis = None
             return
 
         # Detect if Ctrl or Cmd is pressed
@@ -295,6 +299,7 @@ class WaypointEditorUI:
         if event.button == 3:
             if self.panning:
                 self.panning = False
+                self.pan_axis = None  # stop tracking the subplot
             return
 
         if self.dragging:
@@ -333,28 +338,59 @@ class WaypointEditorUI:
             # Update static plot and recapture background
             self.redraw_static_elements()
 
-        # does not properly handle when starting drag inside plot an ending outside
-        if self.panning and all(v is not None for v in [event.xdata, event.ydata, self.pan_start]):
+        if self.panning and self.pan_axis is not None:
+            # We only pan if the mouse is still in the same axes
+            if event.inaxes != self.pan_axis:
+                return  # do nothing if user drags outside
 
-            dx = self.pan_start[0] - event.xdata
-            dy = self.pan_start[1] - event.ydata
+            if None not in (event.xdata, event.ydata, self.pan_start):
+                dx = self.pan_start[0] - event.xdata
+                dy = self.pan_start[1] - event.ydata
 
-            # print("x before: ", self.ax.get_xlim())
-            self.x_limit = ([x + dx for x in self.ax.get_xlim()])
-            self.y_limit = ([y + dy for y in self.ax.get_ylim()])
-            # print("x after: ", self.x_limit)
+                # Distinguish which axis we're panning:
+                if self.pan_axis == self.ax:
+                    # Shift x/y limits
+                    self.x_limit = [x + dx for x in self.ax.get_xlim()]
+                    self.y_limit = [y + dy for y in self.ax.get_ylim()]
 
-            self.ax.set_xlim(self.x_limit)
-            self.ax.set_ylim(self.y_limit)
-            self.fig.canvas.draw()
+                    self.ax.set_xlim(self.x_limit)
+                    self.ax.set_ylim(self.y_limit)
+                elif self.ax2 and self.pan_axis == self.ax2:
+                    self.x2_limit = [x + dx for x in self.ax2.get_xlim()]
+                    self.y2_limit = [y + dy for y in self.ax2.get_ylim()]
 
-            self.redraw_plot()
+                    self.ax2.set_xlim(self.x2_limit)
+                    self.ax2.set_ylim(self.y2_limit)
+
+                # Update pan_start so the "reference" updates continuously
+                self.pan_start = (event.xdata, event.ydata)
+
+                self.fig.canvas.draw()
+                # If you want to re-draw all static elements after each pan,
+                # call self.redraw_plot(). But that is often slower.
+                self.redraw_plot()
 
 
     def on_scroll(self, event):
         """Handle zoom using scroll wheel"""
-        current_xlim = self.ax.get_xlim()
-        current_ylim = self.ax.get_ylim()
+        if event.button not in ['up', 'down']:
+            return  # ignore other mouse buttons
+
+        # Decide which axis is active:
+        if event.inaxes == self.ax:
+            axis = self.ax
+            current_xlim = self.ax.get_xlim()
+            current_ylim = self.ax.get_ylim()
+            limit_x_attr = 'x_limit'
+            limit_y_attr = 'y_limit'
+        elif self.ax2 and event.inaxes == self.ax2:
+            axis = self.ax2
+            current_xlim = self.ax2.get_xlim()
+            current_ylim = self.ax2.get_ylim()
+            limit_x_attr = 'x2_limit'
+            limit_y_attr = 'y2_limit'
+        else:
+            return  # Mouse is not over one of our subplots
 
         # Define the zoom scale (how much zoom happens per scroll step)
         zoom_factor = 1.2
@@ -365,7 +401,6 @@ class WaypointEditorUI:
         else:
             return
 
-        wm = self.waypoint_manager
 
         # Get current axis limits
         x_center = (current_xlim[0] + current_xlim[1]) / 2
@@ -375,12 +410,13 @@ class WaypointEditorUI:
         new_xlim = [(x - x_center) * scale + x_center for x in current_xlim]
         new_ylim = [(y - y_center) * scale + y_center for y in current_ylim]
 
-        self.x_limit = new_xlim
-        self.y_limit = new_ylim
+        # Update the stored limits so they are preserved on redraw
+        setattr(self, limit_x_attr, new_xlim)
+        setattr(self, limit_y_attr, new_ylim)
 
         # # Apply new limits
-        self.ax.set_xlim(new_xlim)
-        self.ax.set_ylim(new_ylim)
+        axis.set_xlim(new_xlim)
+        axis.set_ylim(new_ylim)
 
         self.redraw_plot()
 
@@ -489,17 +525,21 @@ class WaypointEditorUI:
     def reset_view(self):
         self.x_limit = None
         self.y_limit = None
+        self.x2_limit = None
+        self.y2_limit = None
         self.redraw_plot()
         return
 
 
 
     def setup_ui_elements(self):
-        plt.subplots_adjust(bottom=0.25)
-        ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
+
+        ax_slider = self.fig.add_subplot(self.gs_ui[1, 0])
         self.sigma_slider = Slider(ax_slider, "Scale", 1.0, 50.0, valinit=self.scale, valstep=0.1)
         self.sigma_slider.on_changed(self.update_sigma)
-        self.text_box = plt.axes([0.1, 0.05, 0.8, 0.05])
+
+        self.text_box = self.fig.add_subplot(self.gs_ui[2, 0])
+        self.text_box.set_axis_off()
         self.update_text_box("Drag waypoints to change, CMD+S or Ctrl+S to save, CMD+Z or Ctrl+Z to undo.")
 
     def connect_events(self):
@@ -522,12 +562,16 @@ class WaypointEditorUI:
 
     def periodic_update(self):
         # Fetch the latest car state from the socket server
-        # car_state = self.socket_client.get_car_state()
-        # if car_state:
-        #     self.car_x = car_state.get('car_x')
-        #     self.car_y = car_state.get('car_y')
-        #     self.car_v = car_state.get('car_v')
-        #     self.car_wpt_idx = car_state.get('idx_global') * Settings.DECREASE_RESOLUTION_FACTOR
+        car_state = self.socket_client.get_car_state()
+        if car_state:
+            self.car_x = car_state.get('car_x')
+            self.car_y = car_state.get('car_y')
+            self.car_v = car_state.get('car_v')
+            self.car_wpt_idx = car_state.get('idx_global') #* self.decrease_wpts_resolution_factor
+            self.time = car_state.get('time')
+
+            if self.car_wpt_idx is not None and self.time is not None:
+                self.lap_analyzer.update(self.car_wpt_idx, self.time)
 
         # Update dynamic artists if they exist, else create them
         if self.car_marker is None:
