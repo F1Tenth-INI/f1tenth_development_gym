@@ -21,6 +21,8 @@ class TunerConnectorROS(TunerConnector):
         super().__init__(host, port)
         self.initialize_ros()
 
+        self.time_start = None
+
     def initialize_ros(self):
         """Initialize ROS node and subscribe to necessary topics."""
         rospy.init_node('tuner_connector_ros', anonymous=True, log_level=rospy.INFO)
@@ -120,9 +122,10 @@ class TunerConnectorROS(TunerConnector):
             waypoint_size = struct.calcsize(waypoint_format)
 
             # Compute the timestamp from the header
-            message_time = stamp_sec + stamp_nsec * 1e-9  # Time in seconds as float
-            # Convert to float32 using struct
-            message_time_float32 = struct.unpack('f', struct.pack('f', message_time))[0]
+            message_time = int(stamp_sec) + int(stamp_nsec) * 1.0e-9  # Time in seconds as float
+            if self.time_start is None:
+                self.time_start = message_time
+            message_time_float32 = message_time - self.time_start
 
             for _ in range(wpnts_length):
                 if offset + waypoint_size > len(buffer):
