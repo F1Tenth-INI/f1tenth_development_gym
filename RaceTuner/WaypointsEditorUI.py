@@ -240,7 +240,7 @@ class WaypointEditorUI:
         if self.car_x is not None and self.car_y is not None:
             self.car_marker, = self.ax.plot(self.car_x, self.car_y, 'o', color='orange', markersize=12,
                                             label="Car Position")
-            if not any(label.get_text() == "Car Position" for label in self.ax.get_legend().get_texts()):
+            if self.ax.get_legend() is not None and not any(label.get_text() == "Car Position" for label in self.ax.get_legend().get_texts()):
                 self.ax.legend(loc='upper right')
         else:
             self.car_marker, = self.ax.plot([], [], 'o', color='orange', markersize=12, label="Car Position")
@@ -249,7 +249,7 @@ class WaypointEditorUI:
         if self.ax2 and self.car_v is not None and self.car_wpt_idx is not None:
             self.car_speed_marker, = self.ax2.plot(self.car_wpt_idx, self.car_v, 'o', color='orange', markersize=12,
                                                    label="Car Speed")
-            if not any(label.get_text() == "Car Speed" for label in self.ax2.get_legend().get_texts()):
+            if self.ax2.get_legend() is not None and not any(label.get_text() == "Car Speed" for label in self.ax2.get_legend().get_texts()):
                 self.ax2.legend(loc='upper right')
         elif self.ax2:
             self.car_speed_marker, = self.ax2.plot([], [], 'o', color='orange', markersize=12, label="Car Speed")
