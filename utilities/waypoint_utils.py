@@ -104,9 +104,6 @@ class WaypointUtils:
         self.preprocess_waypoints()
 
         self.nearest_waypoint_index = None
-        
-        # next waypoints including the ones ignored by index offset: Relevant for looking for next (cache for looking for next one)
-        self.current_waypoint_cache = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
 
          # next waypoints considering ignored waypoints index offset
         self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
@@ -115,8 +112,7 @@ class WaypointUtils:
 
 
 
-        if(self.waypoints is None):
-            self.current_waypoint_cache = np.array([])
+        if self.waypoints is None:
             self.next_waypoints = np.array([])
             self.next_waypoint_positions = np.array([])
 
@@ -137,8 +133,7 @@ class WaypointUtils:
     def update_next_waypoints(self, car_state):
 
         waypoints = self.waypoints
-        nearest_waypoint_index = self.nearest_waypoint_index
-        current_waypoint_cache = self.current_waypoint_cache
+        last_nearest_waypoint_index = self.nearest_waypoint_index
         sectors = self.sectors
         next_waypoints = self.next_waypoints
         next_waypoint_positions_relative = self.next_waypoint_positions_relative
@@ -147,20 +142,15 @@ class WaypointUtils:
         self.car_state = car_state
         car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
 
-        if nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
+        if last_nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
             # Run initial search of starting waypoint (all waypoints)
-            nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
+            nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoints)
         else:
-            # only look for next waypoint in the current waypoint cache
-            dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
-            cache_offset = WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
-            nearest_waypoint_index_glob = (nearest_waypoint_index + cache_offset) % len(waypoints)
-            dist_current_waypoint = squared_distance(current_waypoint_cache[cache_offset, 1:3], car_position)
-            if dist_current_waypoint > dist_max**2: # if the current waypoint is too far away, fallback to all waypoints
-                nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-            else:
-                #only search in cache
-                nearest_waypoint_index = nearest_waypoint_index_glob
+            # only look for next waypoint near the last nearest waypoint
+            nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index, -3, 5)
+
+            if nearest_waypoint_dist > Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD**2:  # if the current waypoint is too far away, fallback to searching all waypoints
+                nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoints)
 
         # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
         nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
@@ -196,7 +186,6 @@ class WaypointUtils:
         next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
 
         next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
-        current_waypoint_cache = next_waypoints_including_ignored
         
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
         next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
@@ -206,7 +195,7 @@ class WaypointUtils:
             self.sector_index = sector_index
         if sector_scaling is not None:
             self.sector_scaling = sector_scaling
-        self.current_waypoint_cache = current_waypoint_cache
+
         self.next_waypoint_positions = next_waypoint_positions
         self.next_waypoint_positions_relative = next_waypoint_positions_relative
         self.nearest_waypoint_index = nearest_waypoint_index
@@ -393,21 +382,6 @@ class WaypointUtils:
         return np.array(waypoints[::decrease_resolution_factor])
     
     @staticmethod
-    def get_nearest_waypoint_index(car_position, waypoints):
-
-        min_dist = 10000
-        min_dist_index = 0
-
-        waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
-        for i in range(len(waypoint_positions)):
-            dist = squared_distance(waypoint_positions[i], car_position)
-            if (dist) < min_dist:
-                min_dist = dist
-                min_dist_index = i
-
-        return min_dist_index
-    
-    @staticmethod
     def get_waypoint_positions(waypoints):
         if waypoints is None: return None
         return np.array(waypoints)[:, 1:3]
@@ -461,6 +435,59 @@ class WaypointUtils:
         waypoints[:, WP_VX_IDX] *= speed_scaling
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
+
+def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None, lower_search_limit=None, upper_search_limit=None):
+    """
+    Finds the index of the nearest waypoint to the car's current position within a specified search window.
+
+    The search window is defined by an offset range relative to the last known nearest waypoint index:
+        [last_nearest_waypoint_index + lower_search_limit, last_nearest_waypoint_index + upper_search_limit]
+    Wrapping is applied if the computed indices exceed the number of waypoints.
+
+    Parameters:
+        car_state (array-like): Contains the car's state, from which the position is extracted
+                                (expects indices POSE_X_IDX and POSE_Y_IDX).
+        waypoints (array-like): Contains all the waypoints.
+        last_nearest_waypoint_index (int): Previously known nearest waypoint index.
+        lower_search_limit (int): Offset (inclusive) added to last_nearest_waypoint_index for the start of the search.
+        upper_search_limit (int): Offset (inclusive) added to last_nearest_waypoint_index for the end of the search.
+
+    Returns:
+        int: The index of the waypoint with the minimum distance from the car's position within the search window.
+    """
+    # Extract the car's current x and y position using predefined indices.
+    car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+    num_waypoints = len(waypoints)
+
+    if last_nearest_waypoint_index is None or lower_search_limit is None or upper_search_limit is None:
+        candidate_indices = range(num_waypoints)
+    else:
+        # Determine the absolute start and end indices for the search window.
+        # Note: These indices may exceed the waypoint list boundaries, so we use modulo to wrap around.
+        start_idx = last_nearest_waypoint_index + lower_search_limit
+        end_idx = last_nearest_waypoint_index + upper_search_limit
+
+        # Create a list of candidate indices with wrapping.
+        # The modulo operation ensures that indices wrap around to the beginning if needed.
+        candidate_indices = [(i % num_waypoints) for i in range(start_idx, end_idx + 1)]
+
+    # Initialize the best candidate using the first index in our candidate list.
+    # Use the squared distance to avoid computing a square root (performance-friendly).
+    best_index = candidate_indices[0]
+    best_dist = squared_distance(car_position, waypoints[best_index][WP_X_IDX:WP_Y_IDX + 1])
+
+    # Iterate over the candidate indices to find the waypoint with the minimal distance.
+    for idx in candidate_indices:
+        # Retrieve the waypoint's (x, y) position.
+        waypoint_position = waypoints[idx][WP_X_IDX:WP_Y_IDX + 1]
+        # Calculate squared Euclidean distance to the car's position.
+        dist = squared_distance(car_position, waypoint_position)
+        # Update best_index if a closer waypoint is found.
+        if dist < best_dist:
+            best_dist = dist
+            best_index = idx
+
+    return best_index, best_dist
 
 # Utility functions
 def get_path_suffix(reverse_direction):
