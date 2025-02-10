@@ -1,4 +1,3 @@
-from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
@@ -90,9 +89,11 @@ class WaypointUtils:
 
         # print(self.sectors)
         # exit()
+        
+        self.current_distance_to_raceline = 0
 
         self.global_limit = None
-        self.waypoints = None
+        self.waypoints = None # type: Optional[np.ndarray]
         self.waypoint_positions = None
 
         self.preprocess_waypoints()
@@ -116,8 +117,6 @@ class WaypointUtils:
 
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
-
-        self.emergency_slowdown = EmergencySlowdown()
 
         if Settings.ALLOW_ALTERNATIVE_RACELINE:
             self.waypoint_file_name_alternative = waypoint_file_name + "_alternative"
@@ -151,8 +150,6 @@ class WaypointUtils:
             self.start_reload_waypoints_thread(alternative_waypoints=True)
 
         self.use_alternative_waypoints_for_control_flag = False
-        self.counter_jam = 0
-        self.counter_freeride = 0
 
 
     def start_reload_waypoints_thread(self, alternative_waypoints=False):
@@ -184,30 +181,33 @@ class WaypointUtils:
 
         if waypoints is None: return
         self.car_state = car_state
-        car_position = []
-        # Main branch uses only car position for waypoints at the moment. 
-        # TODO: Use full state everywhere
-        if(len(car_state) == 2):
-            car_position = car_state
-            car_sin_theta = None
-            car_cos_theta = None
-        else:
-            car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-            car_sin_theta = car_state[POSE_THETA_SIN_IDX]
-            car_cos_theta = car_state[POSE_THETA_COS_IDX]
-        if nearest_waypoint_index is None:
+        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+
+        if nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
             # Run initial search of starting waypoint (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
-        else:  # only look for next waypoint in the current waypoint cache
-            if Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
+        else:
+            # only look for next waypoint in the current waypoint cache
+            dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
+            cache_offset = WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
+            nearest_waypoint_index_glob = (nearest_waypoint_index + cache_offset) % len(waypoints)
+            dist_current_waypoint = squared_distance(current_waypoint_cache[cache_offset, 1:3], car_position)
+            if dist_current_waypoint > dist_max**2: # if the current waypoint is too far away, fallback to all waypoints
                 nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
             else:
-                dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
-                nearest_waypoint_index_glob = nearest_waypoint_index + WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
-                dist_current_waypoint = squared_distance(current_waypoint_cache[nearest_waypoint_index_glob-nearest_waypoint_index, 1:3], car_position)
-                if dist_current_waypoint > dist_max**2:
-                    nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
+                #only search in cache
+                nearest_waypoint_index = nearest_waypoint_index_glob
 
+        # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
+        nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
+        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
+        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
+        
+        # Calculate the distance to the raceline
+        self.current_distance_to_last = np.linalg.norm(np.cross(nearest_waypoint_position - last_waypoint_position, last_waypoint_position - car_position)) / np.linalg.norm(nearest_waypoint_position - last_waypoint_position)
+        self.current_distance_to_next = np.linalg.norm(np.cross(next_waypoint_position - nearest_waypoint_position, nearest_waypoint_position - car_position)) / np.linalg.norm(next_waypoint_position - nearest_waypoint_position)   
+        self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
+        
         # Find out in which sector the car is
         sector_index = None
         sector_scaling = None
@@ -231,8 +231,7 @@ class WaypointUtils:
         next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
         next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
 
-        next_waypoints[..., :-1] = next_waypoints_including_ignored[self.ignore_steps:]
-        next_waypoints[..., -1] = next_waypoints_indices_including_ignored[self.ignore_steps:]
+        next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
         current_waypoint_cache = next_waypoints_including_ignored
         
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
@@ -257,7 +256,7 @@ class WaypointUtils:
             self.next_waypoint_positions = next_waypoint_positions
             self.next_waypoint_positions_relative = next_waypoint_positions_relative
             self.nearest_waypoint_index = nearest_waypoint_index
-
+            
     def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
         if self.sector_error_index == self.sector_index:
             nearest_waypoint_position = self.waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
@@ -354,8 +353,9 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, header=1, comment='#').to_numpy()
-        
+        waypoints = pd.read_csv(file_path, comment='#')
+        waypoints.loc[:, "idx_global"] = np.arange(waypoints.shape[0])
+        waypoints = waypoints.to_numpy()
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
@@ -391,7 +391,8 @@ class WaypointUtils:
     def add_sector(self):
         current_sector = self.sectors[self.sector_index]
         new_sector = np.zeros(4)
-        new_sector[SECTOR_START_IDX] = self.next_waypoints[0, WP_GLOBID_IDX] * Settings.DECREASE_RESOLUTION_FACTOR
+        # next_wp = self.next_waypoints[0, WP_GLOBID_IDX]
+        new_sector[SECTOR_START_IDX] = self.next_waypoints[0, WP_GLOBID_IDX]
         new_sector[SECTOR_SCALING_IDX] = self.sector_scaling
         new_sector[SECTOR_END_IDX] = current_sector[SECTOR_END_IDX]
 
@@ -424,7 +425,7 @@ class WaypointUtils:
             path = path + '_reverse'
         speed_scaling_pth = path + '_speed_scaling.csv'
         with open(speed_scaling_pth, 'w') as f:
-            f.write('#start,scaling\n')
+            f.write('#Start,Scaling\n')
             for i in range(len(self.sectors)):
                 f.write(str(self.sectors[i][SECTOR_START_IDX]) + ',' + str(self.sectors[i][SECTOR_SCALING_IDX]) + '\n')
 
@@ -511,37 +512,46 @@ class WaypointUtils:
         return next_waypoint_positions_relative
     
     def correct_velocity(self, waypoints):
-        settings = Settings
-        settings.MAP_PATH = self.map_path
-        settings.MAP_NAME = self.map_name
-        correct_velocity(waypoints, settings)
+        settings = Settings        
+        speed_scaling = get_speed_scaling(waypoints.shape[0], self.map_path, self.map_name, settings)
+        waypoints[:, WP_VX_IDX] *= speed_scaling
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
-    def calculate_speed_reduction(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.emergency_slowdown.calculate_speed_reduction(lidar_scans)
+    @staticmethod
+    def get_speed_reduction_factor_for_obstacles_on_raceline(next_waypoint_positions_relative, ranges, angles):
+        speed_reduction_factor = 1
+        if ranges is not None and angles is not None:  # Ensure lidar data is available
+            
+                threshold_distance = 0.2  # Everything thats closer than this to the race line is considered an obstacle
+                trailing_distance = 5.0  # Define a maximum distance in meters
+                
+                # Iterate over all waypoints
+                for waypoint_position in next_waypoint_positions_relative:
+                    waypoint_x = waypoint_position[0]
+                    waypoint_y = waypoint_position[1]
+                    
+                    # Check each lidar point
+                    for i in range(len(ranges)):
+                        if np.isinf(ranges[i]):  # Ignore invalid lidar ranges
+                            continue
+                        
+                        # Convert lidar point to Cartesian coordinates
+                        lidar_x = ranges[i] * np.cos(angles[i])
+                        lidar_y = ranges[i] * np.sin(angles[i])
+                        
+                        # Calculate Euclidean distance to the waypoint
+                        distance = np.sqrt((lidar_x - waypoint_x)**2 + (lidar_y - waypoint_y)**2)
+                        distance_to_obstacle = ranges[i]
+                        # If a lidar point is close to a waypoint, slow down
+                        if distance_to_obstacle > 0.2: # Ignore points that are too close (car parts...)
+                            if distance < threshold_distance:
+                                
+                                print(f"Obstacle detected ({distance_to_obstacle}) near waypoint at ({waypoint_x}, {waypoint_y}. Reducins speed. by {speed_reduction_factor}")
+                                speed_reduction_factor = max(0, min(1, distance / trailing_distance))
+                                break
+                                # self.waypoint_utils.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor  # Reduce velocity by half
         return speed_reduction_factor
-
-    def stop_if_obstacle_in_front(self, lidar_scans, lidar_angles):
-        speed_reduction_factor = self.calculate_speed_reduction(lidar_scans, lidar_angles)
-        self.next_waypoints[:, WP_VX_IDX] *= speed_reduction_factor
-
-        if speed_reduction_factor < 0.5:
-            self.counter_jam += 1
-            self.counter_freeride = 0
-        else:
-            self.counter_freeride += 1
-
-        if self.counter_jam >= Settings.SWITCH_LINE_AFTER_X_TIMESSTEPS_BRAKING:
-            self.use_alternative_waypoints_for_control_flag = not self.use_alternative_waypoints_for_control_flag
-            self.counter_jam = 0
-            print("Switching to alternative raceline")
-
-        if self.counter_freeride >= Settings.KEEP_LINE_FOR_MIN_X_TIMESTEPS_FREERIDE:
-            self.counter_jam = 0
-
-        # if speed_reduction_factor != 1.0:
-        #     print(f"Braking with speed reduction {speed_reduction_factor}")
-
+    
 
 # Utility functions
 def get_path_suffix(reverse_direction):
@@ -606,12 +616,3 @@ def get_speed_scaling(waypoints_len, map_path, map_name, settings):
     return speed_scaling
 
 
-def correct_velocity(waypoints, settings):
-    map_path = settings.MAP_PATH
-    map_name = settings.MAP_NAME
-    speed_scaling = get_speed_scaling(waypoints.shape[0], map_path, map_name, settings)
-    waypoints[:, WP_VX_IDX] *= speed_scaling
-    return waypoints
-
-
-         

@@ -15,6 +15,8 @@ STATE_VARIABLES = np.sort([
     'steering_angle'  # x2: steering angle of front wheels
 ])
 
+NUMBER_OF_STATES = len(STATE_VARIABLES)
+
 FULL_STATE_VARIABLES = STATE_VARIABLES
 
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
