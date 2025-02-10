@@ -59,11 +59,16 @@ def squared_distance(p1, p2):
 
 class WaypointUtils:
     
-    def __init__(self,waypoint_file_name=Settings.MAP_NAME+"_wp", map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME ):
+    def __init__(self,waypoint_file_name=Settings.MAP_NAME+"_wp", map_path= Settings.MAP_PATH , map_name=Settings.MAP_NAME, alternative_waypoints=False):
         
         self.map_path = map_path
         self.map_name = map_name
-        self.waypoint_file_name = waypoint_file_name
+
+        self.alternative_waypoints = alternative_waypoints
+        if alternative_waypoints:
+            self.waypoint_file_name = waypoint_file_name + "_alternative"
+        else:
+            self.waypoint_file_name = waypoint_file_name
         
         self.interpolation_steps = Settings.INTERPOLATION_STEPS
         self.decrease_resolution_factor = Settings.DECREASE_RESOLUTION_FACTOR
@@ -118,66 +123,25 @@ class WaypointUtils:
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
-        if Settings.ALLOW_ALTERNATIVE_RACELINE:
-            self.waypoint_file_name_alternative = waypoint_file_name + "_alternative"
 
-            self.sector_index_alternative = 0
-            self.sector_scaling_alternative = 0
-            self.sectors_alternative = None
-
-            self.original_waypoints_alternative = self.load_waypoints(
-                waypoint_file_name=self.waypoint_file_name_alternative)
-            self.sectors_alternative = self.load_sectors(alternative_waypoints=True)
-
-            self.waypoints_alternative = None
-            self.waypoint_positions_alternative = None
-
-            self.preprocess_waypoints(alternative_waypoints=True)
-
-            self.nearest_waypoint_index_alternative = None
-
-            self.current_waypoint_cache_alternative = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
-
-            self.next_waypoints_alternative = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
-            self.next_waypoint_positions_alternative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
-            self.next_waypoint_positions_relative_alternative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
-
-            if self.waypoints_alternative is None:
-                self.current_waypoint_cache_alternative = np.array([])
-                self.next_waypoints_alternative = np.array([])
-                self.next_waypoint_positions_alternative = np.array([])
-
-            self.start_reload_waypoints_thread(alternative_waypoints=True)
-
-        self.use_alternative_waypoints_for_control_flag = False
-
-
-    def start_reload_waypoints_thread(self, alternative_waypoints=False):
+    def start_reload_waypoints_thread(self):
         def reload_loop():
             while True:
-                self.reload_waypoints(alternative_waypoints=alternative_waypoints)
+                self.reload_waypoints()
                 time.sleep(5)
         thread = threading.Thread(target=reload_loop)
         thread.daemon = True  # Daemonize thread to exit when main program exits
         thread.start()
 
 
-    def update_next_waypoints(self, car_state, alternative_waypoints=False):
+    def update_next_waypoints(self, car_state):
 
-        if alternative_waypoints:
-            waypoints = self.waypoints_alternative
-            nearest_waypoint_index = self.nearest_waypoint_index_alternative
-            current_waypoint_cache = self.current_waypoint_cache_alternative
-            sectors = self.sectors_alternative
-            next_waypoints = self.next_waypoints_alternative
-            next_waypoint_positions_relative = self.next_waypoint_positions_relative_alternative
-        else:
-            waypoints = self.waypoints
-            nearest_waypoint_index = self.nearest_waypoint_index
-            current_waypoint_cache = self.current_waypoint_cache
-            sectors = self.sectors
-            next_waypoints = self.next_waypoints
-            next_waypoint_positions_relative = self.next_waypoint_positions_relative
+        waypoints = self.waypoints
+        nearest_waypoint_index = self.nearest_waypoint_index
+        current_waypoint_cache = self.current_waypoint_cache
+        sectors = self.sectors
+        next_waypoints = self.next_waypoints
+        next_waypoint_positions_relative = self.next_waypoint_positions_relative
 
         if waypoints is None: return
         self.car_state = car_state
@@ -238,24 +202,14 @@ class WaypointUtils:
         next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
         nearest_waypoint_index = nearest_waypoint_index
 
-        if alternative_waypoints:
-            if sector_index is not None:
-                self.sector_index_alternative = sector_index
-            if sector_scaling is not None:
-                self.sector_scaling_alternative = sector_scaling
-            self.current_waypoint_cache_alternative = current_waypoint_cache
-            self.next_waupoints_positions_alternative = next_waypoint_positions
-            self.next_waypoint_positions_relative_alternative = next_waypoint_positions_relative
-            self.nearest_waypoint_index_alternative = nearest_waypoint_index
-        else:
-            if sector_index is not None:
-                self.sector_index = sector_index
-            if sector_scaling is not None:
-                self.sector_scaling = sector_scaling
-            self.current_waypoint_cache = current_waypoint_cache
-            self.next_waypoint_positions = next_waypoint_positions
-            self.next_waypoint_positions_relative = next_waypoint_positions_relative
-            self.nearest_waypoint_index = nearest_waypoint_index
+        if sector_index is not None:
+            self.sector_index = sector_index
+        if sector_scaling is not None:
+            self.sector_scaling = sector_scaling
+        self.current_waypoint_cache = current_waypoint_cache
+        self.next_waypoint_positions = next_waypoint_positions
+        self.next_waypoint_positions_relative = next_waypoint_positions_relative
+        self.nearest_waypoint_index = nearest_waypoint_index
 
     def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
         if self.sector_error_index == self.sector_index:
@@ -300,11 +254,9 @@ class WaypointUtils:
             
             self.reload_waypoints()
 
-    def preprocess_waypoints(self, alternative_waypoints=False):
-        if alternative_waypoints:
-            original_waypoints = self.original_waypoints_alternative
-        else:
-            original_waypoints = self.original_waypoints
+    def preprocess_waypoints(self):
+
+        original_waypoints = self.original_waypoints
 
         # Full waypoints [traveled_dist, x, y, abs_angle, rel_angle, vel_x, acc_x]
         waypoints, self.global_limit = self.correct_velocity(original_waypoints)
@@ -315,25 +267,18 @@ class WaypointUtils:
         # Waypoint positions [x, y]
         waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
 
-        if alternative_waypoints:
-            self.waypoints_alternative = waypoints
-            self.waypoint_positions_alternative = waypoint_positions
-        else:
-            self.waypoints = waypoints
-            self.waypoint_positions = waypoint_positions
+        self.waypoints = waypoints
+        self.waypoint_positions = waypoint_positions
 
         # This last line seems to be not used anywhere, for a long time
         # self.trajectory_vectors, self.trajectory_norms, self.directions = self.get_vectors_between_waypoint_positions()
 
-    def reload_waypoints(self, alternative_waypoints=False):
+    def reload_waypoints(self):
 
-        if alternative_waypoints:
-            waypoint_file_name = self.waypoint_file_name_alternative
-        else:
-            waypoint_file_name = self.waypoint_file_name
+        waypoint_file_name = self.waypoint_file_name
         self.original_waypoints = self.load_waypoints(waypoint_file_name)
-        self.sectors = self.load_sectors(alternative_waypoints)
-        self.preprocess_waypoints(alternative_waypoints)
+        self.sectors = self.load_sectors()
+        self.preprocess_waypoints()
         
     def load_waypoints(self, waypoint_file_name=None):
 
@@ -360,12 +305,12 @@ class WaypointUtils:
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
     
-    def load_sectors(self, alternative_waypoints=False):
+    def load_sectors(self):
         path = os.path.join(self.map_path, self.map_name)
         if Settings.REVERSE_DIRECTION:
             path = path + '_reverse'
 
-        if alternative_waypoints:
+        if self.alternative_waypoints:
             speed_scaling_pth = path + '_speed_scaling_alternative.csv'
         else:
             speed_scaling_pth = path + '_speed_scaling.csv'

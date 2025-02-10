@@ -100,10 +100,16 @@ class CarSystem:
         self.control_index = 0
         
         
-        # Utilities 
-        self.waypoint_utils = WaypointUtils()
+        # Utilities
+        self.waypoint_utils_standard = WaypointUtils()
+        self.waypoint_utils_alternative = None
+        self.use_alternative_waypoints_for_control_flag = False
+
+        if Settings.ALLOW_ALTERNATIVE_RACELINE:
+            self.waypoint_utils_alternative = WaypointUtils(alternative_waypoints=True)
+
         self.render_utils = RenderUtils()
-        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
+        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
 
         self.obstacle_detector = ObstacleDetector()
 
@@ -227,18 +233,24 @@ class CarSystem:
         self.LIDAR.load_lidar_measurement(ranges)
         lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
             car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
-        self.waypoint_utils.update_next_waypoints(car_state)
+        self.waypoint_utils_standard.update_next_waypoints(car_state)
         if Settings.ALLOW_ALTERNATIVE_RACELINE:
-            self.waypoint_utils.update_next_waypoints(car_state, alternative_waypoints=True)
+            self.waypoint_utils_alternative.update_next_waypoints(car_state)
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
+            next_waypoints = self.waypoint_utils.next_waypoints
             corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
                 ranges,
                 np.linspace(-2.35, 2.35, 1080),
-                self.waypoint_utils.next_waypoints[:, WP_VX_IDX],
+                next_waypoints[:, WP_VX_IDX],
                 car_state[STEERING_ANGLE_IDX]
             )
             self.waypoint_utils.next_waypoints[:, WP_VX_IDX] = corrected_next_waypoints_vx
-            self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
+            self.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
+
+        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
+
+        if self.waypoints_planner is not None:
+            self.waypoints_planner.waypoint_utils = self.waypoint_utils
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
                 
@@ -259,14 +271,11 @@ class CarSystem:
                 else:
                     self.waypoints_for_controller = self.waypoint_utils.next_waypoints
         else:
-            if self.waypoint_utils.use_alternative_waypoints_for_control_flag and Settings.ALLOW_ALTERNATIVE_RACELINE:
-                self.waypoints_for_controller = self.waypoint_utils.next_waypoints_alternative
-            else:
-                self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+            self.waypoints_for_controller = self.waypoint_utils.next_waypoints
 
         pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 
-        # Control step 
+        # Control step
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
@@ -324,8 +333,8 @@ class CarSystem:
         self.time = self.control_index*self.time_increment
                         
         # Update Lap Analyzer
-        nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
-        distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
+        nearest_waypoint_index = self.waypoint_utils_standard.nearest_waypoint_index
+        distance_to_raceline = self.waypoint_utils_standard.current_distance_to_raceline
         self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
 
         
@@ -336,8 +345,18 @@ class CarSystem:
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
         return self.angular_control, self.translational_control
 
-            
-            
+
+    @property
+    def waypoint_utils(self):
+        """
+        Returns whichever waypoint utility is currently 'active' based on
+        the self.use_alternative_waypoints_for_control_flag.
+        """
+        if Settings.ALLOW_ALTERNATIVE_RACELINE and self.use_alternative_waypoints_for_control_flag:
+            return self.waypoint_utils_alternative
+        return self.waypoint_utils_standard
+
+
 def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
     # Pass data to the planner
     if hasattr(planner, 'set_waypoints'):
