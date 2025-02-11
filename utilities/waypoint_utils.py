@@ -139,8 +139,6 @@ class WaypointUtils:
         next_waypoint_positions_relative = self.next_waypoint_positions_relative
 
         if waypoints is None: return
-        self.car_state = car_state
-        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
 
         if last_nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
             # Run initial search of starting waypoint (all waypoints)
@@ -152,16 +150,8 @@ class WaypointUtils:
             if nearest_waypoint_dist > Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD**2:  # if the current waypoint is too far away, fallback to searching all waypoints
                 nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoints)
 
-        # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
-        nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
-        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
-        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
-        
-        # Calculate the distance to the raceline
-        self.current_distance_to_last = np.linalg.norm(np.cross(nearest_waypoint_position - last_waypoint_position, last_waypoint_position - car_position)) / np.linalg.norm(nearest_waypoint_position - last_waypoint_position)
-        self.current_distance_to_next = np.linalg.norm(np.cross(next_waypoint_position - nearest_waypoint_position, nearest_waypoint_position - car_position)) / np.linalg.norm(next_waypoint_position - nearest_waypoint_position)   
-        self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
-        
+        self.update_distance_to_raceline(waypoints, nearest_waypoint_index, car_state)
+
         # Find out in which sector the car is
         sector_index = None
         sector_scaling = None
@@ -172,24 +162,24 @@ class WaypointUtils:
                     sector_scaling = self.sectors[i, SECTOR_SCALING_IDX]
                     break
         
-        if(Settings.AUTOMATIC_SECTOR_TUNING):
+        if Settings.AUTOMATIC_SECTOR_TUNING:
             self.automatic_sector_tuning(nearest_waypoint_index, car_state)
-        
-        next_waypoints_including_ignored = []
-        next_waypoints_indices_including_ignored = []
-        for j in range(self.look_ahead_steps + self.ignore_steps):
-            next_waypoint_idx = (nearest_waypoint_index + j) % len(waypoints)
-            next_waypoint = waypoints[next_waypoint_idx]
-            next_waypoints_indices_including_ignored.append(next_waypoint_idx)
-            next_waypoints_including_ignored.append(next_waypoint)
-        next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
-        next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
+
+        next_waypoints_indices_including_ignored = [
+            (nearest_waypoint_index + j) % len(waypoints) for j in range(self.look_ahead_steps + self.ignore_steps)
+        ]
+
+        next_waypoints_including_ignored = np.array(
+            [waypoints[i] for i in next_waypoints_indices_including_ignored]
+        )
 
         next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
         
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
         next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
         nearest_waypoint_index = nearest_waypoint_index
+
+        self.car_state = car_state
 
         if sector_index is not None:
             self.sector_index = sector_index
@@ -199,6 +189,22 @@ class WaypointUtils:
         self.next_waypoint_positions = next_waypoint_positions
         self.next_waypoint_positions_relative = next_waypoint_positions_relative
         self.nearest_waypoint_index = nearest_waypoint_index
+
+    def update_distance_to_raceline(self, waypoints, nearest_waypoint_index, car_state):
+        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+        # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
+        nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX + 1]
+        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX + 1]
+        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX + 1]
+
+        # Calculate the distance to the raceline
+        self.current_distance_to_last = np.linalg.norm(np.cross(nearest_waypoint_position - last_waypoint_position,
+                                                                last_waypoint_position - car_position)) / np.linalg.norm(
+            nearest_waypoint_position - last_waypoint_position)
+        self.current_distance_to_next = np.linalg.norm(np.cross(next_waypoint_position - nearest_waypoint_position,
+                                                                nearest_waypoint_position - car_position)) / np.linalg.norm(
+            next_waypoint_position - nearest_waypoint_position)
+        self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
 
     def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
         if self.sector_error_index == self.sector_index:
