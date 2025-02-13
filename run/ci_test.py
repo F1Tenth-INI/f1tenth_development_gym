@@ -5,7 +5,7 @@ if __name__ == "__main__":
     import os
     import sys
     import time
-    from run.run_simulation import RacingSimulation
+    from run_simulation import RacingSimulation
     time.sleep(1)
 
 
