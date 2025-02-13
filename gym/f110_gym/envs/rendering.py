@@ -30,6 +30,7 @@ Author: Hongrui Zheng
 # opengl stuff
 import pyglet
 from pyglet.gl import *
+from pyglet.window import key
 
 # other
 import numpy as np
@@ -259,6 +260,22 @@ class EnvRenderer(pyglet.window.Window):
             self.bottom = mouse_y_in_world - mouse_y * self.zoomed_height
             self.top = mouse_y_in_world + (1 - mouse_y) * self.zoomed_height
 
+    def on_key_press(self, symbol, modifiers):
+        """
+        This function is called when a key is pressed.
+
+        Args:
+            symbol (int): The key code.
+            modifiers (int): The state of modifier keys (like Shift, Ctrl).
+
+        Returns:
+            None
+        """
+
+        # Space key toggles camera auto follow
+        if symbol == key.SPACE:
+            Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
+        
     def on_close(self):
         """
         Callback function when the 'x' is clicked on the window, overrides inherited method. Also throws exception to end the python program when in a loop.

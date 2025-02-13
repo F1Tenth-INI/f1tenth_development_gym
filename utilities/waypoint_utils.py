@@ -218,9 +218,6 @@ class WaypointUtils:
                     sector_scaling = self.sectors[i, SECTOR_SCALING_IDX]
                     break
         
-        if(Settings.AUTOMATIC_SECTOR_TUNING):
-            self.automatic_sector_tuning(nearest_waypoint_index, car_state)
-        
         next_waypoints_including_ignored = []
         next_waypoints_indices_including_ignored = []
         for j in range(self.look_ahead_steps + self.ignore_steps):
@@ -257,48 +254,6 @@ class WaypointUtils:
             self.next_waypoint_positions_relative = next_waypoint_positions_relative
             self.nearest_waypoint_index = nearest_waypoint_index
 
-    def automatic_sector_tuning(self, nearest_waypoint_index, car_state):
-        if self.sector_error_index == self.sector_index:
-            nearest_waypoint_position = self.waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
-            car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-            dist = np.linalg.norm(nearest_waypoint_position - car_position)
-            self.sector_error += dist
-            self.sector_number_of_states +=1
-        else: # new sector
-            # Normalize sector error
-            self.sector_error = self.sector_error / self.sector_number_of_states
-            print("sector error", self.sector_error)
-            print("New sector", self.sector_index)
-            
-        
-            sector = self.sectors[self.sector_error_index]
-            error_shifted = self.sector_error - 0.20
-            sector[SECTOR_SCALING_IDX] -= 1.5*error_shifted
-            print("Adusting sector scaling by ", 1.5 * -error_shifted)
-            
-            
-            # Read the file into a list of lines
-            with open(self.speed_scaling_pth, 'r') as file:
-                lines = file.readlines()
-
-            # Replace the ith line
-            csv_line = str(sector[SECTOR_START_IDX]) + ","+ str(sector[SECTOR_SCALING_IDX]) + "\n"
-            lines[self.sector_error_index + 1] = csv_line # +1 because of header
-
-            # Write the list of lines back to the file
-            with open(self.speed_scaling_pth, 'w') as file:
-                file.writelines(lines)
-            # Load the CSV file
-            # df = pd.read_csv(self.speed_scaling_pth, header=1)
-            # df.loc[self.sector_index -1] = csv_line
-            # df.to_csv(self.speed_scaling_pth, index=False)
-
-            
-            self.sector_error = 0
-            self.sector_number_of_states = 0
-            self.sector_error_index = self.sector_index
-            
-            self.reload_waypoints()
 
     def preprocess_waypoints(self, alternative_waypoints=False):
         if alternative_waypoints:

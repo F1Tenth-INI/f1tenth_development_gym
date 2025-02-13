@@ -191,21 +191,12 @@ class CarSystem:
     """
     def process_observation(self, ranges=None, ego_odom=None):
         
+
         
         if Settings.LIDAR_PLOT_SCANS:
             self.LIDAR.plot_lidar_data()
             
         car_state = self.car_state
-        
-        
-        # print("Car state: ", car_state)
-        # s = car_state
-        # input = [s[ANGULAR_VEL_Z_IDX], s[LINEAR_VEL_X_IDX],s[POSE_THETA_IDX],s[STEERING_ANGLE_IDX]]
-        # # print("input", input)
-        # output_true = s[SLIP_ANGLE_IDX]
-        # print("output as should be", output_true)
-        # output = predict.predict_slip_angle_from_car_state(car_state)
-        # print("output", output)
         
                 
         imu_array = self.imu_simulator.update_car_state(car_state)
@@ -259,9 +250,11 @@ class CarSystem:
 
         pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 
+
         # Control step 
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
+
 
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):

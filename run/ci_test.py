@@ -1,12 +1,14 @@
 # This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
 
-# exit()
-
 if __name__ == "__main__":
     
     import os
     import sys
     import time
+    from run.run_simulation import RacingSimulation
+    time.sleep(1)
+
+
 
     # Add the parent directory to sys.path
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,9 +39,8 @@ if __name__ == "__main__":
     Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
     Settings.CONTROL_DELAY = 0.00
 
-    from run.run_simulation import run_experiments
-    time.sleep(1)
-    run_experiments()
+    simulation = RacingSimulation()
+    simulation.run_experiments()
 
 
 
@@ -55,8 +56,8 @@ if __name__ == "__main__":
 
     time.sleep(1)
 
-    from run.run_simulation import run_experiments
-    time.sleep(1)
-    run_experiments()
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()
 
 

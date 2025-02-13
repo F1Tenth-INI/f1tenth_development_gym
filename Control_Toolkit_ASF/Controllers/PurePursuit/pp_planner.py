@@ -103,6 +103,7 @@ class PurePursuitPlanner(template_planner):
             'angular_vel_z': float,
         }
         """
+
         pose_x = self.car_state[POSE_X_IDX]
         pose_y = self.car_state[POSE_Y_IDX]
         pose_theta = self.car_state[POSE_THETA_IDX]
@@ -123,8 +124,8 @@ class PurePursuitPlanner(template_planner):
             # self.lookahead_distance = self.speed * Settings.PP_VEL2LOOKAHEAD
         self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
         # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+        # Needs too much time
         lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
-
         if self.waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
             for idx in range(1, len(self.waypoints[i:])):
@@ -181,6 +182,7 @@ class PurePursuitPlanner(template_planner):
         
         # For rendering
         self.lookahead_point = lookahead_point
+        
         
         speed, steering_angle = get_actuation(pose_theta, lookahead_point, position, self.lookahead_distance, self.wheelbase)
         speed = self.waypoint_velocity_factor * speed
