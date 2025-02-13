@@ -62,6 +62,10 @@ class RacingSimulation:
             self.time_axis = self.state_recording['time'].to_numpy()
             self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
     
+
+    '''
+    Run a number of experiments including repetitions on crash as defined in Settings
+    '''
     def run_experiments(self):
 
         number_of_experiments = Settings.NUMBER_OF_EXPERIMENTS
@@ -83,7 +87,7 @@ class RacingSimulation:
                         exit()
             i += 1
                 
-
+    
     def prepare_simulation(self):
         self.init_drivers()
         self.get_starting_positions()
@@ -108,6 +112,10 @@ class RacingSimulation:
         self.env.add_render_callback(self.render_callback)
         assert(self.env.timestep == 0.01)
 
+    '''
+    Initialize the drivers (car_systems) for the simulation:
+    First driver is the main car, the others are opponents as defined in Settings.NUMBER_OF_OPPONENTS
+    '''
     def init_drivers(self):
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER)
@@ -132,6 +140,7 @@ class RacingSimulation:
         main_driver = self.drivers[0]
         if Settings.SAVE_RECORDINGS and main_driver.save_recordings:
             main_driver.recorder.start_csv_recording()
+            # TODO: fix
             # main_driver.recorder.dict_data_to_save_basic.update(
             #     {
             #         'lap_times': lambda: self.obs['lap_times'],
@@ -157,8 +166,6 @@ class RacingSimulation:
 
             self.simulation_step()
 
-        
-
         self.env.close()
 
         self.handle_recording_end()
@@ -169,6 +176,27 @@ class RacingSimulation:
 
     def simulation_step(self):
 
+        agent_controls_execute = self.get_agent_controls()
+
+        # From here on, controls have to be in [steering angle, speed ]
+        self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
+
+
+        self.laptime += self.step_reward
+        self.sim_time += Settings.TIMESTEP_CONTROL
+        self.sim_index += 1
+
+    
+        self.check_and_handle_collisions()
+        self.handle_recording_step()
+        self.render_env()
+
+        
+
+        # End of controller time step
+
+
+    def get_agent_controls(self):
         ranges = self.obs['scans']
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
@@ -187,45 +215,25 @@ class RacingSimulation:
                 control_with_noise = self.add_control_noise([angular_control, translational_control])
                 self.agent_controls_calculated.append(control_with_noise)
 
- 
-        
-        #todo: Move Control Noise (perturbation) to car system
-        # if(self.sim_index % Settings.CONTROL_NOISE_DURATION == 0):
-        #     control_noise =  np.array(Settings.NOISE_LEVEL_CONTROL) *  np.random.uniform(-1, 1, 2)
-            
- 
-        # # Add zero angle offset to the steering angle
-        # if Settings.ZERO_ANGLE_OFFSET is not None:
-        #     self.env.sim.agents[index].state[StateIndices.steering_angle] = self.env.sim.agents[index].state[StateIndices.steering_angle] + Settings.ZERO_ANGLE_OFFSET
-            
-
-
         # Control delay buffer
         self.control_delay_buffer.append(self.agent_controls_calculated)        
         agent_controls_execute  = self.control_delay_buffer.pop(0)
+
+        # shape: [number_of_drivers, 2]
+        return agent_controls_execute
+
         
 
-        # From here on, controls have to be in [steering angle, speed ]
-        self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
-
-
-        self.laptime += self.step_reward
-        self.sim_time += Settings.TIMESTEP_CONTROL
-        self.sim_index += 1
-
-    
-        self.check_and_handle_collisions()
-        self.handle_recording_step()
-
+    def render_env(self):
         # Render the environment
         if Settings.RENDER_MODE is not None:
             self.env.render(mode=Settings.RENDER_MODE)
 
-        # End of controller time step
 
-
-
-
+    '''
+    This function is called by the environment renderer to render additional information on the screen
+    env_renderer: pyglet env_renderer object
+    '''
     def render_callback(self, env_renderer):
         e = env_renderer
         if Settings.CAMERA_AUTO_FOLLOW:
@@ -250,7 +258,11 @@ class RacingSimulation:
 
 
     
-
+    '''
+    Get starting positions from map config file
+    or Settings
+    or random waypoint
+    '''
     def get_starting_positions(self):
         map_config_file = Settings.MAP_CONFIG_FILE
 
@@ -305,7 +317,10 @@ class RacingSimulation:
 
 
     
-
+    '''
+    Update the driver state with the current car state
+    Either from gym env or recording
+    '''
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
             driver.set_car_state(self.state_recording[self.sim_index])
@@ -335,13 +350,18 @@ class RacingSimulation:
         control_with_noise = control + noise_array
         return control_with_noise
 
-    
+    '''
+    Recorder function that is called at every step
+    '''
     def handle_recording_step(self):
         if Settings.SAVE_RECORDINGS:
                 for index, driver in enumerate(self.drivers):
                     if driver.save_recordings:
                         driver.recorder.step()
 
+    '''
+    Recorder function that is called at the end of experiment
+    '''
     def handle_recording_end(self):
         if Settings.SAVE_RECORDINGS:
             for index, driver in enumerate(self.drivers):
