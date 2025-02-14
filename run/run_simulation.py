@@ -10,7 +10,6 @@ from tqdm import trange
 from argparse import Namespace
 
 from f110_gym.envs.base_classes import wrap_angle_rad
-from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 from utilities.Settings import Settings
 from utilities.car_system import CarSystem

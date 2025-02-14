@@ -1,5 +1,5 @@
 import numpy as np
-
+from numba import jit
 from utilities.Settings import Settings
 
 from utilities.waypoint_utils import *
@@ -60,33 +60,12 @@ class PurePursuitPlanner(template_planner):
         self.f_min = 1.0
         self.lookahead_point = None
 
+        position = np.array([0., 0.], dtype=np.float32).copy()
+        wpts = np.zeros((Settings.LOOK_AHEAD_STEPS, 2), dtype=np.float32)
+        nearest_point_on_trajectory(position, wpts)
+
         print('Initialization done.')
-        # Original values 
-        # self.wheelbase = 0.17145+0.15875        
-        # self.max_reacquire = 20.
-        # self.lookahead_distance = 1.82461887897713965
-        # self.waypoint_velocity_factor = 0.80338203837889
-    
-    def _get_current_waypoint(self, waypoints, lookahead_distance, position, theta):
-        """
-        gets the current waypoint to follow
-        """    
-        wpts = waypoints[:, 1:3]
-        nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
-        if nearest_dist < lookahead_distance:
-            lookahead_point, i2, t2 = first_point_on_trajectory_intersecting_circle(position, lookahead_distance, wpts, i+t, wrap=True)
-            if i2 == None:
-                i2 = len(wpts)-1  # if waypoints end earlier than trajectory, use last waypoint
-            current_waypoint = np.empty((3, ))
-            # x, y
-            current_waypoint[0:2] = wpts[i2, :]
-            # speed
-            current_waypoint[2] =  waypoints[i, 5]
-            return current_waypoint, i, np.maximum(i2, 8)
-        elif nearest_dist < self.max_reacquire:
-            return np.append(wpts[i, :], waypoints[i, 5]), i, i
-        else:
-            return None
+ 
         
         
     def process_observation(self, ranges=None, ego_odom=None):
@@ -109,23 +88,15 @@ class PurePursuitPlanner(template_planner):
         pose_theta = self.car_state[POSE_THETA_IDX]
         v_x = self.car_state[LINEAR_VEL_X_IDX]
 
-        position = np.array([pose_x, pose_y])
-        
-        # static lookahead distance
-        # self.lookahead_distance = 1.5 # np.maximum(Settings.PP_VEL2LOOKAHEAD * v_x, 0.5)
-        
-        # Dynamic Lookahead distance
-        wpts = self.waypoints[:, 1:3]
-        
-        nearest_point, nearest_dist, t, i = nearest_point_on_trajectory(position, wpts)
+        position = np.array([pose_x, pose_y], dtype=np.float32).copy()
         
         if(Settings.PP_VEL2LOOKAHEAD):
             self.lookahead_distance = v_x * Settings.PP_VEL2LOOKAHEAD
-            # self.lookahead_distance = self.speed * Settings.PP_VEL2LOOKAHEAD
+
         self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
-        # self.lookahead_distance = np.max((Settings.PP_VEL2LOOKAHEAD * self.waypoints[i, WP_VX_IDX], 0.01))  # Don't let it be 0, warning otherwise.
+
         # Needs too much time
-        lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+        lookahead_point, i, i2 = get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
         if self.waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
             for idx in range(1, len(self.waypoints[i:])):
@@ -168,17 +139,14 @@ class PurePursuitPlanner(template_planner):
 
                 curvature_slowdown_factor = f
                 self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
-                lookahead_point, i, i2 = self._get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+                lookahead_point, i, i2 = get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
 
-            # print ("lookaheadpoints", lookahead_point)
             if lookahead_point is None:
                 if Settings.PRINTING_ON and Settings.ROS_BRIDGE is False:
                     print("warning no lookahead point")
                 lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
                 lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
-                # self.angular_control = 0.
-                # self.translational_control = 1.
-                # return 1.0, 0.0
+             
         
         # For rendering
         self.lookahead_point = lookahead_point

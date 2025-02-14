@@ -116,7 +116,7 @@ class RenderUtils:
                car_state = None,
                emergency_slowdown_sprites=None,
                ):
-        
+        if Settings.RENDER_MODE is None: return
         
         if(lidar_points is not None): self.lidar_border_points = lidar_points
         if(rollout_trajectory is not None): self.rollout_trajectory = rollout_trajectory,

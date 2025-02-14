@@ -161,9 +161,10 @@ class WaypointUtils:
         thread.daemon = True  # Daemonize thread to exit when main program exits
         thread.start()
 
-
     def update_next_waypoints(self, car_state, alternative_waypoints=False):
-
+        """
+        Optimized update function using pure NumPy vectorization instead of JIT.
+        """
         if alternative_waypoints:
             waypoints = self.waypoints_alternative
             nearest_waypoint_index = self.nearest_waypoint_index_alternative
@@ -179,69 +180,87 @@ class WaypointUtils:
             next_waypoints = self.next_waypoints
             next_waypoint_positions_relative = self.next_waypoint_positions_relative
 
-        if waypoints is None: return
-        self.car_state = car_state
-        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+        if waypoints is None:
+            return
+
+        car_position = np.array([car_state[POSE_X_IDX], car_state[POSE_Y_IDX]], dtype=np.float64)
 
         if nearest_waypoint_index is None or Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD is None:
-            # Run initial search of starting waypoint (all waypoints)
+            # Initial search (all waypoints)
             nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
         else:
-            # only look for next waypoint in the current waypoint cache
+            # Search in current waypoint cache
             dist_max = Settings.GLOBAL_WAYPOINTS_SEARCH_THRESHOLD
             cache_offset = WaypointUtils.get_nearest_waypoint_index(car_position, current_waypoint_cache)
             nearest_waypoint_index_glob = (nearest_waypoint_index + cache_offset) % len(waypoints)
-            dist_current_waypoint = squared_distance(current_waypoint_cache[cache_offset, 1:3], car_position)
-            if dist_current_waypoint > dist_max**2: # if the current waypoint is too far away, fallback to all waypoints
+
+            # Compute squared distance
+            dist_current_waypoint = np.sum((current_waypoint_cache[cache_offset, 1:3] - car_position) ** 2)
+            if dist_current_waypoint > dist_max**2:  # Fallback to full search
                 nearest_waypoint_index = WaypointUtils.get_nearest_waypoint_index(car_position, waypoints)
             else:
-                #only search in cache
                 nearest_waypoint_index = nearest_waypoint_index_glob
 
-        # Get distance from car position to raceline (the vector connecting the waypoints, either last to current or curent to next)
-        nearest_waypoint_position = waypoints[nearest_waypoint_index][WP_X_IDX:WP_Y_IDX+1]
-        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
-        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints)][WP_X_IDX:WP_Y_IDX+1]
-        
-        # Calculate the distance to the raceline
-        self.current_distance_to_last = np.linalg.norm(np.cross(nearest_waypoint_position - last_waypoint_position, last_waypoint_position - car_position)) / np.linalg.norm(nearest_waypoint_position - last_waypoint_position)
-        self.current_distance_to_next = np.linalg.norm(np.cross(next_waypoint_position - nearest_waypoint_position, nearest_waypoint_position - car_position)) / np.linalg.norm(next_waypoint_position - nearest_waypoint_position)   
+        # Distance calculations (fully vectorized)
+        nearest_waypoint_position = waypoints[nearest_waypoint_index, WP_X_IDX:WP_Y_IDX+1]
+        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
+        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
+
+        # Compute perpendicular distance to raceline using vectorized NumPy
+        diff1 = nearest_waypoint_position - last_waypoint_position
+        diff2 = next_waypoint_position - nearest_waypoint_position
+
+        norm1 = np.linalg.norm(diff1)
+        norm2 = np.linalg.norm(diff2)
+
+        self.current_distance_to_last = np.abs(np.cross(diff1, last_waypoint_position - car_position)) / norm1
+        self.current_distance_to_next = np.abs(np.cross(diff2, nearest_waypoint_position - car_position)) / norm2
         self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
-        
-        # Find out in which sector the car is
+
+        # Find sector
         sector_index = None
         sector_scaling = None
         if sectors is not None:
-            for i in range(sectors.shape[0]):
-                if sectors[i, SECTOR_START_IDX] <= nearest_waypoint_index * self.decrease_resolution_factor < sectors[i, SECTOR_END_IDX]:
-                    sector_index = i
-                    sector_scaling = self.sectors[i, SECTOR_SCALING_IDX]
-                    break
-        
-        next_waypoints_including_ignored = []
-        next_waypoints_indices_including_ignored = []
-        for j in range(self.look_ahead_steps + self.ignore_steps):
-            next_waypoint_idx = (nearest_waypoint_index + j) % len(waypoints)
-            next_waypoint = waypoints[next_waypoint_idx]
-            next_waypoints_indices_including_ignored.append(next_waypoint_idx)
-            next_waypoints_including_ignored.append(next_waypoint)
-        next_waypoints_including_ignored = np.array(next_waypoints_including_ignored)
-        next_waypoints_indices_including_ignored = np.array(next_waypoints_indices_including_ignored)
+            mask = (sectors[:, SECTOR_START_IDX] <= nearest_waypoint_index * self.decrease_resolution_factor) & \
+                (nearest_waypoint_index * self.decrease_resolution_factor < sectors[:, SECTOR_END_IDX])
+            sector_indices = np.where(mask)[0]
+            if sector_indices.size > 0:
+                sector_index = sector_indices[0]
+                sector_scaling = sectors[sector_index, SECTOR_SCALING_IDX]
 
+        # Compute next waypoints efficiently
+        indices = (np.arange(self.look_ahead_steps + self.ignore_steps) + nearest_waypoint_index) % len(waypoints)
+        next_waypoints_including_ignored = waypoints[indices]
+
+        # Store only the relevant waypoints
         next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
-        current_waypoint_cache = next_waypoints_including_ignored
-        
-        next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
-        next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
-        nearest_waypoint_index = nearest_waypoint_index
+        current_waypoint_cache[...] = next_waypoints_including_ignored[:current_waypoint_cache.shape[0]]
 
+        # Compute relative positions using vectorized math
+        waypoints_x_absolute = next_waypoints[:, WP_X_IDX]
+        waypoints_y_absolute = next_waypoints[:, WP_Y_IDX]
+
+        # Translation
+        next_waypoints_x_after_translation = waypoints_x_absolute - car_state[POSE_X_IDX]
+        next_waypoints_y_after_translation = waypoints_y_absolute - car_state[POSE_Y_IDX]
+
+        # Rotation (vectorized transformation)
+        next_waypoint_positions_relative[...] = np.column_stack((
+            next_waypoints_x_after_translation * car_state[POSE_THETA_COS_IDX] +
+            next_waypoints_y_after_translation * car_state[POSE_THETA_SIN_IDX],
+
+            next_waypoints_x_after_translation * -car_state[POSE_THETA_SIN_IDX] +
+            next_waypoints_y_after_translation * car_state[POSE_THETA_COS_IDX]
+        ))
+
+        # Store results
         if alternative_waypoints:
             if sector_index is not None:
                 self.sector_index_alternative = sector_index
             if sector_scaling is not None:
                 self.sector_scaling_alternative = sector_scaling
             self.current_waypoint_cache_alternative = current_waypoint_cache
-            self.next_waupoints_positions_alternative = next_waypoint_positions
+            self.next_waypoint_positions_alternative = next_waypoint_positions_relative
             self.next_waypoint_positions_relative_alternative = next_waypoint_positions_relative
             self.nearest_waypoint_index_alternative = nearest_waypoint_index
         else:
@@ -250,10 +269,9 @@ class WaypointUtils:
             if sector_scaling is not None:
                 self.sector_scaling = sector_scaling
             self.current_waypoint_cache = current_waypoint_cache
-            self.next_waypoint_positions = next_waypoint_positions
+            self.next_waypoint_positions = next_waypoint_positions_relative
             self.next_waypoint_positions_relative = next_waypoint_positions_relative
             self.nearest_waypoint_index = nearest_waypoint_index
-
 
     def preprocess_waypoints(self, alternative_waypoints=False):
         if alternative_waypoints:
@@ -404,18 +422,13 @@ class WaypointUtils:
     
     @staticmethod
     def get_nearest_waypoint_index(car_position, waypoints):
+        """
+        Fast NumPy-based nearest waypoint search (without JIT).
+        """
+        waypoint_positions = waypoints[:, 1:3]  # Extract X, Y
+        distances = np.sum((waypoint_positions - car_position) ** 2, axis=1)  # Squared distance
+        return np.argmin(distances)  # Index of minimum distance
 
-        min_dist = 10000
-        min_dist_index = 0
-
-        waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
-        for i in range(len(waypoint_positions)):
-            dist = squared_distance(waypoint_positions[i], car_position)
-            if (dist) < min_dist:
-                min_dist = dist
-                min_dist_index = i
-
-        return min_dist_index
     
     @staticmethod
     def get_waypoint_positions(waypoints):

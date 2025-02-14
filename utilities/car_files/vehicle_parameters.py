@@ -1,6 +1,7 @@
 from typing import List
 import yaml
 import os
+import numpy as np
 
 from utilities.Settings import Settings
 
@@ -63,4 +64,41 @@ class VehicleParameters:
         if Settings.SURFACE_FRICITON is not None:
             self.mu = Settings.SURFACE_FRICITON
 
-  
+
+    def to_np_array(self):
+        return np.array([
+            # Simulator engine Car parameters
+            self.mu,  # mu (friction coefficient)
+            self.lf,  # lf (distance from center of gravity to front axle)
+            self.lr,  # lr (distance from center of gravity to rear axle)
+            self.h,  # h_cg (center of gravity height of sprung mass)
+            self.m,  # m (Total Mass of car)
+            self.I_z,  # I_z (Moment of inertia about z-axis)
+            self.g,  # g (Gravitation Constant)
+            
+            # Pacejka Magic Formula Parameters (Front Tire)
+            self.C_Pf[0],  # B_f
+            self.C_Pf[1],  # C_f
+            self.C_Pf[2],  # D_f
+            self.C_Pf[3],  # E_f
+
+            # Pacejka Magic Formula Parameters (Rear Tire)
+            self.C_Pr[0],  # B_r
+            self.C_Pr[1],  # C_r
+            self.C_Pr[2],  # D_r
+            self.C_Pr[3],  # E_r
+
+            # Steering Constraints
+            self.servo_p,  # servo_p (proportional factor of servo PID)
+            self.s_min,  # s_min (min steering angle)
+            self.s_max,  # s_max (max steering angle)
+            self.sv_min,  # sv_min (min steering velocity)
+            self.sv_max,  # sv_max (max steering velocity)
+
+            # Acceleration Constraints
+            self.a_min,  # a_min (min acceleration)
+            self.a_max,  # a_max (max acceleration)
+            self.v_min,  # v_min (min velocity)
+            self.v_max,  # v_max (max velocity)
+            self.v_switch,  # v_switch (velocity threshold for model transition)
+        ], dtype=np.float32)
