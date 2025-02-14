@@ -83,7 +83,10 @@ class RacingSimulation:
                         print("Repeating experiment", self.crash_repetition)
                     else:
                         print(f"Max number of crash repetitions ({Settings.MAX_CRASH_REPETITIONS}) reached. Exiting.")
-                        exit()
+                        raise Exception("Max number of crash repetitions reached.")
+                else:
+                    print("Crash repetition disabled. Exiting.")
+                    raise Exception("Crash repetition disabled.")
             i += 1
                 
     

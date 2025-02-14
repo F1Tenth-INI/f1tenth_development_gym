@@ -5,16 +5,13 @@ if __name__ == "__main__":
     import os
     import sys
     import time
-    from run_simulation import RacingSimulation
-    time.sleep(1)
-
-
 
     # Add the parent directory to sys.path
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(current_dir)
     sys.path.append(parent_dir)
-    from utilities.Settings import Settings 
+    from utilities.Settings import Settings # Settings need to be imported first, so that they can be overwritten
+    time.sleep(1)
     
 
     # Global Settings
@@ -31,13 +28,15 @@ if __name__ == "__main__":
     Settings.SURFACE_FRICITON = 0.75
 
 
-    time.sleep(1)
 
 
     # Test: Run the simulation with the PP controller on the RCA2 map (without delay)
     Settings.CONTROLLER = 'pp'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.5 
     Settings.CONTROL_DELAY = 0.00
+    time.sleep(1)
+
+    from run_simulation import RacingSimulation
 
     simulation = RacingSimulation()
     simulation.run_experiments()
