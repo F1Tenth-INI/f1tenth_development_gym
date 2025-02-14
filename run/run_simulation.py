@@ -250,10 +250,9 @@ class RacingSimulation:
             
             e.info_label.x = left - 150 
             e.info_label.y = top +750
-
-        for driver in self.drivers:
-            if hasattr(driver, 'render'):
-                driver.render(env_renderer)
+            main_driver = self.drivers[0]
+            if hasattr(main_driver, 'render'):
+                main_driver.render(env_renderer)
 
 
     

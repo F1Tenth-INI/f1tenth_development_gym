@@ -61,6 +61,7 @@ class RenderUtils:
 
         self.waypoint_visualization_color = (180, 180, 180)
         self.next_waypoint_visualization_color = (0, 127, 0)
+        self.next_waypoints_alternative_visualization_color = (127, 0, 127)
         self.lidar_visualization_color = (255, 0, 255)
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
@@ -73,6 +74,7 @@ class RenderUtils:
 
         self.waypoint_vertices = None
         self.next_waypoint_vertices = None
+        self.next_waypoints_alternative_vertices = None
         self.lidar_vertices = None
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
@@ -82,7 +84,9 @@ class RenderUtils:
         self.emergency_slowdown_lines = []
 
         self.waypoints = None
+        self.waypoints_alternative = None
         self.next_waypoints = None
+        self.next_waypoints_alternative = None
         self.lidar_border_points = None
         self.rollout_trajectory = None
         self.traj_cost =None
@@ -113,6 +117,7 @@ class RenderUtils:
                largest_gap_middle_point=None, 
                target_point=None, 
                next_waypoints=None,
+               next_waypoints_alternative=None,
                car_state = None,
                emergency_slowdown_sprites=None,
                ):
@@ -125,6 +130,7 @@ class RenderUtils:
         if(largest_gap_middle_point is not None): self.largest_gap_middle_point = largest_gap_middle_point
         if(target_point is not None): self.target_point = target_point
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
+        if(next_waypoints_alternative is not None): self.next_waypoints_alternative = next_waypoints_alternative
         if(car_state is not None): self.car_state = car_state
         if emergency_slowdown_sprites is not None: self.emergency_slowdown_sprites = emergency_slowdown_sprites
 
@@ -177,13 +183,29 @@ class RenderUtils:
         # Waypoints
         gl.glPointSize(1)
         if self.draw_waypoints:        
-            scaled_points = RenderUtils.get_scaled_points( self.waypoints )
+
+            waypoints = self.waypoints
+            if self.waypoints_alternative is not None:
+                waypoints = np.vstack((self.waypoints, self.waypoints_alternative))
+
+
+            scaled_points = RenderUtils.get_scaled_points( waypoints )
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
             if self.waypoint_vertices is None: # Render only once
                 self.waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
                                                ('c3B', self.waypoint_visualization_color * howmany))
-   
+
+        if self.draw_next_waypoints and self.next_waypoints_alternative is not None:
+            scaled_points = RenderUtils.get_scaled_points(self.next_waypoints_alternative)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            if self.next_waypoints_alternative_vertices is None:
+                self.next_waypoints_alternative_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                               ('c3B', self.next_waypoints_alternative_visualization_color * howmany))
+            else:
+                self.next_waypoints_alternative_vertices.vertices = scaled_points_flat
+                
                 
         if self.draw_next_waypoints and self.next_waypoints is not None:
             scaled_points = RenderUtils.get_scaled_points(self.next_waypoints)
@@ -195,6 +217,7 @@ class RenderUtils:
             else:
                 self.next_waypoint_vertices.vertices = scaled_points_flat
                 
+     
         gl.glPointSize(3)
         
         

@@ -54,11 +54,12 @@ class Settings():
     # Oponents
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.2
+    OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
     
     # Head2Head Settings
-    STOP_IF_OBSTACLE_IN_FRONT = True
+    STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
+    SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = True # Slow down if obstacle is close to the next waypoints
     ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
     
     # Random Obstacles
@@ -97,7 +98,7 @@ class Settings():
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
 
     AUTOMATIC_SECTOR_TUNING = False
     
