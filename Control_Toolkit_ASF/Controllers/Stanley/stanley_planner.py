@@ -5,12 +5,11 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers import template_controller
 
 from utilities.Settings import Settings
+from utilities.waypoint_utils import WaypointUtils
 
 if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
     from utilities.render_utilities_ros import RenderUtils
 else:
-    from utilities.waypoint_utils import WaypointUtils
     from utilities.render_utilities import RenderUtils
 
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_PSI_IDX
