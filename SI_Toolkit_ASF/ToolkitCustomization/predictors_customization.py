@@ -15,7 +15,9 @@ class next_state_predictor_ODE():
                  lib,
                  batch_size=1,
                  variable_parameters=None,
-                 disable_individual_compilation=False):
+                 disable_individual_compilation=False,
+                 **kwargs,
+                 ):
         
         import tensorflow as tf # Lazy import to avoid 
         self.s = tf.convert_to_tensor(create_car_state())
@@ -24,6 +26,11 @@ class next_state_predictor_ODE():
 
         self.intermediate_steps = intermediate_steps
         self.t_step = dt / float(self.intermediate_steps)
+
+        if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
+            self.core_dynamics_only = True
+        else:
+            self.core_dynamics_only = False
 
         if environment_name == 'Car':
             from SI_Toolkit_ASF.car_model import car_model
@@ -48,7 +55,10 @@ class next_state_predictor_ODE():
 
     def _step(self, s, Q):
 
-        s_next = self.env.step_dynamics(s, Q)
+        if self.core_dynamics_only:
+            s_next = self.env.step_dynamics_core(s, Q)
+        else:
+            s_next = self.env.step_dynamics(s, Q)
         return s_next
 
 
