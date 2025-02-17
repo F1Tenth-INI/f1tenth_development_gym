@@ -79,16 +79,14 @@ class mpc_planner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        self.LIDAR.load_lidar_measurement(ranges)
+        self.LIDAR.update_ranges(ranges)
 
         if Settings.LIDAR_CORRUPT:
             self.LIDAR.corrupt_lidar_set_indices()
             self.LIDAR.corrupt_scans()
 
 
-        self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
-            self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
-        )
+        self.lidar_points = self.LIDAR.processed_points_map_coordinates
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"

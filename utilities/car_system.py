@@ -208,18 +208,16 @@ class CarSystem:
         # if hasattr(self.planner, 'mu_predicted'):
         #     imu_dict['mu_predicted'] = self.planner.mu_predicted
         
-        
         ranges = np.array(ranges)
-        self.LIDAR.load_lidar_measurement(ranges)
-        lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
-            car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
+        self.LIDAR.update_ranges(ranges, car_state)
+        lidar_points = self.LIDAR.processed_points_relative_to_car
         
         self.waypoint_utils.update_next_waypoints(car_state)
-        self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points[::20])
+        self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points)
 
         if self.waypoint_utils_alternative is not None:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
-            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(lidar_points[::20])
+            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(lidar_points)
 
 
 

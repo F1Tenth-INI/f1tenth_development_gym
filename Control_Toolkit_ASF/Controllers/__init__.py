@@ -11,7 +11,7 @@ class template_planner(ABC):
         self.friction_value = None
 
         self.LIDAR = LidarHelper()
-        self.lidar_points = self.LIDAR.points_map_coordinates
+        self.lidar_points = self.LIDAR.processed_points_map_coordinates
 
         self.waypoints = None
         self.nearest_waypoint_index = None

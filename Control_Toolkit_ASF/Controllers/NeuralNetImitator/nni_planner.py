@@ -45,7 +45,7 @@ class NeuralNetImitatorPlanner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        self.LIDAR.load_lidar_measurement(ranges)
+        self.LIDAR.update_ranges(ranges)
 
         if Settings.LIDAR_CORRUPT:
             self.LIDAR.corrupt_lidar_set_indices()
@@ -62,8 +62,8 @@ class NeuralNetImitatorPlanner(template_planner):
         # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
         # Lidar dict
-        lidar_keys = self.LIDAR.get_all_lidar_scans_names()
-        lidar_values = self.LIDAR.all_lidar_scans
+        lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
+        lidar_values = self.LIDAR.all_lidar_ranges
         lidar_dict = dict(zip(lidar_keys, lidar_values))
 
         # Waypoint dict
