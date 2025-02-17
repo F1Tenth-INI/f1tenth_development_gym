@@ -55,7 +55,7 @@ class RenderUtils:
     def __init__(self):
 
         self.draw_lidar_data = True
-        self.draw_position_history = False
+        self.draw_position_history = True
         self.draw_waypoints = True
         self.draw_next_waypoints = True
 
@@ -91,6 +91,9 @@ class RenderUtils:
         self.target_point = None
         self.car_state = None
         self.obstacles = None
+
+        self.past_car_states_alternative = None
+        self.past_car_states_alternative_vertices = None
         
         self.steering_direction = None
 
@@ -115,6 +118,7 @@ class RenderUtils:
                next_waypoints=None,
                car_state = None,
                emergency_slowdown_sprites=None,
+               past_car_states_alternative=None,
                ):
         
         
@@ -127,6 +131,7 @@ class RenderUtils:
         if(next_waypoints is not None): self.next_waypoints = next_waypoints
         if(car_state is not None): self.car_state = car_state
         if emergency_slowdown_sprites is not None: self.emergency_slowdown_sprites = emergency_slowdown_sprites
+        if past_car_states_alternative is not None: self.past_car_states_alternative = past_car_states_alternative
 
         
 
@@ -237,6 +242,16 @@ class RenderUtils:
                 e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
                             ('c3B',color))
 
+        if self.past_car_states_alternative is not None:
+
+            if self.past_car_states_alternative_vertices is not None:
+                self.past_car_states_alternative_vertices.delete()
+            points = self.past_car_states_alternative[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_points = RenderUtils.get_scaled_points(points)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            self.past_car_states_alternative_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                           ('c3B', [255, 255, 0] * howmany))
     
         if self.draw_lidar_data: 
             if self.lidar_border_points is not None:
