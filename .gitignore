@@ -54,6 +54,9 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/ETF1
 !utilities/maps/ini10
 !utilities/maps/RCA1
+!utilities/maps/RCA2
+!utilities/maps/Milan1
+!utilities/maps/Germany2022
 
 
 # TrainingLite
@@ -71,3 +74,5 @@ Datasets/
 AnalyseData/Desperate/*
 
 scripts/EulerCluster/out/*
+
+RaceTuner/CopiedSettings/*

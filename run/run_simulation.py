@@ -10,7 +10,6 @@ from tqdm import trange
 from argparse import Namespace
 
 from f110_gym.envs.base_classes import wrap_angle_rad
-from f110_gym.envs.dynamic_models_pacejka import StateIndices
 
 from utilities.Settings import Settings
 from utilities.car_system import CarSystem
@@ -22,149 +21,223 @@ from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_fol
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     full_state_alphabetical_to_original, full_state_original_to_alphabetical)
-
+from utilities.Exceptions import CarCrashException
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
-control_noise = [0, 0]
 
 
-# Noise Level can now be set in Settings.py
-def add_noise(x, noise_level=1.0):
-    return x+noise_level*np.random.uniform(-1.0, 1.0)
 
+class RacingSimulation:
 
-control_with_noise = np.zeros(2)
+    def __init__(self):
+        self.crash_repetition = 0
+        self.drivers = []
+        self.number_of_drivers = 0
+        self.starting_positions = []
 
-repeat_because_of_crash = None
+        self.start_time = time.time()
+        self.sim_time = 0.0
+        self.sim_index = 0
 
-def main():
-    """
-    main entry point
-    """
-    global repeat_because_of_crash
-    repeat_because_of_crash = False
-    if Settings.REPLAY_RECORDING:
-        state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
-        time_axis = state_recording['time'].to_numpy()
-        state_recording = state_recording[STATE_VARIABLES].to_numpy()
-    else:
-        state_recording = None
+        self.obs = {}
+        self.step_reward = 0
+        self.done = False
+        self.info = None
 
-    # Config
-    # overwrite config.yaml files 
-    map_config_file = Settings.MAP_CONFIG_FILE
+        self.agent_controls_calculated = []
+        self.control_delay_buffer = []
+        self.laptime = 0.0
+
+        self.env = None
+        self.laptime = 0.0
+
+        self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+
+        self.state_recording = None
+        if Settings.REPLAY_RECORDING:
+            self.state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
+            self.time_axis = self.state_recording['time'].to_numpy()
+            self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
     
-    vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
+    '''
+    Run a number of experiments including repetitions on crash as defined in Settings
+    '''
+    def run_experiments(self):
 
-    # First planner settings
-    driver = CarSystem(Settings.CONTROLLER)
-
-    if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
-        driver.launch_tuner_connector()
-
-    opponents = []
-    waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
-    for i in range(Settings.NUMBER_OF_OPPONENTS):
-        opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
-        opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
-        opponent.save_recordings = False
-        opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
-        opponents.append(opponent)
-
-    ##################### DEFINE DRIVERS HERE #####################
-
-    drivers = [driver] + opponents
-
-    ###############################################################
-
-    number_of_drivers = len(drivers)
+        number_of_experiments = Settings.NUMBER_OF_EXPERIMENTS
+        i = 0
+        while i < number_of_experiments:
+            try:
+                print(f'Experiment nr.: {i + 1}')
+                self.prepare_simulation()
+                self.run_simulation()
+            except CarCrashException as e:
+                print("the car crashed.")
+                if(Settings.REPEAT_IF_CRASHED):
+                    if self.crash_repetition < Settings.MAX_CRASH_REPETITIONS:
+                        self.crash_repetition += 1
+                        number_of_experiments += 1
+                        print("Repeating experiment", self.crash_repetition)
+                    else:
+                        print(f"Max number of crash repetitions ({Settings.MAX_CRASH_REPETITIONS}) reached. Exiting.")
+                        raise Exception("Max number of crash repetitions reached.")
+                else:
+                    print("Crash repetition disabled. Exiting.")
+                    raise Exception("Crash repetition disabled.")
+            i += 1
+                
     
-    # Control can be executed delays ( as on physical car )
-    # Control steps are first have to go throuh the control delay buffer before they are executed
-    control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
-    
-    
-    
-    # control_delay_buffer =  control_delay_steps * [[[0.0, 0.1], [0.0, 0.1], [0.0, 0.1], [0.0, 0.1]]]
-    control_delay_buffer = [[[0.0, 0.1] for j in range(number_of_drivers)] for i in range(control_delay_steps)] 
-    
-    print("initializing environment with", number_of_drivers, "drivers")
+    def prepare_simulation(self):
+        self.init_drivers()
+        self.get_starting_positions()
+        self.setup_gym_environment()
 
-    with open(map_config_file) as file:
-        conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+
+        self.sim_time = 0.0
+        self.sim_index = 0
+
+        print("initializing environment with", self.number_of_drivers, "drivers")
+
+
+    def setup_gym_environment(self):
+        racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
+
+        # Tobi: Place random obstacles on the track
+        if(Settings.PLACE_RANDOM_OBSTACLES):
+            random_obstacle_creator = RandomObstacleCreator()
+            racetrack=random_obstacle_creator.add_random_obstacles(racetrack, self.starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
+
+        self.env = gym.make('f110-v0', map=racetrack, map_ext=".png", num_agents=len(self.drivers))
+        self.env.add_render_callback(self.render_callback)
+        assert(self.env.timestep == 0.01)
+
+    '''
+    Initialize the drivers (car_systems) for the simulation:
+    First driver is the main car, the others are opponents as defined in Settings.NUMBER_OF_OPPONENTS
+    '''
+    def init_drivers(self):
+        # First planner settings
+        driver = CarSystem(Settings.CONTROLLER)
+
+        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+            driver.launch_tuner_connector()
+
+        opponents = []
+        waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
+        for i in range(Settings.NUMBER_OF_OPPONENTS):
+            opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
+            opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
+            opponent.save_recordings = False
+            opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
+            opponents.append(opponent)
+
+
+        self.drivers = [driver] + opponents
+        self.number_of_drivers = len(self.drivers)
+
+        # Init recorder
+        main_driver = self.drivers[0]
+        if Settings.SAVE_RECORDINGS and main_driver.save_recordings:
+            main_driver.recorder.start_csv_recording()
+            # TODO: fix
+            # main_driver.recorder.dict_data_to_save_basic.update(
+            #     {
+            #         'lap_times': lambda: self.obs['lap_times'],
+            #         'time': lambda: self.sim_time,
+            #         'sim_index': lambda: self.sim_index,
+            #     }
+            # )
+
+
+        # Populate control delay buffer
+        control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
+
+
+    def run_simulation(self):
+
+        # Reset env
+        self.obs, self.step_reward, self.done, self.info = self.env.reset(poses=np.array(self.starting_positions) )
     
-    conf = Namespace(**conf_dict)
+        # Main loop
+        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.EXPERIMENT_LENGTH
+        for _ in trange(experiment_length):
+
+            self.simulation_step()
+
+        self.env.close()
+
+        self.handle_recording_end()
+
+        print('Sim elapsed time:', self.laptime, 'Real elapsed time:', time.time()-self.start_time)
+        print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(self.obs['lap_times']), 's')
+        # End of similation
+
+    def simulation_step(self):
+
+        agent_controls_execute = self.get_agent_controls()
+
+        # From here on, controls have to be in [steering angle, speed ]
+        self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
+
+
+        self.laptime += self.step_reward
+        self.sim_time += Settings.TIMESTEP_CONTROL
+        self.sim_index += 1
+
+    
+        self.check_and_handle_collisions()
+        self.handle_recording_step()
+        self.render_env()
+
         
-    # Determine Starting positions
-    
-    if hasattr(conf, 'starting_positions'):
-        starting_positions =  conf.starting_positions[0:number_of_drivers]
-    else:
-        print("No starting positions in INI.yaml. Taking value from settings.py")
-        starting_positions = Settings.STARTING_POSITION
 
-    if(len(starting_positions) < number_of_drivers):
-        print("No starting positions found")
-        print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-        print("You can also let oponents start at random waypoint positions")
-        exit()
-    
-          
-    
-    # Starting from random position near a waypoint
-    if Settings.START_FROM_RANDOM_POSITION:
-        import random
-        
-        wu = WaypointUtils()
-        random_wp = random.choice(wu.waypoints)
-        # random_wp[WP_PSI_IDX] -= 0.5 * np.pi
-        # random_wp[2] += 0.5 * np.pi
-        random_wp[WP_X_IDX] += random.uniform(0., 0.2)
-        random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
-        random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-        
-        starting_positions[0] = random_wp[1:4]
-        print("Starting position: ", random_wp[1:4])
-        
-        if Settings.REVERSE_DIRECTION:
-            starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
-            
-    if Settings.REVERSE_DIRECTION:
-        starting_positions = [[0,0,-3.0]]
-        new_starting_positions = []
-        # starting_positions = conf_dict['starting_positions']
-        for starting_position in starting_positions:
-            starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
-            new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-            print(new_starting_positions)
-        conf_dict['starting_positions'] = new_starting_positions
-        # conf_dict['starting_positions'] = starting_positions
-        # print(conf_dict['starting_positions'])
+        # End of controller time step
+
+
+    def get_agent_controls(self):
+        ranges = self.obs['scans']
+
+        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
+        if self.sim_index % intermediate_steps == 0:
+
+            self.agent_controls_calculated = []
+
+            #Process observations and get control actions
+            for index, driver in enumerate(self.drivers):
+                self.update_driver_state(driver, index)
+
+                # Get control actions from driver 
+                angular_control, translational_control = driver.process_observation(ranges[index], None)
+
+                control_with_noise = self.add_control_noise([angular_control, translational_control])
+                self.agent_controls_calculated.append(control_with_noise)
+
+        # Control delay buffer
+        self.control_delay_buffer.append(self.agent_controls_calculated)        
+        agent_controls_execute  = self.control_delay_buffer.pop(0)
+
+        # shape: [number_of_drivers, 2]
+        return agent_controls_execute
+
         
 
-
-    def get_odom(obs, agent_index, drivers):
-        
-        odom = {
-            'pose_x': drivers[agent_index].car_state[POSE_X_IDX],
-            'pose_y': drivers[agent_index].car_state[POSE_Y_IDX],
-            'pose_theta': drivers[agent_index].car_state[POSE_THETA_IDX],
-            'linear_vel_x': drivers[agent_index].car_state[LINEAR_VEL_X_IDX],
-            'linear_vel_y': 0, #drivers[agent_index].car_state[LINEAR_VEL_Y_IDX],
-            'angular_vel_z': drivers[agent_index].car_state[ANGULAR_VEL_Z_IDX],
-        }
-        return odom
+    def render_env(self):
+        # Render the environment
+        if Settings.RENDER_MODE is not None:
+            self.env.render(mode=Settings.RENDER_MODE)
 
 
-    def render_callback(env_renderer):
-        # custom extra drawing function
-
+    '''
+    This function is called by the environment renderer to render additional information on the screen
+    env_renderer: pyglet env_renderer object
+    '''
+    def render_callback(self, env_renderer):
         e = env_renderer
-        
         if Settings.CAMERA_AUTO_FOLLOW:
             # update camera to follow car
             x = e.cars[0].vertices[::2]
@@ -180,227 +253,145 @@ def main():
             
             e.info_label.x = left - 150 
             e.info_label.y = top +750
+            main_driver = self.drivers[0]
+            if hasattr(main_driver, 'render'):
+                main_driver.render(env_renderer)
 
-        for driver in drivers:
-            if hasattr(driver, 'render'):
-                driver.render(env_renderer)
-        
-    racetrack = os.path.join(Settings.MAP_PATH,Settings.MAP_NAME)
+
     
-        
-            
-    
-    # Tobi: Place random obstacles on the track
-    # For obstacle settings, look @ random_obstacles.yaml
-    if(Settings.PLACE_RANDOM_OBSTACLES):
-        random_obstacle_creator = RandomObstacleCreator()
-        racetrack=random_obstacle_creator.add_random_obstacles(racetrack, starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
-
-
-    env = gym.make('f110-v0', map=racetrack, map_ext=".png", num_agents=number_of_drivers)
-    env.add_render_callback(render_callback)
-    assert(env.timestep == 0.01)
-    current_time_in_simulation = 0.0
-    cars = [env.sim.agents[i] for i in range(number_of_drivers)]
-    obs, step_reward, done, info = env.reset(poses=np.array(starting_positions) )
-
-    for index, driver in enumerate(drivers):
-        if Settings.SAVE_RECORDINGS and driver.save_recordings:
-            driver.recorder.dict_data_to_save_basic.update(
-                {
-                    'translational_control_applied': lambda: control_with_noise[0],
-                    'angular_control_applied': lambda: control_with_noise[1],
-                    'v_y': lambda: env.sim.agents[index].state[StateIndices.v_y],
-                    'mu': lambda: vehicle_parameters_instance.mu,
-                    # 'estimated_mu': lambda: driver.estimated_mu,
-                }
-            )
-            driver.recorder.start_csv_recording()
-    
-    # Set Starting position for Settings
-    
-    Settings.STARTING_POSITION = starting_positions
-
-    if Settings.RENDER_MODE is not None:
-        env.render()
-
-    # Add Keyboard event listener
-
-    if Settings.KEYBOARD_INPUT_ENABLE:
-        # Run it from pycharm terminal first to receive a prompt to allow for keyboard input
-        from pynput import keyboard
-        def on_press(key):
-            if key == keyboard.Key.space:
-                Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()  # start to listen on a separate thread
-
-    laptime = 0.0
-    start = time.time()
-
-    render_index = 0
-
-    real_slip_vec = []
-    real_steer_vec = []
-
-    est_slip_vec = []
-    est_steer_vec = []
-
-    if Settings.REPLAY_RECORDING:
-        experiment_length = len(state_recording)
-    else:
-        experiment_length = Settings.EXPERIMENT_LENGTH
-
-    for simulation_index in trange(experiment_length):
-        if done:
-            break
-
-        ranges = obs['scans']
-
-        for index, driver in enumerate(drivers):
-            if Settings.REPLAY_RECORDING:
-                # sleep(0.05)
-                driver.set_car_state(state_recording[simulation_index])
-                odom = get_odom(obs, index, drivers)
-                env.sim.agents[index].state = full_state_alphabetical_to_original(driver.car_state)
-            else:
-                odom = get_odom(obs, index, drivers)
-                odom.update({'pose_theta_cos': np.cos(odom['pose_theta'])})
-                odom.update({'pose_theta_sin': np.sin(odom['pose_theta'])})
-                # Add Noise to the car state
-                car_state_without_noise = full_state_original_to_alphabetical(env.sim.agents[index].state)  # Get the driver's true car state in case it is needed
-                car_state_with_noise = np.zeros(len(STATE_VARIABLES))
-                for state_index in range(len(car_state_with_noise)):
-                    car_state_with_noise[state_index] = add_noise(car_state_without_noise[state_index], Settings.NOISE_LEVEL_CAR_STATE[state_index])
-                # Do not add noise to cosine and sine values, since they are calculated anyways from the noisy pose_theta
-                car_state_with_noise[POSE_THETA_COS_IDX] = np.cos(car_state_with_noise[POSE_THETA_IDX])
-                car_state_with_noise[POSE_THETA_SIN_IDX] = np.sin(car_state_with_noise[POSE_THETA_IDX])
-                
-                driver.set_car_state(car_state_with_noise)
-
-            ### GOES TO MPC PLANNER PROCESS OBSERVATION
-            start_control = time.time()
-            angular_control, translational_control = driver.process_observation(ranges[index], odom)
-            end = time.time()-start_control
-            # print("time for 1 step:", end)
-        
-
-        if Settings.RENDER_MODE is not None:
-            env.render(mode=Settings.RENDER_MODE)
-            render_index += 1
-
-        # Get noisy control for each driver:
-        agent_control_with_noise = []
-        
-        if(simulation_index % Settings.CONTROL_NOISE_DURATION == 0):
-             control_noise =  np.array(Settings.NOISE_LEVEL_CONTROL) *  np.random.uniform(-1, 1, 2)
-            
-        for index, driver in enumerate(drivers):
-
-            control_with_noise = np.array([driver.angular_control, driver.translational_control]) + control_noise
-            # control_with_noise[:] = np.array([driver.angular_control, driver.translational_control]) + control_noise
-
-            agent_control_with_noise.append(control_with_noise)
-
-        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        # Add zero angle offset to the steering angle
-        if Settings.ZERO_ANGLE_OFFSET is not None:
-            env.sim.agents[index].state[StateIndices.steering_angle] = env.sim.agents[index].state[StateIndices.steering_angle] + Settings.ZERO_ANGLE_OFFSET
-            
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/env.timestep)
-        for i in range(int(intermediate_steps)):
-            
-            control_delay_buffer.append(agent_control_with_noise)        
-            agent_control_executed  = control_delay_buffer.pop(0)
-            
-            # Check if PID controller needs to be applied
-            controlls = []
-            for index, driver in enumerate(drivers):
-                angular_control_ecexuted, translational_control_executed = agent_control_executed[index]
-
-                controlls.append([angular_control_ecexuted , translational_control_executed]) # Steering velocity, acceleration
-
-            # From here on, controls have to be in [steering angle, speed ]
-            obs, step_reward, done, info = env.step(np.array(controlls))
-            laptime += step_reward
-            
-            # Collision ends simulation
-            if Settings.CRASH_DETECTION:
-                if obs['collisions'][0] == 1:
-                    for index, driver in enumerate(drivers):
-                        if Settings.SAVE_RECORDINGS and driver.save_recordings:
-                            driver.recorder.finish_csv_recording()
-                            if Settings.SAVE_PLOTS:
-                                path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
-                            else:
-                                path_to_plots = None
-                            move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
-
-                    if Settings.REPEAT_IF_CRASHED:
-                        repeat_because_of_crash = True
-                        break
-                    else:
-                        raise Exception("The car has crashed.")
-
-        if repeat_because_of_crash:
-            break
-
-        for driver in drivers:
-            if driver.tuner_connector is not None:
-                driver.tuner_connector.update_car_state(
-                    {
-                        'car_x': driver.car_state[POSE_X_IDX],
-                        'car_y': driver.car_state[POSE_Y_IDX],
-                        'car_v': driver.car_state[LINEAR_VEL_X_IDX],
-                        'idx_global': float(driver.waypoint_utils.next_waypoints[0, -1]),
-                        'time': driver.time,
-                    }
-                )
-
-        # End of controller time step
-        if Settings.SAVE_RECORDINGS:
-            for index, driver in enumerate(drivers):
-                if driver.save_recordings:
-                    driver.recorder.step()
-
-        current_time_in_simulation += Settings.TIMESTEP_CONTROL
-
-    if repeat_because_of_crash:
-        env.close()
-        return
-    # End of similation
-    if Settings.SAVE_RECORDINGS:
-        for index, driver in enumerate(drivers):
-            if driver.save_recordings:
-                if driver.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
-                    augment_csv_header_with_laptime(laptime, obs, Settings, driver.recorder.csv_filepath)
-                driver.recorder.finish_csv_recording()
-                if Settings.SAVE_PLOTS:
-                    save_experiment_data(driver.recorder.csv_filepath)
-    
-    env.close()
-
-    print('Sim elapsed time:', laptime, 'Real elapsed time:', time.time()-start)
-    print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(obs['lap_times']), 's')
-
-def run_experiments():
-    for i in range(Settings.NUMBER_OF_EXPERIMENTS):
-        print('Experiment nr.: {}'.format(i+1))
-
-        global repeat_because_of_crash
-        while repeat_because_of_crash in (True, None):
-            if Settings.EXPERIMENTS_IN_SEPARATE_PROGRAMS:
-                import subprocess
-                import sys
-                program = '''
-    from run.run_simulation import main
-    main()
     '''
-                result = subprocess.run([sys.executable, "-c", program])
-            else:
-                main()
+    Get starting positions from map config file
+    or Settings
+    or random waypoint
+    '''
+    def get_starting_positions(self):
+        map_config_file = Settings.MAP_CONFIG_FILE
 
-        repeat_because_of_crash = None
+        with open(map_config_file) as file:
+            conf_dict = yaml.load(file, Loader=yaml.FullLoader)
+            conf = Namespace(**conf_dict)
+
+
+        # Determine Starting positions
+        if hasattr(conf, 'starting_positions'):
+            starting_positions =  conf.starting_positions[0:self.number_of_drivers]
+        else:
+            print("No starting positions in INI.yaml. Taking value from settings.py")
+            starting_positions = Settings.STARTING_POSITION
+
+        if(len(starting_positions) < self.number_of_drivers):
+            print("No starting positions found.")
+            print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+            print("You can also let oponents start at random waypoint positions")
+            exit()
+        
+            
+        
+        # Starting from random position near a waypoint
+        if Settings.START_FROM_RANDOM_POSITION:
+            import random
+            
+            wu = WaypointUtils()
+            random_wp = random.choice(wu.waypoints)
+            random_wp[WP_X_IDX] += random.uniform(0., 0.2)
+            random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
+            random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+            
+            starting_positions[0] = random_wp[1:4]
+            print("Starting position: ", random_wp[1:4])
+            
+            if Settings.REVERSE_DIRECTION:
+                starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
+                
+        if Settings.REVERSE_DIRECTION:
+            starting_positions = [[0,0,-3.0]]
+            new_starting_positions = []
+            # starting_positions = conf_dict['starting_positions']
+            for starting_position in starting_positions:
+                starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
+                new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
+                print(new_starting_positions)
+            conf.starting_positions = new_starting_positions
+        
+        self.starting_positions = starting_positions
+        Settings.STARTING_POSITION = starting_positions
+
+
+    
+    '''
+    Update the driver state with the current car state
+    Either from gym env or recording
+    '''
+    def update_driver_state(self, driver, agent_index):
+        if Settings.REPLAY_RECORDING:
+            driver.set_car_state(self.state_recording[self.sim_index])
+            self.env.sim.agents[agent_index].state = full_state_alphabetical_to_original(driver.car_state)
+        else:
+            car_state = full_state_original_to_alphabetical(self.env.sim.agents[agent_index].state) 
+            car_state_with_noise = self.add_state_noise(car_state)
+            driver.set_car_state(car_state_with_noise)
+
+
+    # Noise Level can now be set in Settings.py
+    def add_state_noise(self, state):
+
+        noise_level = Settings.NOISE_LEVEL_CAR_STATE
+        noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
+        state_with_noise = state + noise_array
+        
+        # Recalculate sin and cos of theta
+        state_with_noise[POSE_THETA_COS_IDX] = np.cos(state_with_noise[POSE_THETA_IDX])
+        state_with_noise[POSE_THETA_SIN_IDX] = np.sin(state_with_noise[POSE_THETA_IDX])
+                
+        return state_with_noise
+
+    def add_control_noise(self, control):
+        noise_level = Settings.NOISE_LEVEL_CONTROL
+        noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
+        control_with_noise = control + noise_array
+        return control_with_noise
+
+    '''
+    Recorder function that is called at every step
+    '''
+    def handle_recording_step(self):
+        if Settings.SAVE_RECORDINGS:
+                for index, driver in enumerate(self.drivers):
+                    if driver.save_recordings:
+                        driver.recorder.step()
+
+    '''
+    Recorder function that is called at the end of experiment
+    '''
+    def handle_recording_end(self):
+        if Settings.SAVE_RECORDINGS:
+            for index, driver in enumerate(self.drivers):
+                if driver.save_recordings:
+                    if driver.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
+                        augment_csv_header_with_laptime(self.laptime, self.obs, Settings, driver.recorder.csv_filepath)
+                    driver.recorder.finish_csv_recording()
+                    if Settings.SAVE_PLOTS:
+                        save_experiment_data(driver.recorder.csv_filepath)
+
+
+    def check_and_handle_collisions(self):
+        # Collision ends simulation
+        if Settings.CRASH_DETECTION:
+            if self.obs['collisions'][0] == 1:
+                for index, driver in enumerate(self.drivers):
+                    if Settings.SAVE_RECORDINGS and driver.save_recordings:
+                        driver.recorder.finish_csv_recording()
+                        if Settings.SAVE_PLOTS:
+                            path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
+                        else:
+                            path_to_plots = None
+                        move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
+
+                raise CarCrashException('car crashed')
+
+   
 
 if __name__ == '__main__':
-    run_experiments()
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()

@@ -1,5 +1,5 @@
 free_thresh: 0.196
-image: Milan1.png
+image: Milan1_wp_min_curve.png
 negate: 0
 occupied_thresh: 0.45
 origin:

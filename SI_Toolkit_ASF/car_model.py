@@ -154,7 +154,7 @@ class car_model:
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         for _ in range(self.intermediate_steps):
-            v_x = self.lib.where(v_x == 0, self.lib.constant(1e-8, self.lib.float32), v_x)
+            v_x = self.lib.where(v_x == 0, self.lib.constant(1e-5, self.lib.float32), v_x)
             alpha_f = -self.lib.atan((v_y + psi_dot * lf) / (v_x)) + delta
             alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x )
 
@@ -253,6 +253,9 @@ class car_model:
         return steering_velocity
 
     def accl_constraints(self, vel, accl):
+
+        # velocity too low
+        vel = self.lib.where(vel == 0, self.lib.constant(0.0001, self.lib.float32), vel)
 
         # positive accl limit
         velocity_too_high_indices = self.lib.greater(vel, self.car_parameters.v_switch)

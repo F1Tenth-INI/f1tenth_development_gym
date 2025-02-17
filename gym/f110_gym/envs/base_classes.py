@@ -35,8 +35,7 @@ import numpy as np
 from numba import njit
 
 from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
-from f110_gym.envs.dynamic_models_pacejka import DynamicModelPacejka,StateIndices
-
+from f110_gym.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
 
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
@@ -44,6 +43,7 @@ from f110_gym.envs.collision_models import get_vertices, collision_multiple
 from SI_Toolkit_ASF.car_model import car_model
 from utilities.Settings import Settings
 from utilities.state_utilities import *
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -105,14 +105,13 @@ class RaceCar(object):
         self.fov = fov
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
-        self.dynamic_model = DynamicModelPacejka(dt=0.01)
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
-        self.state = np.zeros((DynamicModelPacejka.number_of_states, ))
+        self.state = np.zeros((StateIndices.number_of_states, ))
         if self.ode_implementation == 'ODE_TF':
             self.car_model = car_model(
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
@@ -127,8 +126,16 @@ class RaceCar(object):
             # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
             # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
             self.step_dynamics = self.car_model.step_dynamics
+            
+        if self.ode_implementation == 'jit_Pacejka':
+            self.step_dynamics = car_dynamics_pacejka_jit
+            u = np.array([0,0])
+            
+            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            self.car_params_array = car_params.to_np_array()
+            
+            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
 
-       
         # pose of opponents in the world
         self.opp_poses = None
 
@@ -322,6 +329,11 @@ class RaceCar(object):
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
             self.state = full_state_alphabetical_to_original(s)
             
+
+        
+        elif self.ode_implementation == 'jit_Pacejka':
+            u = np.array([desired_steering_angle, desired_speed])
+            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")

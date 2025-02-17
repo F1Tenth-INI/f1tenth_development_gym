@@ -54,6 +54,19 @@ And then install the SI_Toolkit again
 python -m pip install --user -e ./SI_Toolkit
 ```
 
+## Quality of life
+Add the aliases to .bashrc
+```bash
+echo -e "\nalias f1t='conda activate f1t'\nalias pypa='export PYTHONPATH=./'" >> ~/.bashrc
+source ~/.bashrc 
+```
+
+now you can use them like this
+```bash
+f1t
+pypa
+```
+
 ## Run
 
 Run the simulation

@@ -12,10 +12,7 @@ from utilities.state_utilities import (
     control_limits_high,
 )
 
-if(Settings.ROS_BRIDGE):
-    from utilities.waypoint_utils_ros import WaypointUtils
-else:
-    from utilities.waypoint_utils import WaypointUtils
+from utilities.waypoint_utils import WaypointUtils
 from utilities.render_utilities import RenderUtils
 
 
@@ -132,6 +129,7 @@ class mpc_planner(template_planner):
             self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
+            self.optimal_trajectory = optimal_trajectory
         if hasattr(self.mpc.optimizer, 'optimal_control_sequence') and self.mpc.optimizer.optimal_control_sequence is not None:
             self.optimal_control_sequence = self.mpc.optimizer.optimal_control_sequence[0]
         if self.mpc.controller_logging:

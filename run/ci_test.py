@@ -1,7 +1,5 @@
 # This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
 
-# exit()
-
 if __name__ == "__main__":
     
     import os
@@ -12,7 +10,8 @@ if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.dirname(current_dir)
     sys.path.append(parent_dir)
-    from utilities.Settings import Settings 
+    from utilities.Settings import Settings # Settings need to be imported first, so that they can be overwritten
+    time.sleep(1)
     
 
     # Global Settings
@@ -29,17 +28,18 @@ if __name__ == "__main__":
     Settings.SURFACE_FRICITON = 0.75
 
 
-    time.sleep(1)
 
 
     # Test: Run the simulation with the PP controller on the RCA2 map (without delay)
     Settings.CONTROLLER = 'pp'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.6 
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.5 
     Settings.CONTROL_DELAY = 0.00
-
-    from run.run_simulation import run_experiments
     time.sleep(1)
-    run_experiments()
+
+    from run_simulation import RacingSimulation
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()
 
 
 
@@ -55,8 +55,8 @@ if __name__ == "__main__":
 
     time.sleep(1)
 
-    from run.run_simulation import run_experiments
-    time.sleep(1)
-    run_experiments()
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()
 
 
