@@ -4,15 +4,15 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation 'pacejka', ='ODE_TF' or implement a new one
-
+    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    
     ## Map ##
     MAP_NAME = "Milan1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.5  # Surface friction coefficient
+    SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -54,11 +54,12 @@ class Settings():
     # Oponents
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.2
+    OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
     
     # Head2Head Settings
-    STOP_IF_OBSTACLE_IN_FRONT = False
+    STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
+    SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = True # Slow down if obstacle is close to the next waypoints
     ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
     
     # Random Obstacles
@@ -97,11 +98,8 @@ class Settings():
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = None  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
-    
-    # Trailing behaviour
-    TRAIL_OBSTACLES_NEAR_RACELINE = True
-    
+    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+
     AUTOMATIC_SECTOR_TUNING = False
     
 

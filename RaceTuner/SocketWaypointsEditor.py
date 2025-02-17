@@ -9,16 +9,24 @@ class SocketWatpointEditor:
         self.port = port
         self.sock = None
         self.lock = threading.Lock()
+        self.connection_attempts = 0
 
     def connect(self):
         """Establish a connection to the socket server."""
-        try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((self.host, self.port))
-            print(f"Connected to CarStateListener at {self.host}:{self.port}")
-        except socket.error as e:
-            print(f"Failed to connect to CarStateListener: {e}")
-            self.sock = None
+        if self.connection_attempts < 5:
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.settimeout(5.0)  # Timeout in seconds
+
+                self.sock.connect((self.host, self.port))
+                self.connection_attempts += 1
+                print(f"Connected to CarStateListener at {self.host}:{self.port}")
+            except socket.error as e:
+                print(f"Failed to connect to CarStateListener: {e}")
+                self.sock = None
+        elif self.connection_attempts == 5:
+            print("Connection attempts exceeded. Stopping further attempts.")
+            self.connection_attempts += 1
 
     def get_car_state(self):
         """Request and receive the latest car state."""
