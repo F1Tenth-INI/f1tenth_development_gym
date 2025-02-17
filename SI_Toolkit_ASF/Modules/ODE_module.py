@@ -34,7 +34,7 @@ class ODEModel(tf.keras.Model):
             batch_size=self.batch_size,
             car_parameter_file=car_parameter_file,
             dt=self.dt,
-            intermediate_steps=self.intermediate_steps
+            intermediate_steps=self.intermediate_steps,
             computation_lib=self.lib
         )
 

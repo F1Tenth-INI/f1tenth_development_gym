@@ -150,6 +150,7 @@ class Settings():
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
+    FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
     
     
     ### Other Settings ###
