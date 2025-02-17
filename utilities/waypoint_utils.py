@@ -95,7 +95,7 @@ class WaypointUtils:
         self.current_distance_to_raceline = 0
 
         self.global_limit = None
-        self.waypoints = None
+        self.waypoints = None # type: Optional[np.ndarray]
         self.waypoint_positions = None
 
         self.preprocess_waypoints()
@@ -302,7 +302,8 @@ class WaypointUtils:
     def add_sector(self):
         current_sector = self.sectors[self.sector_index]
         new_sector = np.zeros(4)
-        new_sector[SECTOR_START_IDX] = self.next_waypoints[0, WP_GLOBID_IDX] * Settings.DECREASE_RESOLUTION_FACTOR
+        # next_wp = self.next_waypoints[0, WP_GLOBID_IDX]
+        new_sector[SECTOR_START_IDX] = self.next_waypoints[0, WP_GLOBID_IDX]
         new_sector[SECTOR_SCALING_IDX] = self.sector_scaling
         new_sector[SECTOR_END_IDX] = current_sector[SECTOR_END_IDX]
 
