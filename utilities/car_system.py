@@ -75,7 +75,7 @@ class CarSystem:
         self.timesteps_on_current_raceline = 0
 
         self.render_utils = RenderUtils()
-        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions 
+        self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
 
         if self.waypoint_utils_alternative is not None:
             self.render_utils.waypoints_alternative = self.waypoint_utils_alternative.waypoint_positions
@@ -100,8 +100,6 @@ class CarSystem:
 
         if(hasattr(self.planner, 'render_utils')):
             self.planner.render_utils = self.render_utils
-        
-      
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
@@ -112,7 +110,7 @@ class CarSystem:
         self.tuner_connector = None
 
         self.emergency_slowdown = EmergencySlowdown()
-        
+
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
                 Loader=yaml.FullLoader
@@ -127,7 +125,7 @@ class CarSystem:
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
 
-            if Settings.CONTROLLER == 'mpc':    
+            if Settings.CONTROLLER == 'mpc':
                     self.predictor = self.planner.mpc.predictor
             # else:
             #     self.predictor = PredictorWrapper()
@@ -138,10 +136,11 @@ class CarSystem:
             #         computation_library=TensorFlowLibrary,
             #         predictor_specification="neural_parameter_determination"
             #     )
-                
+
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
-    
+
+
     def initialize_controller(self, controller: str):
         self.controller_name = controller
         if(controller is None):
@@ -176,7 +175,7 @@ class CarSystem:
         else:
             NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
             exit()
-            
+
         if(hasattr(self.planner, 'waypoint_utils')):
             self.planner.waypoint_utils = self.waypoint_utils
         if(hasattr(self.planner, 'LIDAR')):
@@ -193,16 +192,15 @@ class CarSystem:
     
     def render(self, e):
         self.render_utils.render(e)
-        
-    def process_observation(self, ranges=None, ego_odom=None):
-        then = time.time()
 
+    def process_observation(self, ranges=None, ego_odom=None):
+        
         
         if Settings.LIDAR_PLOT_SCANS:
             self.LIDAR.plot_lidar_data()
             
         car_state = self.car_state
-        
+
                 
         # imu_array = self.imu_simulator.update_car_state(car_state)
         # self.planner.imu_data = imu_array
@@ -235,10 +233,11 @@ class CarSystem:
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
-             
+
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
-                pass_data_to_planner(self.waypoints_planner, self.waypoint_utils.next_waypoints, car_state, obstacles)
+                next_interpolated_waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoint_utils.next_waypoints, Settings.INTERPOLATE_LOCA_WP)
+                self.waypoints_planner.pass_data_to_planner(next_interpolated_waypoints, car_state, obstacles)
                 self.waypoints_planner.process_observation(ranges, ego_odom)
                 optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
                 if optimal_trajectory is not None:
@@ -253,7 +252,7 @@ class CarSystem:
                 else:
                     self.waypoints_for_controller = self.waypoint_utils.next_waypoints
         else:
-            
+
             # Decide between primary and alternative raceline
 
             if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150 and self.waypoint_utils_alternative is not None):
@@ -280,13 +279,15 @@ class CarSystem:
                 self.waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
 
             self.timesteps_on_current_raceline += 1
-            
-        pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
-
-        if(self.planner == None):
-            return 0, 0
         
-        # Control step 
+        if self.planner is None: # Planer not initialized
+            return 0, 0
+
+        next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
+        self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
+
+
+        # Control step
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
@@ -325,7 +326,7 @@ class CarSystem:
             '1: translational_control': self.translational_control,
             '4: Surface Friction': Settings.SURFACE_FRICITON,
         }
-        
+
         if self.render_utils is not None:
             self.render_utils.set_label_dict(label_dict)
             self.render_utils.update(
@@ -365,18 +366,7 @@ class CarSystem:
         self.control_index += 1
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
 
-        # print('Time elapsed:', now-then)
         return self.angular_control, self.translational_control
 
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
-            
-def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
-    # Pass data to the planner
-    if hasattr(planner, 'set_waypoints'):
-        next_waypoints = WaypointUtils.get_interpolated_waypoints(next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-        planner.set_waypoints(next_waypoints)
-    if hasattr(planner, 'set_car_state'):
-        planner.set_car_state(car_state)
-    if hasattr(planner, 'set_obstacles'):
-        planner.set_obstacles(obstacles)

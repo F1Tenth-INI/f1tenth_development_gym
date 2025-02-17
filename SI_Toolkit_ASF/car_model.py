@@ -27,6 +27,7 @@ class car_model:
               
         self.model_of_car_dynamics = model_of_car_dynamics
         self.step_dynamics = None
+        self.step_dynamics_core = None
         self.set_model_of_car_dynamics(model_of_car_dynamics)
 
 
@@ -40,9 +41,14 @@ class car_model:
     def set_model_of_car_dynamics(self, model_of_car_dynamics):
 
         if model_of_car_dynamics == 'ODE:ks':
-            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_ks)
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_ks)
         elif model_of_car_dynamics == 'ODE:pacejka':
-            self.step_dynamics = self._step_model_with_servo_and_motor_pid_(self._step_dynamics_pacejka)
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_pacejka)
+
+        if model_of_car_dynamics == 'ODE:ks':
+            self.step_dynamics_core = self._step_dynamics_ks
+        elif model_of_car_dynamics == 'ODE:pacejka':
+            self.step_dynamics_core = self._step_dynamics_pacejka
             
         else:
             raise NotImplementedError(
@@ -70,10 +76,6 @@ class car_model:
         delta = s[:, STEERING_ANGLE_IDX]
 
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
-        
-        # Constraints
-        v_x_dot = self.accl_constraints(v_x, v_x_dot)
-        delta_dot = self.steering_constraints(delta, delta_dot)
 
         # Euler stepping
         for _ in range(self.intermediate_steps):
@@ -150,10 +152,6 @@ class car_model:
         psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
         delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
-
-        # Constraints
-        v_x_dot = self.accl_constraints(v_x, v_x_dot)
-        delta_dot = self.steering_constraints(delta, delta_dot)
 
         for _ in range(self.intermediate_steps):
             v_x = self.lib.where(v_x == 0, self.lib.constant(1e-5, self.lib.float32), v_x)
@@ -344,27 +342,56 @@ class car_model:
 
         return total_acceleration
 
-    def _step_model_with_servo_and_motor_pid_(self, model):
+    def _step_model_with_servo_and_motor_pid_with_constrains_(self, model):
 
-        def _step_model_with_servo_and_motor_pid(s, Q):
+        def _step_model_with_servo_and_motor_pid_with_constrains(s, Q):
 
-            # Control Input (desired speed, desired steering angle)
-            desired_angle, desired_speed = self.lib.unstack(Q, 2, 1)
+            Q_pid = self.pid(s, Q)
+            Q_pid_with_constrains = self.apply_constrains(s, Q_pid)
 
-            delta = s[:, STEERING_ANGLE_IDX]  # Fron Wheel steering angle
-            vel_x = s[:, LINEAR_VEL_X_IDX]  # Speed
+            return model(s, Q_pid_with_constrains)
 
-            delta_dot = self.servo_proportional(desired_angle, delta)
-            vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
-
-            Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
-            
-
-            return model(s, Q_pid)
-
-        return _step_model_with_servo_and_motor_pid
+        return _step_model_with_servo_and_motor_pid_with_constrains
 
 # endregion
+
+    def pid(self, s, Q):
+
+        # Control Input (desired speed, desired steering angle)
+        desired_angle, desired_speed = self.lib.unstack(Q, 2, 1)
+
+        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
+        vel_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+
+        delta_dot = self.servo_proportional(desired_angle, delta)
+        vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+
+        Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
+
+        return Q_pid
+
+
+    def apply_constrains(self, s, Q_pid):
+
+        delta = s[:, STEERING_ANGLE_IDX]  # Front wheels steering angle
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+
+        delta_dot = Q_pid[:, ANGULAR_CONTROL_IDX]  # Front wheels steering angle velocity
+        v_x_dot = Q_pid[:, TRANSLATIONAL_CONTROL_IDX]  # Longitudinal acceleration
+
+        delta_dot = self.steering_constraints(delta, delta_dot)
+        v_x_dot = self.accl_constraints(v_x, v_x_dot)
+
+        Q_pid_with_constrains = self.lib.permute(self.lib.stack([delta_dot, v_x_dot]))
+
+        return Q_pid_with_constrains
+
+    def return_control_cmd_components(self, control_cmd):
+        steering_speed = control_cmd[:, ANGULAR_CONTROL_IDX]
+        acceleration_x = control_cmd[:, TRANSLATIONAL_CONTROL_IDX]
+        return steering_speed, acceleration_x
+
+
 
 # region Formatting output of the step function
 

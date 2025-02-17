@@ -33,7 +33,7 @@ class NeuralNetImitatorPlanner(template_planner):
         )
 
         self.nni.configure()
-        self.nn_inputs = self.nni.remaining_inputs
+        self.nn_inputs = self.nni.input_mapping.keys()
         
         if 'GRU' in self.nni.config_controller['net_name']:
             Settings.ACCELERATION_TIME = 10 # GRU needs a little whashout 

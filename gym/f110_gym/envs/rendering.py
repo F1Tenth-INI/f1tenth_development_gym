@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+import sys
 
 """
 Rendering engine for f1tenth gym env based on pyglet and OpenGL
@@ -71,6 +71,15 @@ class EnvRenderer(pyglet.window.Window):
                       double_buffer=True)
         super().__init__(width, height, config=conf, resizable=True, vsync=False, *args, **kwargs)
 
+        if Settings.FLOAT_ON_TOP:
+            if sys.platform == 'darwin':
+                try:
+                    from pyglet.libs.darwin.cocoapy import NSFloatingWindowLevel
+                    self._nswindow.setLevel_(NSFloatingWindowLevel)
+                except ImportError:
+                    # Fallback: we can directly use the numeric value for the "floating" window level.
+                    # 3 = kCGFloatingWindowLevel; you could also do 25 for NSStatusWindowLevel, etc.
+                    self._nswindow.setLevel_(3)
         # gl init
         glClearColor(9/255, 32/255, 87/255, 1.)
 
