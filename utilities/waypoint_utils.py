@@ -163,9 +163,6 @@ class WaypointUtils:
         # Store only the relevant waypoints
         next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
 
-        # Store only the relevant waypoints
-        next_waypoints[...] = next_waypoints_including_ignored[self.ignore_steps:]
-
         next_waypoint_positions = WaypointUtils.get_waypoint_positions(next_waypoints)
         next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
 
@@ -178,7 +175,7 @@ class WaypointUtils:
 
         self.next_waypoint_positions = next_waypoint_positions
         self.next_waypoint_positions_relative = next_waypoint_positions_relative
-        self.nearest_waypointt_index = nearest_waypoint_index
+        self.nearest_waypoint_index = nearest_waypoint_index
 
     def update_distance_to_raceline(self, waypoints, nearest_waypoint_index, car_state):
         car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]

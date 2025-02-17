@@ -279,9 +279,9 @@ class CarSystem:
 
         if self.planner is None:
             return 0, 0
-        else:
-            next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
-            self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
+
+        next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
+        self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
 
 
         # Control step
@@ -347,15 +347,6 @@ class CarSystem:
         self.time = self.control_index*self.time_increment
                         
         # Update Lap Analyzer
-        # def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
-        #     # Pass data to the planner
-        #     if hasattr(planner, 'set_waypoints'):
-        #         next_waypoints = WaypointUtils.get_interpolated_waypoints(next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-        #         planner.set_waypoints(next_waypoints)
-        #     if hasattr(planner, 'set_car_state'):
-        #         planner.set_car_state(car_state)
-        #     if hasattr(planner, 'set_obstacles'):
-        #         planner.set_obstacles(obstacles)
         nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
         distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
         self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
