@@ -92,9 +92,15 @@ class LidarHelper:
         car_x, car_y = car_state[POSE_X_IDX], car_state[POSE_Y_IDX]
         c, s = car_state[POSE_THETA_COS_IDX], car_state[POSE_THETA_SIN_IDX]
         R = np.array([[c, -s], [s, c]])
-        return np.dot(points_relative_to_car, R.T) + np.array([car_x, car_y])
         
+        # LIDAR offset in car coordinates
+        lidar_offset = np.array([0.20, 0.0])
         
+        # Adjust points relative to car by the LIDAR offset
+        adjusted_points = points_relative_to_car + lidar_offset
+        
+        return np.dot(adjusted_points, R.T) + np.array([car_x, car_y])
+            
     def indices_from_pandas(self, data):
         lidar_col = [col for col in data if col.startswith('LIDAR')]
         processed_scan_indices = [int(lidar_col[i][len('LIDAR_'):]) for i in range(len(lidar_col))]

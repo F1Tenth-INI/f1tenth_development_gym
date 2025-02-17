@@ -256,18 +256,18 @@ class CarSystem:
             
             # Decide between primary and alternative raceline
 
-            if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 10 and self.waypoint_utils_alternative is not None):
+            if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150 and self.waypoint_utils_alternative is not None):
                 # Check distance of raceline to alternative raceline
                 distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline 
-                if(distance_to_alternative_raceline < 0.5):
+                if(distance_to_alternative_raceline < 0.3):
                     self.alternative_raceline = True
                     self.timesteps_on_current_raceline = 0
                     print('Switching to alternative raceline')
 
-            if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 10):
+            if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150):
                 # Check distance of raceline to alternative raceline
                 distance_to_raceline = self.waypoint_utils.current_distance_to_raceline 
-                if(distance_to_raceline < 0.5):
+                if(distance_to_raceline < 0.3):
                     self.alternative_raceline = False
                     self.timesteps_on_current_raceline = 0
                     print('Switching to primary raceline')
