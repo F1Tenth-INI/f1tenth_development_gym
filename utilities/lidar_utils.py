@@ -25,12 +25,6 @@ class LidarHelper:
             self.num_scans_total
         )
 
-        # Data used for current experiment
-        # Options:
-        # provide lidar angle and decimation
-        # provide a set of indices (To-be-done) allow to get more scans where higher precision is required,
-        # provide lidar angle and number of scans (even numbers only)
-
         if Settings.LIDAR_PROCESSED_ANGLE_DEG == 'max':
             self.processed_angle_deg = self.covered_angle_deg
         else:
@@ -54,15 +48,18 @@ class LidarHelper:
             raise NotImplementedError
 
 
+        # Initialize data
         self.processed_number_of_scans = len(self.processed_scan_indices)
         self.processed_angles_rad = self.all_angles_rad[self.processed_scan_indices]
         
-        # Initialize data
         self.all_lidar_ranges = None
         self.processed_ranges = None
 
         self.processed_points_relative_to_car = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
         self.processed_points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
+        
+        self.all_points_relative_to_car = None
+        self.all_points_map_coordinates = None
 
         # CORRUPT LIDAR
         self.max_corrupted_ratio = Settings.LIDAR_MAX_CORRUPTED_RATIO
@@ -77,10 +74,11 @@ class LidarHelper:
         self.all_lidar_ranges = all_lidar_ranges
         self.processed_ranges = all_lidar_ranges[self.processed_scan_indices]
         self.processed_points_relative_to_car = self.get_points_from_ranges(self.processed_ranges, self.processed_angles_rad)
+        # self.all_points_relative_to_car = self.get_points_from_ranges(all_lidar_ranges, self.all_angles_rad)
         
         if car_state is not None:
             self.processed_points_map_coordinates = self.transform_points_from_car_to_global(car_state, self.processed_points_relative_to_car)
-        
+            # self.all_points_map_coordinates = self.transform_points_from_car_to_global(car_state, self.all_points_relative_to_car)
     
     
     @staticmethod
@@ -103,7 +101,7 @@ class LidarHelper:
         return processed_scan_indices
 
     # Get names for processed data only
-    def get_lidar_scans_names(self):
+    def get_processed_ranges_names(self):
         self.lidar_names = ['LIDAR_' + str(i).zfill(4) for i in self.processed_scan_indices]
         return self.lidar_names
     
@@ -111,24 +109,17 @@ class LidarHelper:
     def get_all_lidar_ranges_names(self):
         self.lidar_names = ['LIDAR_' + str(i).zfill(4) for i in self.all_lidar_indices]
         return self.lidar_names
-
+    
+    # For training purposes
     def corrupt_lidar_set_indices(self):
         number_of_corrupted_indices = np.random.randint(0, self.max_number_of_corrupted_indices+1)
         self.corrupted_indices_of_processed_ranges = np.random.choice(np.arange(self.processed_number_of_scans), (number_of_corrupted_indices,), replace=False)
-
-    def corrupt_scans(self):
-        """ MPC expect that corrupted lidar scans have high value - not to create crash cost """
-        self.processed_ranges[self.processed_ranges > 10.0] = 70.0
-        self.processed_ranges[self.corrupted_indices_of_processed_ranges] = 70.0
-
-    def corrupted_scans_high2zero(self):
-        self.processed_ranges[self.processed_ranges > 15.0] = 0.0
 
     def corrupt_datafile(self, data):
 
         lidar_indices = self.indices_from_pandas(data)
         self.reinitialized_LIDAR_with_custom_processed_scan_indices(lidar_indices)
-        lidar_col = self.get_lidar_scans_names()
+        lidar_col = self.get_processed_ranges_names()
 
         df_data_lidar = data.loc[:, lidar_col]
         df_data_lidar[df_data_lidar > 10.0] = 0.0
@@ -141,7 +132,6 @@ class LidarHelper:
         data.loc[:, lidar_col] = df_data_lidar
         return data
 
-
     def reinitialized_LIDAR_with_custom_processed_scan_indices(self, processed_scan_indices):
         self.processed_scan_indices = processed_scan_indices
 
@@ -151,7 +141,6 @@ class LidarHelper:
 
         self.processed_points_relative_to_car = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
         self.processed_points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
-
 
     def plot_lidar_data(self):
         if platform.system() == 'Darwin':

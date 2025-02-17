@@ -7,7 +7,7 @@ class Settings():
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "Milan1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -16,7 +16,7 @@ class Settings():
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'pp'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -30,9 +30,9 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
     GLOBAL_SPEED_LIMIT = 10.0
-    APPLY_SPEED_SCALING_FROM_CSV = True # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+    APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
@@ -52,7 +52,7 @@ class Settings():
     CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
-    NUMBER_OF_OPPONENTS = 0
+    NUMBER_OF_OPPONENTS = 2
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
@@ -60,7 +60,7 @@ class Settings():
     # Head2Head Settings
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
     SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = True # Slow down if obstacle is close to the next waypoints
-    ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
+    ALLOW_ALTERNATIVE_RACELINE = True # TODO: check and automatically generate file
     
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
@@ -71,8 +71,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 30000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -99,8 +98,6 @@ class Settings():
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
-
-    AUTOMATIC_SECTOR_TUNING = False
     
 
     ##Lidar Settings ##
@@ -145,8 +142,8 @@ class Settings():
     
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False

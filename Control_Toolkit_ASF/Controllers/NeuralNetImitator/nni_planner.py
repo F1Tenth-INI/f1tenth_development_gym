@@ -23,7 +23,7 @@ class NeuralNetImitatorPlanner(template_planner):
         self.friction_estimate = []
         self.friction = 0
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
-
+        self.LIDAR = None  # Will be overwritten with a LidarUtils instance from car_system
         self.render_utils = RenderUtils()
 
         self.nni = controller_neural_imitator(
@@ -44,14 +44,6 @@ class NeuralNetImitatorPlanner(template_planner):
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
     def process_observation(self, ranges=None, ego_odom=None):
-
-        self.LIDAR.update_ranges(ranges)
-
-        if Settings.LIDAR_CORRUPT:
-            self.LIDAR.corrupt_lidar_set_indices()
-            self.LIDAR.corrupt_scans()
-
-        self.LIDAR.corrupted_scans_high2zero()
 
 
         # Build a dict data_dict, to store all environment and sensor data that we have access to

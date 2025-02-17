@@ -100,6 +100,7 @@ class CarSystem:
 
         if(hasattr(self.planner, 'render_utils')):
             self.planner.render_utils = self.render_utils
+        
       
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
@@ -178,6 +179,8 @@ class CarSystem:
             
         if(hasattr(self.planner, 'waypoint_utils')):
             self.planner.waypoint_utils = self.waypoint_utils
+        if(hasattr(self.planner, 'LIDAR')):
+            self.planner.LIDAR = self.LIDAR
              
     def launch_tuner_connector(self):
         try:
@@ -210,14 +213,14 @@ class CarSystem:
         
         ranges = np.array(ranges)
         self.LIDAR.update_ranges(ranges, car_state)
-        lidar_points = self.LIDAR.processed_points_relative_to_car
+        processed_lidar_points = self.LIDAR.processed_points_map_coordinates
         
         self.waypoint_utils.update_next_waypoints(car_state)
-        self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points)
+        self.waypoint_utils.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
         if self.waypoint_utils_alternative is not None:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
-            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(lidar_points)
+            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
 
 
@@ -270,10 +273,14 @@ class CarSystem:
                     print('Switching to primary raceline')
 
 
-
+            # Decide which raceline to use
             if(not self.alternative_raceline or self.waypoint_utils_alternative is None): #Primary raceline
                 self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+            else:
+                self.waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
 
+            self.timesteps_on_current_raceline += 1
+            
         pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 
         if(self.planner == None):
@@ -322,12 +329,13 @@ class CarSystem:
         if self.render_utils is not None:
             self.render_utils.set_label_dict(label_dict)
             self.render_utils.update(
-                lidar_points= lidar_points,
+                lidar_points= self.LIDAR.processed_points_map_coordinates,
                 # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
                 next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
                 next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
                 car_state = car_state,
             )
+            self.render_utils.update_obstacles(obstacles)
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
@@ -349,15 +357,6 @@ class CarSystem:
         
         basic_dict = get_basic_data_dict(self)
         
-        if(hasattr(self, 'render_utils') and self.render_utils is not None):
-            self.render_utils.set_label_dict(label_dict)
-            
-            self.render_utils.update(
-                lidar_points= lidar_points,
-                next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
-                car_state = car_state
-            )
-            self.render_utils.update_obstacles(obstacles)
             
         
         if(hasattr(self, 'recorder') and self.recorder is not None):
