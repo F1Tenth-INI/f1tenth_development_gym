@@ -256,7 +256,8 @@ class CarSystem:
                 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
-                pass_data_to_planner(self.waypoints_planner, self.waypoint_utils.next_waypoints, car_state, obstacles)
+                next_interpolated_waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoint_utils.next_waypoints, Settings.INTERPOLATE_LOCA_WP)
+                self.waypoints_planner.pass_data_to_planner(next_interpolated_waypoints, car_state, obstacles)
                 self.waypoints_planner.process_observation(ranges, ego_odom)
                 optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
                 if optimal_trajectory is not None:
@@ -273,7 +274,8 @@ class CarSystem:
         else:
             self.waypoints_for_controller = self.waypoint_utils.next_waypoints
 
-        pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
+        next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
+        self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
 
         # Control step
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
@@ -355,14 +357,3 @@ class CarSystem:
         if Settings.ALLOW_ALTERNATIVE_RACELINE and self.use_alternative_waypoints_for_control_flag:
             return self.waypoint_utils_alternative
         return self.waypoint_utils_standard
-
-
-def pass_data_to_planner(planner, next_waypoints=None, car_state=None, obstacles=None):
-    # Pass data to the planner
-    if hasattr(planner, 'set_waypoints'):
-        next_waypoints = WaypointUtils.get_interpolated_waypoints(next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-        planner.set_waypoints(next_waypoints)
-    if hasattr(planner, 'set_car_state'):
-        planner.set_car_state(car_state)
-    if hasattr(planner, 'set_obstacles'):
-        planner.set_obstacles(obstacles)

@@ -33,5 +33,14 @@ class template_planner(ABC):
     def process_observation(self, ranges=None, ego_odom=None):
         pass
 
+    def pass_data_to_planner(self, next_interpolated_waypoints=None, car_state=None, obstacles=None):
+        # Pass data to the planner
+        if hasattr(self, 'set_waypoints'):
+            self.set_waypoints(next_interpolated_waypoints)
+        if hasattr(self, 'set_car_state'):
+            self.set_car_state(car_state)
+        if hasattr(self, 'set_obstacles'):
+            self.set_obstacles(obstacles)
+
 
 
