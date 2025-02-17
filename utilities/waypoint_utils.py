@@ -440,7 +440,7 @@ class WaypointUtils:
 
 
 # Move outside of class for jit compilation
-@njit(fastmath=True, parallel=True)
+# @njit(fastmath=True, parallel=True)
 def check_if_obstacle_on_raceline(lidar_points, waypoints, threshold=0.25):
     """
     Optimized JIT + parallel function to check if any LiDAR point 

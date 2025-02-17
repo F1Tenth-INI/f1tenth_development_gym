@@ -96,42 +96,11 @@ class CarSystem:
 
         # Planner
         self.planner = None
-        self.controller_name = controller
-        if(controller is None):
-            controller = Settings.CONTROLLER
-        if controller == 'mpc':
-            from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-            self.planner = mpc_planner()
-            horizon = self.planner.mpc.predictor.horizon
-            self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-            self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-        elif controller =='ftg':
-            from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-            self.planner =  FollowTheGapPlanner()
-        elif controller == 'neural':
-            from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-            self.planner =  NeuralNetImitatorPlanner()
-        elif controller == 'nni-lite':
-            from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
-            self.planner =  NNLitePlanner()
-        elif controller == 'pp':
-            from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-            self.planner = PurePursuitPlanner()
-        elif controller == 'stanley':
-            from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
-            self.planner = StanleyPlanner()
-        elif controller == 'manual':
-            from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
-            self.planner = manual_planner()
-        elif controller == 'random':
-            from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
-            self.planner = random_planner()
-        else:
-            NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
-            exit()
-            
-        self.planner.render_utils = self.render_utils
-        self.planner.waypoint_utils = self.waypoint_utils
+        self.initialize_controller(controller)
+
+        if(hasattr(self.planner, 'render_utils')):
+            self.planner.render_utils = self.render_utils
+      
 
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
@@ -151,9 +120,7 @@ class CarSystem:
 
         self.lap_analyzer = LapAnalyzer(
             total_waypoints=len(self.waypoint_utils.waypoints),
-            lap_finished_callback=lambda lap_time, mean_distance, std_distance, max_distance: print(
-                f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}"
-            )
+            lap_finished_callback=self.lap_complete_cb
         )
 
         if self.online_learning_activated:
@@ -234,9 +201,9 @@ class CarSystem:
         car_state = self.car_state
         
                 
-        imu_array = self.imu_simulator.update_car_state(car_state)
-        self.planner.imu_data = imu_array
-        self.current_imu_dict = self.imu_simulator.array_to_dict(imu_array)
+        # imu_array = self.imu_simulator.update_car_state(car_state)
+        # self.planner.imu_data = imu_array
+        # self.current_imu_dict = self.imu_simulator.array_to_dict(imu_array)
         
         # if hasattr(self.planner, 'mu_predicted'):
         #     imu_dict['mu_predicted'] = self.planner.mu_predicted
@@ -308,17 +275,15 @@ class CarSystem:
 
             if(not self.alternative_raceline or self.waypoint_utils_alternative is None): #Primary raceline
                 self.waypoints_for_controller = self.waypoint_utils.next_waypoints
-            else: # alternative raceline
-                self.waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
-
-            self.timesteps_on_current_raceline += 1
 
         pass_data_to_planner(self.planner, self.waypoints_for_controller, car_state, obstacles)
 
+        if(self.planner == None):
+            return 0, 0
+        
         # Control step 
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
-
 
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
@@ -355,15 +320,16 @@ class CarSystem:
             '1: translational_control': self.translational_control,
             '4: Surface Friction': Settings.SURFACE_FRICITON,
         }
-        self.render_utils.set_label_dict(label_dict)
-    
-        self.render_utils.update(
-            lidar_points= lidar_points,
-            # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
-            next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
-            next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
-            car_state = car_state,
-        )
+        
+        if self.render_utils is not None:
+            self.render_utils.set_label_dict(label_dict)
+            self.render_utils.update(
+                lidar_points= lidar_points,
+                # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
+                next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
+                next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
+                car_state = car_state,
+            )
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
