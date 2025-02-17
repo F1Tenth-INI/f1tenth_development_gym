@@ -103,7 +103,7 @@ class WaypointUtils:
         self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
         self.obstacle_on_raceline = False
-        self.obstacle_position = np.zeros(2)
+        self.obstacle_position = None
 
         if self.waypoints is None:
             self.next_waypoints = np.array([])
@@ -475,7 +475,7 @@ def check_if_obstacle_on_raceline(lidar_points, waypoints, threshold=0.25):
     N = lidar_points.shape[0]
     M = waypoints.shape[0]
 
-    obstacle_position = np.zeros(2)  # Initialize obstacle position
+    obstacle_position = None  # Initialize obstacle position
 
     min_squared_distances = np.full(N, np.inf)  # Initialize min distances
 

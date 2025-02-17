@@ -14,6 +14,7 @@ from utilities.state_utilities import (
 
 from utilities.waypoint_utils import WaypointUtils
 from utilities.render_utilities import RenderUtils
+from utilities.lidar_utils import LidarHelper
 
 
 from Control_Toolkit.Controllers.controller_mpc import controller_mpc
@@ -48,7 +49,10 @@ class mpc_planner(template_planner):
 
         self.target_point = np.array([0, 0], dtype=np.float32)
 
-
+                    
+        self.LIDAR = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
+        self.lidar_points = self.LIDAR.processed_points_map_coordinates
+        
         self.mpc = controller_mpc(
             environment_name="Car",
             initial_environment_attributes={
@@ -79,16 +83,8 @@ class mpc_planner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        self.LIDAR.load_lidar_measurement(ranges)
 
-        if Settings.LIDAR_CORRUPT:
-            self.LIDAR.corrupt_lidar_set_indices()
-            self.LIDAR.corrupt_scans()
-
-
-        self.lidar_points = self.LIDAR.get_processed_lidar_points_in_map_coordinates(
-            self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX], self.car_state[POSE_THETA_IDX]
-        )
+        self.lidar_points = self.LIDAR.processed_points_map_coordinates
 
         # Accelerate at the beginning (St model expoldes for small velocity)
         # Give it a little "Schupf"

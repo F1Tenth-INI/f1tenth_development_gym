@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
-from utilities.lidar_utils import LidarHelper
 
 class template_planner(ABC):
     def __init__(self):
@@ -10,8 +9,6 @@ class template_planner(ABC):
         self.angular_control = None
         self.friction_value = None
 
-        self.LIDAR = LidarHelper()
-        self.lidar_points = self.LIDAR.points_map_coordinates
 
         self.waypoints = None
         self.nearest_waypoint_index = None

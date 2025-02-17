@@ -101,7 +101,6 @@ class CarSystem:
         if(hasattr(self.planner, 'render_utils')):
             self.planner.render_utils = self.render_utils
 
-
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
         self.savse_recording = save_recording
@@ -179,7 +178,9 @@ class CarSystem:
 
         if(hasattr(self.planner, 'waypoint_utils')):
             self.planner.waypoint_utils = self.waypoint_utils
-
+        if(hasattr(self.planner, 'LIDAR')):
+            self.planner.LIDAR = self.LIDAR
+             
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -208,18 +209,16 @@ class CarSystem:
         # if hasattr(self.planner, 'mu_predicted'):
         #     imu_dict['mu_predicted'] = self.planner.mu_predicted
         
-        
         ranges = np.array(ranges)
-        self.LIDAR.load_lidar_measurement(ranges)
-        lidar_points = self.LIDAR.get_all_lidar_points_in_map_coordinates(
-            car_state[POSE_X_IDX], car_state[POSE_Y_IDX], car_state[POSE_THETA_IDX])
-
+        self.LIDAR.update_ranges(ranges, car_state)
+        processed_lidar_points = self.LIDAR.processed_points_map_coordinates
+        
         self.waypoint_utils.update_next_waypoints(car_state)
-        self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points[::20])
+        self.waypoint_utils.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
         if self.waypoint_utils_alternative is not None:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
-            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(lidar_points[::20])
+            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
 
 
@@ -256,28 +255,32 @@ class CarSystem:
 
             # Decide between primary and alternative raceline
 
-            if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 10 and self.waypoint_utils_alternative is not None):
+            if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150 and self.waypoint_utils_alternative is not None):
                 # Check distance of raceline to alternative raceline
-                distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline
-                if(distance_to_alternative_raceline < 0.5):
+                distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline 
+                if(distance_to_alternative_raceline < 0.3):
                     self.alternative_raceline = True
                     self.timesteps_on_current_raceline = 0
                     print('Switching to alternative raceline')
 
-            if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 10):
+            if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150):
                 # Check distance of raceline to alternative raceline
-                distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
-                if(distance_to_raceline < 0.5):
+                distance_to_raceline = self.waypoint_utils.current_distance_to_raceline 
+                if(distance_to_raceline < 0.3):
                     self.alternative_raceline = False
                     self.timesteps_on_current_raceline = 0
                     print('Switching to primary raceline')
 
 
-
-            if not self.alternative_raceline or self.waypoint_utils_alternative is None:  # Primary raceline
+            # Decide which raceline to use
+            if(not self.alternative_raceline or self.waypoint_utils_alternative is None): #Primary raceline
                 self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+            else:
+                self.waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
 
-        if self.planner is None:
+            self.timesteps_on_current_raceline += 1
+        
+        if self.planner is None: # Planer not initialized
             return 0, 0
 
         next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
@@ -327,12 +330,13 @@ class CarSystem:
         if self.render_utils is not None:
             self.render_utils.set_label_dict(label_dict)
             self.render_utils.update(
-                lidar_points= lidar_points,
+                lidar_points= self.LIDAR.processed_points_map_coordinates,
                 # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
                 next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
                 next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
                 car_state = car_state,
             )
+            self.render_utils.update_obstacles(obstacles)
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
@@ -353,18 +357,9 @@ class CarSystem:
 
         
         basic_dict = get_basic_data_dict(self)
-
-        if(hasattr(self, 'render_utils') and self.render_utils is not None):
-            self.render_utils.set_label_dict(label_dict)
-
-            self.render_utils.update(
-                lidar_points= lidar_points,
-                next_waypoints= WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], Settings.INTERPOLATE_LOCA_WP),
-                car_state = car_state
-            )
-            self.render_utils.update_obstacles(obstacles)
-
-
+        
+            
+        
         if(hasattr(self, 'recorder') and self.recorder is not None):
             self.recorder.dict_data_to_save_basic.update(basic_dict)
         
