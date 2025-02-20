@@ -44,12 +44,15 @@ class car_model:
             self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_ks)
         elif model_of_car_dynamics == 'ODE:pacejka':
             self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_pacejka)
+        elif model_of_car_dynamics == 'ODE:ks_pacejka':
+            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_ks_pacejka)
 
         if model_of_car_dynamics == 'ODE:ks':
             self.step_dynamics_core = self._step_dynamics_ks
         elif model_of_car_dynamics == 'ODE:pacejka':
             self.step_dynamics_core = self._step_dynamics_pacejka
-            
+        elif model_of_car_dynamics == 'ODE:ks_pacejka':
+            self.step_dynamics_core = self._step_dynamics_ks_pacejka
         else:
             raise NotImplementedError(
                 '{} not recognized as a valid name for a model of car dynamics'.format(model_of_car_dynamics))
@@ -178,7 +181,6 @@ class car_model:
             s_x = s_x + self.t_step * d_pos_x
             s_y = s_y + self.t_step * d_pos_y
             delta = self.lib.clip(delta + self.t_step * delta_dot, self.car_parameters.s_min, self.car_parameters.s_max)
-            # v_x = v_x + self.lib.multiply(self.t_step, d_v_x)
             v_x = v_x + self.t_step * d_v_x
             v_y = v_y + self.t_step * d_v_y
             psi = psi + self.t_step * d_psi
@@ -192,7 +194,6 @@ class car_model:
         pose_y = s_y
         slip_angle = self.lib.atan(v_y / v_x)  # Calculate slip angle for consistency
 
-        s_next_ks = self._step_dynamics_ks(s, Q)
         s_next_ts = self.next_step_output(psi_dot,
                                         v_x,
                                         v_y,
@@ -203,9 +204,22 @@ class car_model:
                                         pose_y,
                                         slip_angle,
                                         delta)
+     
+        next_step = s_next_ts
+        return next_step
+
+
+
+    def _step_dynamics_ks_pacejka(self, s, Q):
+
+        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         # switch to kinematic model for small velocities
         # Define speed thresholds
+
+        s_next_ks = self._step_dynamics_ks(s, Q)
+        s_next_ts = self._step_dynamics_pacejka(s, Q)
+
         low_speed_threshold = self.lib.constant(0.5, self.lib.float32)
         high_speed_threshold = self.lib.constant(3, self.lib.float32)
 
@@ -219,23 +233,6 @@ class car_model:
         
         # Interpolate between the simple and complex models
         next_step = counter_weights * s_next_ks + weights * s_next_ts
-        
-    
-        # # Wrap angle after model fusion
-        # pose_theta = self.lib.atan2(next_step[:, POSE_THETA_SIN_IDX], next_step[:, POSE_THETA_COS_IDX])
-        
-
-        # return self.next_step_output(   next_step[:, ANGULAR_VEL_Z_IDX],
-        #                                 next_step[:, LINEAR_VEL_X_IDX],
-        #                                 next_step[:, LINEAR_VEL_Y_IDX],
-        #                                 pose_theta,
-        #                                 next_step[:, POSE_THETA_COS_IDX],
-        #                                 next_step[:, POSE_THETA_SIN_IDX],
-        #                                 next_step[:, POSE_X_IDX],
-        #                                 next_step[:, POSE_Y_IDX],
-        #                                 next_step[:, SLIP_ANGLE_IDX],
-        #                                 next_step[:, STEERING_ANGLE_IDX])
-     
 
         return next_step
 
