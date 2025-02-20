@@ -224,9 +224,15 @@ class car_model:
         high_speed_threshold = self.lib.constant(3, self.lib.float32)
 
         # Calculate weights for each element in v_x (smooth transission from pacejka to KS model)
-        weights = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
-        weights = self.lib.clip(weights, 0, 1)  # Ensure weights are in [0, 1]
-        weights = self.lib.reshape(weights, (-1, 1)) 
+        # weights = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        # weights = self.lib.clip(weights, 0, 1)  # Ensure weights are in [0, 1]
+
+        midpoint = (low_speed_threshold + high_speed_threshold) / self.lib.constant(2, self.lib.float32)
+        k = self.lib.constant(4.8, self.lib.float32)
+        weights = self.lib.constant(1, self.lib.float32) / (self.lib.constant(1, self.lib.float32) + self.lib.exp(
+            -k * (v_x - midpoint)))
+
+        weights = self.lib.reshape(weights, (-1, 1))
         weights_shape = self.lib.shape(weights)
         counter_weights = self.lib.ones(weights_shape) - weights
         counter_weights = self.lib.reshape(counter_weights, (-1, 1)) 
