@@ -12,12 +12,11 @@ if(Settings.ROS_BRIDGE):
 else:
     if(Settings.RENDER_MODE is not None):
         try:
-            from pyglet.gl import GL_POINTS
-            from pyglet.gl import GL_LINES
+            from pyglet.gl import GL_POINTS, GL_LINES
+            from pyglet.gl import glLineWidth, glPointSize
             import pyglet.gl as gl
             from pyglet import shapes
             import pyglet
-            from pyglet.gl import glLineWidth
         except:
             Settings.RENDER_MODE = None
 
@@ -51,6 +50,22 @@ self.Render.update(
 )
 
 '''
+
+
+class PointSizeGroup(pyglet.graphics.Group):
+    def __init__(self, point_size, parent=None):
+        super().__init__(parent)
+        self.point_size = point_size  # Desired point size for this group.
+
+    def set_state(self):
+        # Set the OpenGL point size to the custom value when drawing this group.
+        glPointSize(self.point_size)
+
+    def unset_state(self):
+        # Revert the point size back to the default (or a previous value) after drawing.
+        glPointSize(1)
+
+
 class RenderUtils:
     def __init__(self):
 
@@ -273,7 +288,8 @@ class RenderUtils:
             scaled_points = RenderUtils.get_scaled_points(points)
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
-            self.past_car_states_alternative_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+            point_size_group = PointSizeGroup(10)
+            self.past_car_states_alternative_vertices = e.batch.add(howmany, GL_POINTS, point_size_group, ('v2f/stream', scaled_points_flat),
                                            ('c3B', [255, 255, 0] * howmany))
     
         if self.draw_lidar_data: 
