@@ -1,10 +1,11 @@
 import tensorflow as tf
+import numpy as np
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 
 from SI_Toolkit_ASF.car_model import car_model
 from utilities.Settings import Settings
-from utilities.state_utilities import POSE_THETA_IDX, SLIP_ANGLE_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX
+from utilities.state_utilities import POSE_THETA_IDX, SLIP_ANGLE_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, ANGULAR_VEL_Z_IDX
 
 
 class CarInverseDynamics:
@@ -12,7 +13,7 @@ class CarInverseDynamics:
         self.car_model = car_model(
             model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
             batch_size=1,
-            car_parameter_file=Settings.ENV_CAR_PARAMETER_FILE,
+            car_parameter_file="controller_parameters.yml",
             dt=0.01,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary()
@@ -29,7 +30,7 @@ class CarInverseDynamics:
 
 
 
-def create_inverse_function_tf(f, tol=1e-5, max_iter=500):
+def create_inverse_function_tf(f, tol=1e-5, max_iter=20):
     """
     Creates an inverse function solver that, given y and q,
     finds x satisfying f(x, q) = y using Newton's method in TensorFlow.
@@ -143,6 +144,10 @@ def create_inverse_function_tf(f, tol=1e-5, max_iter=500):
 
         # A damping factor that can be adjusted.
         alpha = tf.constant(1.0, dtype=tf.float32)
+
+        diff0 = tf.abs(f(x, q) - y)
+        diff0_without_slip = tf.concat([diff0[:, :SLIP_ANGLE_IDX], diff0[:, SLIP_ANGLE_IDX + 1:]], axis=1)
+        diffs_without_slip = [diff0_without_slip]
         for i in range(max_iter):
             x_new = newton_step_param_tf(x, y, q, alpha)
             # Compute the raw difference for convergence checking.
@@ -151,13 +156,16 @@ def create_inverse_function_tf(f, tol=1e-5, max_iter=500):
             # tf.print("Iter", i, ": Error =", norm_diff, "; Alpha =", alpha)
             # Check if all components are below the tolerance.
             diff_without_slip = tf.concat([diff[:, :SLIP_ANGLE_IDX], diff[:, SLIP_ANGLE_IDX + 1:]], axis=1)
-
-            if tf.reduce_all(diff_without_slip < tol):
-                tf.print("\nConverged after", i, "iterations.\n")
+            diffs_without_slip.append(diff_without_slip.numpy())
+            if tf.reduce_all(diff_without_slip < tol) and tf.reduce_all(diff_without_slip[:, ANGULAR_VEL_Z_IDX] < tol/100.0):
+                # tf.print("\nConverged after", i, "iterations.\n")
                 return x_new.numpy()
             x = x_new
         # Return the best estimate if max iterations are reached.
-        print("NO CONVERGENCE REACHED!")
+        diffs_without_slip = np.array(diffs_without_slip)
+        if np.max(diffs_without_slip[-1]) > 1.e-3:
+            print("NO CONVERGENCE REACHED!")
+            print("Max error: ", diffs_without_slip[-1])
         return x.numpy()
 
     return inverse_f_param_tf
