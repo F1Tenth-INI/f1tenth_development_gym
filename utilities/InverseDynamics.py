@@ -9,16 +9,23 @@ from utilities.state_utilities import POSE_THETA_IDX, SLIP_ANGLE_IDX, POSE_THETA
 
 
 class CarInverseDynamics:
-    def __init__(self):
+    def __init__(self, mu=None):
         self.car_model = car_model(
             model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
             batch_size=1,
-            car_parameter_file="controller_parameters.yml",
+            car_parameter_file=Settings.CONTROLLER_CAR_PARAMETER_FILE,
             dt=0.01,
             intermediate_steps=1,
             computation_lib=TensorFlowLibrary()
         )
 
+        if mu is not None:
+            self.car_model.car_parameters.mu = mu
+        self.inverse_dynamics = create_inverse_function_tf(self.car_model.step_dynamics)
+        self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
+
+    def change_friction_coefficient(self, mu):
+        self.car_model.car_parameters.mu = mu
         self.inverse_dynamics = create_inverse_function_tf(self.car_model.step_dynamics)
         self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
 
