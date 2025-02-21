@@ -15,12 +15,12 @@ class Settings():
     SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
-    FORGE_HISTORY = False
+    FORGE_HISTORY = True
 
     FRICTION_FOR_CONTROLLER = 0.75
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
