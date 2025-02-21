@@ -25,7 +25,7 @@ class CarInverseDynamics:
         self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
 
     def change_friction_coefficient(self, mu):
-        self.car_model.car_parameters.mu = mu
+        self.car_model.change_friction_coefficient(mu)
         self.inverse_dynamics = create_inverse_function_tf(self.car_model.step_dynamics)
         self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
 
