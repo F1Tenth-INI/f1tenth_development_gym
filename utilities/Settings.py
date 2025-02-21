@@ -15,6 +15,9 @@ class Settings():
     SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
+    FORGE_HISTORY = False
+    FORGED_SURFACE_FRICTION = 0.75
+
     # Controller Settings
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 

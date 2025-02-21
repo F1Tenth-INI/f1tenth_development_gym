@@ -30,6 +30,7 @@ from utilities.waypoint_utils import WaypointUtils
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
+from utilities.HistoryForger import HistoryForger
 
 class CarSystem:
     
@@ -122,6 +123,9 @@ class CarSystem:
             total_waypoints=len(self.waypoint_utils.waypoints),
             lap_finished_callback=self.lap_complete_cb
         )
+
+        if Settings.FORGE_HISTORY:
+            self.history_forger = HistoryForger()
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -279,6 +283,9 @@ class CarSystem:
 
         if self.planner is None:
             return 0, 0
+
+        if Settings.FORGE_HISTORY:
+            self.history_forger.feed_planner_forged_history(car_state, ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
 
         next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
         self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
