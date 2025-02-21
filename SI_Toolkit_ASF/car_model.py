@@ -157,9 +157,9 @@ class car_model:
         v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         for _ in range(self.intermediate_steps):
-            v_x = self.lib.where(v_x == 0, self.lib.constant(1e-5, self.lib.float32), v_x)
-            alpha_f = -self.lib.atan((v_y + psi_dot * lf) / (v_x)) + delta
-            alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x )
+            v_x = self.lib.where(v_x < 1.0e-3, self.lib.constant(1.0e-3, self.lib.float32), v_x)
+            alpha_f = -self.lib.atan((v_y + psi_dot * lf) / v_x) + delta
+            alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x)
 
             # compute vertical tire forces
             F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
