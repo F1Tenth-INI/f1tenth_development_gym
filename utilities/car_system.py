@@ -99,6 +99,13 @@ class CarSystem:
         # Planner
         self.planner = None
         self.initialize_controller(controller)
+        if Settings.FRICTION_FOR_CONTROLLER is not None:
+            has_mpc = hasattr(self.planner, 'mpc')
+            if has_mpc:
+                predictor = self.planner.mpc.predictor.predictor
+                if hasattr(predictor, 'next_step_predictor') and hasattr(predictor.next_step_predictor, 'env'):
+                    predictor.next_step_predictor.env.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
+
 
         if(hasattr(self.planner, 'render_utils')):
             self.planner.render_utils = self.render_utils

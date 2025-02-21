@@ -18,6 +18,8 @@ class Settings():
     FORGE_HISTORY = False
     FORGED_SURFACE_FRICTION = 0.75
 
+    FRICTION_FOR_CONTROLLER = 0.75
+
     # Controller Settings
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
