@@ -19,8 +19,8 @@ class HistoryForger:
 
         self.car_inverse_dynamics = CarInverseDynamics()
 
-        if Settings.FORGED_SURFACE_FRICTION is not None:
-            self.car_inverse_dynamics.change_friction_coefficient(Settings.FORGED_SURFACE_FRICTION)
+        if Settings.FRICTION_FOR_CONTROLLER is not None:
+            self.car_inverse_dynamics.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
 
         self.forged_history_applied = False
 
