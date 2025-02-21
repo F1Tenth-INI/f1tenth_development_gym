@@ -41,20 +41,8 @@ class HistoryForger:
 
         self.car_inverse_dynamics = CarInverseDynamics()
 
-        self.counter = 0
-
         self.previous_measured_states = []
 
-        # self.predictor = PredictorWrapper()
-        #
-        # self.predictor.configure(
-        #     batch_size=1,
-        #     horizon=HISTORY_LENGTH * timesteps_per_controller_update,
-        #     dt=config_online_predictor["dt"],
-        #     computation_library=self.lib,
-        #     variable_parameters=self.variable_parameters,
-        #     predictor_specification=config_online_predictor["predictor_specification"],
-        # )
 
     def update_predictor_attributes(self, updated_attributes: "dict[str, TensorType]"):
         for property, new_value in updated_attributes.items():
@@ -62,7 +50,6 @@ class HistoryForger:
             self.lib.assign(attr, self.lib.to_tensor(new_value, attr.dtype))
 
     def update_control_history(self, u):
-        self.counter += 1
         self.previous_control_inputs.append(u)
         if len(self.previous_control_inputs) > HISTORY_LENGTH * timesteps_per_controller_update:
             self.previous_control_inputs.pop(0)
@@ -74,8 +61,6 @@ class HistoryForger:
 
     def get_forged_history(self, car_state, waypoint_utils):
 
-        if self.counter < 0:
-            return None
         if len(self.previous_control_inputs) < HISTORY_LENGTH * timesteps_per_controller_update:
             return None
 
@@ -85,19 +70,14 @@ class HistoryForger:
 
         states = [s]
         for i in range(Q.shape[1]):
-            s_previous = self.car_inverse_dynamics.step_core(states[i], Q[:, i, :])
+            s_previous, converged = self.car_inverse_dynamics.step_core(states[i], Q[:, i, :])
             states.append(s_previous)
+            if not converged:
+                return None
         states = np.array(states)
-        # past_states_backwards = states[::timesteps_per_controller_update, 0, :]  # Only keep states at control times and remove the batch dimension
-        past_states_backwards = states[:, 0, :]
-        previous_measured_states = np.array(self.previous_measured_states)
-        # past_states_backwards = self.predictor.predict(s, Q)
-        # past_states_backwards = states[0, ::timesteps_per_controller_update, :]  # Only keep states at control times and remove the batch dimension
+        past_states_backwards = states[::timesteps_per_controller_update, 0, :]  # Only keep states at control times and remove the batch dimension
         past_states_backwards = past_states_backwards[1:, :]  # Remove the first state, which is the current state
         past_states = past_states_backwards[::-1, :]  # Reverse the order of the states
-
-        # Find corresponding waypoints
-        diff = past_states - self.previous_measured_states
 
         nearest_waypoint_indices = [waypoint_utils.nearest_waypoint_index]
         for i in range(len(past_states_backwards)):
@@ -116,7 +96,7 @@ class HistoryForger:
         # This slicing along axis 1 gives an array of shape (number_of_start_points, look_ahead_steps, waypoint_dimension).
         nearest_waypoints = next_waypoints_including_ignored[:, waypoint_utils.ignore_steps:]
 
-        self.car_inverse_dynamics.change_friction_coefficient(1.0-self.car_inverse_dynamics.car_model.car_parameters.mu)
+        # self.car_inverse_dynamics.change_friction_coefficient(1.0-self.car_inverse_dynamics.car_model.car_parameters.mu)
 
         return past_states, nearest_waypoints
 
