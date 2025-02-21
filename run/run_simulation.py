@@ -374,7 +374,7 @@ class RacingSimulation:
     Recorder function that is called at every step
     '''
     def handle_recording_step(self):
-        if Settings.SAVE_RECORDINGS:
+        if Settings.SAVE_RECORDINGS and self.sim_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0:
                 for index, driver in enumerate(self.drivers):
                     if driver.save_recordings:
                         driver.recorder.step()
