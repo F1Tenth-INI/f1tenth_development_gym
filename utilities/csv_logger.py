@@ -69,7 +69,7 @@ def create_csv_file_name(Settings, csv_name=None):
         dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(
             int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
-            Settings.SURFACE_FRICITON)
+            Settings.SURFACE_FRICITON) + '_mu_control_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
         timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + str(Settings.RECORDING_INDEX) + '_' + dataset_name + '.csv'
     else:
