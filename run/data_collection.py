@@ -1,5 +1,5 @@
 """ Run the race! """
-from run.run_simulation import run_experiments
+from run.run_simulation import RacingSimulation
 from utilities.Settings import Settings
 import time
 import os
@@ -131,7 +131,8 @@ for reverse_direction in reverse_direction_values:
                 print("Speedfator: ", global_waypoint_velocity_factor)
                 time.sleep(1)
                 try:
-                    run_experiments()
+                    simulation = RacingSimulation()
+                    simulation.run_experiments()
                 except Exception as e:
                     print(f"An error occurred while running the experiments: {e}")        
                     
@@ -141,7 +142,8 @@ for reverse_direction in reverse_direction_values:
                 time.sleep(1)
                 
                 try:
-                    run_experiments()
+                    simulation = RacingSimulation()
+                    simulation.run_experiments()
                 except Exception as e:
                     print(f"An error occurred while running the experiments: {e}")    
             
@@ -149,5 +151,6 @@ for reverse_direction in reverse_direction_values:
         #     Settings.PLACE_RANDOM_OBSTACLES = False
         #     print("runs_with_oponents", i)
         #     time.sleep(1)
-        #     run_experiments()
+        #     simulation = RacingSimulation()
+        #     simulation.run_experiments()
 
