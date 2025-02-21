@@ -141,15 +141,20 @@ class RacingSimulation:
         # Init recorder
         main_driver = self.drivers[0]
         if Settings.SAVE_RECORDINGS and main_driver.save_recordings:
+            if Settings.FORGE_HISTORY:
+                main_driver.recorder.dict_data_to_save_basic.update(
+                    {
+                        'forged_history_applied': lambda: main_driver.history_forger.forged_history_applied,
+                    }
+                )
+            main_driver.recorder.dict_data_to_save_basic.update(
+                {
+                    'lap_times': lambda: self.obs['lap_times'],
+                    'time': lambda: self.sim_time,
+                    'sim_index': lambda: self.sim_index,
+                }
+            )
             main_driver.recorder.start_csv_recording()
-            # TODO: fix
-            # main_driver.recorder.dict_data_to_save_basic.update(
-            #     {
-            #         'lap_times': lambda: self.obs['lap_times'],
-            #         'time': lambda: self.sim_time,
-            #         'sim_index': lambda: self.sim_index,
-            #     }
-            # )
 
 
         # Populate control delay buffer
