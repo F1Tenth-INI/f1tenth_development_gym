@@ -59,6 +59,9 @@ class car_model:
 
         self.model_of_car_dynamics = model_of_car_dynamics
 
+    def change_friction_coefficient(self, friction_coefficient):
+        self.car_parameters.mu = friction_coefficient
+        self.set_model_of_car_dynamics(self.model_of_car_dynamics)
 
     # Kinematic model: applicable for low speeds
     def _step_dynamics_ks(self, s, Q):
