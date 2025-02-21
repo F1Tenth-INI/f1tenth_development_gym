@@ -200,6 +200,7 @@ class RacingSimulation:
 
     def get_agent_controls(self):
         ranges = self.obs['scans']
+        self.get_control_for_history_forger()
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
@@ -221,10 +222,22 @@ class RacingSimulation:
         self.control_delay_buffer.append(self.agent_controls_calculated)        
         agent_controls_execute  = self.control_delay_buffer.pop(0)
 
+        self.get_state_for_history_forger()
+
         # shape: [number_of_drivers, 2]
         return agent_controls_execute
 
-        
+    def get_control_for_history_forger(self):
+        if self.sim_index > 0:
+            for index, driver in enumerate(self.drivers):
+                if hasattr(driver, 'history_forger'):
+                    driver.history_forger.update_control_history(self.env.sim.agents[index].u_pid_with_constrains)
+
+    def get_state_for_history_forger(self):
+        for index, driver in enumerate(self.drivers):
+            if hasattr(driver, 'history_forger'):
+                driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))
+
 
     def render_env(self):
         # Render the environment
