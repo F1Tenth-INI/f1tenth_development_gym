@@ -37,7 +37,7 @@ class CarInverseDynamics:
 
 
 
-def create_inverse_function_tf(f, tol=1e-5, max_iter=20):
+def create_inverse_function_tf(f, tol=1e-6, max_iter=20):
     """
     Creates an inverse function solver that, given y and q,
     finds x satisfying f(x, q) = y using Newton's method in TensorFlow.
@@ -166,13 +166,14 @@ def create_inverse_function_tf(f, tol=1e-5, max_iter=20):
             diffs_without_slip.append(diff_without_slip.numpy())
             if tf.reduce_all(diff_without_slip < tol) and tf.reduce_all(diff_without_slip[:, ANGULAR_VEL_Z_IDX] < tol/100.0):
                 # tf.print("\nConverged after", i, "iterations.\n")
-                return x_new.numpy()
+                return x_new.numpy(), True
             x = x_new
         # Return the best estimate if max iterations are reached.
         diffs_without_slip = np.array(diffs_without_slip)
         if np.max(diffs_without_slip[-1]) > 1.e-3:
             print("NO CONVERGENCE REACHED!")
             print("Max error: ", diffs_without_slip[-1])
-        return x.numpy()
+            return x.numpy(), False
+        return x.numpy(), True
 
     return inverse_f_param_tf
