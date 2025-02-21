@@ -31,6 +31,7 @@ from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.HistoryForger import HistoryForger
+from utilities.StateMetricCalculator import StateMetricCalculator
 
 class CarSystem:
     
@@ -126,6 +127,14 @@ class CarSystem:
 
         if Settings.FORGE_HISTORY:
             self.history_forger = HistoryForger()
+
+        self.state_metric_calculator = StateMetricCalculator(
+            environment_name="Car",
+            initial_environment_attributes={
+                "next_waypoints": self.waypoint_utils.next_waypoints,
+            },
+            recorder_base_dict=self.recorder.dict_data_to_save_basic
+        )
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -295,6 +304,12 @@ class CarSystem:
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
+
+        self.state_metric_calculator.calculate_metrics(
+            current_state=car_state,
+            current_control=np.array([self.angular_control, self.translational_control]),
+            updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
+        )
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
             self.optimal_control_sequence = self.planner.optimal_control_sequence

@@ -57,6 +57,7 @@ class f1t_cost_function(cost_function_base):
 
         self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
+        self.cost_function_for_state_metric = False
 
 
     # region updating P1 & P2
@@ -168,13 +169,14 @@ class f1t_cost_function(cost_function_base):
         acceleration_cost = max_acceleration - accelerations
         acceleration_cost = tf.abs(acceleration_cost)
         acceleration_cost = acceleration_cost_weight * acceleration_cost
-
+        acceleration_cost = tf.cast(acceleration_cost, tf.float32)
         return acceleration_cost
 
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
         steering = u[:, :, ANGULAR_CONTROL_IDX]
         steering = tf.square(steering)
+        steering = tf.cast(steering, tf.float32)
         steering_cost = steering_cost_weight * steering
 
         return steering_cost
@@ -182,11 +184,13 @@ class f1t_cost_function(cost_function_base):
     def get_angular_velocity_cost(self, s):
         angular_velovities = s[:, :, ANGULAR_VEL_Z_IDX]
         angula_velocity_cost = angular_velocity_cost_weight * tf.square(angular_velovities)
+        angula_velocity_cost = tf.cast(angula_velocity_cost, tf.float32)
         return angula_velocity_cost
 
     def get_slipping_cost(self, s):
         slipping_angles = s[:, :, SLIP_ANGLE_IDX]
         slipping_cost = slipping_cost_weight * tf.square(slipping_angles)
+        slipping_cost = tf.cast(slipping_cost, tf.float32)
         return slipping_cost
     
     def get_distance_to_waypoints_per_rollout(self, trajectory_points, waypoints):
@@ -362,8 +366,12 @@ class f1t_cost_function(cost_function_base):
         
     def normed_discount(self, array_to_discount, model_array, discount_factor):
         discount_vector = self.lib.ones_like(model_array) * discount_factor
+        discount_vector = tf.cast(discount_vector, dtype=tf.float32)
         discount_vector = self.lib.cumprod(discount_vector, 0)
         norm_factor = self.lib.sum(self.lib.ones_like(discount_vector), 0)/self.lib.sum(discount_vector, 0)
         discount_vector = norm_factor*discount_vector
         return array_to_discount*discount_vector
+
+    def set_cost_function_for_state_metric(self):
+        self.cost_function_for_state_metric = True
 
