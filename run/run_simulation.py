@@ -149,9 +149,10 @@ class RacingSimulation:
                 )
             main_driver.recorder.dict_data_to_save_basic.update(
                 {
-                    'lap_times': lambda: self.obs['lap_times'],
+                    'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
+                    'nearest_wpt_idx': lambda: main_driver.waypoint_utils.nearest_waypoint_index,
                 }
             )
             main_driver.recorder.start_csv_recording()
