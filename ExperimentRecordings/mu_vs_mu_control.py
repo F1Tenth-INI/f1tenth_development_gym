@@ -31,8 +31,9 @@ file_list = glob.glob(os.path.join(data_folder, "*.csv"))
 if not file_list:
     sys.exit(f"Error: The folder '{data_folder}' is empty or contains no CSV files.")
 
-# Option to remove offset from all cost values.
-REMOVE_OFFSET = True
+# Options:
+REMOVE_OFFSET = True         # Remove offset so that the global minimum becomes 0.
+NORMALIZE_COLUMNWISE = True  # Normalize each column to the 0-1 scale.
 
 # Dictionary to store a list of cost values for each (mu, mu_control) pair.
 # Using lists allows us to average the cost when multiple files exist for the same parameters.
@@ -133,6 +134,18 @@ if REMOVE_OFFSET:
 heatmap_data = heatmap_data.iloc[::-1]
 
 # ---------------------------------------------------------------------
+# Optionally normalize each column to a 0-1 scale.
+if NORMALIZE_COLUMNWISE:
+    def normalize_column(col):
+        col_min = col.min(skipna=True)
+        col_max = col.max(skipna=True)
+        # Avoid division by zero when all values are the same.
+        if col_max == col_min:
+            return col
+        return (col - col_min) / (col_max - col_min)
+    heatmap_data = heatmap_data.apply(normalize_column, axis=0)
+
+# ---------------------------------------------------------------------
 # Create a custom colormap based on viridis, with NaN values shown in grey.
 base_cmap = plt.cm.get_cmap('viridis', 256)
 cmap = mcolors.ListedColormap(base_cmap(np.linspace(0, 1, 256)))
@@ -144,11 +157,11 @@ plt.figure(figsize=(8, 6))
 ax = sns.heatmap(
     heatmap_data,
     cmap=cmap,
-    annot=True,  # Annotate each cell with the average cost value.
-    fmt=".2f",   # Format the annotation to two decimal places.
-    linewidths=0.5,  # Draw gridlines for clarity.
-    square=True,     # Ensure each cell is square.
-    cbar_kws={'label': 'Average Total Stage Cost per Lap'},
+    annot=True,           # Annotate each cell with the (normalized) cost value.
+    fmt=".2f",            # Format annotations to two decimal places.
+    linewidths=0.5,       # Draw gridlines for clarity.
+    square=True,          # Ensure each cell is square.
+    cbar_kws={'label': 'Average Total Stage Cost per Lap (Normalized)' if NORMALIZE_COLUMNWISE else 'Average Total Stage Cost per Lap'},
     mask=heatmap_data.isnull()  # Use the custom grey for missing data.
 )
 
