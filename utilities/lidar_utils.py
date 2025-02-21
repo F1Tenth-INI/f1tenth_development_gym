@@ -5,7 +5,7 @@ from utilities.state_utilities import *
 from matplotlib import pyplot as plt
 import matplotlib
 import time  # Import time module
-
+from numba import jit
 
 
 class LidarHelper:
@@ -73,33 +73,14 @@ class LidarHelper:
     def update_ranges(self, all_lidar_ranges, car_state = None):
         self.all_lidar_ranges = all_lidar_ranges
         self.processed_ranges = all_lidar_ranges[self.processed_scan_indices]
-        self.processed_points_relative_to_car = self.get_points_from_ranges(self.processed_ranges, self.processed_angles_rad)
-        # self.all_points_relative_to_car = self.get_points_from_ranges(all_lidar_ranges, self.all_angles_rad)
+        self.processed_points_relative_to_car = get_points_from_ranges(self.processed_ranges, self.processed_angles_rad)
+        # self.all_points_relative_to_car = get_points_from_ranges(all_lidar_ranges, self.all_angles_rad)
         
         if car_state is not None:
-            self.processed_points_map_coordinates = self.transform_points_from_car_to_global(car_state, self.processed_points_relative_to_car)
-            # self.all_points_map_coordinates = self.transform_points_from_car_to_global(car_state, self.all_points_relative_to_car)
+            self.processed_points_map_coordinates = transform_points_from_car_to_global(car_state, self.processed_points_relative_to_car)
+            # self.all_points_map_coordinates = transform_points_from_car_to_global(car_state, self.all_points_relative_to_car)
     
-    
-    @staticmethod
-    def get_points_from_ranges(ranges, angles_rad):
-        p1 = ranges * np.cos(angles_rad)
-        p2 = ranges * np.sin(angles_rad)
-        return np.stack((p1, p2), axis=1)
-    
-    @staticmethod
-    def transform_points_from_car_to_global(car_state, points_relative_to_car):
-        car_x, car_y = car_state[POSE_X_IDX], car_state[POSE_Y_IDX]
-        c, s = car_state[POSE_THETA_COS_IDX], car_state[POSE_THETA_SIN_IDX]
-        R = np.array([[c, -s], [s, c]])
-        
-        # LIDAR offset in car coordinates
-        lidar_offset = np.array([0.20, 0.0])
-        
-        # Adjust points relative to car by the LIDAR offset
-        adjusted_points = points_relative_to_car + lidar_offset
-        
-        return np.dot(adjusted_points, R.T) + np.array([car_x, car_y])
+
             
     def indices_from_pandas(self, data):
         lidar_col = [col for col in data if col.startswith('LIDAR')]
@@ -157,6 +138,31 @@ class LidarHelper:
             plt.plot(self.processed_ranges)
             plt.show()
             time.sleep(0.01)  # Pause for 1 second to allow the plot to render
+
+
+
+#Move jit functions out of the class
+@jit(nopython=True)
+def get_points_from_ranges(ranges, angles_rad):
+    p1 = ranges * np.cos(angles_rad)
+    p2 = ranges * np.sin(angles_rad)
+    return np.stack((p1, p2), axis=1)
+
+@jit(nopython=True)
+def transform_points_from_car_to_global(car_state, points_relative_to_car):
+    car_x, car_y = car_state[POSE_X_IDX], car_state[POSE_Y_IDX]
+    c, s = car_state[POSE_THETA_COS_IDX], car_state[POSE_THETA_SIN_IDX]
+    R = np.array([[c, -s], [s, c]])
+    
+    # The lidar offset is hardcoded for now as it is the same for all the cars
+    # LIDAR offset in car coordinates
+    lidar_offset = np.array([0.20, 0.0])
+    
+    # Adjust points relative to car by the LIDAR offset
+    adjusted_points = points_relative_to_car + lidar_offset
+    
+    return np.dot(adjusted_points, R.T) + np.array([car_x, car_y])
+
 
 if __name__ == '__main__':
     import pandas as pd

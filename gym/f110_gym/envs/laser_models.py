@@ -160,11 +160,18 @@ def get_scan(pose, theta_dis, fov, num_beams, theta_index_increment, sines, cosi
         Returns:
             scan (numpy.ndarray(n, )): resulting laser scan at the pose, n=num_beams
     """
+    # Apply LiDAR mounting offset
+    lidar_offset_x = 0.2  # LiDAR x offset in car frame
+    lidar_offset_y = 0.0  # LiDAR y offset in car frame
+    lidar_x = pose[0] + lidar_offset_x * np.cos(pose[2]) - lidar_offset_y * np.sin(pose[2])
+    lidar_y = pose[1] + lidar_offset_x * np.sin(pose[2]) + lidar_offset_y * np.cos(pose[2])
+    lidar_pose = np.array([lidar_x, lidar_y, pose[2]])
+
     # empty scan array init
     scan = np.empty((num_beams,))
 
     # make theta discrete by mapping the range [-pi, pi] onto [0, theta_dis]
-    theta_index = theta_dis * (pose[2] - fov/2.)/(2. * np.pi)
+    theta_index = theta_dis * (lidar_pose[2] - fov/2.)/(2. * np.pi)
 
     # make sure it's wrapped properly
     theta_index = np.fmod(theta_index, theta_dis)
@@ -174,7 +181,7 @@ def get_scan(pose, theta_dis, fov, num_beams, theta_index_increment, sines, cosi
     # sweep through each beam
     for i in range(0, num_beams):
         # trace the current beam
-        scan[i] = trace_ray(pose[0], pose[1], theta_index, sines, cosines, eps, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range)
+        scan[i] = trace_ray(lidar_pose[0], lidar_pose[1], theta_index, sines, cosines, eps, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range)
 
         # increment the beam index
         theta_index += theta_index_increment
@@ -184,7 +191,6 @@ def get_scan(pose, theta_dis, fov, num_beams, theta_index_increment, sines, cosi
             theta_index -= theta_dis
 
     return scan
-
 @njit(cache=True)
 def check_ttc_jit(scan, vel, scan_angles, cosines, side_distances, ttc_thresh):
     """
