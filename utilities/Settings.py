@@ -7,7 +7,7 @@ class Settings():
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "Milan1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -35,15 +35,15 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.6
     GLOBAL_SPEED_LIMIT = 10.0
-    APPLY_SPEED_SCALING_FROM_CSV = True # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+    APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
-    SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_RECORDINGS = True
+    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -77,14 +77,14 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 300000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -103,7 +103,7 @@ class Settings():
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
 
     AUTOMATIC_SECTOR_TUNING = False
     
@@ -126,7 +126,7 @@ class Settings():
     PP_USE_CURVATURE_CORRECTION = False
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
-    PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
+    PP_VEL2LOOKAHEAD = 0.4  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
     PP_NORMING_V_FOR_CURRVATURE = 10.0  # Bigger number - higher velocity required to have effect on shortening of lookahead horizon
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
@@ -134,7 +134,7 @@ class Settings():
 
     ## MPC Controller ##
     CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks_pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20
     OPTIMIZE_EVERY_N_STEPS = 1
@@ -142,7 +142,7 @@ class Settings():
     ANALYZE_COST = False # Analyze and plot diufferent parts of the MPC cost
     ANALYZE_COST_PERIOD = 100 # Period for analyzing the cost
     
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     WAYPOINTS_FROM_MPC = False # Use waypoints generated from MPC instead of the map
     PLAN_EVERY_N_STEPS = 4 # in case of waypoints from MPC, plan the waypoints every Nth step
@@ -150,8 +150,8 @@ class Settings():
     
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
