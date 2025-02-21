@@ -1,21 +1,38 @@
+import os
+import sys
 import glob
+import platform
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import matplotlib
 import seaborn as sns
 import matplotlib.colors as mcolors
 
-import matplotlib
-matplotlib.use('MacOSX')
+# Select the matplotlib backend based on the operating system.
+if platform.system() == "Darwin":
+    matplotlib.use("MacOSX")
+else:
+    matplotlib.use("TkAgg")
+
+import matplotlib.pyplot as plt
 
 # Import the decoding function from our separate module.
 from mu_vs_mu_control_helpers import decode_mu_from_filename
 
-# Option to remove offset from all cost values.
-REMOVE_OFFSET = True
+# Define the data folder.
+data_folder = "./MPC_mu_vs_mu_control"
+
+# Check if the requested folder exists.
+if not os.path.isdir(data_folder):
+    sys.exit(f"Error: The requested folder '{data_folder}' does not exist.")
 
 # Search for CSV files in the specified folder.
-file_list = glob.glob("./PP_mu_vs_mu_control/*.csv")
+file_list = glob.glob(os.path.join(data_folder, "*.csv"))
+if not file_list:
+    sys.exit(f"Error: The folder '{data_folder}' is empty or contains no CSV files.")
+
+# Option to remove offset from all cost values.
+REMOVE_OFFSET = True
 
 # Dictionary to store a list of cost values for each (mu, mu_control) pair.
 # Using lists allows us to average the cost when multiple files exist for the same parameters.
@@ -109,6 +126,11 @@ if REMOVE_OFFSET:
     offset = heatmap_data.min().min()
     # Subtract the offset from all entries.
     heatmap_data = heatmap_data - offset
+
+# ---------------------------------------------------------------------
+# Reorder the DataFrame so that the lowest mu_control values appear at the bottom.
+# This flips the order of the rows.
+heatmap_data = heatmap_data.iloc[::-1]
 
 # ---------------------------------------------------------------------
 # Create a custom colormap based on viridis, with NaN values shown in grey.
