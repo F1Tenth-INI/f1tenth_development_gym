@@ -8,7 +8,7 @@ HISTORY_LENGTH = 20  # In controller updates
 TIMESTEP_CONTROL = 0.02
 TIMESTEP_ENVIRONMENT = 0.01
 timesteps_per_controller_update = int(TIMESTEP_CONTROL/TIMESTEP_ENVIRONMENT)
-
+START_AFTER_X_STEPS = 100  # Start forging history after this many steps
 
 
 class HistoryForger:
@@ -24,7 +24,10 @@ class HistoryForger:
 
         self.forged_history_applied = False
 
+        self.counter = 0
+
     def update_control_history(self, u):
+        self.counter += 1
         self.previous_control_inputs.append(u)
         if len(self.previous_control_inputs) > HISTORY_LENGTH * timesteps_per_controller_update:
             self.previous_control_inputs.pop(0)
@@ -35,6 +38,9 @@ class HistoryForger:
             self.previous_measured_states.pop(0)
 
     def get_forged_history(self, car_state, waypoint_utils):
+
+        if self.counter < START_AFTER_X_STEPS:
+            return None
 
         if len(self.previous_control_inputs) < HISTORY_LENGTH * timesteps_per_controller_update:
             self.forged_history_applied = False
