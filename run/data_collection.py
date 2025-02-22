@@ -66,9 +66,21 @@ runs_without_obstacles = 1
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.8]
 # global_waypoint_velocity_factors = [0.8,]
-global_surface_friction_values = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
-global_surface_friction_for_controller_values = [0.4, 0.45]
+global_surface_friction_values_all = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
+global_surface_friction_for_controller_values_all = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
 reverse_direction_values = [False, True]
+
+
+index_to_pair = {}
+index = 0
+for friction in global_surface_friction_values_all:
+    for controller_friction in global_surface_friction_for_controller_values_all:
+        index_to_pair[index] = (friction, controller_friction)
+        index += 1
+
+global_surface_friction_values = [index_to_pair[euler_index][0]]
+global_surface_friction_for_controller_values = [index_to_pair[euler_index][1]]
+
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
 print(f"Expected number of experiments: {expected_number_of_experiments}")
