@@ -48,7 +48,7 @@ Settings.RECORDING_INDEX = euler_index
 
 
 Settings.START_FROM_RANDOM_POSITION = False
-Settings.DATASET_NAME = "MPC_mu_vs_mu_control"
+Settings.DATASET_NAME = "MPC_mu_vs_mu_control_08"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.CONTROLLER = 'mpc'
@@ -64,10 +64,10 @@ Settings.APPLY_SPEED_SCALING_FROM_CSV = False
 runs_with_obstacles = 0
 runs_without_obstacles = 1
 runs_with_oponents = 0 
-global_waypoint_velocity_factors = [0.4]
+global_waypoint_velocity_factors = [0.8]
 # global_waypoint_velocity_factors = [0.8,]
-global_surface_friction_values = [0.5, 0.6, 0.7, 0.8, 0.9]
-global_surface_friction_for_controller_values = [0.5, 0.6, 0.7, 0.8, 0.9]
+global_surface_friction_values = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
+global_surface_friction_for_controller_values = [0.4, 0.45]
 reverse_direction_values = [False, True]
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)

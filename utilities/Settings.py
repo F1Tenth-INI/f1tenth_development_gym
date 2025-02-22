@@ -15,7 +15,7 @@ class Settings():
     SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
-    FORGE_HISTORY = True
+    FORGE_HISTORY = False
 
     FRICTION_FOR_CONTROLLER = 0.75
 
