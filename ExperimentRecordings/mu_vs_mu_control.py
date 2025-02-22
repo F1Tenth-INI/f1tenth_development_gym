@@ -34,8 +34,10 @@ if not file_list:
 
 # Options:
 REMOVE_OFFSET = True         # Remove offset so that the global minimum becomes 0.
-NORMALIZE_COLUMNWISE = False  # Normalize each column to the 0-1 scale.
+NORMALIZE_COLUMNWISE = True  # Normalize each column to the 0-1 scale.
 SAVE_FIGURE = False           # Set to True to save the figure.
+FIGURE_FILENAME = data_folder + '_heatmap.png'
+ANNOT_FORMAT = "{:.2f}"       # Option to control the number format in annotations.
 
 # Dictionary to store a list of cost values for each (mu, mu_control) pair.
 # Using lists allows us to average the cost when multiple files exist for the same parameters.
@@ -58,6 +60,7 @@ def calculate_laps(df):
             df.loc[lap_indices[i - 1]:lap_indices[i], 'lap'] = i
     return df
 
+# Process files with a progress bar.
 for filename in tqdm(file_list, desc="Processing files"):
     # Decode mu and mu_control from the filename.
     result = decode_mu_from_filename(filename)
@@ -109,10 +112,10 @@ unique_mu_controls = sorted({mu_control for (_, mu_control) in cost_dict.keys()}
 
 # Create a DataFrame where rows correspond to mu_control values and columns to mu.
 heatmap_data = pd.DataFrame(index=unique_mu_controls, columns=unique_mus)
+annot_data   = pd.DataFrame(index=unique_mu_controls, columns=unique_mus)
+status_data  = pd.DataFrame(index=unique_mu_controls, columns=unique_mus)  # "valid", "incomplete", "missing"
 
-annot_data = pd.DataFrame(index=unique_mu_controls, columns=unique_mus)
-
-# Populate the DataFrame.
+# Populate the DataFrames.
 for mu in unique_mus:
     for mu_control in unique_mu_controls:
         key = (mu, mu_control)
@@ -121,14 +124,17 @@ for mu in unique_mus:
             if len(cost_dict[key]) == 2:
                 avg_val = np.mean(cost_dict[key])
                 heatmap_data.at[mu_control, mu] = avg_val
-                annot_data.at[mu_control, mu] = f"{avg_val:.2f}"
+                annot_data.at[mu_control, mu] = ANNOT_FORMAT.format(avg_val)
+                status_data.at[mu_control, mu] = "valid"
             else:
                 # If only one file (or more than two), mark as invalid.
                 heatmap_data.at[mu_control, mu] = np.nan
                 annot_data.at[mu_control, mu] = ""
+                status_data.at[mu_control, mu] = "incomplete"
         else:
             heatmap_data.at[mu_control, mu] = np.nan
             annot_data.at[mu_control, mu] = "miss.\ndata"
+            status_data.at[mu_control, mu] = "missing"
 
 # Ensure all values are float (NaN values remain unchanged).
 heatmap_data = heatmap_data.astype(float)
@@ -145,7 +151,8 @@ if REMOVE_OFFSET:
 # Reorder the DataFrame so that the lowest mu_control values appear at the bottom.
 # This flips the order of the rows.
 heatmap_data = heatmap_data.iloc[::-1]
-annot_data = annot_data.iloc[::-1]
+annot_data   = annot_data.iloc[::-1]
+status_data  = status_data.iloc[::-1]
 
 # ---------------------------------------------------------------------
 # Optionally normalize each column to a 0-1 scale.
@@ -160,10 +167,11 @@ if NORMALIZE_COLUMNWISE:
     heatmap_data = heatmap_data.apply(normalize_column, axis=0)
 
 # ---------------------------------------------------------------------
-# Create a custom colormap based on viridis, with NaN values shown in grey.
+# Create a custom colormap for valid cells.
+# We'll let "bad" (NaN) cells appear in the missing-data color.
 base_cmap = plt.cm.get_cmap('viridis', 256)
 cmap = mcolors.ListedColormap(base_cmap(np.linspace(0, 1, 256)))
-cmap.set_bad(color='grey')
+cmap.set_bad(color='grey')  # "missing" cells will be grey.
 
 # ---------------------------------------------------------------------
 # Plot the heatmap using seaborn.
@@ -171,19 +179,28 @@ plt.figure(figsize=(8, 6))
 ax = sns.heatmap(
     heatmap_data,
     cmap=cmap,
-    annot=annot_data,    # Use our custom annotations.
-    fmt="",              # No additional formatting since annot_data is preformatted.
-    annot_kws={"size": 8},  # Smaller annotation font.
+    annot=annot_data,
+    fmt="",
+    annot_kws={"size": 8},
     linewidths=0.5,
     square=True,
     cbar_kws={
         'label': 'Average Total Stage Cost per Lap (Normalized)' if NORMALIZE_COLUMNWISE
                  else 'Average Total Stage Cost per Lap'
     },
-    mask=heatmap_data.isnull()  # Use the custom grey for missing data.
+    mask=heatmap_data.isnull()  # This will color "missing" cells with cmap.set_bad.
 )
 
-# Label the axes and set a title.
+# Now overlay a lightgray rectangle for cells marked as "incomplete".
+# Iterate over the data grid coordinates.
+for i, mu_control in enumerate(heatmap_data.index):
+    for j, mu in enumerate(heatmap_data.columns):
+        if status_data.loc[mu_control, mu] == "incomplete":
+            # (j, i) is the bottom-left corner of the cell in heatmap coordinates.
+            rect = plt.Rectangle((j, i), 1, 1, facecolor="lightgray", edgecolor="none", zorder=2)
+            ax.add_patch(rect)
+
+# Increase the axis label font size.
 ax.set_xlabel("mu", fontsize=14)
 ax.set_ylabel("mu_control", fontsize=14)
 plt.title(f"Heatmap of Average Total Stage Cost per Lap for mu vs. mu_control\nDataset: {os.path.basename(data_folder)}", fontsize=16)
@@ -191,6 +208,6 @@ plt.tight_layout()
 
 # Optionally save the figure.
 if SAVE_FIGURE:
-    plt.savefig(data_folder+'_heatmap.png')
+    plt.savefig(FIGURE_FILENAME)
 
 plt.show()
