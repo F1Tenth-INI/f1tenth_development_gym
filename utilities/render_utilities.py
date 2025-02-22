@@ -16,6 +16,7 @@ else:
             from pyglet.gl import glLineWidth, glPointSize
             import pyglet.gl as gl
             from pyglet import shapes
+            from pyglet.graphics import Group
             import pyglet
         except:
             Settings.RENDER_MODE = None
@@ -52,7 +53,7 @@ self.Render.update(
 '''
 
 
-class PointSizeGroup(pyglet.graphics.Group):
+class PointSizeGroup(Group):
     def __init__(self, point_size, parent=None):
         super().__init__(parent)
         self.point_size = point_size  # Desired point size for this group.
