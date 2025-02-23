@@ -1,179 +1,210 @@
+# InverseDynamics.py
+
 import tensorflow as tf
 import numpy as np
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
-
 from SI_Toolkit_ASF.car_model import car_model
 from utilities.Settings import Settings
-from utilities.state_utilities import POSE_THETA_IDX, SLIP_ANGLE_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, ANGULAR_VEL_Z_IDX
+from utilities.state_utilities import (
+    POSE_THETA_IDX,
+    SLIP_ANGLE_IDX,
+    POSE_THETA_SIN_IDX,
+    POSE_THETA_COS_IDX,
+    ANGULAR_VEL_Z_IDX,
+)
 
 
 class CarInverseDynamics:
+    """
+    Performs a backward pass from final state x_next with a history of controls Q.
+    Uses Newton iteration for each step, pinned shapes, and a scalar 'converged' flag.
+    """
+
     def __init__(self, mu=None):
         self.car_model = car_model(
             model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
-            batch_size=1,
+            batch_size=1,  # typically 1
             car_parameter_file=Settings.CONTROLLER_CAR_PARAMETER_FILE,
             dt=0.01,
             intermediate_steps=1,
-            computation_lib=TensorFlowLibrary()
+            computation_lib=TensorFlowLibrary(),
         )
-
         if mu is not None:
-            self.car_model.car_parameters.mu = mu
-        self.inverse_dynamics = create_inverse_function_tf(self.car_model.step_dynamics)
-        self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
+            self.car_model.change_friction_coefficient(mu)
+
+        # Make sure these match your actual model's shape
+        self.state_dim = 10
+        self.control_dim = 2
+
+        # Our forward step function
+        self._f = self.car_model.step_dynamics_core
+
+        # Build a single @tf.function for the entire backward pass
+        self.inverse_trajectory_tf = self._create_inverse_trajectory_fn()
 
     def change_friction_coefficient(self, mu):
         self.car_model.change_friction_coefficient(mu)
-        self.inverse_dynamics = create_inverse_function_tf(self.car_model.step_dynamics)
-        self.inverse_dynamics_core = create_inverse_function_tf(self.car_model.step_dynamics_core)
 
-    def step(self, s, Q):
-        return self.inverse_dynamics(s, Q)
+    def _create_inverse_trajectory_fn(self):
+        @tf.function(
+            input_signature=[
+                tf.TensorSpec([1, None], dtype=tf.float32),  # x_next: [1, state_dim]
+                tf.TensorSpec([None, None], dtype=tf.float32)  # Q: [T, control_dim]
+            ]
+        )
+        def run_inverse_trajectory(x_next_tf, Q_tf):
+            """
+            x_next_tf: [1, state_dim]
+            Q_tf:      [T, control_dim]
 
-    def step_core(self, s, Q):
-        return self.inverse_dynamics_core(s, Q)
+            Returns:
+              states:  [T+1, state_dim]
+              conv:    [T] bool
+            """
+            T = tf.shape(Q_tf)[0]
 
+            states_ta = tf.TensorArray(dtype=tf.float32, size=T + 1)
+            states_ta = states_ta.write(0, x_next_tf[0])  # Store current final state at index 0
 
+            conv_ta = tf.TensorArray(dtype=tf.bool, size=T)
 
-def create_inverse_function_tf(f, tol=1e-6, max_iter=20):
-    """
-    Creates an inverse function solver that, given y and q,
-    finds x satisfying f(x, q) = y using Newton's method in TensorFlow.
+            def solve_single_step(x_next, q, tol=1e-6, max_iter=20):
+                """
+                Newton solver for x_prev s.t. f(x_prev, q) = x_next.
+                """
+                i0 = tf.constant(0)
+                converged0 = tf.constant(False, dtype=tf.bool)  # shape=()
 
-    Parameters:
-      f      : A function that accepts (x, q) and returns a Tensor.
-      tol    : Tolerance for convergence.
-      max_iter: Maximum number of iterations.
+                x_prev0 = x_next  # initial guess, shape [1, state_dim]
 
-    Returns:
-      A function inverse_f_param_tf(y, q) that returns the computed x.
-    """
+                def cond(i, x_prev, converged):
+                    # Keep looping while i < max_iter and not converged
+                    return tf.logical_and(tf.less(i, max_iter),
+                                          tf.logical_not(converged))
 
-    @tf.function
-    def newton_step_param_tf(x, y, q, alpha):
+                def body(i, x_prev, converged):
+                    # Pin shapes to keep TF happy
+                    x_prev = tf.ensure_shape(x_prev, [1, self.state_dim])
+                    q_fixed = tf.ensure_shape(q, [1, self.control_dim])
+
+                    # 1) Compute forward pass, diff
+                    x_pred = self._f(x_prev, q_fixed)  # shape [1, state_dim]
+                    diff = x_pred - x_next  # shape [1, state_dim]
+
+                    # 2) Adjust the angle difference
+                    def angle_diff(th):
+                        return tf.atan2(tf.sin(th), tf.cos(th))
+
+                    corrected_theta_diff = tf.abs(angle_diff(diff[:, POSE_THETA_IDX]))
+                    diff_abs = tf.abs(diff)
+
+                    # 3) Zero out slip angle difference, etc.
+                    diff_abs = tf.concat([
+                        diff_abs[:, :POSE_THETA_IDX],
+                        tf.reshape(corrected_theta_diff, [1, 1]),
+                        diff_abs[:, POSE_THETA_IDX + 1: SLIP_ANGLE_IDX],
+                        tf.zeros_like(diff_abs[:, SLIP_ANGLE_IDX: SLIP_ANGLE_IDX + 1]),
+                        diff_abs[:, SLIP_ANGLE_IDX + 1:],
+                    ], axis=1)
+
+                    # 4) Newton update requires gradient
+                    with tf.GradientTape() as tape:
+                        tape.watch(x_prev)
+                        x_pred2 = self._f(x_prev, q_fixed)
+                        diff2 = x_pred2 - x_next
+
+                        # same angle logic
+                        corrected_theta_diff2 = tf.abs(angle_diff(diff2[:, POSE_THETA_IDX]))
+                        diff_abs2 = tf.abs(diff2)
+                        diff_abs2 = tf.concat([
+                            diff_abs2[:, :POSE_THETA_IDX],
+                            tf.reshape(corrected_theta_diff2, [1, 1]),
+                            diff_abs2[:, POSE_THETA_IDX + 1: SLIP_ANGLE_IDX],
+                            tf.zeros_like(diff_abs2[:, SLIP_ANGLE_IDX: SLIP_ANGLE_IDX + 1]),
+                            diff_abs2[:, SLIP_ANGLE_IDX + 1:],
+                        ], axis=1)
+
+                    grad_jac = tape.batch_jacobian(diff_abs2, x_prev)  # shape [1, dim, dim]
+                    grad_val = tf.linalg.diag_part(grad_jac)[0]  # shape [dim]
+
+                    eps = 1e-12
+                    x_prev_new = x_prev - diff_abs2 / (grad_val + eps)
+
+                    # 5) Recompute sin/cos for updated angle
+                    angle_updated = x_prev_new[:, POSE_THETA_IDX]
+                    sin_angle = tf.sin(angle_updated)
+                    cos_angle = tf.cos(angle_updated)
+
+                    x_prev_new = tf.tensor_scatter_nd_update(
+                        x_prev_new, [[0, POSE_THETA_SIN_IDX]], [sin_angle[0]]
+                    )
+                    x_prev_new = tf.tensor_scatter_nd_update(
+                        x_prev_new, [[0, POSE_THETA_COS_IDX]], [cos_angle[0]]
+                    )
+
+                    # 6) Check convergence
+                    x_pred_new = self._f(x_prev_new, q_fixed)
+                    diff_new = x_pred_new - x_next
+                    diff_abs_new = tf.abs(diff_new)
+
+                    # Omit slip angle dimension from the check
+                    diff_check = tf.concat([
+                        diff_abs_new[:, :SLIP_ANGLE_IDX],
+                        diff_abs_new[:, SLIP_ANGLE_IDX + 1:],
+                    ], axis=1)
+
+                    # IMPORTANT: make c1, c2 into scalars
+                    c1 = tf.reduce_all(diff_check < tol)  # shape=()
+                    # might be shape(1,) if we don't reduce_all
+                    c2 = tf.reduce_all(tf.abs(diff_new[:, ANGULAR_VEL_Z_IDX]) < (tol / 100.0))  # shape=()
+                    new_converged = tf.logical_and(c1, c2)  # shape=()
+
+                    return i + 1, x_prev_new, new_converged
+
+                # shape invariants must match actual shapes
+                shape_invariants = (
+                    tf.TensorShape([]),  # i is scalar int
+                    tf.TensorShape([1, self.state_dim]),  # x_prev is [1, state_dim]
+                    tf.TensorShape([]),  # converged is scalar bool
+                )
+                loop_vars = (i0, x_prev0, converged0)
+
+                # Run up to max_iter
+                _, x_prev_final, conv_final = tf.while_loop(
+                    cond, body,
+                    loop_vars=loop_vars,
+                    shape_invariants=shape_invariants
+                )
+                return x_prev_final, conv_final
+
+            # main backward loop for T steps
+            x_current = x_next_tf
+            for i in tf.range(T):
+                # slice control for step i
+                q_i = Q_tf[i: i + 1, :]
+                q_i = tf.ensure_shape(q_i, [1, self.control_dim])
+                x_current = tf.ensure_shape(x_current, [1, self.state_dim])
+
+                x_prev, conv = solve_single_step(x_current, q_i)
+                states_ta = states_ta.write(i + 1, x_prev[0])
+                conv_ta = conv_ta.write(i, conv)
+                x_current = x_prev
+
+            return states_ta.stack(), conv_ta.stack()
+
+        return run_inverse_trajectory
+
+    def inverse_entire_trajectory(self, x_next, Q):
         """
-        Performs one Newton update step for solving f(x, q) = y.
+        Public function to do the entire backward pass in one call.
+        x_next: shape [1, state_dim]
+        Q: shape [T, control_dim]
 
-        The update is:
-          x_new = x - alpha * err / (grad_val + 1e-12)
-        where err is the error computed by g(x) and grad_val is the
-        element-wise derivative (diagonal of the Jacobian) of g with respect to x.
-
-        Parameters:
-          x, y, q: Tensors for the current guess, target value, and parameter.
-          alpha : Damping factor controlling the step size.
-
-        Returns:
-          The updated x after one Newton step.
+        Returns states_np [T+1, state_dim], conv_np [T] bool
         """
+        x_next_tf = tf.convert_to_tensor(x_next, dtype=tf.float32)
+        Q_tf = tf.convert_to_tensor(Q, dtype=tf.float32)
 
-        # Error function g: computes a modified absolute difference between f(x, q) and y.
-        # (Don't change function g as per your instruction.)
-        def g(x_proposed):
-            diff = f(x_proposed, q) - y
-            corrected_theta_diff = tf.abs(
-                tf.atan2(tf.sin(diff[:, POSE_THETA_IDX]), tf.cos(diff[:, POSE_THETA_IDX]))
-            )
-            diff_abs = tf.abs(diff)
-            diff_abs = tf.concat(
-                [
-                    diff_abs[:, :POSE_THETA_IDX],
-                    tf.expand_dims(corrected_theta_diff, axis=1),
-                    diff_abs[:, POSE_THETA_IDX + 1:SLIP_ANGLE_IDX],
-                    tf.expand_dims(diff_abs[:, SLIP_ANGLE_IDX]*0.0, axis=1),
-                    diff_abs[:, SLIP_ANGLE_IDX+1:],
-                 ],
-                axis=1
-            )
-            return diff_abs
-
-        # Compute the error vector using g.
-        # We then need its derivative (Jacobian) with respect to x to form the Newton update.
-        with tf.GradientTape() as tape:
-            tape.watch(x)
-            err = g(x)  # Error vector: ideally, we want err = 0.
-        # Compute the full Jacobian of err with respect to x.
-        # The shape is [batch_size, dim, dim] if x has shape [batch_size, dim].
-        grad_jac = tape.batch_jacobian(err, x)
-        # For a decoupled update, we assume the influence is primarily on the diagonal.
-        # Extract the diagonal elements to get an element-wise derivative.
-        grad_val = tf.linalg.diag_part(grad_jac)
-
-        # Perform the Newton update.
-        # The term (grad_val + 1e-12) safeguards against division by zero.
-        x_new = x - alpha * err / (grad_val + 1e-12)
-
-        # --- Post-update correction for angular components ---
-        # The updated x may have changed the angle (at POSE_THETA_IDX),
-        # so we recompute its sine and cosine values.
-        batch_size_x = tf.shape(x_new)[0]
-        batch_size_x_int64 = tf.cast(batch_size_x, tf.int64)
-
-        # Build indices for updating the sin(theta) component.
-        sin_indices = tf.concat([
-            tf.expand_dims(tf.range(batch_size_x_int64, dtype=tf.int64), axis=-1),
-            tf.fill([batch_size_x_int64, 1], tf.cast(POSE_THETA_SIN_IDX, tf.int64))
-        ], axis=1)
-        # Build indices for updating the cos(theta) component.
-        cos_indices = tf.concat([
-            tf.expand_dims(tf.range(batch_size_x_int64, dtype=tf.int64), axis=-1),
-            tf.fill([batch_size_x_int64, 1], tf.cast(POSE_THETA_COS_IDX, tf.int64))
-        ], axis=1)
-
-        # Compute new sin and cos values from the updated angle.
-        sin_values = tf.sin(x_new[:, POSE_THETA_IDX])
-        cos_values = tf.cos(x_new[:, POSE_THETA_IDX])
-
-        # Update the corresponding indices in x_new.
-        x_new = tf.tensor_scatter_nd_update(x_new, sin_indices, sin_values)
-        x_new = tf.tensor_scatter_nd_update(x_new, cos_indices, cos_values)
-
-        return x_new
-
-    def inverse_f_param_tf(y, q):
-        """
-        Solves f(x, q) = y for x using Newton's method.
-
-        Parameters:
-          y : The target Tensor.
-          q : An additional parameter Tensor for f.
-
-        Returns:
-          A NumPy array containing the solution x.
-        """
-        y = tf.convert_to_tensor(y, dtype=tf.float32)
-        q = tf.convert_to_tensor(q, dtype=tf.float32)
-
-        # Use y as the initial guess for x.
-        x = y
-
-        # A damping factor that can be adjusted.
-        alpha = tf.constant(1.0, dtype=tf.float32)
-
-        diff0 = tf.abs(f(x, q) - y)
-        diff0_without_slip = tf.concat([diff0[:, :SLIP_ANGLE_IDX], diff0[:, SLIP_ANGLE_IDX + 1:]], axis=1)
-        diffs_without_slip = [diff0_without_slip]
-        for i in range(max_iter):
-            x_new = newton_step_param_tf(x, y, q, alpha)
-            # Compute the raw difference for convergence checking.
-            diff = tf.abs(f(x_new, q) - y)
-            # Uncomment the following line for debugging:
-            # tf.print("Iter", i, ": Error =", norm_diff, "; Alpha =", alpha)
-            # Check if all components are below the tolerance.
-            diff_without_slip = tf.concat([diff[:, :SLIP_ANGLE_IDX], diff[:, SLIP_ANGLE_IDX + 1:]], axis=1)
-            diffs_without_slip.append(diff_without_slip.numpy())
-            if tf.reduce_all(diff_without_slip < tol) and tf.reduce_all(diff_without_slip[:, ANGULAR_VEL_Z_IDX] < tol/100.0):
-                # tf.print("\nConverged after", i, "iterations.\n")
-                return x_new.numpy(), True
-            x = x_new
-        # Return the best estimate if max iterations are reached.
-        diffs_without_slip = np.array(diffs_without_slip)
-        if np.max(diffs_without_slip[-1]) > 1.e-3:
-            print("NO CONVERGENCE REACHED!")
-            print("Max error: ", diffs_without_slip[-1])
-            return x.numpy(), False
-        return x.numpy(), True
-
-    return inverse_f_param_tf
+        states_tf, conv_tf = self.inverse_trajectory_tf(x_next_tf, Q_tf)
+        return states_tf.numpy(), conv_tf.numpy()
