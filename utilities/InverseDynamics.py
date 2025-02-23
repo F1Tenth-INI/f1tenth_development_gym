@@ -176,6 +176,26 @@ class CarInverseDynamics:
                     loop_vars=loop_vars,
                     shape_invariants=shape_invariants
                 )
+
+                # --- Fallback acceptance if strict tol not met ---
+                #
+                # Match old code: after the loop, if conv_final is False,
+                # check if final error is below 1e-3 (ignoring slip angle).
+                if tf.logical_not(conv_final):
+                    x_pred_final = self._f(x_prev_final, q)
+                    diff_final = x_pred_final - x_next
+                    diff_abs_final = tf.abs(diff_final)
+
+                    # omit slip angle dimension
+                    diff_check_final = tf.concat([
+                        diff_abs_final[:, :SLIP_ANGLE_IDX],
+                        diff_abs_final[:, SLIP_ANGLE_IDX + 1:]
+                    ], axis=1)
+
+                    # if under 1e-3, accept anyway
+                    if tf.reduce_max(diff_check_final) < 1e-3:
+                        conv_final = True
+
                 return x_prev_final, conv_final
 
             # main backward loop for T steps
