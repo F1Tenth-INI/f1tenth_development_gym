@@ -36,6 +36,7 @@ if not file_list:
 REMOVE_OFFSET = True         # Remove offset so that the global minimum becomes 0.
 NORMALIZE_COLUMNWISE = True  # Normalize each column to the 0-1 scale.
 LOG_COLOR_SCALE = True       # Use a logarithmic color scale.
+LOG_SCALE_MIN = 1.0e-2
 SAVE_FIGURE = False          # Set to True to save the figure.
 FIGURE_FILENAME = data_folder + '_heatmap.png'
 ANNOT_FORMAT = "{:.2f}"       # Option to control the number format in annotations.
@@ -147,7 +148,7 @@ for mu in heatmap_data.columns:
 
 norm = None
 if LOG_COLOR_SCALE:
-    epsilon = 1e-2
+    epsilon = LOG_SCALE_MIN
     heatmap_data = heatmap_data.clip(lower=epsilon)
     norm = mcolors.LogNorm(vmin=epsilon, vmax=heatmap_data.max().max())
 
