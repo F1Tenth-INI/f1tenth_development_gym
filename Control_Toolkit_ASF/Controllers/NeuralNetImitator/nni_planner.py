@@ -23,7 +23,7 @@ class NeuralNetImitatorPlanner(template_planner):
         self.friction_estimate = []
         self.friction = 0
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
-
+        self.LIDAR = None  # Will be overwritten with a LidarUtils instance from car_system
         self.render_utils = RenderUtils()
 
         self.nni = controller_neural_imitator(
@@ -45,14 +45,6 @@ class NeuralNetImitatorPlanner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None):
 
-        self.LIDAR.load_lidar_measurement(ranges)
-
-        if Settings.LIDAR_CORRUPT:
-            self.LIDAR.corrupt_lidar_set_indices()
-            self.LIDAR.corrupt_scans()
-
-        self.LIDAR.corrupted_scans_high2zero()
-
 
         # Build a dict data_dict, to store all environment and sensor data that we have access to
         # The NNI will then extract the data it needs from this dict
@@ -62,8 +54,8 @@ class NeuralNetImitatorPlanner(template_planner):
         # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
         # Lidar dict
-        lidar_keys = self.LIDAR.get_all_lidar_scans_names()
-        lidar_values = self.LIDAR.all_lidar_scans
+        lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
+        lidar_values = self.LIDAR.all_lidar_ranges
         lidar_dict = dict(zip(lidar_keys, lidar_values))
 
         # Waypoint dict

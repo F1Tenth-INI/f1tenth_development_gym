@@ -75,8 +75,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENTS_IN_SEPARATE_PROGRAMS = False
-    EXPERIMENT_LENGTH = 300000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 30000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -103,8 +102,6 @@ class Settings():
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
-
-    AUTOMATIC_SECTOR_TUNING = False
     
 
     ##Lidar Settings ##
