@@ -312,14 +312,8 @@ class RaceCar(object):
         # Some models require PID control
         acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
     
-        
-        if(self.ode_implementation == 'pacejka'):
-            s = self.state
-            u = np.array([desired_steering_angle, desired_speed])
-            self.state = self.dynamic_model.step(s, u)
 
-            
-        elif self.ode_implementation == 'ODE_TF':
+        if self.ode_implementation == 'ODE_TF':
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32) 
         

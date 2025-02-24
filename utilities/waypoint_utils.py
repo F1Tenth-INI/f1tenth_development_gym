@@ -54,9 +54,6 @@ SECTOR_SCALING_IDX = 2
 SECTOR_LENGTH_IDX = 3
 
 
-def squared_distance(p1, p2):
-    squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
-    return squared_distance
 
 class WaypointUtils:
     
@@ -96,6 +93,9 @@ class WaypointUtils:
         self.preprocess_waypoints()
 
         self.nearest_waypoint_index = None
+        self.lap_count = 0
+        self.previous_distance = 0
+        self.initial_distance = None
 
          # next waypoints considering ignored waypoints index offset
         self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
@@ -108,18 +108,26 @@ class WaypointUtils:
         if self.waypoints is None:
             self.next_waypoints = np.array([])
             self.next_waypoint_positions = np.array([])
-
+            
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
     def start_reload_waypoints_thread(self):
-        def reload_loop():
-            while True:
-                self.reload_waypoints()
-                time.sleep(5)
-        thread = threading.Thread(target=reload_loop)
-        thread.daemon = True  # Daemonize thread to exit when main program exits
-        thread.start()
+        if Settings.OPTIMIZE_FOR_RL: # If we are optimizing for RL, we don't need to reload waypoints
+            self.reload_waypoints()
+            return
+        else:
+            def reload_loop(): # Reload waypoints every 5 seconds
+                while True:
+                    self.reload_waypoints()
+                    time.sleep(5)
+            thread = threading.Thread(target=reload_loop)
+            thread.daemon = True  # Daemonize thread to exit when main program exits
+            thread.start()
+            
+    def get_progress_along_track(self):
+        total_distance = self.waypoints[-1][WP_S_IDX]
+        return self.waypoints[self.nearest_waypoint_index][WP_S_IDX] / total_distance
 
     def update_next_waypoints(self, car_state):
         """
@@ -400,6 +408,31 @@ class WaypointUtils:
                 distance_to_obstacle = np.linalg.norm(self.next_waypoint_positions - obstacle_position, axis=1)
                 scaling_factor = np.clip(distance_to_obstacle / 5, 0.1, 1)
                 self.next_waypoints[:, WP_VX_IDX] *= scaling_factor
+                
+    def get_progress_along_track(self):
+        total_distance = self.waypoints[-1][WP_S_IDX]
+        current_distance = self.waypoints[self.nearest_waypoint_index][WP_S_IDX]
+        
+        if self.initial_distance is None:
+            self.initial_distance = current_distance
+        
+        adjusted_distance = current_distance - self.initial_distance
+        if adjusted_distance < 0:
+            adjusted_distance += total_distance
+        
+        # Detect lap transition
+        if adjusted_distance < 0.1 * total_distance and self.previous_distance > 0.9 * total_distance:
+            self.lap_count += 1
+        
+        self.previous_distance = adjusted_distance
+        
+        return adjusted_distance / total_distance
+
+    def get_cumulative_progress(self):
+        
+        progress_along_track = self.get_progress_along_track()
+     
+        return self.lap_count + progress_along_track
 
 
 def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None, lower_search_limit=None, upper_search_limit=None):
@@ -457,6 +490,12 @@ def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None,
 
 
 # Move outside of class for jit compilation
+
+@njit(fastmath=True)
+def squared_distance(p1, p2):
+    squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
+    return squared_distance
+
 # @njit(fastmath=True, parallel=True)
 def check_if_obstacle_on_raceline(lidar_points, waypoints, threshold=0.25):
     """

@@ -189,6 +189,10 @@ class CarSystem:
     
     def set_car_state(self, car_state):
         self.car_state = car_state
+
+    def set_scans(self, ranges):
+        ranges = np.array(ranges)
+        self.LIDAR.update_ranges(ranges, self.car_state)
     
     def render(self, e):
         self.render_utils.render(e)

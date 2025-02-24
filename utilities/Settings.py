@@ -155,8 +155,16 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
-
-
+    OPTIMIZE_FOR_RL = True # Optimize for RL training
+    
+    if(OPTIMIZE_FOR_RL):
+        CONTROLLER = None
+        DECREASE_RESOLUTION_FACTOR = 1
+        CONNECT_RACETUNER_TO_MAIN_CAR = False
+        SAVE_RECORDINGS = False
+        
+        RENDER_MODE = None
+    
     # if os.getenv('CI_TEST', 'false').lower() == 'true':
     #     RENDER_MODE = None
     #     CONTROLLER = 'pp'

@@ -176,9 +176,12 @@ class RacingSimulation:
         print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(self.obs['lap_times']), 's')
         # End of similation
 
-    def simulation_step(self):
+    def simulation_step(self, agent_controls=None):
 
-        agent_controls_execute = self.get_agent_controls()
+        if(agent_controls is None):
+            agent_controls_execute = self.get_agent_controls()
+        else:
+            agent_controls_execute = agent_controls
 
         # From here on, controls have to be in [steering angle, speed ]
         self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
@@ -330,6 +333,7 @@ class RacingSimulation:
             car_state = full_state_original_to_alphabetical(self.env.sim.agents[agent_index].state) 
             car_state_with_noise = self.add_state_noise(car_state)
             driver.set_car_state(car_state_with_noise)
+            driver.set_scans(self.obs['scans'][agent_index])
 
 
     # Noise Level can now be set in Settings.py
@@ -386,8 +390,8 @@ class RacingSimulation:
                         else:
                             path_to_plots = None
                         move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
-
-                raise CarCrashException('car crashed')
+                if not Settings.OPTIMIZE_FOR_RL:
+                    raise CarCrashException('car crashed')
 
    
 
