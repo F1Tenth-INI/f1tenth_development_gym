@@ -39,7 +39,7 @@ LOG_COLOR_SCALE = True       # Use a logarithmic color scale.
 SAVE_FIGURE = False          # Set to True to save the figure.
 FIGURE_FILENAME = data_folder + '_heatmap.png'
 ANNOT_FORMAT = "{:.2f}"       # Option to control the number format in annotations.
-REQUIRE_TWO_FILES = True     # If True, expect exactly two files per (mu, mu_control) pair.
+REQUIRE_TWO_FILES = False     # If True, expect exactly two files per (mu, mu_control) pair.
 
 # Dictionary to store a list of cost values for each (mu, mu_control) pair.
 cost_dict = {}
