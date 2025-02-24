@@ -147,7 +147,7 @@ for mu in heatmap_data.columns:
 
 norm = None
 if LOG_COLOR_SCALE:
-    epsilon = 1e-6
+    epsilon = 1e-2
     heatmap_data = heatmap_data.clip(lower=epsilon)
     norm = mcolors.LogNorm(vmin=epsilon, vmax=heatmap_data.max().max())
 
