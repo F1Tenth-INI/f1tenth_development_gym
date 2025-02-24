@@ -244,7 +244,6 @@ class RacingSimulation:
             if hasattr(driver, 'history_forger'):
                 driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))
 
-
     def render_env(self):
         # Render the environment
         if Settings.RENDER_MODE is not None:

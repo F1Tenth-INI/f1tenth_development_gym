@@ -71,15 +71,18 @@ global_surface_friction_for_controller_values_all = [0.25, 0.3, 0.35, 0.4, 0.45,
 reverse_direction_values = [False, True]
 
 
-index_to_pair = {}
-index = 0
-for friction in global_surface_friction_values_all:
-    for controller_friction in global_surface_friction_for_controller_values_all:
-        index_to_pair[index] = (friction, controller_friction)
-        index += 1
+global_surface_friction_values = global_surface_friction_values_all
+global_surface_friction_for_controller_values = global_surface_friction_for_controller_values_all
 
-global_surface_friction_values = [index_to_pair[euler_index][0]]
-global_surface_friction_for_controller_values = [index_to_pair[euler_index][1]]
+# index_to_pair = {}
+# index = 0
+# for friction in global_surface_friction_values_all:
+#     for controller_friction in global_surface_friction_for_controller_values_all:
+#         index_to_pair[index] = (friction, controller_friction)
+#         index += 1
+#
+# global_surface_friction_values = [index_to_pair[euler_index][0]]
+# global_surface_friction_for_controller_values = [index_to_pair[euler_index][1]]
 
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
