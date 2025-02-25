@@ -109,6 +109,14 @@ class WaypointUtils:
             self.next_waypoints = np.array([])
             self.next_waypoint_positions = np.array([])
             
+        #Precompile jit functions
+        dummy_car_state = np.zeros(NUMBER_OF_STATES)
+        dummy_lidar_points = np.zeros((40, 2))
+        get_relative_positions_jit(self.next_waypoints, dummy_car_state)
+        get_nearest_waypoint(dummy_car_state, self.waypoints)
+        squared_distance([0,0], [1,1])
+        check_if_obstacle_on_raceline(dummy_lidar_points, self.next_waypoint_positions)
+        
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
@@ -125,10 +133,6 @@ class WaypointUtils:
             thread.daemon = True  # Daemonize thread to exit when main program exits
             thread.start()
             
-    def get_progress_along_track(self):
-        total_distance = self.waypoints[-1][WP_S_IDX]
-        return self.waypoints[self.nearest_waypoint_index][WP_S_IDX] / total_distance
-
     def update_next_waypoints(self, car_state):
         waypoints = self.waypoints
         if waypoints is None:
@@ -149,13 +153,13 @@ class WaypointUtils:
             self.look_ahead_steps,
             self.decrease_resolution_factor,
             self.sectors,
-            search_threshold_squared,  # Now passing it as an argument
+            search_threshold_squared,  
         )
 
         self.car_state = car_state
         self.next_waypoints[...] = next_waypoints
-        self.next_waypoint_positions[...] = WaypointUtils.get_waypoint_positions(next_waypoints)
-        self.next_waypoint_positions_relative[...] = WaypointUtils.get_relative_positions(next_waypoints, car_state)
+        self.next_waypoint_positions[...] = get_waypoint_positions(next_waypoints)
+        self.next_waypoint_positions_relative[...] = get_relative_positions_jit(next_waypoints, car_state)
         self.nearest_waypoint_index = nearest_waypoint_index
 
         if sector_index is not None:
@@ -193,7 +197,7 @@ class WaypointUtils:
         waypoints = WaypointUtils.remove_duplicates(waypoints)
 
         # Waypoint positions [x, y]
-        waypoint_positions = WaypointUtils.get_waypoint_positions(waypoints)
+        waypoint_positions = get_waypoint_positions(waypoints)
 
         self.waypoints = waypoints
         self.waypoint_positions = waypoint_positions
@@ -318,10 +322,6 @@ class WaypointUtils:
         if waypoints is None: return None
         return np.array(waypoints[::decrease_resolution_factor])
 
-    @staticmethod
-    def get_waypoint_positions(waypoints):
-        if waypoints is None: return None
-        return np.array(waypoints)[:, 1:3]
     
     # Seems unused
     def get_vectors_between_waypoint_positions(self):
@@ -350,25 +350,7 @@ class WaypointUtils:
         unique_waypoints = waypoints[unique_indices, :]
         return np.array(unique_waypoints)
     
-    @staticmethod
-    def get_relative_positions(waypoints, car_state):
-        # Compute relative positions using vectorized math
-        waypoints_x_absolute = waypoints[:, WP_X_IDX]
-        waypoints_y_absolute = waypoints[:, WP_Y_IDX]
 
-        # Translation
-        next_waypoints_x_after_translation = waypoints_x_absolute - car_state[POSE_X_IDX]
-        next_waypoints_y_after_translation = waypoints_y_absolute - car_state[POSE_Y_IDX]
-
-        # Rotation (vectorized transformation)
-        next_waypoint_positions_relative = np.column_stack((
-            next_waypoints_x_after_translation * car_state[POSE_THETA_COS_IDX] +
-            next_waypoints_y_after_translation * car_state[POSE_THETA_SIN_IDX],
-
-            next_waypoints_x_after_translation * -car_state[POSE_THETA_SIN_IDX] +
-            next_waypoints_y_after_translation * car_state[POSE_THETA_COS_IDX]
-        ))
-        return next_waypoint_positions_relative
     
     def correct_velocity(self, waypoints):
         settings = Settings        
@@ -412,6 +394,8 @@ class WaypointUtils:
         progress_along_track = self.get_progress_along_track()
      
         return self.lap_count + progress_along_track
+    
+# Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
 def jit_update_next_waypoints(
     car_state,
@@ -457,6 +441,32 @@ def jit_update_next_waypoints(
     return nearest_waypoint_index, next_waypoints, sector_index, sector_scaling
 
 
+# @njit(fastmath=True)
+def get_waypoint_positions(waypoints):
+    if waypoints is None: return None
+    return np.array(waypoints)[:, 1:3]      
+    
+@njit(fastmath=True)
+def get_relative_positions_jit(waypoints, car_state):
+    # Compute relative positions using vectorized math
+    waypoints_x_absolute = waypoints[:, WP_X_IDX]
+    waypoints_y_absolute = waypoints[:, WP_Y_IDX]
+
+    # Translation
+    next_waypoints_x_after_translation = waypoints_x_absolute - car_state[POSE_X_IDX]
+    next_waypoints_y_after_translation = waypoints_y_absolute - car_state[POSE_Y_IDX]
+
+    # Rotation (vectorized transformation)
+    next_waypoint_positions_relative = np.column_stack((
+        next_waypoints_x_after_translation * car_state[POSE_THETA_COS_IDX] +
+        next_waypoints_y_after_translation * car_state[POSE_THETA_SIN_IDX],
+
+        next_waypoints_x_after_translation * -car_state[POSE_THETA_SIN_IDX] +
+        next_waypoints_y_after_translation * car_state[POSE_THETA_COS_IDX]
+    ))
+    return next_waypoint_positions_relative
+
+
 @njit(fastmath=True)
 def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None, lower_search_limit=None, upper_search_limit=None):
     car_position = np.array([car_state[POSE_X_IDX], car_state[POSE_Y_IDX]])
@@ -481,8 +491,6 @@ def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None,
 
     return best_index, best_dist
 
-
-# Move outside of class for jit compilation
 
 @njit(fastmath=True)
 def squared_distance(p1, p2):

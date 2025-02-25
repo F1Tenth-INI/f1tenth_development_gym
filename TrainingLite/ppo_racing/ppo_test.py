@@ -1,10 +1,10 @@
 import gymnasium as gym
-import torch
 import numpy as np
-import os
+
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 import time
 
@@ -12,6 +12,7 @@ from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 from TrainingLite.ppo_racing.TrainingCallback import TrainingStatusCallback
+
 
 class RacingEnv(gym.Env):
     def __init__(self):
@@ -92,7 +93,7 @@ class RacingEnv(gym.Env):
         
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
-        reward = delta_progress * 100.0 + progress * 5.0
+        reward = delta_progress * 200.0 + progress * 5.0
 
         speed = car_state[LINEAR_VEL_X_IDX]
         reward += speed * 0.5
@@ -101,7 +102,7 @@ class RacingEnv(gym.Env):
         reward -= steering_diff * 0.05
 
         if self.simulation.obs["collisions"][0] == 1:
-            reward -= 150
+            reward -= 200
 
         nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.waypoints)
         if nearest_waypoint_dist < 0.15:
@@ -125,8 +126,10 @@ class RacingEnv(gym.Env):
 
 
 def make_env():
-    return RacingEnv()
-
+    """Factory function to create a new RacingEnv instance."""
+    def _init():
+        return RacingEnv()
+    return _init
 
 def evaluate_model(model_path=None):
 
@@ -135,12 +138,14 @@ def evaluate_model(model_path=None):
 
     model = PPO.load(model_path)
     
-    env = make_env()
+    env = make_env()()
     check_env(env)
         
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10, deterministic=True)
     print(f"Mean reward: {mean_reward}, Std reward: {std_reward}")
     exit()
+    
+
     
 if __name__ == "__main__":
   
@@ -151,7 +156,7 @@ if __name__ == "__main__":
     model_path = os.path.join(model_dir, model_name)
 
 
-    # Settings.RENDER_MODE = 'human_fast'
+    # Settings.RENDER_MODE = 'human'
     # from run.run_simulation import RacingSimulation
     # evaluate_model(model_path)
 
@@ -160,19 +165,23 @@ if __name__ == "__main__":
     from run.run_simulation import RacingSimulation
 
     debug = False
-    num_envs = 1
+    num_envs = 4
     
     if(debug): # Single environment
-        env = make_env()
+        env = make_env()()
         check_env(env)
         
     else: # Parallel environments 
         # Superfast (cumputationally heavy)
         # Crash info not avaiable in terminal
         Settings.RENDER_MODE = None
-        num_envs = 16
-        env = SubprocVecEnv([lambda: make_env() for _ in range(num_envs)])
+        num_envs = 8
+        
+        env = SubprocVecEnv([make_env() for _ in range(num_envs)])
+        # env = DummyVecEnv([make_env() for _ in range(num_envs)])
+        
         env.reset()
+
 
     
     # Load existing model or create new
@@ -198,5 +207,13 @@ if __name__ == "__main__":
     import shutil
     shutil.copy(__file__, f"{model_path}.py")
     
-    model.learn(total_timesteps=1000000, callback=TrainingStatusCallback(check_freq=5000))
+    
+    then = time.time()
+    model.learn(total_timesteps=100000, callback=TrainingStatusCallback(check_freq=5000))
     model.save(model_path)
+    print(f"Training took {time.time() - then} seconds.")
+    
+    
+    
+   
+
