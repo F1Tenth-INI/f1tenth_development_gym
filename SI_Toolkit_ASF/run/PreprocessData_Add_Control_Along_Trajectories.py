@@ -43,16 +43,13 @@ else:
 
 save_files_to = './SI_Toolkit_ASF/Experiments'
 
-controller_name = "mpc"
 control_limits = (control_limits_low, control_limits_high),
-controller = {
+controller_config = {
     "controller_name": "mpc",
-    "environment_name": "Car",
-    "control_limits": control_limits,
     "state_components": STATE_VARIABLES,
     "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
-        "lidar_points": "LIDAR",
-        "next_waypoints": "WPT",
+        "lidar": "lidar",
+        "next_waypoints": "next_waypoints",
         "mu": "mu",
     },
 }
@@ -61,7 +58,7 @@ controller_output_variable_name = 'Q_new'
 
 if __name__ == '__main__':
     transform_dataset(get_files_from, save_files_to, transformation='add_control_along_trajectories_car',
-                      controller_name=controller_name, controller_output_variable_name=controller_output_variable_name,
+                      controller_config=controller_config, controller_output_variable_name=controller_output_variable_name,
                       integration_num_evals=4,
                       save_output_only=True,
                       )
