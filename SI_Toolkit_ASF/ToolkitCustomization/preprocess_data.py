@@ -1,6 +1,7 @@
 import re
 
 import numpy as np
+import pandas as pd
 
 from tqdm import trange
 
@@ -11,44 +12,87 @@ from utilities.lidar_utils import LidarHelper
 from utilities.waypoint_utils import WaypointUtils
 
 
+class PlannerAsController:
+    def __init__(self, controller_config, initial_environment_attributes):
+        controller_name = controller_config["controller_name"]
+        self.planner = initialize_planner(controller_name)
+        self.LIDAR = LidarHelper()
+        self.waypoint_utils = WaypointUtils()
+        if hasattr(self.planner, 'LIDAR'):
+            self.planner.LIDAR = self.LIDAR
+        if hasattr(self.planner, 'waypoint_utils'):
+            self.planner.waypoint_utils = self.waypoint_utils
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+
+    def reset(self):
+        pass
+
+    def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, TensorType]" = {}):
+
+
+        obstacles = np.array([])
+        self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']
+        lidar_at_proper_indices = np.zeros((1080,), dtype=np.float32)
+        lidar_at_proper_indices[self.LIDAR.processed_scan_indices] = updated_attributes['lidar']
+        self.LIDAR.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
+        self.planner.pass_data_to_planner(updated_attributes['next_waypoints'], s, obstacles)
+        new_controls = self.planner.process_observation(self.LIDAR, s)
+
+        return new_controls
+
+
+def controller_creator(controller_config, initial_environment_attributes):
+    controller_instance = PlannerAsController(controller_config, initial_environment_attributes)
+    return controller_instance
+
+
+def df_modifier(df):
+    # all_waypoints has shape (num_rows, num_waypoints, 8)
+    all_waypoints = get_waypoints_from_dataset(df)
+
+    lidar = get_lidar_from_dataset(df)
+
+    df_temp = pd.DataFrame(
+        {
+            'state': list(df[STATE_VARIABLES].values),
+            'next_waypoints': list(all_waypoints),
+            'lidar': list(lidar),
+            'mu': df['mu'].values,
+        }
+    )
+
+
+    # all_waypoints_relative = []
+    # for i in range(len(df)):
+    #     all_waypoints_relative.append(waypoint_utils.get_relative_positions(all_waypoints[i, :, :], all_car_states[i, :]))
+    # all_waypoints_relative = np.array(all_waypoints_relative, dtype=np.float32)
+
+    return df_temp
+
+
+
+
 def add_control_along_trajectories_car(
         df,
-        controller_name,
+        controller_config,
+        controller_creator=controller_creator,
+        df_modifier=df_modifier,
         controller_output_variable_names=('angular_control_random_mu', 'translational_control_random_mu'),
         integration_method='monte_carlo',
         integration_num_evals=64,
         save_output_only=False,
         **kwargs
 ):
+    environment_attributes_dict = controller_config["environment_attributes_dict"]
+    df_temp = df_modifier(df)
 
-    planner = initialize_planner(controller_name)
-    LIDAR = LidarHelper()
-    waypoint_utils = WaypointUtils()
-    if hasattr(planner, 'LIDAR'):
-        planner.LIDAR = LIDAR
-    if hasattr(planner, 'waypoint_utils'):
-        planner.waypoint_utils = waypoint_utils
-    angular_control_dict, translational_control_dict = if_mpc_define_cs_variables(planner)
-
-    all_waypoints = get_waypoints_from_dataset(df)  # len(df), num_waypoints, 8
-    all_car_states = np.array(df[STATE_VARIABLES].values, dtype=np.float32)
-    lidar_from_dataset = get_lidar_from_dataset(df)
-
-    all_waypoints_relative = []
-    for i in range(len(df)):
-        all_waypoints_relative.append(waypoint_utils.get_relative_positions(all_waypoints[i, :, :], all_car_states[i, :]))
-    all_waypoints_relative = np.array(all_waypoints_relative, dtype=np.float32)
-
-    control_outputs = np.zeros((len(df), 2), dtype=np.float32)
-    for i in trange(len(df)):
-        obstacles = np.array([])
-        waypoint_utils.next_waypoints = all_waypoints[i, :, :]
-        lidar_at_proper_indices = np.zeros((1080, ), dtype=np.float32)
-        lidar_at_proper_indices[LIDAR.processed_scan_indices] = lidar_from_dataset[i, :]
-        LIDAR.update_ranges(lidar_at_proper_indices, np.array(all_car_states[i, :], dtype=np.float64))
-        planner.pass_data_to_planner(all_waypoints[i, :, :], all_car_states[i, :], obstacles)
-        new_controls = planner.process_observation(LIDAR, all_car_states[i, :])
-        control_outputs[i, :] = new_controls
+    controller_instance = controller_creator(controller_config, initial_environment_attributes={})
+    control_outputs = np.zeros((len(df_temp), 2), dtype=np.float32)
+    for idx, row in df_temp.iterrows():
+        environment_attributes = {key: row[value] for key, value in environment_attributes_dict.items()}
+        s = row['state']
+        new_controls = controller_instance.step(s, updated_attributes=environment_attributes)
+        control_outputs[idx, :] = new_controls
 
     df[controller_output_variable_names[0]] = control_outputs[:, 0]
     df[controller_output_variable_names[1]] = control_outputs[:, 1]
