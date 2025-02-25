@@ -48,10 +48,6 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
-    
-        self.angular_control_dict = {}
-        self.translational_control_dict = {}
-      
         
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -97,8 +93,16 @@ class CarSystem:
 
 
         # Planner
-        self.planner = None
-        self.initialize_controller(controller)
+        self.controller_name = controller
+        self.planner = initialize_planner(self.controller_name)
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+
+        if hasattr(self.planner, 'waypoint_utils'):
+            self.planner.waypoint_utils = self.waypoint_utils
+        if hasattr(self.planner, 'LIDAR'):
+            self.planner.LIDAR = self.LIDAR
+
+
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -158,48 +162,6 @@ class CarSystem:
             #     )
 
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
-
-
-
-    def initialize_controller(self, controller: str):
-        self.controller_name = controller
-        if(controller is None):
-            self.planner = None
-        elif controller == 'mpc':
-            from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-            self.planner = mpc_planner()
-            horizon = self.planner.mpc.predictor.horizon
-            self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-            self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-        elif controller =='ftg':
-            from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-            self.planner =  FollowTheGapPlanner()
-        elif controller == 'neural':
-            from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-            self.planner =  NeuralNetImitatorPlanner()
-        elif controller == 'nni-lite':
-            from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
-            self.planner =  NNLitePlanner()
-        elif controller == 'pp':
-            from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-            self.planner = PurePursuitPlanner()
-        elif controller == 'stanley':
-            from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
-            self.planner = StanleyPlanner()
-        elif controller == 'manual':
-            from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
-            self.planner = manual_planner()
-        elif controller == 'random':
-            from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
-            self.planner = random_planner()
-        else:
-            NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
-            exit()
-
-        if(hasattr(self.planner, 'waypoint_utils')):
-            self.planner.waypoint_utils = self.waypoint_utils
-        if(hasattr(self.planner, 'LIDAR')):
-            self.planner.LIDAR = self.LIDAR
 
     def launch_tuner_connector(self):
         try:
@@ -402,3 +364,48 @@ class CarSystem:
 
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
+
+
+def initialize_planner(controller: str):
+
+    if controller is None:
+        planner = None
+    elif controller == 'mpc':
+        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
+        planner = mpc_planner()
+    elif controller == 'ftg':
+        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
+        planner = FollowTheGapPlanner()
+    elif controller == 'neural':
+        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
+        planner = NeuralNetImitatorPlanner()
+    elif controller == 'nni-lite':
+        from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
+        planner = NNLitePlanner()
+    elif controller == 'pp':
+        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
+        planner = PurePursuitPlanner()
+    elif controller == 'stanley':
+        from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
+        planner = StanleyPlanner()
+    elif controller == 'manual':
+        from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
+        planner = manual_planner()
+    elif controller == 'random':
+        from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
+        planner = random_planner()
+    else:
+        NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+        exit()
+
+    return planner
+
+
+def if_mpc_define_cs_variables(planner):
+    if hasattr(planner, 'mpc'):
+        horizon = planner.mpc.predictor.horizon
+        angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+        return angular_control_dict, translational_control_dict
+    else:
+        return {}, {}
