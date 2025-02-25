@@ -2,6 +2,8 @@ import re
 
 import numpy as np
 
+from tqdm import trange
+
 from utilities.car_system import initialize_planner, if_mpc_define_cs_variables
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
 from utilities.state_utilities import STATE_VARIABLES
@@ -12,7 +14,7 @@ from utilities.waypoint_utils import WaypointUtils
 def add_control_along_trajectories_car(
         df,
         controller_name,
-        controller_output_variable_name='Q_calculated',
+        controller_output_variable_names=('angular_control_random_mu', 'translational_control_random_mu'),
         integration_method='monte_carlo',
         integration_num_evals=64,
         save_output_only=False,
@@ -37,14 +39,19 @@ def add_control_along_trajectories_car(
         all_waypoints_relative.append(waypoint_utils.get_relative_positions(all_waypoints[i, :, :], all_car_states[i, :]))
     all_waypoints_relative = np.array(all_waypoints_relative, dtype=np.float32)
 
-    for i in range(len(df)):
+    control_outputs = np.zeros((len(df), 2), dtype=np.float32)
+    for i in trange(len(df)):
         obstacles = np.array([])
         waypoint_utils.next_waypoints = all_waypoints[i, :, :]
         lidar_at_proper_indices = np.zeros((1080, ), dtype=np.float32)
         lidar_at_proper_indices[LIDAR.processed_scan_indices] = lidar_from_dataset[i, :]
         LIDAR.update_ranges(lidar_at_proper_indices, np.array(all_car_states[i, :], dtype=np.float64))
         planner.pass_data_to_planner(all_waypoints[i, :, :], all_car_states[i, :], obstacles)
-        new_angular_control, new_translational_control = planner.process_observation(LIDAR, all_car_states[i, :])
+        new_controls = planner.process_observation(LIDAR, all_car_states[i, :])
+        control_outputs[i, :] = new_controls
+
+    df[controller_output_variable_names[0]] = control_outputs[:, 0]
+    df[controller_output_variable_names[1]] = control_outputs[:, 1]
 
     return df
 
