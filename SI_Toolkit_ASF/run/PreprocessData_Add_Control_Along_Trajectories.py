@@ -46,7 +46,7 @@ save_files_to = './SI_Toolkit_ASF/Experiments'
 control_limits = (control_limits_low, control_limits_high),
 controller_config = {
     "controller_name": "mpc",
-    "state_components": STATE_VARIABLES,
+    "state_components": 'state',
     "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
         "lidar": "lidar",
         "next_waypoints": "next_waypoints",

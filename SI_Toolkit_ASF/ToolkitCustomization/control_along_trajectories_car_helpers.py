@@ -54,6 +54,7 @@ def df_modifier(df):
 
     df_temp = pd.DataFrame(
         {
+            'time': df['time'].values,
             'state': list(df[STATE_VARIABLES].values),
             'next_waypoints': list(all_waypoints),
             'lidar': list(lidar),
