@@ -6,7 +6,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
-from run.run_simulation import RacingSimulation
+import time
 
 from utilities.Settings import Settings
 from utilities.state_utilities import *
@@ -51,7 +51,7 @@ class RacingEnv(gym.Env):
         agent_controls = np.array([[steering, throttle]])
 
         self.simulation.simulation_step(agent_controls=agent_controls)
-        print(agent_controls[0])
+        # print(agent_controls[0])
         for index, driver in enumerate(self.simulation.drivers):
             self.simulation.update_driver_state(driver, index)
 
@@ -92,24 +92,24 @@ class RacingEnv(gym.Env):
         
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
-        reward = delta_progress * 150.0 + progress * 10.0
+        reward = delta_progress * 100.0 + progress * 5.0
 
         speed = car_state[LINEAR_VEL_X_IDX]
-        reward += speed * 0.2
+        reward += speed * 0.5
 
         steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
         reward -= steering_diff * 0.05
 
         if self.simulation.obs["collisions"][0] == 1:
-            reward -= 100
+            reward -= 150
 
         nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.waypoints)
         if nearest_waypoint_dist < 0.15:
             nearest_waypoint_dist = 0
-        reward -= nearest_waypoint_dist * 25.0
+        reward -= nearest_waypoint_dist * 100.0
 
-        if speed < 0.6:
-            reward -= 10 + (0.3 - speed) * 20
+        if speed < 0.5:
+            reward -= 5 + (0.3 - speed) * 20
 
         if speed < 1.0 and abs(car_state[STEERING_ANGLE_IDX]) > 0.2:
             reward -= 1
@@ -128,22 +128,39 @@ def make_env():
     return RacingEnv()
 
 
-def evaluate_model():
-    model = PPO.load("ppo_3m")
+def evaluate_model(model_path=None):
+
+
+    time.sleep(2)
+
+    model = PPO.load(model_path)
     
     env = make_env()
     check_env(env)
         
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10, deterministic=True)
     print(f"Mean reward: {mean_reward}, Std reward: {std_reward}")
-
-
+    exit()
+    
 if __name__ == "__main__":
+  
     
-    # evaluate_model()
-    # exit()
+    # Load existing model or create new
+    model_dir = "ppo_models"
+    model_name = "ppo_parallel1m_1"
+    model_path = os.path.join(model_dir, model_name)
+
+
+    # Settings.RENDER_MODE = 'human_fast'
+    # from run.run_simulation import RacingSimulation
+    # evaluate_model(model_path)
+
     
-    debug = True
+    
+    from run.run_simulation import RacingSimulation
+
+    debug = False
+    num_envs = 1
     
     if(debug): # Single environment
         env = make_env()
@@ -159,28 +176,27 @@ if __name__ == "__main__":
 
     
     # Load existing model or create new
-    # Load existing model or create new
-        model_dir = "ppo_models"
-        model_name = "ppo_sophia"
-        model_path = os.path.join(model_dir, model_name)
-        try:
-            model = PPO.load(model_path, env=env)
-            print("Model loaded successfully.")
-        except FileNotFoundError:
-            print("No existing model found. Creating a new one.")
-            policy_kwargs = dict(
-                net_arch=[256, 128],
-                activation_fn=torch.nn.ReLU
-            )
-            model = PPO("MlpPolicy", env, verbose=1,
-                        policy_kwargs=policy_kwargs,
-                        n_steps=1024 // num_envs)
-            
+   
+    try:
+        model = PPO.load(model_path, env=env)
+        print("Model loaded successfully.")
+    except FileNotFoundError:
+        print("No existing model found. Creating a new one.")
+        policy_kwargs = dict(
+            net_arch=[256, 128, 64],
+            # activation_fn=torch.nn.ReLU
+        )
+        model = PPO("MlpPolicy", env, verbose=1,
+            policy_kwargs=policy_kwargs,
+            n_steps=2048 // num_envs,
+            ent_coef=0.03,  # Start with high exploration
+            gamma=0.995)     
         
+    
 
-        # Save the current Python file under the model name
-        import shutil
-        shutil.copy(__file__, f"{model_path}.py")
-        
-        model.learn(total_timesteps=100000, callback=TrainingStatusCallback(check_freq=5000))
-        model.save(model_path)
+    # Save the current Python file under the model name
+    import shutil
+    shutil.copy(__file__, f"{model_path}.py")
+    
+    model.learn(total_timesteps=1000000, callback=TrainingStatusCallback(check_freq=5000))
+    model.save(model_path)
