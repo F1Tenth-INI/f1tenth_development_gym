@@ -13,7 +13,7 @@ from SI_Toolkit.data_preprocessing import transform_dataset
 
 import numpy as np
 from utilities.state_utilities import STATE_VARIABLES, control_limits_low, control_limits_high
-
+from SI_Toolkit_ASF.ToolkitCustomization.control_along_trajectories_car_helpers import controller_creator, df_modifier
 import argparse
 
 def args_fun():
@@ -57,8 +57,12 @@ controller_config = {
 controller_output_variable_name = 'Q_new'
 
 if __name__ == '__main__':
-    transform_dataset(get_files_from, save_files_to, transformation='add_control_along_trajectories_car',
-                      controller_config=controller_config, controller_output_variable_name=controller_output_variable_name,
+    transform_dataset(get_files_from, save_files_to,
+                      transformation='add_control_along_trajectories',
+                      controller_config=controller_config,
+                      controller_creator=controller_creator,
+                      df_modifier=df_modifier,
+                      controller_output_variable_name=controller_output_variable_name,
                       integration_num_evals=4,
                       save_output_only=True,
                       )
