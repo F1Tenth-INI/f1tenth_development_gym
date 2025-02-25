@@ -16,7 +16,7 @@ class Settings():
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
-    CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = None # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -30,14 +30,14 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
     GLOBAL_SPEED_LIMIT = 10.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
     SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
@@ -49,7 +49,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = True
+    CONNECT_RACETUNER_TO_MAIN_CAR = False
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -71,7 +71,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 300000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -94,7 +94,7 @@ class Settings():
     MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
-    DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
+    DECREASE_RESOLUTION_FACTOR = 1           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
@@ -162,8 +162,9 @@ class Settings():
         DECREASE_RESOLUTION_FACTOR = 1
         CONNECT_RACETUNER_TO_MAIN_CAR = False
         SAVE_RECORDINGS = False
+        EXPERIMENT_LENGTH = 10000000000
         
-        RENDER_MODE = None
+        # RENDER_MODE = None
     
     # if os.getenv('CI_TEST', 'false').lower() == 'true':
     #     RENDER_MODE = None

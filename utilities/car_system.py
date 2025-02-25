@@ -219,13 +219,11 @@ class CarSystem:
         
         self.waypoint_utils.update_next_waypoints(car_state)
         self.waypoint_utils.check_if_obstacle_on_my_raceline(processed_lidar_points)
-
         if self.waypoint_utils_alternative is not None:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
             self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
-
-
+        
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
             corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
                 ranges,
@@ -237,6 +235,10 @@ class CarSystem:
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
+        
+        if(Settings.OPTIMIZE_FOR_RL):
+            return 0,0
+        
 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:

@@ -51,6 +51,7 @@ class RacingEnv(gym.Env):
         agent_controls = np.array([[steering, throttle]])
 
         self.simulation.simulation_step(agent_controls=agent_controls)
+        print(agent_controls[0])
         for index, driver in enumerate(self.simulation.drivers):
             self.simulation.update_driver_state(driver, index)
 
@@ -86,6 +87,9 @@ class RacingEnv(gym.Env):
         waypoint_utils = driver.waypoint_utils
         car_state = driver.car_state
 
+        
+        reward = 0
+        
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
         reward = delta_progress * 150.0 + progress * 10.0
@@ -123,9 +127,23 @@ class RacingEnv(gym.Env):
 def make_env():
     return RacingEnv()
 
+
+def evaluate_model():
+    model = PPO.load("ppo_3m")
+    
+    env = make_env()
+    check_env(env)
+        
+    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10, deterministic=True)
+    print(f"Mean reward: {mean_reward}, Std reward: {std_reward}")
+
+
 if __name__ == "__main__":
     
-    debug = False
+    # evaluate_model()
+    # exit()
+    
+    debug = True
     
     if(debug): # Single environment
         env = make_env()
@@ -143,7 +161,7 @@ if __name__ == "__main__":
     # Load existing model or create new
     # Load existing model or create new
         model_dir = "ppo_models"
-        model_name = "ppo_parallel0.5m_3"
+        model_name = "ppo_sophia"
         model_path = os.path.join(model_dir, model_name)
         try:
             model = PPO.load(model_path, env=env)
@@ -164,5 +182,5 @@ if __name__ == "__main__":
         import shutil
         shutil.copy(__file__, f"{model_path}.py")
         
-        model.learn(total_timesteps=500000, callback=TrainingStatusCallback(check_freq=5000))
+        model.learn(total_timesteps=100000, callback=TrainingStatusCallback(check_freq=5000))
         model.save(model_path)
