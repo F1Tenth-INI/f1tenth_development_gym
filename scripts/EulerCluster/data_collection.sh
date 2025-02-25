@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --array=0-47
+#SBATCH --array=0-41
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
 #SBATCH --mem-per-cpu=4G        # Request 2GB of memory per CPU
 #SBATCH --time=8:00:00           # Set the maximum job time
@@ -18,8 +18,8 @@ cd $HOME/f1tenth_development_gym/
 i=$SLURM_ARRAY_TASK_ID
 
 # Define the speed factors and repetitions
-speed_factors=(0.4 0.6 0.8 1.0)
-repetitions=12
+speed_factors=(0.5 0.6 0.7 0.8 0.9 1.0 1.1)
+repetitions=6
 
 # Calculate the speed factor and repetition index
 speed_factor_index=$((SLURM_ARRAY_TASK_ID / repetitions))

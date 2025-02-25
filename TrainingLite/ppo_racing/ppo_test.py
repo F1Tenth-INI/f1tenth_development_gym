@@ -1,6 +1,7 @@
 import gymnasium as gym
 import torch
 import numpy as np
+import os
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -87,7 +88,7 @@ class RacingEnv(gym.Env):
 
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
-        reward = delta_progress * 50.0 + progress * 5.0
+        reward = delta_progress * 150.0 + progress * 10.0
 
         speed = car_state[LINEAR_VEL_X_IDX]
         reward += speed * 0.2
@@ -99,15 +100,15 @@ class RacingEnv(gym.Env):
             reward -= 100
 
         nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.waypoints)
-        if nearest_waypoint_dist < 0.1:
+        if nearest_waypoint_dist < 0.15:
             nearest_waypoint_dist = 0
-        reward -= nearest_waypoint_dist * 15.0
+        reward -= nearest_waypoint_dist * 25.0
 
-        if speed < 0.3:
-            reward -= 5 + (0.3 - speed) * 20
+        if speed < 0.6:
+            reward -= 10 + (0.3 - speed) * 20
 
         if speed < 1.0 and abs(car_state[STEERING_ANGLE_IDX]) > 0.2:
-            reward -= 10
+            reward -= 1
 
         self.last_steering = car_state[STEERING_ANGLE_IDX]
         self.last_progress = progress
@@ -134,24 +135,34 @@ if __name__ == "__main__":
         # Superfast (cumputationally heavy)
         # Crash info not avaiable in terminal
         Settings.RENDER_MODE = None
-        num_envs = 8
+        num_envs = 16
         env = SubprocVecEnv([lambda: make_env() for _ in range(num_envs)])
         env.reset()
 
     
     # Load existing model or create new
-    try:
-        model = PPO.load("ppo_test3", env=env)
-        print("Model loaded successfully.")
-    except FileNotFoundError:
-        print("No existing model found. Creating a new one.")
-        policy_kwargs = dict(
-            net_arch=[256, 128],
-            activation_fn=torch.nn.ReLU
-        )
-        model = PPO("MlpPolicy", env, verbose=1,
-                    policy_kwargs=policy_kwargs,
-                    n_steps=1024 // num_envs)
+    # Load existing model or create new
+        model_dir = "ppo_models"
+        model_name = "ppo_parallel0.5m_3"
+        model_path = os.path.join(model_dir, model_name)
+        try:
+            model = PPO.load(model_path, env=env)
+            print("Model loaded successfully.")
+        except FileNotFoundError:
+            print("No existing model found. Creating a new one.")
+            policy_kwargs = dict(
+                net_arch=[256, 128],
+                activation_fn=torch.nn.ReLU
+            )
+            model = PPO("MlpPolicy", env, verbose=1,
+                        policy_kwargs=policy_kwargs,
+                        n_steps=1024 // num_envs)
+            
+        
 
-    model.learn(total_timesteps=400000, callback=TrainingStatusCallback(check_freq=5000))
-    model.save("ppo_test3")
+        # Save the current Python file under the model name
+        import shutil
+        shutil.copy(__file__, f"{model_path}.py")
+        
+        model.learn(total_timesteps=500000, callback=TrainingStatusCallback(check_freq=5000))
+        model.save(model_path)
