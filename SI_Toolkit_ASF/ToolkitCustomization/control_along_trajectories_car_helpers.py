@@ -48,9 +48,15 @@ def controller_creator(controller_config, initial_environment_attributes):
 
 def df_modifier(df):
     # all_waypoints has shape (num_rows, num_waypoints, 8)
-    all_waypoints = get_waypoints_from_dataset(df)
+    all_waypoints, waypoints_cols = get_waypoints_from_dataset(df)
 
-    lidar = get_lidar_from_dataset(df)
+    lidar, lidar_cols = get_lidar_from_dataset(df)
+
+    all_columns = df.columns
+    exclude_cols = ['time'] + list(STATE_VARIABLES) + list(waypoints_cols) + list(lidar_cols)
+
+    # Calculate the remaining columns that are not in the exclusion list.
+    remaining_columns = [col for col in all_columns if col not in exclude_cols]
 
     df_temp = pd.DataFrame(
         {
@@ -58,9 +64,10 @@ def df_modifier(df):
             'state': list(df[STATE_VARIABLES].values),
             'next_waypoints': list(all_waypoints),
             'lidar': list(lidar),
-            'mu': df['mu'].values,
         }
     )
+
+    df_temp = pd.concat([df_temp, df[remaining_columns]], axis=1)
 
 
     # all_waypoints_relative = []
@@ -153,14 +160,14 @@ def get_waypoints_from_dataset(df):
         idx_num = int(idx_str)  # zero-based
         all_waypoints[:, idx_num, channel_map[axis_type]] = df[col].values
 
-    return all_waypoints  # (len(df), num_waypoints, 8) array
+    return all_waypoints, wpt_cols  # (len(df), num_waypoints, 8) array
 
 
 def get_lidar_from_dataset(df):
 
     pattern = r'^LIDAR_(\d+)$'
     LIDAR_cols = df.filter(regex=pattern).columns
-    LIDAR_cols = np.array(df[LIDAR_cols].values, dtype=np.float32)
+    LIDAR_array = np.array(df[LIDAR_cols].values, dtype=np.float32)
 
-    return LIDAR_cols  # (len(df), num_waypoints, 8) array
+    return LIDAR_array, LIDAR_cols  # (len(df), num_waypoints, 8) array
 

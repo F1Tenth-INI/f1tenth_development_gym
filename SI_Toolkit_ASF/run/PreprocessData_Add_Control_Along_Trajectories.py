@@ -50,7 +50,7 @@ controller_config = {
     "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
         "lidar": "lidar",
         "next_waypoints": "next_waypoints",
-        "mu": "mu",
+        "mu": "mu_random_uniform_0.45_0.95_0.1",
     },
 }
 
