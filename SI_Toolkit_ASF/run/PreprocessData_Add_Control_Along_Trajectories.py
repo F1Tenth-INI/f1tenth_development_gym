@@ -54,7 +54,7 @@ controller_config = {
     },
 }
 
-controller_output_variable_name = 'Q_new'
+controller_output_variable_name = ['angular_control_new', 'translational_control_new']
 
 if __name__ == '__main__':
     transform_dataset(get_files_from, save_files_to,
@@ -64,5 +64,5 @@ if __name__ == '__main__':
                       df_modifier=df_modifier,
                       controller_output_variable_name=controller_output_variable_name,
                       integration_num_evals=4,
-                      save_output_only=True,
+                      save_output_only=False,
                       )
