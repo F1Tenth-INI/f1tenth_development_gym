@@ -18,9 +18,8 @@ class next_state_predictor_ODE():
                  disable_individual_compilation=False,
                  **kwargs,
                  ):
-        
-        import tensorflow as tf # Lazy import to avoid 
-        self.s = tf.convert_to_tensor(create_car_state())
+        self.lib = lib
+        self.s = self.lib.to_tensor(create_car_state(), dtype=self.lib.float32)
 
         self.params = None
 
@@ -41,6 +40,7 @@ class next_state_predictor_ODE():
                 dt=dt,
                 computation_lib=lib,
                 intermediate_steps=intermediate_steps,
+                variable_parameters=variable_parameters,
                                  )  # Environment model, keeping car ODEs
         else:
             raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))

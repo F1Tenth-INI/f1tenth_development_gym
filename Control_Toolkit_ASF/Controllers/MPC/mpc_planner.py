@@ -52,6 +52,8 @@ class mpc_planner(template_planner):
                     
         self.LIDAR = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
         self.lidar_points = self.LIDAR.processed_points_map_coordinates
+
+        self.mu = 0.0  # Is overwritten later
         
         self.mpc = controller_mpc(
             environment_name="Car",
@@ -59,13 +61,18 @@ class mpc_planner(template_planner):
                 "obstacles": self.obstacles,
                 "lidar_points": self.lidar_points,
                 "next_waypoints": self.waypoints,
-                "target_point": self.target_point
+                "target_point": self.target_point,
+                "mu": self.mu,
 
             },
             control_limits=(control_limits_low, control_limits_high),
         )
 
         self.mpc.configure()
+
+        if hasattr(self.mpc.predictor.predictor, 'next_state_predictor_ODE'):
+            self.mpc.update_attributes({'mu': self.mpc.predictor.predictor.next_state_predictor_ODE.car_model.car_parameters.mu})
+
         
         self.car_state = None
         self.TargetGenerator = TargetGenerator()

@@ -29,6 +29,8 @@ class PlannerAsController:
 
     def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, TensorType]" = {}):
 
+        if hasattr(self.planner, 'mpc'):
+            self.planner.mu = updated_attributes['mu']
 
         obstacles = np.array([])
         self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']

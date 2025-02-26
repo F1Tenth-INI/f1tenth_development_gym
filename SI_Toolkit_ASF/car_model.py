@@ -19,6 +19,7 @@ class car_model:
             dt: float = 0.03,
             intermediate_steps=1,
             computation_lib = NumpyLibrary(),
+            variable_parameters=None,
             **kwargs
     ):
         self.lib = computation_lib
@@ -35,6 +36,13 @@ class car_model:
         self.intermediate_steps = self.lib.to_tensor(intermediate_steps, self.lib.int32)
         self.intermediate_steps_float = self.lib.to_tensor(intermediate_steps, self.lib.float32)
         self.t_step = self.lib.to_tensor(self.dt / float(self.intermediate_steps), self.lib.float32)
+
+        self.variable_parameters = variable_parameters
+        if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
+            self.mu = self.variable_parameters.mu
+        else:
+            self.mu = self.lib.to_tensor(self.car_parameters.mu, dtype=self.lib.float32)
+
 
     # region Various dynamical models for a car
 
@@ -126,11 +134,11 @@ class car_model:
    
 
     def _step_dynamics_pacejka(self, s, Q):
-        
+
+        mu = self.mu
         # Q: Control after PID (steering velocity: delta_dot, acceleration_x: v_x_dot)
                 
         # params
-        mu = self.car_parameters.mu  # friction coefficient  [-]
         lf = self.car_parameters.lf  # distance from center of gravity to front axle [m]
         lr = self.car_parameters.lr  # distance from center of gravity to rear axle [m]
         h_cg = self.car_parameters.h  # center of gravity height of total mass [m]
