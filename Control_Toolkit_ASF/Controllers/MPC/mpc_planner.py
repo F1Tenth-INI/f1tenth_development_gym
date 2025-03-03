@@ -3,6 +3,7 @@ import numpy as np
 import math
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -53,7 +54,9 @@ class mpc_planner(template_planner):
         self.LIDAR = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
         self.lidar_points = self.LIDAR.processed_points_map_coordinates
 
-        self.mu = 0.0  # Is overwritten later
+        self.car_parameters = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+
+        self.mu = self.car_parameters.mu  # Is overwritten later
         
         self.mpc = controller_mpc(
             environment_name="Car",
@@ -70,8 +73,6 @@ class mpc_planner(template_planner):
 
         self.mpc.configure()
 
-        if hasattr(self.mpc.predictor.predictor, 'next_state_predictor_ODE'):
-            self.mpc.update_attributes({'mu': self.mpc.predictor.predictor.next_state_predictor_ODE.car_model.car_parameters.mu})
 
         
         self.car_state = None
