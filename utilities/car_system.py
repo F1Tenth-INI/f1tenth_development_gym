@@ -51,13 +51,10 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
-    
-        self.angular_control_dict = {}
-        self.translational_control_dict = {}
-        
+
         self.angular_control = 0
         self.translational_control = 0
-      
+
         
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -103,8 +100,16 @@ class CarSystem:
 
 
         # Planner
-        self.planner = None
-        self.initialize_controller(controller)
+        self.controller_name = controller
+        self.planner = initialize_planner(self.controller_name)
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+
+        if hasattr(self.planner, 'waypoint_utils'):
+            self.planner.waypoint_utils = self.waypoint_utils
+        if hasattr(self.planner, 'LIDAR'):
+            self.planner.LIDAR = self.LIDAR
+
+
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -119,7 +124,7 @@ class CarSystem:
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
         self.savse_recording = save_recording
-        
+
         self.recorder = None
         if save_recording:
             self.recorder = Recorder(driver=self)
@@ -168,48 +173,6 @@ class CarSystem:
 
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
-
-
-    def initialize_controller(self, controller: str):
-        self.controller_name = controller
-        if(controller is None):
-            self.planner = None
-        elif controller == 'mpc':
-            from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-            self.planner = mpc_planner()
-            horizon = self.planner.mpc.predictor.horizon
-            self.angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-            self.translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-        elif controller =='ftg':
-            from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-            self.planner =  FollowTheGapPlanner()
-        elif controller == 'neural':
-            from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-            self.planner =  NeuralNetImitatorPlanner()
-        elif controller == 'nni-lite':
-            from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
-            self.planner =  NNLitePlanner()
-        elif controller == 'pp':
-            from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-            self.planner = PurePursuitPlanner()
-        elif controller == 'stanley':
-            from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
-            self.planner = StanleyPlanner()
-        elif controller == 'manual':
-            from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
-            self.planner = manual_planner()
-        elif controller == 'random':
-            from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
-            self.planner = random_planner()
-        else:
-            NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
-            exit()
-
-        if(hasattr(self.planner, 'waypoint_utils')):
-            self.planner.waypoint_utils = self.waypoint_utils
-        if(hasattr(self.planner, 'LIDAR')):
-            self.planner.LIDAR = self.LIDAR
-
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -222,7 +185,7 @@ class CarSystem:
     def set_scans(self, ranges):
         ranges = np.array(ranges)
         self.LIDAR.update_ranges(ranges, self.car_state)
-    
+
     def render(self, e):
         self.render_utils.render(e)
 
@@ -252,7 +215,7 @@ class CarSystem:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
             self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
-        
+
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
             corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
                 ranges,
@@ -264,10 +227,10 @@ class CarSystem:
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
-        
+
         if(Settings.OPTIMIZE_FOR_RL):
             return 0,0
-        
+
 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
@@ -363,7 +326,7 @@ class CarSystem:
             self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
             
         
-   
+
 
         if self.render_utils is not None:
             self.update_render_utils()
@@ -398,12 +361,12 @@ class CarSystem:
 
         return self.angular_control, self.translational_control
 
-    
-    def update_render_utils(self):  
-        
+
+    def update_render_utils(self):
+
         car_state = self.car_state
-        
-        
+
+
              # Rendering and recording
         label_dict = {
             '2: slip_angle': car_state[SLIP_ANGLE_IDX],
@@ -411,7 +374,7 @@ class CarSystem:
             '1: translational_control': self.translational_control,
             '4: Surface Friction': Settings.SURFACE_FRICITON,
         }
-        
+
         self.render_utils.set_label_dict(label_dict)
         self.render_utils.update(
             lidar_points= self.LIDAR.processed_points_map_coordinates,
@@ -421,6 +384,51 @@ class CarSystem:
             car_state = car_state,
         )
         # self.render_utils.update_obstacles(obstacles)
-        
+
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
+
+
+def initialize_planner(controller: str):
+
+    if controller is None:
+        planner = None
+    elif controller == 'mpc':
+        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
+        planner = mpc_planner()
+    elif controller == 'ftg':
+        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
+        planner = FollowTheGapPlanner()
+    elif controller == 'neural':
+        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
+        planner = NeuralNetImitatorPlanner()
+    elif controller == 'nni-lite':
+        from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
+        planner = NNLitePlanner()
+    elif controller == 'pp':
+        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
+        planner = PurePursuitPlanner()
+    elif controller == 'stanley':
+        from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
+        planner = StanleyPlanner()
+    elif controller == 'manual':
+        from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
+        planner = manual_planner()
+    elif controller == 'random':
+        from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
+        planner = random_planner()
+    else:
+        NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+        exit()
+
+    return planner
+
+
+def if_mpc_define_cs_variables(planner):
+    if hasattr(planner, 'mpc'):
+        horizon = planner.mpc.predictor.horizon
+        angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+        return angular_control_dict, translational_control_dict
+    else:
+        return {}, {}

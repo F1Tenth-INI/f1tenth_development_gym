@@ -3,6 +3,7 @@ import numpy as np
 import math
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
+from utilities.car_files.vehicle_parameters import VehicleParameters
 
 from utilities.state_utilities import (
     POSE_THETA_IDX,
@@ -52,6 +53,10 @@ class mpc_planner(template_planner):
                     
         self.LIDAR = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
         self.lidar_points = self.LIDAR.processed_points_map_coordinates
+
+        self.car_parameters = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+
+        self.mu = self.car_parameters.mu  # Is overwritten later
         
         self.mpc = controller_mpc(
             environment_name="Car",
@@ -59,13 +64,16 @@ class mpc_planner(template_planner):
                 "obstacles": self.obstacles,
                 "lidar_points": self.lidar_points,
                 "next_waypoints": self.waypoints,
-                "target_point": self.target_point
+                "target_point": self.target_point,
+                "mu": self.mu,
 
             },
             control_limits=(control_limits_low, control_limits_high),
         )
 
         self.mpc.configure()
+
+
         
         self.car_state = None
         self.TargetGenerator = TargetGenerator()
@@ -102,7 +110,7 @@ class mpc_planner(template_planner):
                                                                    "lidar_points": self.lidar_points,
                                                                    "next_waypoints": self.waypoint_utils.next_waypoints,
                                                                    "target_point": self.target_point,
-
+                                                                   "mu": self.mu,
                                                                })
         if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
             self.cost_function_tester.collect_costs()
