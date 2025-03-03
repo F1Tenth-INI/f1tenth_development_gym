@@ -53,8 +53,7 @@ Settings.CONTROL_DELAY = 0.0
 Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0
 
 
-Settings.START_FROM_RANDOM_POSITION = False
-Settings.DATASET_NAME = "MPC_mu_vs_mu_control_08"
+Settings.START_FROM_RANDOM_POSITION = True
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
 Settings.SURFACE_FRICITON = 0.65
