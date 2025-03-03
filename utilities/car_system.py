@@ -49,6 +49,9 @@ class CarSystem:
     
         self.angular_control_dict = {}
         self.translational_control_dict = {}
+        
+        self.angular_control = 0
+        self.translational_control = 0
       
         
         # TODO: Move to a config file ( which one tho?)
@@ -325,24 +328,10 @@ class CarSystem:
             self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
             
         
-        # Rendering and recording
-        label_dict = {
-            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
-            '0: angular_control': self.angular_control,
-            '1: translational_control': self.translational_control,
-            '4: Surface Friction': Settings.SURFACE_FRICITON,
-        }
+   
 
         if self.render_utils is not None:
-            self.render_utils.set_label_dict(label_dict)
-            self.render_utils.update(
-                lidar_points= self.LIDAR.processed_points_map_coordinates,
-                # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
-                next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
-                next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
-                car_state = car_state,
-            )
-            self.render_utils.update_obstacles(obstacles)
+            self.update_render_utils()
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
@@ -374,5 +363,29 @@ class CarSystem:
 
         return self.angular_control, self.translational_control
 
+    
+    def update_render_utils(self):  
+        
+        car_state = self.car_state
+        
+        
+             # Rendering and recording
+        label_dict = {
+            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
+            '0: angular_control': self.angular_control,
+            '1: translational_control': self.translational_control,
+            '4: Surface Friction': Settings.SURFACE_FRICITON,
+        }
+        
+        self.render_utils.set_label_dict(label_dict)
+        self.render_utils.update(
+            lidar_points= self.LIDAR.processed_points_map_coordinates,
+            # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
+            next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
+            next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
+            car_state = car_state,
+        )
+        # self.render_utils.update_obstacles(obstacles)
+        
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")

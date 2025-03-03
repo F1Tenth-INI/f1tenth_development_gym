@@ -373,20 +373,26 @@ class WaypointUtils:
     def get_progress_along_track(self):
         total_distance = self.waypoints[-1][WP_S_IDX]
         current_distance = self.waypoints[self.nearest_waypoint_index][WP_S_IDX]
-        
+
         if self.initial_distance is None:
             self.initial_distance = current_distance
-        
+            self.previous_distance = current_distance
+            return 0.0
+
         adjusted_distance = current_distance - self.initial_distance
-        if adjusted_distance < 0:
-            adjusted_distance += total_distance
-        
-        # Detect lap transition
-        if adjusted_distance < 0.1 * total_distance and self.previous_distance > 0.9 * total_distance:
+        # if adjusted_distance < 0:
+        #     adjusted_distance += total_distance
+
+        # Only count as a lap if we cross from high distance back to start (forward direction only)
+        if (self.previous_distance > 0.9 * total_distance and
+            adjusted_distance < 0.1 * total_distance and
+            (current_distance - self.previous_distance) < -0.5 * total_distance):
             self.lap_count += 1
-        
+            self.initial_distance = current_distance  # Reset initial distance for the new lap
+            adjusted_distance = 0.0  # Reset adjusted distance at lap completion
+
         self.previous_distance = adjusted_distance
-        
+
         return adjusted_distance / total_distance
 
     def get_cumulative_progress(self):
