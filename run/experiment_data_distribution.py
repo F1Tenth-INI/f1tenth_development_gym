@@ -7,7 +7,7 @@ import sys
 import time
 import pandas as pd
 
-
+random.seed(42)
 
 # This file automatically distributes the data into the SI_Toolkit_ASK experiment recordings folder
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
