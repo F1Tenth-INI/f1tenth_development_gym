@@ -182,23 +182,24 @@ class RacingSimulation:
         print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(self.obs['lap_times']), 's')
         # End of similation
 
-    def simulation_step(self):
+    def simulation_step(self, agent_controls=None):
 
-        agent_controls_execute = self.get_agent_controls()
+        if(agent_controls is None):
+            agent_controls_execute = self.get_agent_controls()
+        else:
+            agent_controls_execute = agent_controls
 
         # From here on, controls have to be in [steering angle, speed ]
         self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
-
 
         self.laptime += self.step_reward
         self.sim_time += Settings.TIMESTEP_CONTROL
         self.sim_index += 1
 
-    
+        
         self.check_and_handle_collisions()
         self.handle_recording_step()
         self.render_env()
-
         
 
         # End of controller time step
@@ -234,16 +235,17 @@ class RacingSimulation:
         return agent_controls_execute
 
     def get_control_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
         if self.sim_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
                     driver.history_forger.update_control_history(self.env.sim.agents[index].u_pid_with_constrains)
 
     def get_state_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
                 driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))
-
 
     def render_env(self):
         # Render the environment
@@ -349,6 +351,7 @@ class RacingSimulation:
             car_state = full_state_original_to_alphabetical(self.env.sim.agents[agent_index].state) 
             car_state_with_noise = self.add_state_noise(car_state)
             driver.set_car_state(car_state_with_noise)
+            driver.set_scans(self.obs['scans'][agent_index])
 
 
     # Noise Level can now be set in Settings.py
@@ -405,8 +408,8 @@ class RacingSimulation:
                         else:
                             path_to_plots = None
                         move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
-
-                raise CarCrashException('car crashed')
+                if not Settings.OPTIMIZE_FOR_RL:
+                    raise CarCrashException('car crashed')
 
    
 
