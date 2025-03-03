@@ -324,8 +324,7 @@ class RaceCar(object):
             u = np.array([desired_steering_angle, desired_speed])
             self.state = self.dynamic_model.step(s, u)
 
-            
-        elif self.ode_implementation == 'ODE_TF':
+        if self.ode_implementation == 'ODE_TF':
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32)
 
