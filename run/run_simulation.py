@@ -234,12 +234,14 @@ class RacingSimulation:
         return agent_controls_execute
 
     def get_control_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
         if self.sim_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
                     driver.history_forger.update_control_history(self.env.sim.agents[index].u_pid_with_constrains)
 
     def get_state_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
                 driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))

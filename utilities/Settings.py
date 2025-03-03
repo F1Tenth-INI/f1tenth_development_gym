@@ -15,10 +15,6 @@ class Settings():
     SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
-    FORGE_HISTORY = False
-
-    FRICTION_FOR_CONTROLLER = 0.75
-
     # Controller Settings
     CONTROLLER = 'mpc'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
@@ -153,6 +149,14 @@ class Settings():
     PRINTING_ON = False
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
     
+    
+    
+    ## Experiment Analysis Settings ##
+    
+    ## Forged history settings 
+    FORGE_HISTORY = False # Forge history of friction values
+    FRICTION_FOR_CONTROLLER = 0.75 # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+
     
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start
