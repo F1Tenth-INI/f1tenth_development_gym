@@ -284,7 +284,7 @@ class car_model:
         accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
 
         # Constraint longitudinal acceleration by slipping
-        max_acceleration = self.car_parameters.m * self.car_parameters.mu        
+        max_acceleration = self.car_parameters.g * self.car_parameters.mu        
         accl = self.lib.clip(accl, -max_acceleration, max_acceleration)
         
         
