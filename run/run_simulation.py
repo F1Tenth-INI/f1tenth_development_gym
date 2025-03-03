@@ -192,16 +192,14 @@ class RacingSimulation:
         # From here on, controls have to be in [steering angle, speed ]
         self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
 
-
         self.laptime += self.step_reward
         self.sim_time += Settings.TIMESTEP_CONTROL
         self.sim_index += 1
 
-    
+        
         self.check_and_handle_collisions()
         self.handle_recording_step()
         self.render_env()
-
         
 
         # End of controller time step

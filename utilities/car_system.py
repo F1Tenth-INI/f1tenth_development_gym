@@ -15,7 +15,6 @@ from f110_gym.envs.dynamic_models import pid
 
 # Utilities
 from utilities.state_utilities import *
-from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
@@ -31,7 +30,9 @@ from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.HistoryForger import HistoryForger
-from utilities.StateMetricCalculator import StateMetricCalculator
+
+if Settings.SAVE_STATE_METRICS: # will import TF
+    from utilities.StateMetricCalculator import StateMetricCalculator
 
 class CarSystem:
     
@@ -116,6 +117,8 @@ class CarSystem:
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
         self.savse_recording = save_recording
+        
+        self.recorder = None
         if save_recording:
             self.recorder = Recorder(driver=self)
 
@@ -137,13 +140,14 @@ class CarSystem:
         if Settings.FORGE_HISTORY:
             self.history_forger = HistoryForger()
 
-        self.state_metric_calculator = StateMetricCalculator(
-            environment_name="Car",
-            initial_environment_attributes={
-                "next_waypoints": self.waypoint_utils.next_waypoints,
-            },
-            recorder_base_dict=self.recorder.dict_data_to_save_basic
-        )
+        if self.recorder is not None:
+            self.state_metric_calculator = StateMetricCalculator(
+                environment_name="Car",
+                initial_environment_attributes={
+                    "next_waypoints": self.waypoint_utils.next_waypoints,
+                },
+                recorder_base_dict=self.recorder.dict_data_to_save_basic
+            )
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -323,12 +327,12 @@ class CarSystem:
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
-
-        self.state_metric_calculator.calculate_metrics(
-            current_state=car_state,
-            current_control=np.array([self.angular_control, self.translational_control]),
-            updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
-        )
+        if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
+            self.state_metric_calculator.calculate_metrics(
+                current_state=car_state,
+                current_control=np.array([self.angular_control, self.translational_control]),
+                updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
+            )
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
             self.optimal_control_sequence = self.planner.optimal_control_sequence

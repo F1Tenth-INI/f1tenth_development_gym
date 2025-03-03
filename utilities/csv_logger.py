@@ -66,7 +66,7 @@ def csv_append_index_if_file_exists(csv_filepath):
 def create_csv_file_name(Settings, csv_name=None):
     if csv_name is None or csv_name == '':
 
-        if Settings.Controller is None:
+        if Settings.CONTROLLER is None:
             controller_name = 'None'
         else:
             controller_name = Settings.CONTROLLER

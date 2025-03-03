@@ -37,8 +37,8 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = True
-    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_RECORDINGS = False
+    SAVE_REVORDING_EVERY_NTH_STEP = 500 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -78,7 +78,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -155,7 +155,8 @@ class Settings():
     
     ## Forged history settings 
     FORGE_HISTORY = False # Forge history of friction values
-    FRICTION_FOR_CONTROLLER = 0.75 # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+    SAVE_STATE_METRICS = False # Save state metrics for analysis
+    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
 
     
     ### Other Settings ###
@@ -163,18 +164,16 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
-    OPTIMIZE_FOR_RL = True # Optimize for RL training
+    OPTIMIZE_FOR_RL = False # Optimize for RL training
     
     if(OPTIMIZE_FOR_RL):
-        CONTROLLER = None
-        DECREASE_RESOLUTION_FACTOR = 1
-        CONNECT_RACETUNER_TO_MAIN_CAR = False
-        SAVE_RECORDINGS = False
-        EXPERIMENT_LENGTH = 10000000000
+        
+        SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
+        CONTROLLER = None # No controller needed
+        DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
+        CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
+        SAVE_RECORDINGS = False # Performance
+        EXPERIMENT_LENGTH = 1000000 # dont stop experiment
         
         RENDER_MODE = None
-    
-    # if os.getenv('CI_TEST', 'false').lower() == 'true':
-    #     RENDER_MODE = None
-    #     CONTROLLER = 'pp'
-    #     START_FROM_RANDOM_POSITION = False
+

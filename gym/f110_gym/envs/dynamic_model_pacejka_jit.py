@@ -115,7 +115,7 @@ def car_step_parallel(states, Qs, car_params, t_step):
     Runs car_step for multiple cars in parallel using prange (multi-core CPU execution).
     
     Inputs:
-    - states: (N, 8) array where N is number of cars
+    - states: (N, 7) array where N is number of cars
     - Qs: (N, 2) array where N is number of cars
     - car_params: (fixed-size) array of car parameters
     - t_step: time step

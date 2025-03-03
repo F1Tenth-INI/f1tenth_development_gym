@@ -153,17 +153,3 @@ def first_point_on_trajectory_intersecting_circle(point, radius, trajectory, t=0
     return first_p, first_i, first_t
 
 
-def get_actuation(pose_theta, lookahead_point, position, lookahead_distance, wheelbase):
-    """
-    Returns actuation
-    """
-    waypoint_y = np.dot(np.array([np.sin(-pose_theta), np.cos(-pose_theta)]), lookahead_point[0:2]-position)
-    speed = lookahead_point[2]
-    if np.abs(waypoint_y) < 1e-6:
-        return speed, 0.
-    radius = 1/(2.0*waypoint_y/lookahead_distance**2)
-    steering_angle = np.arctan(wheelbase/radius)
-    return speed, steering_angle
-    
-
-
