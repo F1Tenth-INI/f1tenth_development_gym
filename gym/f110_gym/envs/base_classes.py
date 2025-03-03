@@ -126,7 +126,7 @@ class RaceCar(object):
             # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
             # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
             self.step_dynamics = self.car_model.step_dynamics
-            self.step_dynamics_core = self.car_model.step_dynamics_core
+            self.step_dynamics_core = self.car_model.step_dynamics_core # step dynamics without constratins an PID
 
         if self.ode_implementation == 'jit_Pacejka':
             self.step_dynamics = car_dynamics_pacejka_jit
