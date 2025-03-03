@@ -11,7 +11,7 @@ mkdir -p ./scripts/EulerCluster/out/
 source $HOME/miniconda3/bin/activate
 conda activate f1t
 
-export PYTHONPATH=/cluster/home/bollif/f1tenth_development_gym/
+export PYTHONPATH=$HOME/f1tenth_development_gym:$PYTHONPATH
 cd $HOME/f1tenth_development_gym/
 
 # Use SLURM_ARRAY_TASK_ID for the model index directly since it ranges from 1 to 50
