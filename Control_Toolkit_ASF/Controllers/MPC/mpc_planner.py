@@ -109,7 +109,7 @@ class mpc_planner(template_planner):
                                                                    "lidar_points": self.lidar_points,
                                                                    "next_waypoints": self.waypoint_utils.next_waypoints,
                                                                    "target_point": self.target_point,
-
+                                                                   "mu": self.mu,
                                                                })
         if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
             self.cost_function_tester.collect_costs()
