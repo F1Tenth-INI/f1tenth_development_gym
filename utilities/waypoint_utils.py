@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 
 from numba import njit, prange
+from numba.np.extensions import cross2d
+
 '''
 HOW TO USE:
 
@@ -166,25 +168,16 @@ class WaypointUtils:
             self.sector_index = sector_index
         if sector_scaling is not None:
             self.sector_scaling = sector_scaling
+        
+        self.update_distance_to_raceline()
 
-
-    def update_distance_to_raceline(self, waypoints, nearest_waypoint_index, car_state):
-        car_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-        # Distance calculations (fully vectorized)
-        nearest_waypoint_position = waypoints[nearest_waypoint_index, WP_X_IDX:WP_Y_IDX+1]
-        next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
-        last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
-
-        # Compute perpendicular distance to raceline using vectorized NumPy
-        diff1 = nearest_waypoint_position - last_waypoint_position
-        diff2 = next_waypoint_position - nearest_waypoint_position
-
-        norm1 = np.linalg.norm(diff1)
-        norm2 = np.linalg.norm(diff2)
-
-        self.current_distance_to_last = np.abs(np.cross(diff1, last_waypoint_position - car_position)) / norm1
-        self.current_distance_to_next = np.abs(np.cross(diff2, nearest_waypoint_position - car_position)) / norm2
-        self.current_distance_to_raceline = min(self.current_distance_to_last, self.current_distance_to_next)
+    def update_distance_to_raceline(self):
+        
+        car_position = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
+        self.current_distance_to_last, self.current_distance_to_next, self.current_distance_to_raceline = get_distance_to_raceline_jit(
+            self.waypoints, self.nearest_waypoint_index, car_position
+        )
+    
 
     def preprocess_waypoints(self):
 
@@ -497,7 +490,27 @@ def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None,
 
     return best_index, best_dist
 
+from numba import njit
+from numba.np.extensions import cross2d
 
+@njit
+def get_distance_to_raceline_jit(waypoints, nearest_waypoint_index, car_position):
+    nearest_waypoint_position = waypoints[nearest_waypoint_index, WP_X_IDX:WP_Y_IDX+1]
+    next_waypoint_position = waypoints[(nearest_waypoint_index + 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
+    last_waypoint_position = waypoints[(nearest_waypoint_index - 1) % len(waypoints), WP_X_IDX:WP_Y_IDX+1]
+
+    # Compute perpendicular distance to raceline using vectorized NumPy
+    diff1 = nearest_waypoint_position - last_waypoint_position
+    diff2 = next_waypoint_position - nearest_waypoint_position
+
+    norm1 = np.linalg.norm(diff1)
+    norm2 = np.linalg.norm(diff2)
+
+    current_distance_to_last = np.abs(cross2d(diff1, last_waypoint_position - car_position)) / norm1
+    current_distance_to_next = np.abs(cross2d(diff2, nearest_waypoint_position - car_position)) / norm2
+    current_distance_to_raceline = np.minimum(current_distance_to_last, current_distance_to_next)
+    
+    return current_distance_to_last, current_distance_to_next, current_distance_to_raceline
 @njit(fastmath=True)
 def squared_distance(p1, p2):
     squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2

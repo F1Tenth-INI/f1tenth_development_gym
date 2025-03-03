@@ -280,9 +280,15 @@ class car_model:
 
         accl = self.lib.where(condition, 0., accl)
 
+        # Constraint longitudinal acceleration by motor power
         accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
 
-        return accl
+        # Constraint longitudinal acceleration by slipping
+        max_acceleration = self.car_parameters.g * self.car_parameters.mu        
+        accl = self.lib.clip(accl, -max_acceleration, max_acceleration)
+        
+        
+        return accl 
 
     '''
     Extend the ST model with the simplified proportional Servo function (the physical car needs a desired angle as input)

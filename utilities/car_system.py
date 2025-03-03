@@ -383,7 +383,7 @@ class CarSystem:
         # Update Lap Analyzer
         nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
         distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
-        self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
+        self.lap_analyzer.update(nearest_waypoint_index, self.time, distance_to_raceline)
 
         
         basic_dict = get_basic_data_dict(self)
