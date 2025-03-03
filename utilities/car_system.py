@@ -51,9 +51,6 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
-    
-        self.angular_control_dict = {}
-        self.translational_control_dict = {}
 
         self.angular_control = 0
         self.translational_control = 0
