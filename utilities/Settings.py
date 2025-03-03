@@ -37,8 +37,8 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
-    SAVE_REVORDING_EVERY_NTH_STEP = None # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_RECORDINGS = True
+    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -126,7 +126,7 @@ class Settings():
 
     ## MPC Controller ##
     CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
-    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
+    ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks_pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20
     OPTIMIZE_EVERY_N_STEPS = 1
@@ -149,6 +149,14 @@ class Settings():
     PRINTING_ON = False
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
     
+    
+    
+    ## Experiment Analysis Settings ##
+    
+    ## Forged history settings 
+    FORGE_HISTORY = False # Forge history of friction values
+    FRICTION_FOR_CONTROLLER = 0.75 # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+
     
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start

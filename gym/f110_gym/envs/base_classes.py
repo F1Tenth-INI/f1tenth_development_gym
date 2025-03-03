@@ -126,7 +126,8 @@ class RaceCar(object):
             # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
             # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
             self.step_dynamics = self.car_model.step_dynamics
-            
+            self.step_dynamics_core = self.car_model.step_dynamics_core # step dynamics without constratins an PID
+
         if self.ode_implementation == 'jit_Pacejka':
             self.step_dynamics = car_dynamics_pacejka_jit
             u = np.array([0,0])
@@ -142,6 +143,11 @@ class RaceCar(object):
         # control inputs
         self.accel = 0.0
         self.steer_angle_vel = 0.0
+
+        # Effective control commands
+        self.steering_speed_cmd = 0.0
+        self.acceleration_x_cmd = 0.0
+        self.u_pid_with_constrains = np.array([0.0, 0.0])
 
         # steering delay buffer
         self.steer_buffer = np.empty((0, ))
@@ -309,16 +315,25 @@ class RaceCar(object):
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
 
         
-        # Some models require PID control
-        acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
-    
+        # Some models require PID control - but this is an old PID implementation!
+        # acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+
+        
+        if(self.ode_implementation == 'pacejka'):
+            s = self.state
+            u = np.array([desired_steering_angle, desired_speed])
+            self.state = self.dynamic_model.step(s, u)
 
         if self.ode_implementation == 'ODE_TF':
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
-            u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32) 
-        
-            s = self.step_dynamics(s, u)[0] 
-            
+            u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32)
+
+            u_pid = self.car_model.pid(s, u)
+            self.u_pid_with_constrains = self.car_model.apply_constrains(s, u_pid)
+
+            self.steering_speed_cmd, self.acceleration_x_cmd = self.car_model.return_control_cmd_components(self.u_pid_with_constrains)
+
+            s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
             # wrap yaw angle
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
             self.state = full_state_alphabetical_to_original(s)
