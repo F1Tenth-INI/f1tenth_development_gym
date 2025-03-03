@@ -15,12 +15,8 @@ class Settings():
     SURFACE_FRICITON = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
-    FORGE_HISTORY = False
-
-    FRICTION_FOR_CONTROLLER = 0.75
-
     # Controller Settings
-    CONTROLLER = 'neural'  # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
+    CONTROLLER = 'mpc' # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
@@ -34,15 +30,15 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.6
-    GLOBAL_SPEED_LIMIT = 10.0
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    GLOBAL_SPEED_LIMIT = 15.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = True
-    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_RECORDINGS = False
+    SAVE_REVORDING_EVERY_NTH_STEP = 500 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -53,7 +49,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = True
+    CONNECT_RACETUNER_TO_MAIN_CAR = False
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -82,7 +78,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.0 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -101,7 +97,7 @@ class Settings():
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
-    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 0.5  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+    GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 3.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
     
 
     ##Lidar Settings ##
@@ -122,7 +118,7 @@ class Settings():
     PP_USE_CURVATURE_CORRECTION = False
     PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
-    PP_VEL2LOOKAHEAD = 0.4  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
+    PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
     PP_NORMING_V_FOR_CURRVATURE = 10.0  # Bigger number - higher velocity required to have effect on shortening of lookahead horizon
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
@@ -138,7 +134,7 @@ class Settings():
     ANALYZE_COST = False # Analyze and plot diufferent parts of the MPC cost
     ANALYZE_COST_PERIOD = 100 # Period for analyzing the cost
     
-    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0 # Make sure you match with Control delay: Nth step = contol delay / timestep control
+    EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4 # Make sure you match with Control delay: Nth step = contol delay / timestep control
 
     WAYPOINTS_FROM_MPC = False # Use waypoints generated from MPC instead of the map
     PLAN_EVERY_N_STEPS = 4 # in case of waypoints from MPC, plan the waypoints every Nth step
@@ -154,14 +150,30 @@ class Settings():
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
     
     
+    
+    ## Experiment Analysis Settings ##
+    
+    ## Forged history settings 
+    FORGE_HISTORY = False # Forge history of friction values
+    SAVE_STATE_METRICS = False # Save state metrics for analysis
+    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+
+    
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start
-    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
+    GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
+    OPTIMIZE_FOR_RL = False # Optimize for RL training
+    
+    if(OPTIMIZE_FOR_RL):
+        
+        SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
+        CONTROLLER = None # No controller needed
+        DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
+        CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
+        SAVE_RECORDINGS = False # Performance
+        EXPERIMENT_LENGTH = 1000000 # dont stop experiment
+        
+        RENDER_MODE = None
 
-
-    # if os.getenv('CI_TEST', 'false').lower() == 'true':
-    #     RENDER_MODE = None
-    #     CONTROLLER = 'pp'
-    #     START_FROM_RANDOM_POSITION = False

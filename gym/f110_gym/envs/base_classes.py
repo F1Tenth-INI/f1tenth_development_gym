@@ -126,7 +126,7 @@ class RaceCar(object):
             # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
             # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
             self.step_dynamics = self.car_model.step_dynamics
-            self.step_dynamics_core = self.car_model.step_dynamics_core
+            self.step_dynamics_core = self.car_model.step_dynamics_core # step dynamics without constratins an PID
 
         if self.ode_implementation == 'jit_Pacejka':
             self.step_dynamics = car_dynamics_pacejka_jit
@@ -324,8 +324,7 @@ class RaceCar(object):
             u = np.array([desired_steering_angle, desired_speed])
             self.state = self.dynamic_model.step(s, u)
 
-            
-        elif self.ode_implementation == 'ODE_TF':
+        if self.ode_implementation == 'ODE_TF':
             s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32)
 

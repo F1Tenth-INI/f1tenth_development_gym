@@ -28,6 +28,10 @@ def args_fun():
 euler_index = args_fun().euler_experiment_index
 speed_factor = args_fun().speed_factor
 
+Settings.DATASET_NAME = "Euler_RCA1_slip_little_noise"
+Settings.RECORDING_INDEX = euler_index
+
+
 # Global Settings (for every recording)
 Settings.MAP_NAME = 'RCA1'
 
@@ -40,29 +44,30 @@ Settings.NUMBER_OF_EXPERIMENTS = 1
 
 
 # Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.0]
-Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+# Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+Settings.NOISE_LEVEL_CONTROL = [0.1, 0.1] # noise level [angular, translational]
+Settings.CONTROL_NOISE_DURATION = 30 # Number of timesteps for which the control noise is applied
+
+
 Settings.CONTROL_DELAY = 0.0
 Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0
-
-Settings.RECORDING_INDEX = euler_index
 
 
 Settings.START_FROM_RANDOM_POSITION = False
 Settings.DATASET_NAME = "MPC_mu_vs_mu_control_08"
 Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DATASET_NAME) + '/'
 
-Settings.CONTROLLER = 'mpc'
-Settings.SURFACE_FRICITON = 0.8
-
-Settings.RENDER_MODE = None
+Settings.SURFACE_FRICITON = 0.65
 
 # Dont touch:
+Settings.CONTROLLER = 'mpc'
+Settings.RENDER_MODE = None
 Settings.SAVE_RECORDINGS = True 
 Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_CSV = False 
 
 runs_with_obstacles = 0
-runs_without_obstacles = 1
+runs_without_obstacles = 2
 runs_with_oponents = 0 
 global_waypoint_velocity_factors = [0.8]
 # global_waypoint_velocity_factors = [0.8,]
@@ -71,15 +76,18 @@ global_surface_friction_for_controller_values_all = [0.25, 0.3, 0.35, 0.4, 0.45,
 reverse_direction_values = [False, True]
 
 
-index_to_pair = {}
-index = 0
-for friction in global_surface_friction_values_all:
-    for controller_friction in global_surface_friction_for_controller_values_all:
-        index_to_pair[index] = (friction, controller_friction)
-        index += 1
+global_surface_friction_values = global_surface_friction_values_all
+global_surface_friction_for_controller_values = global_surface_friction_for_controller_values_all
 
-global_surface_friction_values = [index_to_pair[euler_index][0]]
-global_surface_friction_for_controller_values = [index_to_pair[euler_index][1]]
+# index_to_pair = {}
+# index = 0
+# for friction in global_surface_friction_values_all:
+#     for controller_friction in global_surface_friction_for_controller_values_all:
+#         index_to_pair[index] = (friction, controller_friction)
+#         index += 1
+#
+# global_surface_friction_values = [index_to_pair[euler_index][0]]
+# global_surface_friction_for_controller_values = [index_to_pair[euler_index][1]]
 
 
 expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)

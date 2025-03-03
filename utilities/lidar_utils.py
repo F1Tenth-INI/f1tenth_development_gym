@@ -52,8 +52,8 @@ class LidarHelper:
         self.processed_number_of_scans = len(self.processed_scan_indices)
         self.processed_angles_rad = self.all_angles_rad[self.processed_scan_indices]
         
-        self.all_lidar_ranges = None
-        self.processed_ranges = None
+        self.all_lidar_ranges = np.zeros(self.num_scans_total, dtype=np.float32)
+        self.processed_ranges = np.zeros_like(self.processed_scan_indices, dtype=np.float32)
 
         self.processed_points_relative_to_car = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
         self.processed_points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)

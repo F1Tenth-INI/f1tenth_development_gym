@@ -5,10 +5,21 @@ import zipfile
 from datetime import datetime
 import sys
 import time
+import pandas as pd
+
 
 
 # This file automatically distributes the data into the SI_Toolkit_ASK experiment recordings folder
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
+
+# Change to desired directory in Experiment
+root_dir = "./SI_Toolkit_ASF/Experiments"
+experiment_dir = "/Big2_noise"
+
+# Input folder with CSV files
+input_folder = "./ExperimentRecordings/Euler_RCA1_slip_little_noise"
+past_recordings = root_dir + experiment_dir + "/Past_trainings"
+
 
 # Fortschrittszeilenfunktion
 def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=50, fill='█'):
@@ -67,22 +78,22 @@ def subfolder_data_compression(dir_path):
     subfolders = [os.path.join(root, folder) for root, dirs, _ in os.walk(dir_path) for folder in dirs]
     total_folders = len(subfolders)
     
-    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for i, folder_path in enumerate(subfolders):
-            arcname = os.path.relpath(folder_path, dir_path)
-            zipf.write(folder_path, arcname)
-            print_progress_bar(i + 1, total_folders, prefix='Compressing Folders:', suffix='Complete', length=50)
+    # with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    #     for i, folder_path in enumerate(subfolders):
+    #         arcname = os.path.relpath(folder_path, dir_path)
+    #         zipf.write(folder_path, arcname)
+    #         print_progress_bar(i + 1, total_folders, prefix='Compressing Folders:', suffix='Complete', length=50)
 
-    print(f'All subfolders of {dir_path} have been compressed to {zip_filename}.')
+    # print(f'All subfolders of {dir_path} have been compressed to {zip_filename}.')
     
     # Delete subfolders and their contents
-    for i, folder in enumerate(os.listdir(dir_path)):
-        folder_path = os.path.join(dir_path, folder)
-        if os.path.isdir(folder_path):
-            shutil.rmtree(folder_path)
-            print_progress_bar(i + 1, total_folders, prefix='Deleting Folders:', suffix='Complete', length=50)
+    # for i, folder in enumerate(os.listdir(dir_path)):
+    #     folder_path = os.path.join(dir_path, folder)
+    #     if os.path.isdir(folder_path):
+    #         shutil.rmtree(folder_path)
+    #         print_progress_bar(i + 1, total_folders, prefix='Deleting Folders:', suffix='Complete', length=50)
             
-    print(f'All subfolders of the {dir_path} were deleted.')
+    # print(f'All subfolders of the {dir_path} were deleted.')
     
 # Creating directory if it doesn't exist
 def create_directory(dir_path):
@@ -94,13 +105,7 @@ train_distribution = 0.8
 test_distribution = 0.1
 validate_distribution = 0.1
 
-# Change to desired directory in Experiment
-root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "/NigalsanSim1"
 
-# Input folder with CSV files
-input_folder = "./ExperimentRecordings"
-past_recordings = root_dir + experiment_dir + "/Past_trainings"
 create_directory(past_recordings)
 
 # Output folders for distribution
@@ -133,6 +138,13 @@ random.shuffle(csv_files)
 # Copy files to the output folders according to the distribution
 print_progress_bar(0, total_files, prefix='Distributing Files:', suffix='Complete', length=50)
 for i, file in enumerate(csv_files):
+    
+    file_path = os.path.join(input_folder, file)
+    df = pd.read_csv(file_path, comment='#')
+    if df.empty or len(df) < 100:
+        print(f"Skipping file {file} because it is empty or has less than 20 lines.")
+        continue
+    
     source_path = os.path.join(input_folder, file)
     if i < num_files_train:
         destination_folder = output_folder_train

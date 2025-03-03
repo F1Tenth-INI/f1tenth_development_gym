@@ -66,7 +66,12 @@ def csv_append_index_if_file_exists(csv_filepath):
 def create_csv_file_name(Settings, csv_name=None):
     if csv_name is None or csv_name == '':
 
-        dataset_name = Settings.MAP_NAME + '_' + Settings.CONTROLLER + '_' + str(
+        if Settings.CONTROLLER is None:
+            controller_name = 'None'
+        else:
+            controller_name = Settings.CONTROLLER
+            
+        dataset_name = Settings.MAP_NAME + '_' + controller_name + '_' + str(
             int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
             Settings.SURFACE_FRICITON) + '_mu_control_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'

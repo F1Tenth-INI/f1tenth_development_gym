@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --array=0-323
+#SBATCH --array=0-41
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
 #SBATCH --mem-per-cpu=4G        # Request 2GB of memory per CPU
 #SBATCH --time=8:00:00           # Set the maximum job time
@@ -11,15 +11,15 @@ mkdir -p ./scripts/EulerCluster/out/
 source $HOME/miniconda3/bin/activate
 conda activate f1t
 
-export PYTHONPATH=/cluster/home/paluchm/f1tenth_development_gym/
+export PYTHONPATH=/cluster/home/bollif/f1tenth_development_gym/
 cd $HOME/f1tenth_development_gym/
 
 # Use SLURM_ARRAY_TASK_ID for the model index directly since it ranges from 1 to 50
 i=$SLURM_ARRAY_TASK_ID
 
 # Define the speed factors and repetitions
-speed_factors=(0.8)
-repetitions=1
+speed_factors=(0.5 0.6 0.7 0.8 0.9 1.0 1.1)
+repetitions=6
 
 # Calculate the speed factor and repetition index
 speed_factor_index=$((SLURM_ARRAY_TASK_ID / repetitions))

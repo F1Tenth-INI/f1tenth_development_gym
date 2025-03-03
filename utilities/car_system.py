@@ -15,7 +15,6 @@ from f110_gym.envs.dynamic_models import pid
 
 # Utilities
 from utilities.state_utilities import *
-from utilities.random_obstacle_creator import RandomObstacleCreator # Obstacle creation
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
@@ -30,8 +29,12 @@ from utilities.waypoint_utils import WaypointUtils
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
-from utilities.HistoryForger import HistoryForger
-from utilities.StateMetricCalculator import StateMetricCalculator
+
+if Settings.FORGE_HISTORY: # will import TF
+    from utilities.HistoryForger import HistoryForger
+
+if Settings.SAVE_STATE_METRICS: # will import TF
+    from utilities.StateMetricCalculator import StateMetricCalculator
 
 class CarSystem:
     
@@ -48,6 +51,10 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
+
+        self.angular_control = 0
+        self.translational_control = 0
+
         
         # TODO: Move to a config file ( which one tho?)
         self.control_average_window = Settings.CONTROL_AVERAGE_WINDOW # Window for averaging control input for smoother control [angular, translational]
@@ -117,6 +124,8 @@ class CarSystem:
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
 
         self.savse_recording = save_recording
+
+        self.recorder = None
         if save_recording:
             self.recorder = Recorder(driver=self)
 
@@ -138,13 +147,14 @@ class CarSystem:
         if Settings.FORGE_HISTORY:
             self.history_forger = HistoryForger()
 
-        self.state_metric_calculator = StateMetricCalculator(
-            environment_name="Car",
-            initial_environment_attributes={
-                "next_waypoints": self.waypoint_utils.next_waypoints,
-            },
-            recorder_base_dict=self.recorder.dict_data_to_save_basic
-        )
+        if self.recorder is not None:
+            self.state_metric_calculator = StateMetricCalculator(
+                environment_name="Car",
+                initial_environment_attributes={
+                    "next_waypoints": self.waypoint_utils.next_waypoints,
+                },
+                recorder_base_dict=self.recorder.dict_data_to_save_basic
+            )
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -171,7 +181,11 @@ class CarSystem:
     
     def set_car_state(self, car_state):
         self.car_state = car_state
-    
+
+    def set_scans(self, ranges):
+        ranges = np.array(ranges)
+        self.LIDAR.update_ranges(ranges, self.car_state)
+
     def render(self, e):
         self.render_utils.render(e)
 
@@ -197,11 +211,9 @@ class CarSystem:
 
         self.waypoint_utils.update_next_waypoints(car_state)
         self.waypoint_utils.check_if_obstacle_on_my_raceline(processed_lidar_points)
-
         if self.waypoint_utils_alternative is not None:
             self.waypoint_utils_alternative.update_next_waypoints(car_state)
             self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(processed_lidar_points)
-
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
@@ -215,6 +227,10 @@ class CarSystem:
             self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
+
+        if(Settings.OPTIMIZE_FOR_RL):
+            return 0,0
+
 
         if self.use_waypoints_from_mpc:
             if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
@@ -276,12 +292,12 @@ class CarSystem:
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
-
-        self.state_metric_calculator.calculate_metrics(
-            current_state=car_state,
-            current_control=np.array([self.angular_control, self.translational_control]),
-            updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
-        )
+        if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
+            self.state_metric_calculator.calculate_metrics(
+                current_state=car_state,
+                current_control=np.array([self.angular_control, self.translational_control]),
+                updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
+            )
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
             self.optimal_control_sequence = self.planner.optimal_control_sequence
@@ -310,24 +326,10 @@ class CarSystem:
             self.angular_control, self.translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
             
         
-        # Rendering and recording
-        label_dict = {
-            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
-            '0: angular_control': self.angular_control,
-            '1: translational_control': self.translational_control,
-            '4: Surface Friction': Settings.SURFACE_FRICITON,
-        }
+
 
         if self.render_utils is not None:
-            self.render_utils.set_label_dict(label_dict)
-            self.render_utils.update(
-                lidar_points= self.LIDAR.processed_points_map_coordinates,
-                # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
-                next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
-                next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
-                car_state = car_state,
-            )
-            self.render_utils.update_obstacles(obstacles)
+            self.update_render_utils()
 
 
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
@@ -344,15 +346,12 @@ class CarSystem:
         # Update Lap Analyzer
         nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index
         distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
-        self.lap_analyzer.update(nearest_waypoint_index, self.time,distance_to_raceline)
+        self.lap_analyzer.update(nearest_waypoint_index, self.time, distance_to_raceline)
 
         
         basic_dict = get_basic_data_dict(self)
         if Settings.FORGE_HISTORY:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
-
-
-
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
             self.recorder.dict_data_to_save_basic.update(basic_dict)
@@ -361,6 +360,30 @@ class CarSystem:
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
 
         return self.angular_control, self.translational_control
+
+
+    def update_render_utils(self):
+
+        car_state = self.car_state
+
+
+             # Rendering and recording
+        label_dict = {
+            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
+            '0: angular_control': self.angular_control,
+            '1: translational_control': self.translational_control,
+            '4: Surface Friction': Settings.SURFACE_FRICITON,
+        }
+
+        self.render_utils.set_label_dict(label_dict)
+        self.render_utils.update(
+            lidar_points= self.LIDAR.processed_points_map_coordinates,
+            # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
+            next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
+            next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
+            car_state = car_state,
+        )
+        # self.render_utils.update_obstacles(obstacles)
 
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
