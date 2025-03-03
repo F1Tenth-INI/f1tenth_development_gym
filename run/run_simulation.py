@@ -141,15 +141,21 @@ class RacingSimulation:
         # Init recorder
         main_driver = self.drivers[0]
         if Settings.SAVE_RECORDINGS and main_driver.save_recordings:
+            if Settings.FORGE_HISTORY:
+                main_driver.recorder.dict_data_to_save_basic.update(
+                    {
+                        'forged_history_applied': lambda: main_driver.history_forger.forged_history_applied,
+                    }
+                )
+            main_driver.recorder.dict_data_to_save_basic.update(
+                {
+                    'lap_times': lambda: self.obs['lap_times'][0],
+                    'time': lambda: self.sim_time,
+                    'sim_index': lambda: self.sim_index,
+                    'nearest_wpt_idx': lambda: main_driver.waypoint_utils.nearest_waypoint_index,
+                }
+            )
             main_driver.recorder.start_csv_recording()
-            # TODO: fix
-            # main_driver.recorder.dict_data_to_save_basic.update(
-            #     {
-            #         'lap_times': lambda: self.obs['lap_times'],
-            #         'time': lambda: self.sim_time,
-            #         'sim_index': lambda: self.sim_index,
-            #     }
-            # )
 
 
         # Populate control delay buffer
@@ -200,6 +206,7 @@ class RacingSimulation:
 
     def get_agent_controls(self):
         ranges = self.obs['scans']
+        self.get_control_for_history_forger()
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
@@ -221,10 +228,23 @@ class RacingSimulation:
         self.control_delay_buffer.append(self.agent_controls_calculated)        
         agent_controls_execute  = self.control_delay_buffer.pop(0)
 
+        self.get_state_for_history_forger()
+
         # shape: [number_of_drivers, 2]
         return agent_controls_execute
 
-        
+    def get_control_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
+        if self.sim_index > 0:
+            for index, driver in enumerate(self.drivers):
+                if hasattr(driver, 'history_forger'):
+                    driver.history_forger.update_control_history(self.env.sim.agents[index].u_pid_with_constrains)
+
+    def get_state_for_history_forger(self):
+        if not Settings.FORGE_HISTORY: return
+        for index, driver in enumerate(self.drivers):
+            if hasattr(driver, 'history_forger'):
+                driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))
 
     def render_env(self):
         # Render the environment
@@ -355,7 +375,7 @@ class RacingSimulation:
     Recorder function that is called at every step
     '''
     def handle_recording_step(self):
-        if Settings.SAVE_RECORDINGS:
+        if Settings.SAVE_RECORDINGS and self.sim_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0:
                 for index, driver in enumerate(self.drivers):
                     if driver.save_recordings:
                         driver.recorder.step()

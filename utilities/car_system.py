@@ -30,6 +30,8 @@ from utilities.waypoint_utils import WaypointUtils
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
+from utilities.HistoryForger import HistoryForger
+from utilities.StateMetricCalculator import StateMetricCalculator
 
 class CarSystem:
     
@@ -97,6 +99,13 @@ class CarSystem:
         # Planner
         self.planner = None
         self.initialize_controller(controller)
+        if Settings.FRICTION_FOR_CONTROLLER is not None:
+            has_mpc = hasattr(self.planner, 'mpc')
+            if has_mpc:
+                predictor = self.planner.mpc.predictor.predictor
+                if hasattr(predictor, 'next_step_predictor') and hasattr(predictor.next_step_predictor, 'env'):
+                    predictor.next_step_predictor.env.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
+
 
         if(hasattr(self.planner, 'render_utils')):
             self.planner.render_utils = self.render_utils
@@ -120,6 +129,17 @@ class CarSystem:
         self.lap_analyzer = LapAnalyzer(
             total_waypoints=len(self.waypoint_utils.waypoints),
             lap_finished_callback=self.lap_complete_cb
+        )
+
+        if Settings.FORGE_HISTORY:
+            self.history_forger = HistoryForger()
+
+        self.state_metric_calculator = StateMetricCalculator(
+            environment_name="Car",
+            initial_environment_attributes={
+                "next_waypoints": self.waypoint_utils.next_waypoints,
+            },
+            recorder_base_dict=self.recorder.dict_data_to_save_basic
         )
 
         if self.online_learning_activated:
@@ -180,7 +200,7 @@ class CarSystem:
             self.planner.waypoint_utils = self.waypoint_utils
         if(hasattr(self.planner, 'LIDAR')):
             self.planner.LIDAR = self.LIDAR
-             
+
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -208,11 +228,11 @@ class CarSystem:
         
         # if hasattr(self.planner, 'mu_predicted'):
         #     imu_dict['mu_predicted'] = self.planner.mu_predicted
-        
+
         ranges = np.array(ranges)
         self.LIDAR.update_ranges(ranges, car_state)
         processed_lidar_points = self.LIDAR.processed_points_map_coordinates
-        
+
         self.waypoint_utils.update_next_waypoints(car_state)
         self.waypoint_utils.check_if_obstacle_on_my_raceline(processed_lidar_points)
 
@@ -257,7 +277,7 @@ class CarSystem:
 
             if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150 and self.waypoint_utils_alternative is not None):
                 # Check distance of raceline to alternative raceline
-                distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline 
+                distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline
                 if(distance_to_alternative_raceline < 0.3):
                     self.alternative_raceline = True
                     self.timesteps_on_current_raceline = 0
@@ -265,7 +285,7 @@ class CarSystem:
 
             if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150):
                 # Check distance of raceline to alternative raceline
-                distance_to_raceline = self.waypoint_utils.current_distance_to_raceline 
+                distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
                 if(distance_to_raceline < 0.3):
                     self.alternative_raceline = False
                     self.timesteps_on_current_raceline = 0
@@ -279,9 +299,12 @@ class CarSystem:
                 self.waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
 
             self.timesteps_on_current_raceline += 1
-        
+
         if self.planner is None: # Planer not initialized
             return 0, 0
+
+        if Settings.FORGE_HISTORY:
+            self.history_forger.feed_planner_forged_history(car_state, ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
 
         next_interpolated_waypoints_for_controller = WaypointUtils.get_interpolated_waypoints(self.waypoints_for_controller, Settings.INTERPOLATE_LOCA_WP)
         self.planner.pass_data_to_planner(next_interpolated_waypoints_for_controller, car_state, obstacles)
@@ -291,6 +314,12 @@ class CarSystem:
         if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0 or not hasattr(self.planner, 'optimal_control_sequence') ):
             self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
 
+
+        self.state_metric_calculator.calculate_metrics(
+            current_state=car_state,
+            current_control=np.array([self.angular_control, self.translational_control]),
+            updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
+        )
         # Control Queue if exists
         if hasattr(self.planner, 'optimal_control_sequence'):
             self.optimal_control_sequence = self.planner.optimal_control_sequence
@@ -357,9 +386,9 @@ class CarSystem:
 
         
         basic_dict = get_basic_data_dict(self)
-        
-            
-        
+        if Settings.FORGE_HISTORY:
+            basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
+
         if(hasattr(self, 'recorder') and self.recorder is not None):
             self.recorder.dict_data_to_save_basic.update(basic_dict)
         

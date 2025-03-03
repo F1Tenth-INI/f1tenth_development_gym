@@ -11,6 +11,7 @@ class racing(f1t_cost_function):
     def __init__(self, variable_parameters: SimpleNamespace, ComputationLib: "type[ComputationLibrary]"):
         super().__init__(variable_parameters=variable_parameters, ComputationLib=ComputationLib)
         self.cost_components = SimpleNamespace()
+        self.total_stage_cost = None
         self.cost_components.crash_cost = None
         self.cost_components.cc = None
         self.cost_components.ccrc = None
@@ -20,7 +21,7 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = None
         self.cost_components.speed_control_difference_to_wp_cost = None
         self.cost_components.distance_to_wp_segments_cost = None
-
+        self.single_step = False
 
     def configure(
             self,
@@ -29,6 +30,7 @@ class racing(f1t_cost_function):
     ):
         super().configure(batch_size=batch_size, horizon=horizon)
         cost_vector = self.lib.zeros((batch_size, horizon))
+        self.total_stage_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.crash_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.cc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.ccrc = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
@@ -38,6 +40,22 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.speed_control_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.distance_to_wp_segments_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        if horizon == 1:
+            self.single_step = True
+
+        self.set_logged_attributes({
+            "total_stage_cost": lambda: float(self.total_stage_cost),
+            "crash_cost": lambda: float(self.cost_components.crash_cost),
+            "cc": lambda: float(self.cost_components.cc),
+            "ccrc": lambda: float(self.cost_components.ccrc),
+            "ccocrc": lambda: float(self.cost_components.ccocrc),
+            "icdc": lambda: float(self.cost_components.icdc),
+            "angular_velocity_cost": lambda: float(self.cost_components.angular_velocity_cost),
+            "angle_difference_to_wp_cost": lambda: float(self.cost_components.angle_difference_to_wp_cost),
+            "speed_control_difference_to_wp_cost": lambda: float(self.cost_components.speed_control_difference_to_wp_cost),
+            "distance_to_wp_segments_cost": lambda: float(self.cost_components.distance_to_wp_segments_cost),
+        })
+
 
 
     def get_terminal_cost(self, terminal_state):
@@ -51,13 +69,21 @@ class racing(f1t_cost_function):
         # It is not used while writing...
         cc = self.get_actuation_cost(u)
         ccrc = self.get_control_change_rate_cost(u, u_prev)
-        ccrh = self.get_control_change_rate_within_horizon_cost(u)
-        ccocrc = self.get_control_change_of_change_rate_cost(u, u_prev)
-        icdc = self.get_immediate_control_discontinuity_cost(u, u_prev)
+        if not self.single_step:
+            ccrh = self.get_control_change_rate_within_horizon_cost(u)
+            ccocrc = self.get_control_change_of_change_rate_cost(u, u_prev)
+            icdc = self.get_immediate_control_discontinuity_cost(u, u_prev)
+        else:
+            ccrh = self.lib.zeros_like(cc)
+            ccocrc = self.lib.zeros_like(cc)
+            icdc = self.lib.zeros_like(cc)
 
         ## Crash cost: comment out for faster calculation...
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
-        crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+        if hasattr(self.variable_parameters, 'lidar_points'):
+            crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+        else:
+            crash_cost = self.lib.zeros_like(cc)
         # Cost related to control
         acceleration_cost = self.get_acceleration_cost(u)
         steering_cost = self.get_steering_cost(u)
@@ -110,7 +136,8 @@ class racing(f1t_cost_function):
                 # + cost_for_stopping
             )
 
-        if Settings.ANALYZE_COST and Settings.ROS_BRIDGE is False:
+        if (Settings.ANALYZE_COST or self.cost_function_for_state_metric) and Settings.ROS_BRIDGE is False:
+            self.lib.assign(self.total_stage_cost, stage_cost)
             self.lib.assign(self.cost_components.crash_cost, crash_cost)
             self.lib.assign(self.cost_components.cc, cc)
             self.lib.assign(self.cost_components.ccrc, ccrc)
@@ -124,7 +151,7 @@ class racing(f1t_cost_function):
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00
         discount_vector = self.lib.cumprod(discount_vector, 0)
-
+        discount_vector = self.lib.cast(discount_vector, self.lib.float32)
         # Read out values for cost weight callibration: Uncomment for debugging
 
         # distance_to_waypoints_cost_numpy = distance_to_waypoints_cost.numpy()[:20]
