@@ -8,13 +8,32 @@ In Pycharm to get the progress bars display correctly you need to set
 
 """
 
-
+import os
+import glob
 from SI_Toolkit.data_preprocessing import transform_dataset
 
-import numpy as np
-from utilities.state_utilities import STATE_VARIABLES, control_limits_low, control_limits_high
+from utilities.state_utilities import control_limits_low, control_limits_high
 from SI_Toolkit_ASF.ToolkitCustomization.control_along_trajectories_car_helpers import controller_creator, df_modifier
 import argparse
+
+get_files_from_folder_root = './SI_Toolkit_ASF/Experiments/Euler_RCA1_slip_little_noise/'
+
+get_file_name = 'xxx.csv'  # Only used if no index is provided
+
+save_files_to = './SI_Toolkit_ASF/Experiments'
+
+controller_config = {
+    "controller_name": "mpc",
+    "state_components": 'state',
+    "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
+        "lidar": "lidar",
+        "next_waypoints": "next_waypoints",
+        "mu": "mu_random_uniform_0.45_0.95_0.1",
+    },
+}
+
+controller_output_variable_name = ['angular_control_new', 'translational_control_new']
+
 
 def args_fun():
     parser = argparse.ArgumentParser(description='Generate Car data.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -29,32 +48,22 @@ def args_fun():
 
     digits = 3
     if args.secondary_experiment_index is not None:
-        formatted_index = f"{args.secondary_experiment_index:0{digits}d}"
+        formatted_index_from_terminal = f"{args.secondary_experiment_index:0{digits}d}"
     else:
-        formatted_index = None
+        formatted_index_from_terminal = None
 
-    return formatted_index
+    return formatted_index_from_terminal
+
 
 formatted_index = args_fun()
 if formatted_index is not None:
-    get_files_from = f'../Experiment_Recordings/Experiment_16_11_2024_pole_L_and_m_informed/Experiment-{formatted_index}.csv'
+    pattern = os.path.join(get_files_from_folder_root, f"*-{formatted_index:03d}.csv")
+    matching_files = glob.glob(pattern)
+    get_files_from = matching_files[0]
 else:
-    get_files_from = './SI_Toolkit_ASF/Experiments/Euler_RCA1_slip_little_noise/2025-02-05_17-13-40_Euler_RCA1_slip_little_noise_2_RCA1_mpc_50Hz_vel_0.5_noise_c[0.1, 0.1]_mu_0.45.csv'
-
-save_files_to = './SI_Toolkit_ASF/Experiments'
+    get_files_from = os.path.join(get_files_from_folder_root, get_file_name)
 
 control_limits = (control_limits_low, control_limits_high),
-controller_config = {
-    "controller_name": "mpc",
-    "state_components": 'state',
-    "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
-        "lidar": "lidar",
-        "next_waypoints": "next_waypoints",
-        "mu": "mu_random_uniform_0.45_0.95_0.1",
-    },
-}
-
-controller_output_variable_name = ['angular_control_new', 'translational_control_new']
 
 if __name__ == '__main__':
     transform_dataset(get_files_from, save_files_to,
