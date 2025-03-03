@@ -29,7 +29,9 @@ from utilities.waypoint_utils import WaypointUtils
 from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
-from utilities.HistoryForger import HistoryForger
+
+if Settings.FORGE_HISTORY: # will import TF
+    from utilities.HistoryForger import HistoryForger
 
 if Settings.SAVE_STATE_METRICS: # will import TF
     from utilities.StateMetricCalculator import StateMetricCalculator
