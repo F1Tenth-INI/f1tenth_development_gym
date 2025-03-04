@@ -21,7 +21,7 @@ experiment_dir = "MyTest"
 
 past_recordings = os.path.join(root_dir, experiment_dir, "Past_trainings")
 
-REMOVE_FILES_FROM_ORIGINAL_LOCATION = True
+REMOVE_FILES_FROM_ORIGINAL_LOCATION = False
 
 
 # Fortschrittszeilenfunktion
