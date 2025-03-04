@@ -178,3 +178,4 @@ for reverse_direction, global_waypoint_velocity_factor, global_surface_friction,
 
 finished = datetime.datetime.now()
 print(f"Finished at: {finished}")
+print(f"Duration: {finished - started}")
