@@ -306,9 +306,16 @@ class RacingSimulation:
             print("You can also let oponents start at random waypoint positions")
             exit()
         
-            
+        # Reverse direction of map initial positions
+        if Settings.REVERSE_DIRECTION:
+            starting_positions = [[0,0,-3.0]]
+            new_starting_positions = []
+            for starting_position in starting_positions:
+                starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
+                new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
         
-        # Starting from random position near a waypoint
+        
+        # Starting from random position near a waypoint (overwrite)
         if Settings.START_FROM_RANDOM_POSITION:
             import random
             
@@ -320,19 +327,8 @@ class RacingSimulation:
             
             starting_positions[0] = random_wp[1:4]
             print("Starting position: ", random_wp[1:4])
-            
-            if Settings.REVERSE_DIRECTION:
-                starting_positions[0][2] = wrap_angle_rad(starting_positions[0][2] + np.pi)
                 
-        if Settings.REVERSE_DIRECTION:
-            starting_positions = [[0,0,-3.0]]
-            new_starting_positions = []
-            # starting_positions = conf_dict['starting_positions']
-            for starting_position in starting_positions:
-                starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
-                new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-                print(new_starting_positions)
-            conf.starting_positions = new_starting_positions
+       
         
         self.starting_positions = starting_positions
         Settings.STARTING_POSITION = starting_positions

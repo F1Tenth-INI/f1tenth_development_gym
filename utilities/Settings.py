@@ -66,7 +66,8 @@ class Settings():
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     CRASH_DETECTION = True
-    REPEAT_IF_CRASHED = False
+    REPEAT_IF_CRASHED = True
+    MAX_CRASH_REPETITIONS = 5
 
 
     # Experiment Settings

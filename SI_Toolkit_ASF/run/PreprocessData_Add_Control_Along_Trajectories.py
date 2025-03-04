@@ -16,11 +16,11 @@ from utilities.state_utilities import control_limits_low, control_limits_high
 from SI_Toolkit_ASF.ToolkitCustomization.control_along_trajectories_car_helpers import controller_creator, df_modifier
 import argparse
 
-get_files_from_folder_root = './SI_Toolkit_ASF/Experiments/Euler_RCA1_slip_little_noise/'
+get_files_from_folder_root = './ExperimentRecordings/Experiments_03_03_2025/'
 
 get_file_name = 'xxx.csv'  # Only used if no index is provided
 
-save_files_to = './SI_Toolkit_ASF/Experiments'
+save_files_to = './ExperimentRecordings/Experiments_03_03_2025_augmented/'
 
 controller_config = {
     "controller_name": "mpc",
@@ -57,7 +57,7 @@ def args_fun():
 
 formatted_index = args_fun()
 if formatted_index is not None:
-    pattern = os.path.join(get_files_from_folder_root, f"*-{formatted_index:03d}.csv")
+    pattern = os.path.join(get_files_from_folder_root, "*_" + formatted_index + ".csv")
     matching_files = glob.glob(pattern)
     get_files_from = matching_files[0]
 else:
