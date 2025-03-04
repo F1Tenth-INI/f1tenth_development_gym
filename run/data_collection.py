@@ -2,11 +2,15 @@
 from run.run_simulation import RacingSimulation
 from utilities.Settings import Settings
 import time
+import datetime
 import os
 import zipfile
 import subprocess 
 from utilities.EncodeDecodeEulerFlag import euler_index, decode_flag
 from itertools import product  # Enables Cartesian product iteration over multiple parameter lists
+
+started = datetime.datetime.now()
+print(f"Started at: {started}")
 
 Settings.DATASET_NAME = "Experiments_03_03_2025"
 Settings.RECORDING_INDEX = euler_index
@@ -172,3 +176,5 @@ for reverse_direction, global_waypoint_velocity_factor, global_surface_friction,
     #     simulation = RacingSimulation()
     #     simulation.run_experiments()
 
+finished = datetime.datetime.now()
+print(f"Finished at: {finished}")
