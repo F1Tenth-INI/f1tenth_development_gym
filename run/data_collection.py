@@ -48,7 +48,7 @@ Settings.APPLY_SPEED_SCALING_FROM_CSV = False
 Settings.NUMBER_OF_EXPERIMENTS = 1  # How many experiment per simulation.run_experiments(), you probably want to set this to 1
 
 runs_with_obstacles = 0
-runs_without_obstacles = 2
+runs_without_obstacles = 1
 runs_with_oponents = 0
 
 # global_surface_friction_values = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
