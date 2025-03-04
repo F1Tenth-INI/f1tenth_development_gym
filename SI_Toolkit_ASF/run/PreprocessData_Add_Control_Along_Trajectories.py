@@ -20,7 +20,7 @@ get_files_from_folder_root = './ExperimentRecordings/Experiments_03_03_2025/'
 
 get_file_name = 'xxx.csv'  # Only used if no index is provided
 
-save_files_to = './ExperimentRecordings/Experiments_03_03_2025_augmented/'
+save_files_to = './ExperimentRecordings/Experiments_03_03_2025_random_mu/'
 
 controller_config = {
     "controller_name": "mpc",
@@ -28,11 +28,11 @@ controller_config = {
     "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
         "lidar": "lidar",
         "next_waypoints": "next_waypoints",
-        "mu": "mu_random_uniform_0.45_0.95_0.1",
+        "mu": "mu_random_uniform_0.3_1.1_0.1",
     },
 }
 
-controller_output_variable_name = ['angular_control_new', 'translational_control_new']
+controller_output_variable_name = ['angular_control_random_mu', 'translational_control_random_mu']
 
 
 def args_fun():
