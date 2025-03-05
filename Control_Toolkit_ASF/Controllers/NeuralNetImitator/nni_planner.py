@@ -59,7 +59,7 @@ class NeuralNetImitatorPlanner(template_planner):
         lidar_dict = dict(zip(lidar_keys, lidar_values))
 
         # Waypoint dict
-        waypoints_relative = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
+        waypoints_relative = get_relative_positions_jit(self.waypoints, self.car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
         waypoints_relative_y = waypoints_relative[:, 1]
         next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
