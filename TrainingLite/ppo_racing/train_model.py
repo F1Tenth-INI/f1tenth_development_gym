@@ -17,11 +17,10 @@ from utilities.waypoint_utils import *
 from TrainingLite.ppo_racing.TrainingCallback import TrainingStatusCallback
 
 
-evaluation_mode = False
 model_dir = "ppo_models"
-model_name = "PPO_test"
-model_name = "PPO_test"
-model_save_name = "PPO_test"
+model_name = "ppo_overnight"
+
+print_info = False
 
 class RacingEnv(gym.Env):
     def __init__(self):
@@ -29,7 +28,7 @@ class RacingEnv(gym.Env):
         self.simulation = None  # Delay initialization for SubprocVecEnv compatibility
         
         lidar_size = 40
-        car_state_size = 1
+        car_state_size = 3
         waypoint_size = 0
         total_obs_size = car_state_size + lidar_size + waypoint_size
         
@@ -53,7 +52,7 @@ class RacingEnv(gym.Env):
 
     
     def reset(self, seed=None, options=None):
-        
+        from run.run_simulation import RacingSimulation
         self.last_progress = 0.0
         self.last_steering = 0.0
         self.stuck_counter = 0
@@ -74,7 +73,7 @@ class RacingEnv(gym.Env):
 
     def step(self, action):
         steering = np.clip(action[0], -1, 1) * 0.4
-        throttle = np.clip(action[1], -1, 1) * 4.5 + 3.5
+        throttle = np.clip(action[1], -1, 1) * 10
         agent_controls = np.array([[steering, throttle]])
 
         self.simulation.simulation_step(agent_controls=agent_controls)
@@ -108,16 +107,18 @@ class RacingEnv(gym.Env):
         driver.waypoint_utils.update_next_waypoints(car_state)
         
         lidar_scan = driver.LIDAR.processed_ranges
+        lidar_scan = np.clip(1.0 / (driver.LIDAR.processed_ranges + 1e-3), 0, 10.0)
+
         next_waypoints = driver.waypoint_utils.next_waypoint_positions_relative[:, 1]
         state_features = np.array([
             # car_state[POSE_X_IDX],
             # car_state[POSE_Y_IDX],
-            car_state[LINEAR_VEL_X_IDX],
+            car_state[LINEAR_VEL_X_IDX] / 10.0,
             # car_state[LINEAR_VEL_Y_IDX],
-            # car_state[ANGULAR_VEL_Z_IDX],
+            car_state[ANGULAR_VEL_Z_IDX] / 10.0,
             # car_state[POSE_THETA_COS_IDX],
             # car_state[POSE_THETA_SIN_IDX],
-            # car_state[STEERING_ANGLE_IDX]
+            car_state[STEERING_ANGLE_IDX]
         ], dtype=np.float32)
 
         return np.concatenate([lidar_scan, state_features]).astype(np.float32)
@@ -133,21 +134,30 @@ class RacingEnv(gym.Env):
         # Reward Track Progress (Incentivize Moving Forward)
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
-        progress_reward = delta_progress * 1000.0 #+ progress * 100.0
+        progress_reward = delta_progress * 1500.0 #+ progress * 100.0
         # if(progress_reward > 5.):
             # print(f"Progress: {progress}, Delta Progress: {delta_progress}, Reward: {progress_reward}")
         if progress_reward < 0:
-            progress_reward *= 2.0  # Increase penalty for going backwards
+            progress_reward *= 3.0  # Increase penalty for going backwards
         reward += progress_reward
         # print(f"Progress: {progress}, Reward: {progress_reward}")
+        
 
         # ✅ 2. Reward Maintaining Speed (Prevent Stops and Stalls)
-        # speed = car_state[LINEAR_VEL_X_IDX]
-        # reward += speed * 0.8  # Encourage faster driving
+        speed = car_state[LINEAR_VEL_X_IDX]
+        speed_reward = speed * 0.05    
+        if speed < 0:
+            speed_reward *= 2    
+        reward += speed_reward
+        
 
         # # ✅ 3. Penalize Sudden Steering Changes
-        # steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
-        # reward -= steering_diff * 0.1  # Increased penalty to discourage aggressive corrections
+        steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
+        reward -= steering_diff * 0.005  # Increased penalty to discourage aggressive corrections
+        
+        # Penalize Steering Angle
+        steering_penalty = abs(car_state[STEERING_ANGLE_IDX]) * 0.1  # Scale penalty
+        reward -= steering_penalty
 
         # Penalize Collisions
         if self.simulation.obs["collisions"][0] == 1:
@@ -159,39 +169,53 @@ class RacingEnv(gym.Env):
         #     nearest_waypoint_dist = 0
         # wp_penality = nearest_waypoint_dist**2 * 1.5
         # reward -= wp_penality
-        # if evaluation_mode:
+        # if print:
         #     print(f"Nearest waypoint distance: {nearest_waypoint_dist}, penality: {-wp_penality}")
 
 
         #  Penalize Spinning (Fixing Instability)
-        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 5.0:
+        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
             self.spin_counter += 1
             if self.spin_counter >= 50:
                 reward -= self.spin_counter * 0.5
             
             if self.spin_counter >= 200:
-                reward -= 500
+                reward -= 100
 
         else:
             self.spin_counter = 0
+            
+            
+        # Penalize beeing stuck
+        if abs(car_state[LINEAR_VEL_X_IDX]) < 0.2:
+            self.stuck_counter += 1
+            if self.stuck_counter >= 10:
+                reward -= self.stuck_counter * 0.5
+            
+            if self.stuck_counter >= 200:
+                reward -= 100
 
        
         self.last_steering = car_state[STEERING_ANGLE_IDX]
         self.last_progress = progress
         
-        if(evaluation_mode):
+        if(print_info):
             print(f"Reward: {reward}")
         return reward
 
 
     def check_termination(self):
         driver = self.simulation.drivers[0] # 
-        waypoint_utils = driver.waypoint_utils
+        waypoint_utils = driver
         car_state = driver.car_state
         
         # Terminate if the car is stuck
         if self.spin_counter > 200:
             print("Car is spinning!")
+            return True
+        
+        if self.stuck_counter > 200:
+            print("Car is stuck!")
             return True
             
         # Terminate if the car is spinning
@@ -211,39 +235,13 @@ def make_env():
         return RacingEnv()
     return _init
 
-def evaluate_model():
-    model_path = os.path.join(model_dir, model_save_name)
 
-
-    time.sleep(1)
-
-    model = PPO.load(model_path)
-    # model = SAC.load(model_path)
-    
-    env = make_env()()
-    check_env(env)
-        
-    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10, deterministic=True)
-    print(f"Mean reward: {mean_reward}, Std reward: {std_reward}")
-    exit()
-    
-
-    
 if __name__ == "__main__":
   
     
     # Load existing model or create new
 
     model_path = os.path.join(model_dir, model_name)
-
-
-    if evaluation_mode:
-        Settings.RENDER_MODE = 'human'
-        # Settings.SAVE_RECORDINGS = True
-        # Settings.SAVE_PLOTS = True  
-        time.sleep(1)
-        from run.run_simulation import RacingSimulation
-        evaluate_model()  
 
     
     from utilities.car_system import CarSystem
@@ -259,32 +257,39 @@ if __name__ == "__main__":
     else: # Parallel environments 
         # fast (cumputationally heavy)
         Settings.RENDER_MODE = None
-        num_envs = 12
+        num_envs = 4
         
-        env = SubprocVecEnv([make_env() for _ in range(num_envs)])
-        # env = DummyVecEnv([make_env() for _ in range(num_envs)])
+        # env = SubprocVecEnv([make_env() for _ in range(num_envs)])
+        env = DummyVecEnv([make_env() for _ in range(num_envs)])
         
         env.reset()
 
 
     
     # Load existing model or create new
-    try:
-        model = PPO.load(model_path, env=env)
-        print("Model loaded successfully.")
-    except FileNotFoundError:
-        print("No existing model found. Creating a new one.")
-        policy_kwargs = dict(
-            net_arch=[128, 128],
-            # activation_fn=torch.nn.ReLU
-        )
-        model = PPO("MlpPolicy", env, verbose=1,
-                    policy_kwargs=policy_kwargs,
-                    n_steps=2048 // num_envs,
-                    ent_coef=0.03,  # Start with high exploration
-                    gamma=0.98)
+    # try:
+    #     model = PPO.load(model_path, env=env)
+    #     print("Model loaded successfully.")
+    # except FileNotFoundError:
+    #     print("No existing model found. Creating a new one.")
         
-    
+    policy_kwargs = dict(net_arch=[128, 128])
+
+    model = PPO(
+        "MlpPolicy", env, verbose=1,
+        policy_kwargs=policy_kwargs,
+        n_steps=int(2048/num_envs),  # Reduce step size for faster feedback
+        ent_coef=0.01,  
+        gamma=0.98,
+        clip_range=0.25,  # Reduced from 0.25 to prevent too large updates
+        vf_coef=0.2,  # Increased from 0.2 to stabilize critic learning
+        max_grad_norm=0.5,
+        target_kl=0.03,  # Reduced from 0.05 to prevent early stopping
+        learning_rate=1e-4,
+        gae_lambda=0.98,
+        
+    )
+                
     # # Load existing model or create new
     # try:
     #     model = SAC.load(model_path, env=env)
@@ -312,7 +317,8 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=1000000, callback=TrainingStatusCallback(check_freq=5000, save_path=model_path))
+    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    
     model.save(model_path)
     print(f"Training took {time.time() - then} seconds.")
     
