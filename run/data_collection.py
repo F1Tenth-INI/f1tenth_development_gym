@@ -134,7 +134,7 @@ for reverse_direction, global_waypoint_velocity_factor, global_surface_friction,
     print("global_waypoint_velocity_factor:", global_waypoint_velocity_factor)
 
     # Set the global surface friction.
-    Settings.SURFACE_FRICITON = global_surface_friction
+    Settings.SURFACE_FRICTION = global_surface_friction
     print("global_surface_friction:", global_surface_friction)
 
     # For friction for controller, use the provided value if available.

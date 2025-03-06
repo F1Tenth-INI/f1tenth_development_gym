@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.75  # Surface friction coefficient
+    SURFACE_FRICTION = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -156,7 +156,7 @@ class Settings():
     ## Forged history settings 
     FORGE_HISTORY = False # Forge history of friction values
     SAVE_STATE_METRICS = False # Save state metrics for analysis
-    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICTION
 
     
     ### Other Settings ###
