@@ -37,8 +37,7 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
-    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0

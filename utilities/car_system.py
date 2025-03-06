@@ -1,19 +1,18 @@
 import time
 import yaml
-import gym
 import numpy as np
 from argparse import Namespace
 from tqdm import trange
-from utilities.Settings import Settings
-from utilities.Recorder import Recorder, get_basic_data_dict
-from utilities.imu_simulator import IMUSimulator
-import pandas as pd
+from typing import Optional
+
+
                 
 import os
 
-from f110_gym.envs.dynamic_models import pid
 
 # Utilities
+from utilities.Settings import Settings
+
 from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
@@ -21,6 +20,13 @@ from utilities.lidar_utils import LidarHelper
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
+
+from utilities.imu_simulator import IMUSimulator
+from utilities.Recorder import Recorder, get_basic_data_dict
+from utilities.csv_logger import augment_csv_header_with_laptime
+from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
+
+
 # from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
 # from SI_Toolkit.computation_library import TensorFlowLibrary
 
@@ -32,9 +38,6 @@ from utilities.LapAnalyzer import LapAnalyzer
 
 if Settings.FORGE_HISTORY: # will import TF
     from utilities.HistoryForger import HistoryForger
-
-if Settings.SAVE_STATE_METRICS: # will import TF
-    from utilities.StateMetricCalculator import StateMetricCalculator
 
 class CarSystem:
     
@@ -51,6 +54,7 @@ class CarSystem:
         self.LIDAR = LidarHelper()
         self.imu_simulator = IMUSimulator()
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
+        self.laptimes = []
 
         self.angular_control = 0
         self.translational_control = 0
@@ -125,7 +129,7 @@ class CarSystem:
 
         self.savse_recording = save_recording
 
-        self.recorder = None
+        self.recorder: Optional[Recorder] = None
         if save_recording:
             self.recorder = Recorder(driver=self)
 
@@ -148,6 +152,7 @@ class CarSystem:
             self.history_forger = HistoryForger()
 
         if Settings.SAVE_STATE_METRICS and self.recorder is not None:
+            from utilities.StateMetricCalculator import StateMetricCalculator
             self.state_metric_calculator = StateMetricCalculator(
                 environment_name="Car",
                 initial_environment_attributes={
@@ -161,16 +166,7 @@ class CarSystem:
 
             if Settings.CONTROLLER == 'mpc':
                     self.predictor = self.planner.mpc.predictor
-            # else:
-            #     self.predictor = PredictorWrapper()
-            #     self.predictor.configure(
-            #         batch_size=1,
-            #         horizon=1,
-            #         dt=Settings.TIMESTEP_CONTROL,
-            #         computation_library=TensorFlowLibrary,
-            #         predictor_specification="neural_parameter_determination"
-            #     )
-
+                    
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
     def launch_tuner_connector(self):
@@ -190,7 +186,6 @@ class CarSystem:
         self.render_utils.render(e)
 
     def process_observation(self, ranges=None, ego_odom=None):
-        
         
         if Settings.LIDAR_PLOT_SCANS:
             self.LIDAR.plot_lidar_data()
@@ -224,7 +219,6 @@ class CarSystem:
                 car_state[STEERING_ANGLE_IDX]
             )
             self.waypoint_utils.next_waypoints[:, WP_VX_IDX] = corrected_next_waypoints_vx
-            self.waypoint_utils.use_alternative_waypoints_for_control_flag = use_alternative_waypoints_for_control_flag
 
         obstacles = self.obstacle_detector.get_obstacles(ranges, car_state)
 
@@ -355,6 +349,7 @@ class CarSystem:
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
             self.recorder.dict_data_to_save_basic.update(basic_dict)
+            self.recorder.step()
         
         self.control_index += 1
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
@@ -386,7 +381,25 @@ class CarSystem:
         # self.render_utils.update_obstacles(obstacles)
 
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
+        self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
+
+     
+    '''
+    Called on the end of the simulation before terminating the program
+    '''   
+    def on_simulation_end(self, collision=False):
+        if self.recorder is not None:
+            if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
+                self.recorder.finish_csv_recording()            
+            augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
+
+            path_to_plots = None
+            if Settings.SAVE_PLOTS:
+                path_to_plots = save_experiment_data(self.recorder.csv_filepath)
+
+            if collision:
+                move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
 
 
 def initialize_planner(controller: str):

@@ -48,7 +48,6 @@ class RacingSimulation:
 
         self.agent_controls_calculated = []
         self.control_delay_buffer = []
-        self.laptime = 0.0
 
         self.env = None
         self.laptime = 0.0
@@ -176,7 +175,7 @@ class RacingSimulation:
 
         self.env.close()
 
-        self.handle_recording_end()
+        self.on_simulation_end(collision=False)
 
         print('Sim elapsed time:', self.laptime, 'Real elapsed time:', time.time()-self.start_time)
         print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(self.obs['lap_times']), 's')
@@ -197,9 +196,8 @@ class RacingSimulation:
         self.sim_index += 1
 
         
-        self.check_and_handle_collisions()
-        self.handle_recording_step()
         self.render_env()
+        self.check_and_handle_collisions()
         
 
         # End of controller time step
@@ -369,44 +367,23 @@ class RacingSimulation:
         control_with_noise = control + noise_array
         return control_with_noise
 
-    '''
-    Recorder function that is called at every step
-    '''
-    def handle_recording_step(self):
-        if Settings.SAVE_RECORDINGS and self.sim_index % Settings.SAVE_REVORDING_EVERY_NTH_STEP == 0:
-                for index, driver in enumerate(self.drivers):
-                    if driver.save_recordings:
-                        driver.recorder.step()
-
-    '''
-    Recorder function that is called at the end of experiment
-    '''
-    def handle_recording_end(self):
-        if Settings.SAVE_RECORDINGS:
-            for index, driver in enumerate(self.drivers):
-                if driver.save_recordings:
-                    if driver.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
-                        augment_csv_header_with_laptime(self.laptime, self.obs, Settings, driver.recorder.csv_filepath)
-                    driver.recorder.finish_csv_recording()
-                    if Settings.SAVE_PLOTS:
-                        save_experiment_data(driver.recorder.csv_filepath)
-
 
     def check_and_handle_collisions(self):
         # Collision ends simulation
         if Settings.CRASH_DETECTION:
             if self.obs['collisions'][0] == 1:
-                for index, driver in enumerate(self.drivers):
-                    if Settings.SAVE_RECORDINGS and driver.save_recordings:
-                        driver.recorder.finish_csv_recording()
-                        if Settings.SAVE_PLOTS:
-                            path_to_plots = save_experiment_data(driver.recorder.csv_filepath)
-                        else:
-                            path_to_plots = None
-                        move_csv_to_crash_folder(driver.recorder.csv_filepath, path_to_plots)
+                self.on_simulation_end(collision=True)
                 if not Settings.OPTIMIZE_FOR_RL:
                     raise CarCrashException('car crashed')
+                
+    '''
+    Called at the end of experiment
+    '''
+    def on_simulation_end(self, collision=False):
+        for driver in self.drivers:
+            driver.on_simulation_end(collision=collision)
 
+    
    
 
 if __name__ == '__main__':
