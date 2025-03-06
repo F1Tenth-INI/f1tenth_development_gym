@@ -357,7 +357,7 @@ class EnvRenderer(pyglet.window.Window):
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
         poses_theta = obs['poses_theta']
-        # estimate_friction = Settings.SURFACE_FRICITON
+        # estimate_friction = Settings.SURFACE_FRICTION
         
         num_agents = len(poses_x)
         if self.poses is None:

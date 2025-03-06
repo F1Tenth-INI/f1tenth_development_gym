@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICITON = 0.75  # Surface friction coefficient
+    SURFACE_FRICTION = 0.75  # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -38,7 +38,6 @@ class Settings():
     REPLAY_RECORDING = False
 
     SAVE_RECORDINGS = True
-    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -157,7 +156,7 @@ class Settings():
     ## Forged history settings 
     FORGE_HISTORY = False # Forge history of friction values
     SAVE_STATE_METRICS = False # Save state metrics for analysis
-    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICITON
+    FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICTION
 
     
     ### Other Settings ###
@@ -169,7 +168,7 @@ class Settings():
     
     if(OPTIMIZE_FOR_RL):
         
-        SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
+        # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         CONTROLLER = None # No controller needed
         DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
