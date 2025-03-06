@@ -396,7 +396,7 @@ class WaypointUtils:
     @staticmethod
     def get_relative_positions(waypoints, car_state):
         return get_relative_positions_jit(waypoints, car_state)
-    
+
 # Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
 def jit_update_next_waypoints(

@@ -7,18 +7,21 @@ import sys
 import time
 import pandas as pd
 
-
+random.seed(42)
 
 # This file automatically distributes the data into the SI_Toolkit_ASK experiment recordings folder
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
 
-# Change to desired directory in Experiment
-root_dir = "./SI_Toolkit_ASF/Experiments"
-experiment_dir = "/Big2_noise"
-
 # Input folder with CSV files
-input_folder = "./ExperimentRecordings/Euler_RCA1_slip_little_noise"
-past_recordings = root_dir + experiment_dir + "/Past_trainings"
+input_folder = "../ExperimentRecordings/Experiments_03_03_2025"
+
+# Change to desired directory in Experiment
+root_dir = "../SI_Toolkit_ASF/Experiments"
+experiment_dir = "MyTest"
+
+past_recordings = os.path.join(root_dir, experiment_dir, "Past_trainings")
+
+REMOVE_FILES_FROM_ORIGINAL_LOCATION = True
 
 
 # Fortschrittszeilenfunktion
@@ -61,11 +64,12 @@ def csv_comprimisation(folder_path, save_folder):
             print_progress_bar(i + 1, total_files, prefix='Compressing CSVs:', suffix='Complete', length=50)
 
     # Delete all generated CSV files
-    for root, _, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith(".csv"):
-                file_path = os.path.join(root, file)
-                os.remove(file_path)
+    if REMOVE_FILES_FROM_ORIGINAL_LOCATION:
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                if file.endswith(".csv"):
+                    file_path = os.path.join(root, file)
+                    os.remove(file_path)
 
     print(f"CSV files have been compressed to {zip_filename}.")
     
@@ -109,11 +113,11 @@ validate_distribution = 0.1
 create_directory(past_recordings)
 
 # Output folders for distribution
-output_folder_train = root_dir + experiment_dir + "/Recordings/Train"
+output_folder_train = os.path.join(root_dir, experiment_dir, "Recordings/Train")
 create_directory(output_folder_train)
-output_folder_test = root_dir + experiment_dir + "/Recordings/Test"
+output_folder_test = os.path.join(root_dir, experiment_dir, "Recordings/Test")
 create_directory(output_folder_test)
-output_folder_validate = root_dir + experiment_dir + "/Recordings/Validate"
+output_folder_validate = os.path.join(root_dir, experiment_dir, "Recordings/Validate")
 create_directory(output_folder_validate)
 
 # Compressing older csvs and metadata

@@ -38,7 +38,7 @@ class Settings():
     REPLAY_RECORDING = False
 
     SAVE_RECORDINGS = False
-    SAVE_REVORDING_EVERY_NTH_STEP = 500 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
+    SAVE_REVORDING_EVERY_NTH_STEP = 2 # Save recording file also during the simulation (slow down, every Nth step, None for no saving during sim)
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     
     RECORDING_INDEX = 0
@@ -66,7 +66,8 @@ class Settings():
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     CRASH_DETECTION = True
-    REPEAT_IF_CRASHED = False
+    REPEAT_IF_CRASHED = True
+    MAX_CRASH_REPETITIONS = 5
 
 
     # Experiment Settings

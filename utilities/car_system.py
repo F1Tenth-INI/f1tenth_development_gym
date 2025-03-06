@@ -147,7 +147,7 @@ class CarSystem:
         if Settings.FORGE_HISTORY:
             self.history_forger = HistoryForger()
 
-        if self.recorder is not None:
+        if Settings.SAVE_STATE_METRICS and self.recorder is not None:
             self.state_metric_calculator = StateMetricCalculator(
                 environment_name="Car",
                 initial_environment_attributes={

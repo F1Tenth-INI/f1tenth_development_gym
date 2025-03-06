@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --array=0-377           # 0-len(feature_A)xlen(feature_B)xnum_repetitions - 1
+#SBATCH --array=1-756            # Create an array job with task IDs 1-756
+#SBATCH --mem-per-cpu=2G         # Request memory per CPU
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
-#SBATCH --mem-per-cpu=3G        # Request memory per CPU
 #SBATCH --time=2:00:00           # Set the maximum job time
 #SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
 
@@ -11,9 +11,9 @@ mkdir -p ./scripts/EulerCluster/out/
 source $HOME/miniconda3/bin/activate
 conda activate f1t
 
-export PYTHONPATH=$HOME/f1tenth_development_gym:$PYTHONPATH
+export PYTHONPATH=/cluster/home/paluchm/f1tenth_development_gym/
 cd $HOME/f1tenth_development_gym/
 
-# Run the Python script with the speed factor
-python run/data_collection.py -i $SLURM_ARRAY_TASK_ID
+# Run the Python script with the specific index
+python ./SI_Toolkit_ASF/run/PreprocessData_Add_Control_Along_Trajectories.py -i $SLURM_ARRAY_TASK_ID
 
