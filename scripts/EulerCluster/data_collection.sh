@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --array=0-377           # 0-len(feature_A)xlen(feature_B)xnum_repetitions - 1
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
-#SBATCH --mem-per-cpu=3G        # Request memory per CPU
+#SBATCH --mem-per-cpu=2G        # Request memory per CPU
 #SBATCH --time=2:00:00           # Set the maximum job time
 #SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
 
