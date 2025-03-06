@@ -1,10 +1,10 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "Dense-64H1-64H2-64H3"
+  NET_NAME: "GRU-64H1-64H2"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Euler_realistic/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -16,15 +16,14 @@ training_default:
   state_inputs: []
 
   control_inputs: [
-      "WYPT_REL_X(25)",
-      "WYPT_REL_Y(25)",
-      "WYPT_VX(25)",
+      "WYPT_REL_X(30)",
+      "WYPT_REL_Y(30)",
+      "WYPT_VX(30)",
       "angular_vel_z",
       "linear_vel_x",
       "steering_angle",
-      # "linear_vel_y",
-      # 'slip_angle',
-      # "steering_angle",
+      "linear_vel_y",
+
     ]
 
   
@@ -36,7 +35,7 @@ training_default:
   outputs:
     ["angular_control_calculated", "translational_control_calculated"]
 
-  EPOCHS: 10
+  EPOCHS: 5
   BATCH_SIZE: 16
   SEED: 1873
   LR:
@@ -49,8 +48,8 @@ training_default:
     MIN_DELTA: 0.00
   VALIDATE_ALSO_ON_TRAINING_SET: False
 
-  WASH_OUT_LEN: 1
-  POST_WASH_OUT_LEN: 1
+  WASH_OUT_LEN: 10
+  POST_WASH_OUT_LEN: 40
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
   SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
