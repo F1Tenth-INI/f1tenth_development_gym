@@ -12,7 +12,7 @@ from itertools import product  # Enables Cartesian product iteration over multip
 started = datetime.datetime.now()
 print(f"Started at: {started}")
 
-Settings.DATASET_NAME = "Experiments_03_03_2025"
+Settings.DATASET_NAME = "Experiments_03_03_2025_noiseless"
 Settings.RECORDING_INDEX = euler_index
 
 
@@ -134,7 +134,7 @@ for reverse_direction, global_waypoint_velocity_factor, global_surface_friction,
     print("global_waypoint_velocity_factor:", global_waypoint_velocity_factor)
 
     # Set the global surface friction.
-    Settings.SURFACE_FRICTION = global_surface_friction
+    Settings.SURFACE_FRICITON = global_surface_friction
     print("global_surface_friction:", global_surface_friction)
 
     # For friction for controller, use the provided value if available.
