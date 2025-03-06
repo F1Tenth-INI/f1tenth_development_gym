@@ -152,6 +152,7 @@ class RacingSimulation:
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'nearest_wpt_idx': lambda: main_driver.waypoint_utils.nearest_waypoint_index,
+                    'mu': lambda: self.vehicle_parameters_instance.mu,
                 }
             )
             main_driver.recorder.start_csv_recording()
