@@ -8,11 +8,12 @@ import zipfile
 import subprocess 
 from utilities.EncodeDecodeEulerFlag import euler_index, decode_flag
 from itertools import product  # Enables Cartesian product iteration over multiple parameter lists
+import numpy as np
 
 started = datetime.datetime.now()
 print(f"Started at: {started}")
 
-Settings.DATASET_NAME = "Experiments_03_03_2025_noiseless"
+Settings.DATASET_NAME = "Experiments_03_03_2025"
 Settings.RECORDING_INDEX = euler_index
 
 
@@ -72,13 +73,16 @@ global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 # Settings.RENDER_MODE = "human_fast"
 
 
-feature_A = global_waypoint_velocity_factors
-feature_B = global_surface_friction_values
+# feature_A = global_waypoint_velocity_factors
+# feature_B = global_surface_friction_values
 
-index_A, index_B, index_C = decode_flag(euler_index, len(feature_A), len(feature_B))
+# index_A, index_B, index_C = decode_flag(euler_index, len(feature_A), len(feature_B))
 
-global_waypoint_velocity_factors = [global_waypoint_velocity_factors[index_A]]
-global_surface_friction_values = [global_surface_friction_values[index_B]]
+# global_waypoint_velocity_factors = [global_waypoint_velocity_factors[index_A]]
+# global_surface_friction_values = [global_surface_friction_values[index_B]]
+
+global_waypoint_velocity_factors = [float(np.random.uniform(0.5, 1.1, 1))]
+global_surface_friction_values = [float(np.random.uniform(0.3, 1.1, 1))]
     
 
 # Save this file to the recordings for perfect reconstruction
