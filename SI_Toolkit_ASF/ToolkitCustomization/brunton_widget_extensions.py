@@ -6,6 +6,8 @@ All changes are done for GUI only, no changes to underlying dataset.
 """
 
 import numpy as np
+def calculete_additional_metrics(ground_truth, predictions_list):
+    return ground_truth, predictions_list
 
 
 def get_feature_label(feature):

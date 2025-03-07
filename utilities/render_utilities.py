@@ -2,7 +2,7 @@ from utilities.Settings import Settings
 import numpy as np
 from utilities.state_utilities import *
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import numbers
 
 # Imports depending on ROS/Gym
@@ -106,12 +106,12 @@ class RenderUtils:
         self.obstacle_vertices = None
         self.emergency_slowdown_lines = []
 
-        self.waypoints = None
-        self.waypoints_alternative = None
-        self.next_waypoints = None
-        self.next_waypoints_alternative = None
-        self.lidar_border_points = None
-        self.rollout_trajectory = None
+        self.waypoints: Optional[np.ndarray] = None
+        self.waypoints_alternative: Optional[np.ndarray] = None
+        self.next_waypoints: Optional[np.ndarray] = None
+        self.next_waypoints_alternative: Optional[np.ndarray] = None
+        self.lidar_border_points: Optional[np.ndarray] = None
+        self.rollout_trajectory: Optional[np.ndarray] = None
         self.traj_cost =None
         self.optimal_trajectory = None
         self.largest_gap_middle_point = None

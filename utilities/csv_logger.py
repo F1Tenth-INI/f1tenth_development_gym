@@ -74,7 +74,7 @@ def create_csv_file_name(Settings, csv_name=None):
         dataset_name = Settings.MAP_NAME + '_' + controller_name + '_' + str(
             int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
-            Settings.SURFACE_FRICITON) + '_mu_control_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
+            Settings.SURFACE_FRICTION) + '_mu_control_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
         timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + str(Settings.RECORDING_INDEX) + '_' + dataset_name + '.csv'
     else:
@@ -117,7 +117,6 @@ def create_csv_header(Settings, controller_name, dt):
 
     return header
 
-
 def augment_csv_header(s: str, p: str, i: int = 0, after_header: bool = False):
     """
     Inserts the string `s` at the specified position in the CSV file at path `p`.
@@ -136,44 +135,37 @@ def augment_csv_header(s: str, p: str, i: int = 0, after_header: bool = False):
 
     # Read the contents of the file
     with open(p, mode='r', newline='') as file:
-        reader = csv.reader(file)
-        lines = list(reader)
+        lines = file.readlines()
 
     # Determine the correct insertion point
     if after_header:
         # Find the last header line (lines starting with "#  ")
-        last_header_index = max(i for i, line in enumerate(lines) if line and line[0].startswith('#  '))
+        last_header_index = max(i for i, line in enumerate(lines) if line.startswith('# '))
         i = last_header_index
 
     # If i is larger than the available lines, append at the end
     if i >= len(lines):
-        lines.append([s])
+        lines.append(s + '\n')
     else:
         # Insert the string after line `i`
-        lines.insert(i, [s])
+        lines.insert(i + 1, s + '\n')
 
     # Write the updated contents back to the file
     with open(p, mode='w', newline='') as outfile:
-        writer = csv.writer(outfile)
-        writer.writerows(lines)
-
-
-def augment_csv_header_with_laptime(laptime, obs, settings, csv_filepath):
+        outfile.writelines(lines)
+        
+def augment_csv_header_with_laptime(laptimes, csv_filepath):
     """
-
     Args:
-        laptime:
-        obs:
-        settings:
+        laptimes: Array of lap times
+        csv_filepath: Path to the CSV file
 
     Returns: String to be used as part of csv header.
-
     """
-    # Adding Laptime to the recordings
-    if laptime - 3 * settings.TIMESTEP_CONTROL <= obs['lap_times'][0]:  # FIXME: @Nigalsan, why is there 3 here?
-        lap_time_string = str(round(laptime, 3)) + ' s (uncompleted)'
-    else:
-        lap_time_string = str(round(obs['lap_times'][0], 3)) + ' s'
-    lap_time_string = str(settings.STOP_TIMER_AFTER_N_LAPS) + '-laptime: ' + lap_time_string
 
+    # Convert lap_times array to string in the format [1, 2, ...]
+    lap_times_str = "[" + ", ".join([str(round(time, 3)) for time in laptimes]) + "]"
+    
+    lap_time_string = f"Lap times: {lap_times_str}"
+    
     augment_csv_header(lap_time_string, csv_filepath, i=6)

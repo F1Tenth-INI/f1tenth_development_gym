@@ -84,7 +84,7 @@ class NNLitePlanner(template_planner):
             record_dict = {
                 'predicted_friction': predicted_friction,
                 'average_friction': average_friction,
-                'true_friction': Settings.SURFACE_FRICITON,
+                'true_friction': Settings.SURFACE_FRICTION,
             }
             self.render_utils.set_label_dict(record_dict)
             self.mu_predicted=predicted_friction

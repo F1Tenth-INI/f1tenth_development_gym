@@ -12,7 +12,7 @@ from itertools import product  # Enables Cartesian product iteration over multip
 started = datetime.datetime.now()
 print(f"Started at: {started}")
 
-Settings.DATASET_NAME = "Experiments_03_03_2025"
+Settings.DATASET_NAME = "Experiments_03_03_2025_noiseless"
 Settings.RECORDING_INDEX = euler_index
 
 

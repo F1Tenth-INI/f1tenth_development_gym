@@ -1,4 +1,4 @@
-predictors_specifications_testing: ['./SI_Toolkit_ASF/Experiments/MPPI-Imitator/Models/Dense-89IN-64H1-64H2-2OUT-0'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
+predictors_specifications_testing: ['S:./SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/Models/LSTM-94IN-64H1-64H2-64H3-2OUT-1'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -8,9 +8,9 @@ predictors_specifications_testing: ['./SI_Toolkit_ASF/Experiments/MPPI-Imitator/
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: 'F1TENTH_Blank-MPPI-1__2023-10-19_18-36-05.csv'
+test_file: '2025-03-06_19-05-07_Experiments_03_03_2025_noiseless_31_RCA1_mpc_50Hz_vel_0.9587470169980914_noise_c[0.1, 0.1]_mu_0.35847586018134053_mu_control_0.35847586018134053__096.csv'
 
-path_to_testfile: './SI_Toolkit_ASF/Experiments/MPPI-Imitator/Recordings/Test/'
+path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/Recordings/Test/'
 
 test_len: 'max'
 test_max_horizon: 50  # Indicates prediction horizon for testing
