@@ -177,7 +177,7 @@ class ExperimentAnalyzer:
             plt.colorbar(sc, label='Mu error')
             plt.xlabel('X Position')
             plt.ylabel('Y Position')
-            plt.title(f'Car Position with Mu Predicted ({Settings.SURFACE_FRICITON})')
+            plt.title(f'Car Position with Mu Predicted ({Settings.SURFACE_FRICTION})')
             plt.legend()
             plt.savefig(os.path.join(self.experiment_data_path, "mu_predicted.png" ))
         except Exception as e:

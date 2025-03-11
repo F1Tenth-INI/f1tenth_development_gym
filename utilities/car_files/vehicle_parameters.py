@@ -61,8 +61,8 @@ class VehicleParameters:
             setattr(self, class_variable_name, params[class_variable_name])
         
         # Overwrite Sufrace friction
-        if Settings.SURFACE_FRICITON is not None:
-            self.mu = Settings.SURFACE_FRICITON
+        if Settings.SURFACE_FRICTION is not None:
+            self.mu = Settings.SURFACE_FRICTION
 
 
     def to_np_array(self):
