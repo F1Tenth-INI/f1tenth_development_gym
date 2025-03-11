@@ -9,12 +9,15 @@ from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 import time
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from utilities.Settings import Settings
-
-
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 from TrainingLite.ppo_racing.TrainingCallback import TrainingStatusCallback
+
+from stable_baselines3.common.vec_env import VecMonitor
 
 
 model_dir = "ppo_models"
@@ -67,8 +70,11 @@ class RacingEnv(gym.Env):
             self.simulation = RacingSimulation()
             self.simulation.prepare_simulation()
         
+        self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
-        self.last_progress = 0.0
+        # Make sure env and self.simulation resets propperly
+    
+        # Check for open source race environment        
         return self.get_observation(), {}
 
     def step(self, action):
@@ -256,11 +262,16 @@ if __name__ == "__main__":
         
     else: # Parallel environments 
         # fast (cumputationally heavy)
-        Settings.RENDER_MODE = None
-        num_envs = 4
+        # Settings.RENDER_MODE = 'human'
+        num_envs = 24
         
-        # env = SubprocVecEnv([make_env() for _ in range(num_envs)])
-        env = DummyVecEnv([make_env() for _ in range(num_envs)])
+        env = SubprocVecEnv([make_env() for _ in range(num_envs)])
+        # env = DummyVecEnv([make_env() for _ in range(num_envs)])
+        
+        env = VecMonitor(env, 'logs/')
+        
+        # Vec monitor: use for monitorign
+        
         
         env.reset()
 
@@ -289,27 +300,7 @@ if __name__ == "__main__":
         gae_lambda=0.98,
         
     )
-                
-    # # Load existing model or create new
-    # try:
-    #     model = SAC.load(model_path, env=env)
-    #     print("SAC Model loaded successfully.")
-    # except FileNotFoundError:
-    #     print("No existing SAC model found. Creating a new one.")
-    # policy_kwargs = dict(
-    #     net_arch=[128, 128],
-    # )
-    # model = SAC("MlpPolicy", env, verbose=1,
-    #             policy_kwargs=policy_kwargs,
-    #             buffer_size=1000000,
-    #             batch_size=256,
-    #             ent_coef="auto",
-    #             gamma=0.98,
-    #             learning_rate=3e-4,
-    #             train_freq=1,
-    #             gradient_steps=1)
-            
-        
+    
 
     # Save the current Python file under the model name
     import shutil

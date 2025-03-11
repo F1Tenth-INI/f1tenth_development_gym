@@ -12,6 +12,9 @@ class TrainingStatusCallback(BaseCallback):
         self.save_path = save_path
         self.start_time = time.time()
         self.save_freq = 50000
+        
+    # Add another callback: Save environment:
+    # Reset, do a rollout, reset again
 
     def _on_step(self) -> bool:
         if self.n_calls % self.check_freq == 0:

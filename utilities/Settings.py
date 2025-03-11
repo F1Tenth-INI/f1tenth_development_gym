@@ -7,7 +7,7 @@ class Settings():
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "Milan1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -26,7 +26,7 @@ class Settings():
     ZERO_ANGLE_OFFSET = 0.00  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
+    START_FROM_RANDOM_POSITION = True # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
@@ -164,16 +164,16 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
-    OPTIMIZE_FOR_RL = False # Optimize for RL training
+    OPTIMIZE_FOR_RL = True # Optimize for RL training
     
     if(OPTIMIZE_FOR_RL):
         
-        # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
+        SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         CONTROLLER = None # No controller needed
         DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
         SAVE_RECORDINGS = False # Performance
-        EXPERIMENT_LENGTH = 1000000 # dont stop experiment
+        EXPERIMENT_LENGTH = 10000 # dont stop experiment
         
         RENDER_MODE = None
 

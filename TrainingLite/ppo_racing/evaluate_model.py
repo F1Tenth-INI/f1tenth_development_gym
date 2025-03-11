@@ -6,6 +6,9 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from TrainingLite.ppo_racing.train_model import make_env
 import argparse
 
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
 def evaluate_model(recording_name_extension=""):
     experiment_name = "ppo_overnight_running"
     # Settings.RENDER_MODE = 'human'
