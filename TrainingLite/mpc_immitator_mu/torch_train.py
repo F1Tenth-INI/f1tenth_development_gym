@@ -17,14 +17,17 @@ sys.path.append(current_dir)
 from TrainingHelper import TrainingHelper
 from TorchNetworks import LSTM as Network
 
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(parent_dir)
+from utilities.lidar_utils import *
+from utilities.state_utilities import *
+
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "LSTM11_medium"
-dataset_name = "Euler_realistic"
-seq_length = 1
-washout_steps = 0
-number_of_epochs = 3
+model_name = "2025-03-10_mu075-2"
+dataset_name = "2025-03-10-delay"
+number_of_epochs = 30
 batch_size = 16
 save_historgrams = False
 
@@ -40,6 +43,7 @@ training_helper = TrainingHelper(experiment_path, model_name, dataset_name)
 training_helper.create_and_clear_model_folder(model_dir)
 training_helper.save_training_scripts(os.path.realpath(__file__))
 
+lidar_utils = LidarHelper()
 
 df, file_change_indices = training_helper.load_dataset(reduce_size_by=5)
 
@@ -50,18 +54,21 @@ df = df.dropna()
 # Define input and output columns
 # state_cols = ["angular_vel_z", "linear_vel_x", "steering_angle", "imu_dd_x", "imu_dd_y", "imu_dd_yaw"]
 # state_cols = ["angular_vel_z", "linear_vel_x", "prev_angular_control_calculated", "prev_translational_control_calculated"]
-state_cols = ["angular_vel_z", "linear_vel_x", "steering_angle"]
+# state_cols = [ "linear_vel_x"]
+state_cols = ["angular_vel_z", "linear_vel_x", "linear_vel_y", "steering_angle"]
+lidar_cols = lidar_utils.get_processed_ranges_names()
 
-wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 25)]
-wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 25)]
-wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 25)]
-input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols
+
+wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 30)]
+wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 30)]
+wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 30)]
+input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols + lidar_cols
 output_cols = ["angular_control_calculated", "translational_control_calculated"]
 
 
 # Shift output to counteract delay
-for col in ["angular_control_calculated", "translational_control_calculated"]:
-    df[col] = df[col].shift(-4)
+# for col in ["angular_control_calculated", "translational_control_calculated"]:
+#     df[col] = df[col].shift(-4)
 
 df = df.dropna()
 
@@ -76,30 +83,19 @@ y = df[output_cols].to_numpy()
 
 X, y = training_helper.fit_trainsform_save_scalers(X, y)
 
-# Split the data
-X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-features = X_train.shape[1]  # Number of input features
-
-
-# Prepare dataset for torch
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val, dtype=torch.float32)
-
-train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
 losses = []
 
 input_size = len(input_cols)
 output_size = len(output_cols)
-hidden_size = 64
+hidden_size = 128
 num_layers = 3
+
+batch_size = 64
+window_size = 100
+step_size = 10
+washout_period = 20  # First 20 timesteps ignored for loss
 
 # Initialize the model
 model = Network(input_size, hidden_size, output_size, num_layers)
@@ -112,9 +108,27 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
 
 # Cut training data such that it is divisible by batch size (all batches have the same size)
-num_batches = len(X_train) // batch_size
-X_train = X_train[:num_batches * batch_size]
-y_train = y_train[:num_batches * batch_size]
+# num_batches = len(X_train) // batch_size
+# X_train = X_train[:num_batches * batch_size]
+# y_train = y_train[:num_batches * batch_size]
+
+
+
+X, y, new_file_change_indices = training_helper.shuffle_dataset_by_chunks(X, y, batch_size, window_size, step_size)
+
+
+# Split the data
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+# Dataset and DataLoader
+X_train = torch.tensor(X_train, dtype=torch.float32)
+y_train = torch.tensor(y_train, dtype=torch.float32)
+
+dataset = TensorDataset(X_train, y_train)
+data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+
 
 # Training loop
 train_losses = []
@@ -122,91 +136,40 @@ val_losses = []
 
 print(f"Training {model_name} started.")
 
-# Epoch loop
+
+
+
+
+# Training loop
+model.train()
 for epoch in range(number_of_epochs):
-    model.train()
-    hidden = model.reset_hidden_state(batch_size)  # Initialize hidden state once per epoch
+    epoch_loss = 0.0
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    data_iter = iter(data_loader)  # initialize once per epoch
+    for batch_idx in trange(len(data_loader), desc=f'Epoch {epoch+1}/{number_of_epochs}'):
+        batch_x, batch_y = next(data_iter)
+        hidden = model.reset_hidden_state(batch_x.size(0))
+        optimizer.zero_grad()
+        output, hidden = model(batch_x, hidden)
 
-    if shuffle_data:
-        X_train, y_train, file_change_indices = training_helper.shuffle_dataset_by_files(X_train, y_train, file_change_indices)
+        # Apply washout: ignore initial timesteps
+        output_washed = output[:, washout_period:, :]
+        target_washed = batch_y[:, washout_period:, :]
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
+        loss = criterion(output_washed, target_washed)
+        loss.backward()
+        optimizer.step()
 
-    epoch_train_loss = 0.0
-    num_batches = 0
+        epoch_loss += loss.item()
 
-    # Batch loop
-    with trange(0, len(X_train), batch_size, desc=f"Epoch {epoch+1}/{number_of_epochs}") as progress_bar_loop:
-        for i in progress_bar_loop:
-            # Select batch from training data
-            X_batch = X_train_tensor[i:i+batch_size]
-            y_batch = y_train_tensor[i:i+batch_size]
+    avg_loss = epoch_loss / len(data_loader)
+    print(f'Epoch [{epoch + 1}/{number_of_epochs}], Loss: {avg_loss:.6f}')
 
-            # Add sequence dimension (not used -> 1)
-            X_batch = X_batch.unsqueeze(1)
-
-            # Send to device
-            X_batch = X_batch.to(model.fc.weight.device)
-            y_batch = y_batch.to(model.fc.weight.device)
-
-            # Check if batch overlaps file borders and reset internal state
-            for value in file_change_indices:
-                if i <= value <= i+batch_size:
-                    hidden = model.reset_hidden_state(X_batch.size(0))
-                    break  # discard batches that overlap file borders
-
-            optimizer.zero_grad()  # clear existing gradients from previous epoch
-
-            outputs, hidden = model(X_batch, hidden)  # Pass the hidden state from the previous batch
-            loss = criterion(outputs, y_batch)
-
-            loss.backward()  # compute new gradients of current batch
-            optimizer.step()
-            hidden = (hidden[0].detach(), hidden[1].detach())
-
-            # Accumulate training loss
-            epoch_train_loss += loss.item()
-            num_batches += 1
-
-            # print losses during training
-            progress_bar_loop.set_postfix(loss=f"{loss.item():.5f}")
-
-    # Average training loss for the epoch
-    epoch_train_loss /= num_batches
-    train_losses.append(epoch_train_loss)
-
-    # Validation step
-    model.eval()
-    val_loss = 0.0
-    hidden_val = model.reset_hidden_state(batch_size)  # Initialize hidden state for validation
-    with torch.no_grad():
-        for i in range(0, len(X_val), batch_size):
-            X_batch_val = torch.tensor(X_val[i:i+batch_size], dtype=torch.float32).unsqueeze(1).to(model.fc.weight.device)
-            y_batch_val = torch.tensor(y_val[i:i+batch_size], dtype=torch.float32).to(model.fc.weight.device)
-
-            # Adjust hidden state size for validation batch size
-            hidden_val = model.reset_hidden_state(X_batch_val.size(0))
-
-            val_outputs, hidden_val = model(X_batch_val, hidden_val)
-            val_loss += criterion(val_outputs, y_batch_val).item()
-
-            hidden_val = (hidden_val[0].detach(), hidden_val[1].detach())
-
-    val_loss /= len(X_val) / batch_size
-    val_losses.append(val_loss)
-    print(f"Epoch [{epoch+1}/{number_of_epochs}], Validation Loss: {val_loss}")
-
-    # Reduce LR
-    current_lr = optimizer.param_groups[0]['lr']
-    scheduler.step(val_loss)
-    new_lr = optimizer.param_groups[0]['lr']
-    if new_lr != current_lr:
-        print(f"Learning rate changed from {current_lr} to {new_lr}")
 
     # Save the model after every epoch
     training_helper.save_torch_model(model, train_losses, val_losses) 
 
+print('Training completed.')
 
 # finally save the model
 training_helper.save_torch_model(model, train_losses, val_losses) 
