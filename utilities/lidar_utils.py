@@ -2,8 +2,6 @@ import numpy as np
 from utilities.Settings import Settings
 import platform
 from utilities.state_utilities import *
-from matplotlib import pyplot as plt
-import matplotlib
 import time  # Import time module
 from numba import jit
 
@@ -130,6 +128,9 @@ class LidarHelper:
         self.processed_points_map_coordinates = np.zeros((self.processed_number_of_scans, 2), dtype=np.float32)
 
     def plot_lidar_data(self):
+        from matplotlib import pyplot as plt
+        import matplotlib
+
         if platform.system() == 'Darwin':
             matplotlib.use('MacOSX')
         if self.processed_ranges is not None:

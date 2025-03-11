@@ -1,7 +1,5 @@
-import time
 import yaml
 import numpy as np
-from argparse import Namespace
 from tqdm import trange
 from typing import Optional
 
@@ -32,9 +30,11 @@ from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_fol
 
 # from TrainingLite.slip_prediction import predict
 
-from RaceTuner.TunerConnectorSim import TunerConnectorSim
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
+
+if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+    from RaceTuner.TunerConnectorSim import TunerConnectorSim
 
 if Settings.FORGE_HISTORY: # will import TF
     from utilities.HistoryForger import HistoryForger
