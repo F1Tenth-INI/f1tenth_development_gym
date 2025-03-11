@@ -169,7 +169,11 @@ class RacingSimulation:
         self.obs, self.step_reward, self.done, self.info = self.env.reset(poses=np.array(self.starting_positions) )
     
         # Main loop
-        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.EXPERIMENT_LENGTH
+        
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
+        experiment_length = Settings.EXPERIMENT_LENGTH * intermediate_steps
+        if Settings.REPLAY_RECORDING:
+            experiment_length = len(self.state_recording) 
         for _ in trange(experiment_length):
 
             self.simulation_step()

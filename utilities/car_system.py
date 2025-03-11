@@ -431,6 +431,7 @@ def initialize_planner(controller: str):
         from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
         planner = random_planner()
     else:
+        print(f"controller {controller} not recognized")
         NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
         exit()
 
