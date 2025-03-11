@@ -19,7 +19,7 @@ from TorchNetworks import LSTM as Network
 
 class ControlPredictor:
     def __init__(self, sequence_length=100):
-        self.model_name = "2025-03-10_mu075-2"
+        self.model_name = "2025-03-10_mu075-4"
         self.experiment_path = os.path.dirname(os.path.realpath(__file__))
 
         self.training_helper = TrainingHelper(self.experiment_path, self.model_name)

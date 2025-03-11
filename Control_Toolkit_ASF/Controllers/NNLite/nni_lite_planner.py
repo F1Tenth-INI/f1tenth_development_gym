@@ -81,7 +81,7 @@ class NNLitePlanner(template_planner):
             if len(self.predicted_frictions) > Settings.AVERAGE_WINDOW:
                 self.predicted_frictions.pop(0)
             average_friction = sum(self.predicted_frictions) / len(self.predicted_frictions)
-            
+            print("predicted_friction", predicted_friction, "average_friction", average_friction, "true_friction", Settings.SURFACE_FRICTION)
             record_dict = {
                 'predicted_friction': predicted_friction,
                 'average_friction': average_friction,
