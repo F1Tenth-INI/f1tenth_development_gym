@@ -118,8 +118,17 @@ class RacingSimulation:
     First driver is the main car, the others are opponents as defined in Settings.NUMBER_OF_OPPONENTS
     '''
     def init_drivers(self):
+        
+        # Init recording active dict with all data from the environment that should be recorded in the car system
+        recording_dict = {
+                    'lap_times': lambda: self.obs['lap_times'][0],
+                    'time': lambda: self.sim_time,
+                    'sim_index': lambda: self.sim_index,
+                    'mu': lambda: self.vehicle_parameters_instance.mu,
+        }
+         
         # First planner settings
-        driver = CarSystem(Settings.CONTROLLER)
+        driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
 
         if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             driver.launch_tuner_connector()
@@ -136,26 +145,7 @@ class RacingSimulation:
 
         self.drivers = [driver] + opponents
         self.number_of_drivers = len(self.drivers)
-
-        # Init recorder
-        main_driver = self.drivers[0]
-        if Settings.SAVE_RECORDINGS and main_driver.save_recordings:
-            if Settings.FORGE_HISTORY:
-                main_driver.recorder.dict_data_to_save_basic.update(
-                    {
-                        'forged_history_applied': lambda: main_driver.history_forger.forged_history_applied,
-                    }
-                )
-            main_driver.recorder.dict_data_to_save_basic.update(
-                {
-                    'lap_times': lambda: self.obs['lap_times'][0],
-                    'time': lambda: self.sim_time,
-                    'sim_index': lambda: self.sim_index,
-                    'nearest_wpt_idx': lambda: main_driver.waypoint_utils.nearest_waypoint_index,
-                    'mu': lambda: self.vehicle_parameters_instance.mu,
-                }
-            )
-            main_driver.recorder.start_csv_recording()
+       
 
 
         # Populate control delay buffer

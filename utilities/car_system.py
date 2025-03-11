@@ -41,7 +41,7 @@ if Settings.FORGE_HISTORY: # will import TF
 
 class CarSystem:
     
-    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS):
+    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}):
 
         self.time = 0.0
         self.time_increment = Settings.TIMESTEP_CONTROL
@@ -129,9 +129,7 @@ class CarSystem:
 
         self.savse_recording = save_recording
 
-        self.recorder: Optional[Recorder] = None
-        if save_recording:
-            self.recorder = Recorder(driver=self)
+      
 
         self.tuner_connector = None
 
@@ -147,20 +145,7 @@ class CarSystem:
             total_waypoints=len(self.waypoint_utils.waypoints),
             lap_finished_callback=self.lap_complete_cb
         )
-
-        if Settings.FORGE_HISTORY:
-            self.history_forger = HistoryForger()
-
-        if Settings.SAVE_STATE_METRICS and self.recorder is not None:
-            from utilities.StateMetricCalculator import StateMetricCalculator
-            self.state_metric_calculator = StateMetricCalculator(
-                environment_name="Car",
-                initial_environment_attributes={
-                    "next_waypoints": self.waypoint_utils.next_waypoints,
-                },
-                recorder_base_dict=self.recorder.dict_data_to_save_basic
-            )
-
+        
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
 
@@ -169,6 +154,14 @@ class CarSystem:
                     
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
+        if Settings.FORGE_HISTORY:
+            self.history_forger = HistoryForger()
+
+       
+        # Recorder
+        self.init_recorder_and_start(recorder_dict=recorder_dict)
+           
+            
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -400,6 +393,41 @@ class CarSystem:
 
             if collision:
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
+                
+    def init_recorder_and_start(self, recorder_dict={}):
+        self.recorder: Optional[Recorder] = None
+        
+        if Settings.SAVE_RECORDINGS and self.save_recordings:
+            self.recorder = Recorder(driver=self)
+            
+            # Add more internal data to recording dict:
+            self.recorder.dict_data_to_save_basic.update(
+                {   
+                    'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
+                }
+            )
+            # Add data from outside the car stysem
+            self.recorder.dict_data_to_save_basic.update(recorder_dict)
+       
+            if Settings.FORGE_HISTORY:
+                self.recorder.dict_data_to_save_basic.update(
+                    {
+                        'forged_history_applied': lambda: self.history_forger.forged_history_applied,
+                    }
+                )
+            if Settings.SAVE_STATE_METRICS:
+                from utilities.StateMetricCalculator import StateMetricCalculator
+                self.state_metric_calculator = StateMetricCalculator(
+                    environment_name="Car",
+                    initial_environment_attributes={
+                        "next_waypoints": self.waypoint_utils.next_waypoints,
+                    },
+                    recorder_base_dict=self.recorder.dict_data_to_save_basic
+                )
+            
+            # Start Recording
+            self.recorder.start_csv_recording()
+        
 
 
 def initialize_planner(controller: str):
