@@ -11,7 +11,7 @@ class TrainingStatusCallback(BaseCallback):
         self.check_freq = check_freq
         self.save_path = save_path
         self.start_time = time.time()
-        self.save_freq = 50000
+        self.save_freq = 12500
         
     # Add another callback: Save environment:
     # Reset, do a rollout, reset again

@@ -369,29 +369,35 @@ class WaypointUtils:
 
         if self.initial_distance is None:
             self.initial_distance = current_distance
-            self.previous_distance = current_distance
+            self.previous_adjusted_distance = 0.0  # Initialize adjusted distance tracking
+            self.traveled_distance = 0.0  # Ensure a valid lap is completed
             return 0.0
 
+        # Compute adjusted distance along the track
         adjusted_distance = current_distance - self.initial_distance
-        # if adjusted_distance < 0:
-        #     adjusted_distance += total_distance
+        if adjusted_distance < 0:
+            adjusted_distance += total_distance
 
-        # Only count as a lap if we cross from high distance back to start (forward direction only)
-        if (self.previous_distance > 0.9 * total_distance and
-            adjusted_distance < 0.1 * total_distance and
-            (current_distance - self.previous_distance) < -0.5 * total_distance):
-            self.lap_count += 1
-            self.initial_distance = current_distance  # Reset initial distance for the new lap
-            adjusted_distance = 0.0  # Reset adjusted distance at lap completion
+        # Accumulate traveled distance to prevent small fluctuations from counting as laps
+        self.traveled_distance += abs(current_distance - self.waypoints[self.nearest_waypoint_index - 1][WP_S_IDX])
 
-        self.previous_distance = adjusted_distance
+        # Check if adjusted_distance crosses zero from positive to negative (lap completion)
+        if self.previous_adjusted_distance > 0.5 * total_distance and adjusted_distance < 0.1 * total_distance:
+            if self.traveled_distance > 0.8 * total_distance:  # Ensure significant movement
+                self.lap_count += 1
+                self.traveled_distance = 0.0  # Reset for next lap
+                self.initial_distance = current_distance  # Reset initial position
+
+        self.previous_adjusted_distance = adjusted_distance
 
         return adjusted_distance / total_distance
+
 
     def get_cumulative_progress(self):
         
         progress_along_track = self.get_progress_along_track()
-     
+        # print("Lap count: ", self.lap_count)
+        # print("Progress along track: ", progress_along_track)
         return self.lap_count + progress_along_track
     @staticmethod
     def get_relative_positions(waypoints, car_state):
@@ -493,8 +499,7 @@ def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None,
 
     return best_index, best_dist
 
-from numba import njit
-from numba.np.extensions import cross2d
+
 
 @njit
 def get_distance_to_raceline_jit(waypoints, nearest_waypoint_index, car_position):

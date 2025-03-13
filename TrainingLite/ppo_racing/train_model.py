@@ -19,9 +19,8 @@ from TrainingLite.ppo_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-
 model_dir = "ppo_models"
-model_name = "ppo_overnight"
+model_name = "sac_nice_1"
 
 print_info = False
 
@@ -31,12 +30,25 @@ class RacingEnv(gym.Env):
         self.simulation = None  # Delay initialization for SubprocVecEnv compatibility
         
         lidar_size = 40
-        car_state_size = 3
+        car_state_size = 6
         waypoint_size = 0
         total_obs_size = car_state_size + lidar_size + waypoint_size
         
+        # Define realistic bounds for the observation space
+        lidar_low = np.zeros(lidar_size, dtype=np.float32)
+        lidar_high = np.ones(lidar_size, dtype=np.float32) * 20.0  # Assuming lidar values are clipped between 0 and 10
+        
+        car_state_low = np.array([-np.inf,-np.inf, -10.0, -5, -10.0, -2*np.pi], dtype=np.float32)  # Example bounds for car state
+        car_state_high = np.array([np.inf, np.inf, 15.0, 5, 10.0, 2*np.pi], dtype=np.float32)
+        
+        waypoint_low = np.zeros(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
+        waypoint_high = np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
+        
+        low = np.concatenate([lidar_low, car_state_low, waypoint_low])
+        high = np.concatenate([lidar_high, car_state_high, waypoint_high])
+        
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(total_obs_size,), dtype=np.float32
+            low=low, high=high, dtype=np.float32
         )
 
         self.action_space = gym.spaces.Box(
@@ -45,6 +57,7 @@ class RacingEnv(gym.Env):
             dtype=np.float32
         )
         
+        self.step_counter = 0
         self.last_progress = 0.0
         self.last_steering = 0.0
         self.stuck_counter = 0
@@ -56,10 +69,12 @@ class RacingEnv(gym.Env):
     
     def reset(self, seed=None, options=None):
         from run.run_simulation import RacingSimulation
+        self.step_counter = 0
         self.last_progress = 0.0
         self.last_steering = 0.0
         self.stuck_counter = 0
         self.spin_counter = 0
+        
         
         self.reward_history = []  # Store the last N rewards
         self.step_history = []  # Store the last N observations
@@ -70,6 +85,8 @@ class RacingEnv(gym.Env):
             self.simulation = RacingSimulation()
             self.simulation.prepare_simulation()
         
+        
+        self.simulation.init_drivers()
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
         # Make sure env and self.simulation resets propperly
@@ -78,8 +95,11 @@ class RacingEnv(gym.Env):
         return self.get_observation(), {}
 
     def step(self, action):
+        
+        self.step_counter += 1
         steering = np.clip(action[0], -1, 1) * 0.4
         throttle = np.clip(action[1], -1, 1) * 10
+        
         agent_controls = np.array([[steering, throttle]])
 
         self.simulation.simulation_step(agent_controls=agent_controls)
@@ -101,14 +121,18 @@ class RacingEnv(gym.Env):
 
         # If collision, penalize past N steps
         if terminated and self.simulation.obs["collisions"][0] == 1:
-            penalty = -50  # Adjust penalty amount
+            penalty = -20  # Adjust penalty amount
             for i in range(len(self.reward_history)):
                 self.reward_history[i] += penalty * (i / len(self.reward_history))  # Scale penalty over time
+
+        if terminated:
+            self.simulation.drivers[0].on_simulation_end()
 
         return obs, reward, terminated, truncated, {}
 
     def get_observation(self):
         driver : CarSystem = self.simulation.drivers[0]
+        
         car_state = driver.car_state
         driver.waypoint_utils.update_next_waypoints(car_state)
         
@@ -117,11 +141,11 @@ class RacingEnv(gym.Env):
 
         next_waypoints = driver.waypoint_utils.next_waypoint_positions_relative[:, 1]
         state_features = np.array([
-            # car_state[POSE_X_IDX],
-            # car_state[POSE_Y_IDX],
-            car_state[LINEAR_VEL_X_IDX] / 10.0,
-            # car_state[LINEAR_VEL_Y_IDX],
-            car_state[ANGULAR_VEL_Z_IDX] / 10.0,
+            car_state[POSE_X_IDX],
+            car_state[POSE_Y_IDX],
+            car_state[LINEAR_VEL_X_IDX],
+            car_state[LINEAR_VEL_Y_IDX],
+            car_state[ANGULAR_VEL_Z_IDX],
             # car_state[POSE_THETA_COS_IDX],
             # car_state[POSE_THETA_SIN_IDX],
             car_state[STEERING_ANGLE_IDX]
@@ -131,84 +155,20 @@ class RacingEnv(gym.Env):
         # return np.concatenate([lidar_scan, state_features, next_waypoints]).astype(np.float32)
 
     def _calculate_reward(self):
-        driver = self.simulation.drivers[0]  
-        waypoint_utils = driver.waypoint_utils
-        car_state = driver.car_state
-
-        reward = 0
-
-        # Reward Track Progress (Incentivize Moving Forward)
-        progress = waypoint_utils.get_cumulative_progress()
-        delta_progress = progress - self.last_progress
-        progress_reward = delta_progress * 1500.0 #+ progress * 100.0
-        # if(progress_reward > 5.):
-            # print(f"Progress: {progress}, Delta Progress: {delta_progress}, Reward: {progress_reward}")
-        if progress_reward < 0:
-            progress_reward *= 3.0  # Increase penalty for going backwards
-        reward += progress_reward
-        # print(f"Progress: {progress}, Reward: {progress_reward}")
         
-
-        # ✅ 2. Reward Maintaining Speed (Prevent Stops and Stalls)
-        speed = car_state[LINEAR_VEL_X_IDX]
-        speed_reward = speed * 0.05    
-        if speed < 0:
-            speed_reward *= 2    
-        reward += speed_reward
+        driver : CarSystem = self.simulation.drivers[0]
+        reward = driver._calculate_reward()
         
-
-        # # ✅ 3. Penalize Sudden Steering Changes
-        steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
-        reward -= steering_diff * 0.005  # Increased penalty to discourage aggressive corrections
-        
-        # Penalize Steering Angle
-        steering_penalty = abs(car_state[STEERING_ANGLE_IDX]) * 0.1  # Scale penalty
-        reward -= steering_penalty
-
-        # Penalize Collisions
+        # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
-            reward -= 100  # Keep high penalty for crashes
-
-        # ✅ 5. Penalize Distance from Raceline
-        # nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.next_waypoints)
-        # if nearest_waypoint_dist < 0.05:
-        #     nearest_waypoint_dist = 0
-        # wp_penality = nearest_waypoint_dist**2 * 1.5
-        # reward -= wp_penality
-        # if print:
-        #     print(f"Nearest waypoint distance: {nearest_waypoint_dist}, penality: {-wp_penality}")
-
-
-        #  Penalize Spinning (Fixing Instability)
-        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
-            self.spin_counter += 1
-            if self.spin_counter >= 50:
-                reward -= self.spin_counter * 0.5
+            reward = -100
             
-            if self.spin_counter >= 200:
-                reward -= 100
-
-        else:
-            self.spin_counter = 0
-            
-            
-        # Penalize beeing stuck
-        if abs(car_state[LINEAR_VEL_X_IDX]) < 0.2:
-            self.stuck_counter += 1
-            if self.stuck_counter >= 10:
-                reward -= self.stuck_counter * 0.5
-            
-            if self.stuck_counter >= 200:
-                reward -= 100
-
-       
-        self.last_steering = car_state[STEERING_ANGLE_IDX]
-        self.last_progress = progress
         
         if(print_info):
             print(f"Reward: {reward}")
         return reward
 
+    
 
     def check_termination(self):
         driver = self.simulation.drivers[0] # 
@@ -232,6 +192,11 @@ class RacingEnv(gym.Env):
         if self.simulation.obs["collisions"][0] == 1:
             # print("Car crashed!")
             return True
+        
+        if self.step_counter > 2000:
+            print("Max lenght reached!")
+            return True
+        
         return False
 
 
@@ -263,15 +228,13 @@ if __name__ == "__main__":
     else: # Parallel environments 
         # fast (cumputationally heavy)
         # Settings.RENDER_MODE = 'human'
-        num_envs = 24
+        num_envs = 12
         
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
-        
+            
+        # Monitoring        
         env = VecMonitor(env, 'logs/')
-        
-        # Vec monitor: use for monitorign
-        
         
         env.reset()
 
@@ -284,36 +247,34 @@ if __name__ == "__main__":
     # except FileNotFoundError:
     #     print("No existing model found. Creating a new one.")
         
-    policy_kwargs = dict(net_arch=[128, 128])
+    policy_kwargs = dict(net_arch=[256, 256])
 
-    model = PPO(
+    # model = PPO(
+    #     "MlpPolicy", env, verbose=1,
+    #     policy_kwargs=policy_kwargs,
+    #     n_steps=int(2048/num_envs),  # Reduce step size for faster feedback
+    #     tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
+    # )
+    
+    model = SAC(
         "MlpPolicy", env, verbose=1,
+        train_freq=1,
+        gradient_steps=1,  # Number of gradient steps to perform after each rollout
         policy_kwargs=policy_kwargs,
-        n_steps=int(2048/num_envs),  # Reduce step size for faster feedback
-        ent_coef=0.01,  
-        gamma=0.98,
-        clip_range=0.25,  # Reduced from 0.25 to prevent too large updates
-        vf_coef=0.2,  # Increased from 0.2 to stabilize critic learning
-        max_grad_norm=0.5,
-        target_kl=0.03,  # Reduced from 0.05 to prevent early stopping
-        learning_rate=1e-4,
-        gae_lambda=0.98,
-        
     )
     
 
     # Save the current Python file under the model name
     import shutil
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
     shutil.copy(__file__, f"{model_path}.py")
     
     
     then = time.time()
-    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    model.learn(total_timesteps=1000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
     
     model.save(model_path)
     print(f"Training took {time.time() - then} seconds.")
     
     
-    
-   
-

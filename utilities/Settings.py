@@ -168,7 +168,7 @@ class Settings():
     
     if(OPTIMIZE_FOR_RL):
         
-        SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
+        # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         CONTROLLER = None # No controller needed
         DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 

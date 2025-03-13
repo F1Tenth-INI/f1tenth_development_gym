@@ -24,6 +24,8 @@ from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
 
+from TrainingLite.ppo_racing.train_model import *
+
 
 # from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
 # from SI_Toolkit.computation_library import TensorFlowLibrary
@@ -160,6 +162,13 @@ class CarSystem:
        
         # Recorder
         self.init_recorder_and_start(recorder_dict=recorder_dict)
+        
+        self.spin_counter = 0
+        self.stuck_counter = 0
+        self.last_steering = 0
+        self.last_progress = 0
+        self.rewards = []
+
            
             
     def launch_tuner_connector(self):
@@ -346,6 +355,11 @@ class CarSystem:
         
         self.control_index += 1
         # print('angular control:', self.angular_control, 'translational control:', self.translational_control)
+        
+        reward = self._calculate_reward()
+        self.rewards.append(reward)
+        
+        # print('Reward:', reward)
 
         return self.angular_control, self.translational_control
 
@@ -382,7 +396,13 @@ class CarSystem:
     Called on the end of the simulation before terminating the program
     '''   
     def on_simulation_end(self, collision=False):
-        if self.recorder is not None:
+        
+        # import matplotlib.pyplot as plt
+        # plt.clf()
+        # plt.plot(self.rewards)
+        # plt.show()
+        
+        if self.recorder is not None:    
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -427,6 +447,101 @@ class CarSystem:
             
             # Start Recording
             self.recorder.start_csv_recording()
+            
+    def _calculate_reward(self):
+        waypoint_utils = self.waypoint_utils
+        car_state = self.car_state
+
+        reward = 0
+
+        # Reward Track Progress (Incentivize Moving Forward)
+        progress = waypoint_utils.get_cumulative_progress()
+        delta_progress = progress - self.last_progress
+        progress_reward = delta_progress * 100.0 + progress * 0.25
+        if progress_reward < 0:
+            progress_reward *= 3.0  # Increase penalty for going backwards
+            
+        if delta_progress < -0.9: # Lap complete
+            progress_reward = 5
+            # print("Lap complete")
+            
+        
+        reward += progress_reward
+        # print(f"Progress: {progress}, Reward: {progress_reward}")
+        
+
+        # ✅ 2. Reward Maintaining Speed (Prevent Stops and Stalls)
+        speed = car_state[LINEAR_VEL_X_IDX]
+        speed_reward = speed * 0.5    
+        reward += speed_reward
+        
+
+        # # ✅ 3. Penalize Sudden Steering Changes
+        steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
+        reward -= steering_diff * 0.05  # Increased penalty to discourage aggressive corrections
+        
+
+        
+        # Penalize slip
+        vy = abs(car_state[LINEAR_VEL_Y_IDX])
+        reward -= vy * 0.1
+        
+        # Penalize Steering Angle
+        steering_penalty = abs(car_state[STEERING_ANGLE_IDX]) * 0.01  # Scale penalty
+        reward -= steering_penalty
+
+        # Penalize Collisions
+        # if self.simulation.obs["collisions"][0] == 1:
+        #     reward -= 100  # Keep high penalty for crashes
+
+        # ✅ 5. Penalize Distance from Raceline
+        # nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.next_waypoints)
+        # if nearest_waypoint_dist < 0.05:
+        #     nearest_waypoint_dist = 0
+        # wp_penality = nearest_waypoint_dist * 1
+        # reward -= wp_penality
+        # if print:
+            # print(f"Nearest waypoint distance: {nearest_waypoint_dist}, penality: {-wp_penality}")
+
+        # Penalize if lidar scans are < 0.5 and penalize more for even less ranges
+        # Find all ranges < 0.5
+        lidar_penality = 0
+        for i, range in enumerate(self.LIDAR.processed_ranges):
+            angle = self.LIDAR.processed_angles_rad[i]
+            if range < 0.5 and range != 0:
+                lidar_penality += min(100, np.cos(angle) * 1 / range)
+                    
+        reward -= lidar_penality * 0.1
+
+        #  Penalize Spinning (Fixing Instability)
+        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
+            self.spin_counter += 1
+            if self.spin_counter >= 50:
+                reward -= self.spin_counter * 0.5
+            
+            if self.spin_counter >= 200:
+                reward -= 100
+
+        else:
+            self.spin_counter = 0
+            
+            
+        # Penalize beeing stuck
+        if abs(car_state[LINEAR_VEL_X_IDX]) < 1.0:
+            self.stuck_counter += 1
+            if self.stuck_counter >= 10:
+                reward -= 5
+            
+            if self.stuck_counter >= 200:
+                reward -= 100
+
+       
+        self.last_steering = car_state[STEERING_ANGLE_IDX]
+        self.last_progress = progress
+        
+        if(print_info):
+            print(f"Reward: {reward}")
+        return reward
         
 
 
