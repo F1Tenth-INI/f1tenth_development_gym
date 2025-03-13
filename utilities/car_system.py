@@ -24,7 +24,7 @@ from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
 
-from TrainingLite.ppo_racing.train_model import *
+from TrainingLite.rl_racing.train_model import *
 
 
 # from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper

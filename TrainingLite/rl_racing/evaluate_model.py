@@ -8,7 +8,7 @@ import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utilities.Settings import Settings
-from TrainingLite.ppo_racing.train_model import make_env
+from TrainingLite.rl_racing.train_model import make_env
 
 def evaluate_model(recording_name_extension=""):
     experiment_name = "sac_nice_1_running"

@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
-from TrainingLite.ppo_racing.TrainingCallback import TrainingStatusCallback
+from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
