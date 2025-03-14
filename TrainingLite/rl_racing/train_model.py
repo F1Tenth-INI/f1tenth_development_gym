@@ -8,6 +8,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 import time
+from typing import Optional
 
 import zipfile
 
@@ -22,7 +23,7 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_name = "sac_overnight_1"
+model_name = "sac_ini_1"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -32,7 +33,7 @@ print_info = False
 class RacingEnv(gym.Env):
     def __init__(self):
         super(RacingEnv, self).__init__()
-        self.simulation = None  # Delay initialization for SubprocVecEnv compatibility
+        self.simulation:Optional[RacingSimulation]  = None  # Delay initialization for SubprocVecEnv compatibility
         
         lidar_size = 40
         car_state_size = 6
@@ -91,7 +92,7 @@ class RacingEnv(gym.Env):
             self.simulation.prepare_simulation()
         
         
-        # self.simulation.init_drivers() # Not sure if this is necessary: TODO: check if lap counter is correctly initialized
+        self.simulation.init_drivers() # Not sure if this is necessary: TODO: check if lap counter is correctly initialized
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
         # Make sure env and self.simulation resets propperly
@@ -101,15 +102,16 @@ class RacingEnv(gym.Env):
 
     def step(self, action):
         
+        simulation: Optional[RacingSimulation] = self.simulation
         self.step_counter += 1
         steering = np.clip(action[0], -1, 1) * 0.4
         throttle = np.clip(action[1], -1, 1) * 10
         
         agent_controls = np.array([[steering, throttle]])
 
-        self.simulation.simulation_step(agent_controls=agent_controls)
-        for index, driver in enumerate(self.simulation.drivers):
-            self.simulation.update_driver_state(driver, index)
+        simulation.simulation_step(agent_controls=agent_controls)
+        for index, driver in enumerate(simulation.drivers):
+            simulation.update_driver_state(driver, index)
             driver.update_render_utils()
 
         obs = self.get_observation()
@@ -125,13 +127,13 @@ class RacingEnv(gym.Env):
             self.step_history.pop(0)
 
         # If collision, penalize past N steps
-        if terminated and self.simulation.obs["collisions"][0] == 1:
+        if terminated and simulation.obs["collisions"][0] == 1:
             penalty = -20  # Adjust penalty amount
             for i in range(len(self.reward_history)):
                 self.reward_history[i] += penalty * (i / len(self.reward_history))  # Scale penalty over time
 
         if terminated:
-            self.simulation.drivers[0].on_simulation_end()
+            simulation.drivers[0].on_simulation_end()
 
         return obs, reward, terminated, truncated, {}
 
@@ -162,7 +164,7 @@ class RacingEnv(gym.Env):
     def _calculate_reward(self):
         
         driver : CarSystem = self.simulation.drivers[0]
-        reward = driver._calculate_reward()
+        reward = driver.reward_calculator._calculate_reward(driver)
         
         # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
@@ -177,16 +179,15 @@ class RacingEnv(gym.Env):
 
     def check_termination(self):
         driver = self.simulation.drivers[0] # 
-        waypoint_utils = driver
         car_state = driver.car_state
         
         # Terminate if the car is stuck
-        if self.spin_counter > 200:
+        if driver.reward_calculator.spin_counter > 200:
             print("Car is spinning!")
             return True
         
-        if self.stuck_counter > 200:
-            print("Car is stuck!")
+        if driver.reward_calculator.stuck_counter > 200:
+            # print("Car is stuck!")
             return True
             
         # Terminate if the car is spinning
@@ -253,6 +254,7 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print("No existing model found. Creating a new one.")
         
+        # os.makedirs(model_path)
         policy_kwargs = dict(net_arch=[256, 256])
         model = SAC(
             "MlpPolicy", env, verbose=1,

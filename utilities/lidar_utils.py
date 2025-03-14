@@ -77,6 +77,10 @@ class LidarHelper:
         if car_state is not None:
             self.processed_points_map_coordinates = transform_points_from_car_to_global(car_state, self.processed_points_relative_to_car)
             # self.all_points_map_coordinates = transform_points_from_car_to_global(car_state, self.all_points_relative_to_car)
+            
+        if Settings.LIDAR_PLOT_SCANS:
+            self.plot_lidar_data()
+
     
 
             
