@@ -120,7 +120,7 @@ class RacingSimulation:
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
-                    'lap_times': lambda: self.obs['lap_times'][0],
+                    # 'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
@@ -209,6 +209,7 @@ class RacingSimulation:
 
             #Process observations and get control actions
             for index, driver in enumerate(self.drivers):
+                driver : CarSystem = driver
                 self.update_driver_state(driver, index)
 
                 # Get control actions from driver 

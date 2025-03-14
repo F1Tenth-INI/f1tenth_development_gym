@@ -106,6 +106,7 @@ class CarSystem:
     
         # Rewards
         self.reward_calculator = RewardCalculator()
+        self.reward = 0
 
         ### Planner
         self.controller_name = controller
@@ -184,12 +185,9 @@ class CarSystem:
 
     def process_observation(self, ranges=None, ego_odom=None):
         
+        #Car state and Lidar are updated by parent
+        
         car_state = self.car_state
-        
-        # Update observation data
-        self.LIDAR.update_ranges(np.array(ranges), car_state)
-        self.update_waypoints()
-        
         obstacles = self.obstacle_detector.get_obstacles(self.LIDAR.processed_ranges, car_state)
 
     
@@ -374,7 +372,7 @@ class CarSystem:
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         
-        reward = self.reward_calculator._calculate_reward(self)        
+        self.reward = self.reward_calculator._calculate_reward(self)        
         # print('Reward:', reward)
     
     '''
@@ -399,6 +397,7 @@ class CarSystem:
             self.recorder.dict_data_to_save_basic.update(
                 {   
                     'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
+                    'reward': lambda: self.reward,
                 }
             )
             # Add data from outside the car stysem

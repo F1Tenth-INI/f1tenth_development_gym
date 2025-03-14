@@ -91,9 +91,9 @@ class RacingEnv(gym.Env):
         if self.simulation is None:
             self.simulation = RacingSimulation()
             self.simulation.prepare_simulation()
-        
-        
-        self.simulation.init_drivers() # Not sure if this is necessary: TODO: check if lap counter is correctly initialized
+        else: 
+            self.simulation.init_drivers() # at least re-init drivers in any case
+            
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
         # Make sure env and self.simulation resets propperly
@@ -112,8 +112,11 @@ class RacingEnv(gym.Env):
 
         simulation.simulation_step(agent_controls=agent_controls)
         for index, driver in enumerate(simulation.drivers):
+            driver : CarSystem = driver
             simulation.update_driver_state(driver, index)
             driver.update_render_utils()
+            driver.update_waypoints()
+            driver.process_data_post_control()
 
         obs = self.get_observation()
         reward = self._calculate_reward()
