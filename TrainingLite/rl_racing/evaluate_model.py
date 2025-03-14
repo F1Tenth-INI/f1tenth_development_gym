@@ -8,10 +8,14 @@ import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utilities.Settings import Settings
-from TrainingLite.rl_racing.train_model import make_env
+from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name
+
+
+model_name = model_name + '_running'
+
 
 def evaluate_model(recording_name_extension=""):
-    experiment_name = "sac_nice_1_running"
+    experiment_name = model_name
     Settings.RENDER_MODE = 'human'
     Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, experiment_name) + '/'
     Settings.DATASET_NAME = Settings.DATASET_NAME +'_'+ str(recording_name_extension)
@@ -22,7 +26,7 @@ def evaluate_model(recording_name_extension=""):
 
     from run.run_simulation import RacingSimulation  # Import inside function to avoid issues
 
-    model_path = os.path.join("ppo_models", experiment_name)
+    model_path = os.path.join(model_dir, model_name)
     if not os.path.exists(model_path + ".zip"):
         print(f"Model {model_path} not found.")
         return

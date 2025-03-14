@@ -9,9 +9,12 @@ from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 import time
 
+import zipfile
+
 import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(root_dir)
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
@@ -19,8 +22,10 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_dir = "ppo_models"
-model_name = "sac_nice_1"
+model_name = "sac_overnight_1"
+
+model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
+log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
 
 print_info = False
 
@@ -86,7 +91,7 @@ class RacingEnv(gym.Env):
             self.simulation.prepare_simulation()
         
         
-        self.simulation.init_drivers()
+        # self.simulation.init_drivers() # Not sure if this is necessary: TODO: check if lap counter is correctly initialized
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
         # Make sure env and self.simulation resets propperly
@@ -161,7 +166,7 @@ class RacingEnv(gym.Env):
         
         # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
-            reward = -100
+            reward = -1000
             
         
         if(print_info):
@@ -193,7 +198,7 @@ class RacingEnv(gym.Env):
             # print("Car crashed!")
             return True
         
-        if self.step_counter > 2000:
+        if self.step_counter > 3000:
             print("Max lenght reached!")
             return True
         
@@ -219,6 +224,7 @@ if __name__ == "__main__":
     from run.run_simulation import RacingSimulation
 
     debug = False
+    print_info = False
     num_envs = 1
     
     if(debug): # Single environment
@@ -228,26 +234,33 @@ if __name__ == "__main__":
     else: # Parallel environments 
         # fast (cumputationally heavy)
         # Settings.RENDER_MODE = 'human'
-        num_envs = 12
+        num_envs = 24
         
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
             
         # Monitoring        
-        env = VecMonitor(env, 'logs/')
+        env = VecMonitor(env, log_dir)
         
         env.reset()
 
 
     
     # Load existing model or create new
-    # try:
-    #     model = PPO.load(model_path, env=env)
-    #     print("Model loaded successfully.")
-    # except FileNotFoundError:
-    #     print("No existing model found. Creating a new one.")
+    try:
+        model = SAC.load(model_path, env=env)
+        print("Model loaded successfully.")
+    except FileNotFoundError:
+        print("No existing model found. Creating a new one.")
         
-    policy_kwargs = dict(net_arch=[256, 256])
+        policy_kwargs = dict(net_arch=[256, 256])
+        model = SAC(
+            "MlpPolicy", env, verbose=1,
+            train_freq=1,
+            gradient_steps=1,  # Number of gradient steps to perform after each rollout
+            policy_kwargs=policy_kwargs,
+        )
+        
 
     # model = PPO(
     #     "MlpPolicy", env, verbose=1,
@@ -256,23 +269,24 @@ if __name__ == "__main__":
     #     tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
     # )
     
-    model = SAC(
-        "MlpPolicy", env, verbose=1,
-        train_freq=1,
-        gradient_steps=1,  # Number of gradient steps to perform after each rollout
-        policy_kwargs=policy_kwargs,
-    )
+
     
 
     # Save the current Python file under the model name
-    import shutil
+
+
+    # Save the current Python file under the model name
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
-    shutil.copy(__file__, f"{model_path}.py")
+
+    # Create a zip file
+    zip_path = f"{model_path}_training.zip"
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        zipf.write(__file__, os.path.basename(__file__))
     
     
     then = time.time()
-    model.learn(total_timesteps=1000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
     
     model.save(model_path)
     print(f"Training took {time.time() - then} seconds.")

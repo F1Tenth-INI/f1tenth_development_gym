@@ -35,6 +35,6 @@ class TrainingStatusCallback(BaseCallback):
             if self.verbose > 0:
                 print(f"💾 Model saved to {model_filename}")
 
-            subprocess.Popen(["python", f"TrainingLite/ppo_racing/evaluate_model.py", str(self.n_calls)])
+            subprocess.Popen(["python", f"TrainingLite/rl_racing/evaluate_model.py", str(self.n_calls)])
 
         return True

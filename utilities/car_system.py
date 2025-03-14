@@ -457,9 +457,11 @@ class CarSystem:
         # Reward Track Progress (Incentivize Moving Forward)
         progress = waypoint_utils.get_cumulative_progress()
         delta_progress = progress - self.last_progress
-        progress_reward = delta_progress * 100.0 + progress * 0.25
+        progress_reward = delta_progress * 200.0 + progress * 0.25
         if progress_reward < 0:
             progress_reward *= 3.0  # Increase penalty for going backwards
+        if delta_progress > 0.2:  # Progress can not be that high ( prevent car from actively skipping path)
+            progress_reward = 0
             
         if delta_progress < -0.9: # Lap complete
             progress_reward = 5
@@ -472,7 +474,7 @@ class CarSystem:
 
         # ✅ 2. Reward Maintaining Speed (Prevent Stops and Stalls)
         speed = car_state[LINEAR_VEL_X_IDX]
-        speed_reward = speed * 0.5    
+        speed_reward = speed * 0.1    
         reward += speed_reward
         
 
