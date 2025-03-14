@@ -23,10 +23,11 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_name = "sac_ini_1"
+model_name = "sac_ini_1_rca1"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
+tensorboard_log_dir = os.path.join(model_dir, "tensorboard_logs")
 
 print_info = False
 
@@ -261,6 +262,7 @@ if __name__ == "__main__":
             train_freq=1,
             gradient_steps=1,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
+            tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
         )
         
 
