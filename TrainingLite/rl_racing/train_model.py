@@ -23,7 +23,7 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_name = "sac_home_1_rca1"
+model_name = "sac_ubuntu_1_rca1"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    model.learn(total_timesteps=5000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
     
     model.save(model_path)
     print(f"Training took {time.time() - then} seconds.")

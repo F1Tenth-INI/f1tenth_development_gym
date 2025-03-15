@@ -70,7 +70,7 @@ class RewardCalculator:
 
         # ✅ Penalize Collisions (Avoid Crashes)
         lidar_penalty = sum(
-            min(100, np.cos(angle) * 1 / range)
+            min(100, np.cos(driver.LIDAR.processed_angles_rad[i]) * 1 / range)
             for i, range in enumerate(driver.LIDAR.processed_ranges)
             if range < 0.5 and range != 0
         )
