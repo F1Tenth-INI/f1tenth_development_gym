@@ -167,7 +167,7 @@ class Settings():
         
         # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         CONTROLLER = None # No controller needed
-        DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
+        DECREASE_RESOLUTION_FACTOR = 4 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
         SAVE_RECORDINGS = False # Performance
         EXPERIMENT_LENGTH = 10000 # dont stop experiment

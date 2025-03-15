@@ -96,6 +96,8 @@ class WaypointUtils:
 
         self.nearest_waypoint_index = None
         self.lap_count = 0
+        self.cumulative_progress = 0
+        self.initial_position = None
         self.previous_distance = 0
         self.initial_distance = None
 
@@ -363,42 +365,45 @@ class WaypointUtils:
                 scaling_factor = np.clip(distance_to_obstacle / 5, 0.1, 1)
                 self.next_waypoints[:, WP_VX_IDX] *= scaling_factor
                 
-    def get_progress_along_track(self):
-        total_distance = self.waypoints[-1][WP_S_IDX]
+    def get_cumulative_lap_progress(self):
+        total_distance = self.waypoints[-1][WP_S_IDX]  # Full track length
         current_distance = self.waypoints[self.nearest_waypoint_index][WP_S_IDX]
 
-        if self.initial_distance is None:
-            self.initial_distance = current_distance
-            self.previous_adjusted_distance = 0.0  # Initialize adjusted distance tracking
-            self.traveled_distance = 0.0  # Ensure a valid lap is completed
+        # Initialize progress tracking
+        if self.initial_position is None:
+            self.initial_position = current_distance  # Store starting position
+            self.cumulative_progress = 0.0  # Start cumulative progress at 0
+            self.previous_distance = current_distance
+            self.lap_count = 0
             return 0.0
 
-        # Compute adjusted distance along the track
-        adjusted_distance = current_distance - self.initial_distance
-        if adjusted_distance < 0:
-            adjusted_distance += total_distance
+        # Compute movement since last step
+        delta_distance = current_distance - self.previous_distance
 
-        # Accumulate traveled distance to prevent small fluctuations from counting as laps
-        self.traveled_distance += abs(current_distance - self.waypoints[self.nearest_waypoint_index - 1][WP_S_IDX])
+        # Handle wraparound at start/finish line (correct sign of delta)
+        if delta_distance < -0.5 * total_distance:
+            delta_distance += total_distance  # Fix for crossing from last to first waypoint
+        elif delta_distance > 0.5 * total_distance:
+            delta_distance -= total_distance  # Fix for crossing from first to last waypoint
 
-        # Check if adjusted_distance crosses zero from positive to negative (lap completion)
-        if self.previous_adjusted_distance > 0.5 * total_distance and adjusted_distance < 0.1 * total_distance:
-            if self.traveled_distance > 0.8 * total_distance:  # Ensure significant movement
-                self.lap_count += 1
-                self.traveled_distance = 0.0  # Reset for next lap
-                self.initial_distance = current_distance  # Reset initial position
+        # Update cumulative progress (keeps accumulating beyond 1.0 and below 0.0)
+        self.cumulative_progress += delta_distance / total_distance
 
-        self.previous_adjusted_distance = adjusted_distance
+        # **Lap Increment (Crossing Initial Position Forward)**
+        if self.previous_distance > self.initial_position and current_distance < self.initial_position:
+            self.lap_count += 1
+            print(f"Lap completed! Total laps: {self.lap_count}")
 
-        return adjusted_distance / total_distance
+        # **Lap Decrement (Crossing Initial Position Backward)**
+        if self.previous_distance < self.initial_position and current_distance > self.initial_position:
+            self.lap_count -= 1
+            print(f"Lap decremented! Total laps: {self.lap_count}")
 
+        #  Store previous position for next step
+        self.previous_distance = current_distance  
 
-    def get_cumulative_progress(self):
-        
-        progress_along_track = self.get_progress_along_track()
-        # print("Lap count: ", self.lap_count)
-        # print("Progress along track: ", progress_along_track)
-        return self.lap_count + progress_along_track
+        return self.cumulative_progress
+
     @staticmethod
     def get_relative_positions(waypoints, car_state):
         return get_relative_positions_jit(waypoints, car_state)

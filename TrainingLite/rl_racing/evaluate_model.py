@@ -12,7 +12,7 @@ from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name
 
 
 model_name = model_name + '_running'
-
+# model_name = "sac_ini_1_rca1_22200000"
 
 def evaluate_model(recording_name_extension=""):
     experiment_name = model_name

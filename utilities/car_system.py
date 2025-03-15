@@ -188,9 +188,11 @@ class CarSystem:
         #Car state and Lidar are updated by parent
         
         car_state = self.car_state
+        
+        self.update_waypoints()
         obstacles = self.obstacle_detector.get_obstacles(self.LIDAR.processed_ranges, car_state)
 
-    
+
         # Pass data to planner
         if hasattr(self.planner, 'pass_data_to_planner'):
             self.planner.pass_data_to_planner(self.waypoints_for_controller, car_state, obstacles)
@@ -373,7 +375,7 @@ class CarSystem:
             self.recorder.step()
         
         self.reward = self.reward_calculator._calculate_reward(self)        
-        # print('Reward:', reward)
+        # print('Reward:', self.reward)
     
     '''
     Called by LapAnalyser when a lap is completed

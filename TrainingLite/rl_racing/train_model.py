@@ -23,7 +23,7 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_name = "sac_ini_1_rca1"
+model_name = "sac_home_1_rca1"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -203,7 +203,7 @@ class RacingEnv(gym.Env):
             # print("Car crashed!")
             return True
         
-        if self.step_counter > 3000:
+        if self.step_counter > 20000:
             print("Max lenght reached!")
             return True
         
