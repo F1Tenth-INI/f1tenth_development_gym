@@ -4,7 +4,6 @@ import time
 import yaml
 
 import numpy as np
-import pandas as pd
 
 from tqdm import trange
 from argparse import Namespace
@@ -25,8 +24,6 @@ from utilities.Exceptions import CarCrashException
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
-
-
 
 
 class RacingSimulation:
@@ -56,6 +53,8 @@ class RacingSimulation:
 
         self.state_recording = None
         if Settings.REPLAY_RECORDING:
+            import pandas as pd
+
             self.state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
             self.time_axis = self.state_recording['time'].to_numpy()
             self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
@@ -121,7 +120,7 @@ class RacingSimulation:
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
-                    'lap_times': lambda: self.obs['lap_times'][0],
+                    # 'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
@@ -210,6 +209,7 @@ class RacingSimulation:
 
             #Process observations and get control actions
             for index, driver in enumerate(self.drivers):
+                driver : CarSystem = driver
                 self.update_driver_state(driver, index)
 
                 # Get control actions from driver 
@@ -290,7 +290,7 @@ class RacingSimulation:
         if hasattr(conf, 'starting_positions'):
             starting_positions =  conf.starting_positions[0:self.number_of_drivers]
         else:
-            print("No starting positions in INI.yaml. Taking value from settings.py")
+            # print("No starting positions in INI.yaml. Taking value from settings.py")
             starting_positions = Settings.STARTING_POSITION
 
         if(len(starting_positions) < self.number_of_drivers):
@@ -319,7 +319,7 @@ class RacingSimulation:
             random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
             
             starting_positions[0] = random_wp[1:4]
-            print("Starting position: ", random_wp[1:4])
+            # print("Starting position: ", random_wp[1:4])
                 
        
         

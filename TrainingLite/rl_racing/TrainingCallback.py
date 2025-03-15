@@ -11,7 +11,10 @@ class TrainingStatusCallback(BaseCallback):
         self.check_freq = check_freq
         self.save_path = save_path
         self.start_time = time.time()
-        self.save_freq = 50000
+        self.save_freq = 12500
+        
+    # Add another callback: Save environment:
+    # Reset, do a rollout, reset again
 
     def _on_step(self) -> bool:
         if self.n_calls % self.check_freq == 0:
@@ -32,6 +35,6 @@ class TrainingStatusCallback(BaseCallback):
             if self.verbose > 0:
                 print(f"💾 Model saved to {model_filename}")
 
-            subprocess.Popen(["python", f"TrainingLite/ppo_racing/evaluate_model.py", str(self.n_calls)])
+            subprocess.Popen(["python", f"TrainingLite/rl_racing/evaluate_model.py", str(self.n_calls)])
 
         return True

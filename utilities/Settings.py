@@ -26,7 +26,7 @@ class Settings():
     ZERO_ANGLE_OFFSET = 0.00  # Angle offset for the car (left drift is positive, right drift is negative) absolut max steeringangle = 0.4186
     
     ## driving behaviour ## 
-    START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
+    START_FROM_RANDOM_POSITION = True # Start from random position (randomly selected waypoint + delta)
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
@@ -71,7 +71,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 30000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -86,9 +86,6 @@ class Settings():
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
-
-    CONTROL_AVERAGE_WINDOW = (1,1)     # Window for avg filter [angular, translational]
-
 
     ## waypoints generation ##
     MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
@@ -164,16 +161,16 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
-    OPTIMIZE_FOR_RL = False # Optimize for RL training
+    OPTIMIZE_FOR_RL = True # Optimize for RL training
     
     if(OPTIMIZE_FOR_RL):
         
         # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         CONTROLLER = None # No controller needed
-        DECREASE_RESOLUTION_FACTOR = 1 # Max resolution of WP
+        DECREASE_RESOLUTION_FACTOR = 4 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
         SAVE_RECORDINGS = False # Performance
-        EXPERIMENT_LENGTH = 1000000 # dont stop experiment
+        EXPERIMENT_LENGTH = 10000 # dont stop experiment
         
         RENDER_MODE = None
 

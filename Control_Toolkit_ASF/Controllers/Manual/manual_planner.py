@@ -23,7 +23,7 @@ class manual_planner(template_planner):
     def process_observation(self, ranges=None, ego_odom=None):
         self.angular_control_normed, self.translational_control_normed = self.joystick.read()
 
-        self.translational_control = self.translational_control_normed
-        self.angular_control = self.angular_control_normed/3
+        self.translational_control = 5 * self.translational_control_normed
+        self.angular_control = 0.4 * self.angular_control_normed
 
         return self.angular_control, self.translational_control

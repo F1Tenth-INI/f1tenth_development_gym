@@ -40,7 +40,7 @@ from f110_gym.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, St
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_gym.envs.collision_models import get_vertices, collision_multiple
 
-from SI_Toolkit_ASF.car_model import car_model
+
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -113,6 +113,7 @@ class RaceCar(object):
 
         self.state = np.zeros((StateIndices.number_of_states, ))
         if self.ode_implementation == 'ODE_TF':
+            from SI_Toolkit_ASF.car_model import car_model
             self.car_model = car_model(
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
