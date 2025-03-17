@@ -21,40 +21,65 @@ class RewardCalculator:
         self.last_steering = 0
         self.spin_counter = 0
         self.stuck_counter = 0
+        self.last_wp_index = 0
         
         self.reward_history = []
         
     def _calculate_reward(self, driver: 'CarSystem') -> float:
+
         waypoint_utils: WaypointUtils = driver.waypoint_utils
         car_state = driver.car_state
 
+        checkpoint_size = 0.25 # percentage of the track that leads to a progress reward
         reward = 0
 
         # ✅ Reward Track Progress (Encourage Fast Forward Movement)
         progress = waypoint_utils.get_cumulative_lap_progress()
+        nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.next_waypoints)
+
         delta_progress = progress - self.last_progress
 
         # 🛠 Fix: Ensure progress is within a reasonable range to avoid glitches
-        if abs(delta_progress) > 0.2:
-            print("BUG: Unexpected jump in progress!")
-            delta_progress = 0  # Ignore unexpected jumps
+        if abs(delta_progress) > checkpoint_size * 1.5:
+            print(f"BUG: Unexpected jump in progress! {delta_progress}")
+            delta_progress = -1  # Ignore unexpected jumps
+
+
+        # check for waypoint skipping
+        total_waypoints = len(waypoint_utils.next_waypoints)
+        if (nearest_waypoint_index > self.last_wp_index + 5) or \
+        (self.last_wp_index > nearest_waypoint_index and self.last_wp_index - nearest_waypoint_index > total_waypoints - 5):
+            print("Waypoint skipping detected", nearest_waypoint_index, self.last_wp_index)
+            delta_progress = -1  # Ignore unexpected jumps
+            
+        self.last_wp_index = nearest_waypoint_index
+
+
 
         # ✅ Reward for Moving Forward (Scaled to Time)
-        if delta_progress > 0:
+        if delta_progress > checkpoint_size:
             time_since_last_progress = self.time - self.last_progress_time
             if time_since_last_progress > 0.02:
-                reward += (delta_progress / time_since_last_progress) * 500  # Higher for faster progress
-
+                reward += (delta_progress / time_since_last_progress)
+                reward *= checkpoint_size # Normalize by checkpoint size so the reward is consistent
+                
+                reward *= 10000 
+            
+            # print("Checkpoint reached, reward: ", reward)
             self.last_progress_time = self.time
+            self.last_progress = progress
+
 
         # ❌ Penalize Backward Movement
         if delta_progress < 0:
-            reward += delta_progress * 1500  # Strong penalty for going backward
+            reward += delta_progress * 900  # Strong penalty for going backward
+
+        # print(f"Progress: {progress}, Reward: {reward}")
 
         # ✅ Reward Higher Speed (Faster is Better)
         speed = car_state[LINEAR_VEL_X_IDX]
         if speed > 2:  # Reward only when the car is moving at a decent pace
-            reward += speed * 2  # Encourages the car to move fast
+            reward += speed * 0.5  # Encourages the car to move fast
 
         # ❌ Penalize Stopping (Encourages Constant Motion)
         if speed < 0.5:
@@ -98,7 +123,6 @@ class RewardCalculator:
 
         # ✅ Update State
         self.last_steering = car_state[STEERING_ANGLE_IDX]
-        self.last_progress = progress
 
         # ✅ Debug Info (Optional)
         if self.print_info and reward != 0:
@@ -107,5 +131,4 @@ class RewardCalculator:
         # ✅ Save to History
         self.reward_history.append(reward)
         self.time += 0.01
-
         return reward

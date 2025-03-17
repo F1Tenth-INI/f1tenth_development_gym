@@ -23,7 +23,8 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_name = "sac_ubuntu_1_rca1"
+model_load_name = "sac_ubuntu_nostate_rca1"
+model_name = "sac_ubuntu_nostate_rca1"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -37,7 +38,7 @@ class RacingEnv(gym.Env):
         self.simulation:Optional[RacingSimulation]  = None  # Delay initialization for SubprocVecEnv compatibility
         
         lidar_size = 40
-        car_state_size = 6
+        car_state_size = 4
         waypoint_size = 0
         total_obs_size = car_state_size + lidar_size + waypoint_size
         
@@ -45,8 +46,8 @@ class RacingEnv(gym.Env):
         lidar_low = np.zeros(lidar_size, dtype=np.float32)
         lidar_high = np.ones(lidar_size, dtype=np.float32) * 20.0  # Assuming lidar values are clipped between 0 and 10
         
-        car_state_low = np.array([-np.inf,-np.inf, -10.0, -5, -10.0, -2*np.pi], dtype=np.float32)  # Example bounds for car state
-        car_state_high = np.array([np.inf, np.inf, 15.0, 5, 10.0, 2*np.pi], dtype=np.float32)
+        car_state_low = np.array([-10.0, -5, -10.0, -2*np.pi], dtype=np.float32)  # Example bounds for car state
+        car_state_high = np.array([15.0, 5, 10.0, 2*np.pi], dtype=np.float32)
         
         waypoint_low = np.zeros(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
         waypoint_high = np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
@@ -152,8 +153,8 @@ class RacingEnv(gym.Env):
 
         next_waypoints = driver.waypoint_utils.next_waypoint_positions_relative[:, 1]
         state_features = np.array([
-            car_state[POSE_X_IDX],
-            car_state[POSE_Y_IDX],
+            # car_state[POSE_X_IDX],
+            # car_state[POSE_Y_IDX],
             car_state[LINEAR_VEL_X_IDX],
             car_state[LINEAR_VEL_Y_IDX],
             car_state[ANGULAR_VEL_Z_IDX],
@@ -172,7 +173,7 @@ class RacingEnv(gym.Env):
         
         # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
-            reward = -1000
+            reward = -5000
             
         
         if(print_info):
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     else: # Parallel environments 
         # fast (cumputationally heavy)
         # Settings.RENDER_MODE = 'human'
-        num_envs = 24
+        num_envs = 32
         
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
@@ -252,8 +253,9 @@ if __name__ == "__main__":
 
     
     # Load existing model or create new
+    model_load_path = os.path.join(model_dir, model_load_name)
     try:
-        model = SAC.load(model_path, env=env)
+        model = SAC.load(model_load_path, env=env)
         print("Model loaded successfully.")
     except FileNotFoundError:
         print("No existing model found. Creating a new one.")
@@ -293,7 +295,7 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=5000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
     
     model.save(model_path)
     print(f"Training took {time.time() - then} seconds.")

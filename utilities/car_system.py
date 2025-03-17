@@ -382,7 +382,7 @@ class CarSystem:
     '''
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
-        print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
+        # print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
 
      
     
@@ -437,7 +437,7 @@ class CarSystem:
         # plt.plot(self.reward_calculator.reward_history)
         # plt.savefig('rewards.png')
         
-        # Also plot the accumulated rewards:
+        # # Also plot the accumulated rewards:
         # accumulated_rewards = np.cumsum(self.reward_calculator.reward_history)
         # plt.clf()
         # plt.plot(accumulated_rewards)
