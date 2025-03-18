@@ -48,4 +48,4 @@ ax.set_xlabel("Timestep")
 
 # ax.set_xlim(0, 5760000)#8640000) #, 22080000)#19200000) #  28320000)# 8640000)#20640000)#5200000)#7200000)
 # ax.get_legend().remove()
-plt.show()
+plt.savefig(f"{model_name}_rewards.png")

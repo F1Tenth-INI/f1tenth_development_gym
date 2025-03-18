@@ -13,14 +13,14 @@ class RewardCalculator:
         self.print_info = False
         self.reset()
         
-        self.checkpoint_fraction = 1/200 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
+        self.checkpoint_fraction = 1/100 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
         
         
     def reset(self):
         
         self.time = 0
-        self.last_progress = 0
-        self.last_progress_time = 0
+        self.last_progress : float = 0
+        self.last_progress_time : float = 0
         self.last_steering = 0
         self.spin_counter = 0
         self.stuck_counter = 0
@@ -42,7 +42,7 @@ class RewardCalculator:
         # ✅ Reward for Moving Forward (Scaled to Time)
         if abs(delta_progress) > self.checkpoint_fraction:
             time_since_last_progress = self.time - self.last_progress_time
-            if time_since_last_progress > 0.02:
+            if time_since_last_progress > 0.03:
                 reward += (delta_progress / time_since_last_progress)
                 reward *= self.checkpoint_fraction # Normalize by checkpoint size so the reward is consistent
                 reward *= 10000 
@@ -51,14 +51,13 @@ class RewardCalculator:
             self.last_progress_time = self.time
             self.last_progress = progress
             
-        if abs(delta_progress) > 2 * self.checkpoint_fraction:
+        if abs(delta_progress) > 1.5 * self.checkpoint_fraction + 0.02: 
             print("Unrealistic progress jump detected", delta_progress)
             delta_progress = 0
 
 
-        if(reward != 0):
-            print(f"Progress: {progress}, Reward: {reward}")
-        # print(f"Progress: {progress}, Reward: {reward}")
+        # if(reward != 0):
+            # print(f"Progress: {progress}, Reward: {reward}")
 
         # ✅ Reward Higher Speed (Faster is Better)
         speed = car_state[LINEAR_VEL_X_IDX]

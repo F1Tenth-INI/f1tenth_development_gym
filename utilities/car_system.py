@@ -15,14 +15,14 @@ from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
 from utilities.imu_simulator import IMUSimulator
 from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
-from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
+from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
 
 from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
 

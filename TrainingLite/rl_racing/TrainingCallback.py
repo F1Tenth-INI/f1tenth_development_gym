@@ -3,6 +3,7 @@ import time
 import numpy as np
 import importlib
 import subprocess
+import os
 
 
 class TrainingStatusCallback(BaseCallback):
@@ -36,5 +37,6 @@ class TrainingStatusCallback(BaseCallback):
                 print(f"💾 Model saved to {model_filename}")
 
             subprocess.Popen(["python", f"TrainingLite/rl_racing/evaluate_model.py", str(self.n_calls)])
+            subprocess.Popen(["python", f"TrainingLite/rl_racing/plot_rewards.py", str(self.n_calls)])
 
         return True

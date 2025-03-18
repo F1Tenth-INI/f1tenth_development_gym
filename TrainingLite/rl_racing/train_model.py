@@ -23,8 +23,8 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_load_name = "sac_ubuntu_nostate_rca1"
-model_name = "sac_ubuntu_nostate_rca1"
+model_load_name = "SAC_fast_lr"
+model_name = "SAC_fast_lr"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -97,6 +97,7 @@ class RacingEnv(gym.Env):
             
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
+
         # Make sure env and self.simulation resets propperly
     
         # Check for open source race environment        
@@ -211,6 +212,17 @@ class RacingEnv(gym.Env):
         return False
 
 
+def lr_schedule(progress_remaining: float) -> float:
+    """
+    Learning rate schedule for Stable-Baselines3.
+    - progress_remaining = 1.0 at the start of training
+    - progress_remaining = 0.0 at the end of training
+    """
+    base_lr = 0.003  # Initial learning rate
+    min_lr = 0.0001  # Minimum learning rate
+    
+    return max(min_lr, base_lr * progress_remaining)
+
 def make_env():
     """Factory function to create a new RacingEnv instance."""
     def _init():
@@ -237,21 +249,17 @@ if __name__ == "__main__":
         env = make_env()()
         check_env(env)
         
-    else: # Parallel environments 
-        # fast (cumputationally heavy)
-        # Settings.RENDER_MODE = 'human'
-        num_envs = 32
-        
-        env = SubprocVecEnv([make_env() for _ in range(num_envs)])
+    else:
+        num_envs = 16
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
-            
-        # Monitoring        
-        env = VecMonitor(env, log_dir)
+        env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         
+        env = VecMonitor(env, log_dir)  # Keeps track of episode rewards
         env.reset()
 
 
-    
+
+        
     # Load existing model or create new
     model_load_path = os.path.join(model_dir, model_load_name)
     try:
@@ -268,6 +276,8 @@ if __name__ == "__main__":
             gradient_steps=1,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
+            # learning_rate=0.003  # Set your desired learning rate here
+            learning_rate=lr_schedule  # Use the dynamic learning rate function
         )
         
 
@@ -295,9 +305,12 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=30000000, callback=TrainingStatusCallback(check_freq=12500, save_path=model_path))
+    model.learn(total_timesteps=1_000_000, 
+                callback=[TrainingStatusCallback(check_freq=12_500, save_path=model_path)],
+                )
     
     model.save(model_path)
+    # env.save(norm_path)  # ✅ Save normalization stats for inference
     print(f"Training took {time.time() - then} seconds.")
     
     

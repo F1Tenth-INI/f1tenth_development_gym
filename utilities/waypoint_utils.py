@@ -367,7 +367,8 @@ class WaypointUtils:
                 
     def get_cumulative_lap_progress(self):
         total_distance = self.waypoints[-1][WP_S_IDX]  # Full track length
-        current_distance = self.waypoints[self.nearest_waypoint_index][WP_S_IDX]
+        current_distance = self.next_waypoints[0][WP_S_IDX]
+
 
         # Initialize progress tracking
         if self.initial_position is None:
