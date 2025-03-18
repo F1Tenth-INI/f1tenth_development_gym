@@ -7,6 +7,7 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
+from torch.utils.tensorboard import SummaryWriter
 import time
 from typing import Optional
 
@@ -19,12 +20,15 @@ sys.path.append(root_dir)
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
-from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback
+from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, AdjustCheckpointsCallback
 
 from stable_baselines3.common.vec_env import VecMonitor
 
 model_load_name = "SAC_fast_lr"
 model_name = "SAC_fast_lr"
+
+experiment_index = 0
+tensorboad_log_name = f"{model_name}_{experiment_index}"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
@@ -36,7 +40,7 @@ class RacingEnv(gym.Env):
     def __init__(self):
         super(RacingEnv, self).__init__()
         self.simulation:Optional[RacingSimulation]  = None  # Delay initialization for SubprocVecEnv compatibility
-        
+                
         lidar_size = 40
         car_state_size = 4
         waypoint_size = 0
@@ -65,11 +69,16 @@ class RacingEnv(gym.Env):
             dtype=np.float32
         )
         
-        self.step_counter = 0
+        self.global_step_counter = 0
+        self.eposode_step_counter = 0
         self.last_progress = 0.0
         self.last_steering = 0.0
         self.stuck_counter = 0
         self.spin_counter = 0
+        
+        self.checkpoints_per_lap = 20
+        
+        self.max_episode_steps = 20000
         
         self.reward_history = []  # Store the last N rewards
         self.step_history = []  # Store the last N observations
@@ -77,7 +86,7 @@ class RacingEnv(gym.Env):
     
     def reset(self, seed=None, options=None):
         from run.run_simulation import RacingSimulation
-        self.step_counter = 0
+        self.eposode_step_counter = 0
         self.last_progress = 0.0
         self.last_steering = 0.0
         self.stuck_counter = 0
@@ -97,28 +106,29 @@ class RacingEnv(gym.Env):
             
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
         self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
-
+        
+        driver : CarSystem = self.simulation.drivers[0]
+        driver.reward_calculator.checkpoint_fraction = 1 / self.checkpoints_per_lap
         # Make sure env and self.simulation resets propperly
     
         # Check for open source race environment        
         return self.get_observation(), {}
 
     def step(self, action):
-        
         simulation: Optional[RacingSimulation] = self.simulation
-        self.step_counter += 1
+        self.eposode_step_counter += 1  # Steps within an episode
+        self.global_step_counter += 1   # Training-wide step counter
+
         steering = np.clip(action[0], -1, 1) * 0.4
         throttle = np.clip(action[1], -1, 1) * 10
-        
         agent_controls = np.array([[steering, throttle]])
 
         simulation.simulation_step(agent_controls=agent_controls)
+
         for index, driver in enumerate(simulation.drivers):
-            driver : CarSystem = driver
+            driver: CarSystem = driver
             simulation.update_driver_state(driver, index)
-            driver.update_render_utils()
-            driver.update_waypoints()
-            driver.process_data_post_control()
+            driver.process_observation()
 
         obs = self.get_observation()
         reward = self._calculate_reward()
@@ -132,16 +142,19 @@ class RacingEnv(gym.Env):
             self.reward_history.pop(0)
             self.step_history.pop(0)
 
-        # If collision, penalize past N steps
+        # Penalize past N steps if a crash happens
         if terminated and simulation.obs["collisions"][0] == 1:
             penalty = -20  # Adjust penalty amount
             for i in range(len(self.reward_history)):
                 self.reward_history[i] += penalty * (i / len(self.reward_history))  # Scale penalty over time
 
-        if terminated:
-            simulation.drivers[0].on_simulation_end()
-
+        # if terminated:
+            # simulation.drivers[0].on_simulation_end()
+        
         return obs, reward, terminated, truncated, {}
+    
+    def close(self):
+        pass
 
     def get_observation(self):
         driver : CarSystem = self.simulation.drivers[0]
@@ -205,7 +218,7 @@ class RacingEnv(gym.Env):
             # print("Car crashed!")
             return True
         
-        if self.step_counter > 20000:
+        if self.eposode_step_counter > self.max_episode_steps:
             print("Max lenght reached!")
             return True
         
@@ -241,7 +254,7 @@ if __name__ == "__main__":
     from utilities.car_system import CarSystem
     from run.run_simulation import RacingSimulation
 
-    debug = False
+    debug = True
     print_info = False
     num_envs = 1
     
@@ -275,8 +288,7 @@ if __name__ == "__main__":
             train_freq=1,
             gradient_steps=1,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
-            tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
-            # learning_rate=0.003  # Set your desired learning rate here
+            tensorboard_log=os.path.join(tensorboard_log_dir, tensorboad_log_name),  # Enable TensorBoard logging
             learning_rate=lr_schedule  # Use the dynamic learning rate function
         )
         
@@ -305,12 +317,18 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=1_000_000, 
-                callback=[TrainingStatusCallback(check_freq=12_500, save_path=model_path)],
+    model.learn(total_timesteps=40_000_000, 
+                callback=[
+                    TrainingStatusCallback(check_freq=12_500, save_path=model_path),
+                    AdjustCheckpointsCallback(check_freq=3_000_000, model_name=model_name, log_dir=tensorboard_log_dir)
+                    ],
                 )
     
     model.save(model_path)
     # env.save(norm_path)  # ✅ Save normalization stats for inference
+    
+    env.close()  # Close TensorBoard writer after training
+    
     print(f"Training took {time.time() - then} seconds.")
     
     

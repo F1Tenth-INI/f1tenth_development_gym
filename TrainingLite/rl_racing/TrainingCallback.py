@@ -4,6 +4,8 @@ import numpy as np
 import importlib
 import subprocess
 import os
+from torch.utils.tensorboard import SummaryWriter
+
 
 
 class TrainingStatusCallback(BaseCallback):
@@ -40,3 +42,32 @@ class TrainingStatusCallback(BaseCallback):
             subprocess.Popen(["python", f"TrainingLite/rl_racing/plot_rewards.py", str(self.n_calls)])
 
         return True
+    
+
+class AdjustCheckpointsCallback(BaseCallback):
+    def __init__(self, check_freq=1_000_000, model_name = "SAC", log_dir="tensorboard_logs", verbose=1):
+        super().__init__(verbose)
+        self.check_freq = check_freq  # Check every 1M steps
+        self.writer = SummaryWriter(log_dir=os.path.join(log_dir, model_name))  # ✅ Log to TensorBoard
+    
+    def _on_step(self) -> bool:
+        # Every 1M steps, decrease checkpoints_per_lap and log it
+        if self.n_calls % self.check_freq == 0:
+            print(f"🔄 Adjusting checkpoints_per_lap at step {self.num_timesteps}")
+            envs = self.training_env.envs if hasattr(self.training_env, "envs") else [self.training_env]
+            for env in envs:
+                env = env.env
+                if hasattr(env, "checkpoints_per_lap"):
+                    env.checkpoints_per_lap = max(5, env.checkpoints_per_lap - 10)  # Reduce by 5, min value 5
+                    env.simulation.drivers[0].reward_calculator.checkpoint_fraction = 1 / env.checkpoints_per_lap
+                    
+                    # ✅ Log to TensorBoard
+                    self.writer.add_scalar("training/checkpoints_per_lap", env.checkpoints_per_lap, self.num_timesteps)
+
+                    if self.verbose > 0:
+                        print(f"🔄 Adjusted checkpoints_per_lap to {env.checkpoints_per_lap} at step {self.num_timesteps}")
+
+        return True  # Continue training
+    
+    def _on_training_end(self):
+        self.writer.close()  # ✅ Close TensorBoard writer properly
