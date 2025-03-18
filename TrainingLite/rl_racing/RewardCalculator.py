@@ -13,6 +13,9 @@ class RewardCalculator:
         self.print_info = False
         self.reset()
         
+        self.checkpoint_fraction = 1/200 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
+        
+        
     def reset(self):
         
         self.time = 0
@@ -29,51 +32,32 @@ class RewardCalculator:
 
         waypoint_utils: WaypointUtils = driver.waypoint_utils
         car_state = driver.car_state
-
-        checkpoint_size = 0.25 # percentage of the track that leads to a progress reward
         reward = 0
 
-        # ✅ Reward Track Progress (Encourage Fast Forward Movement)
-        progress = waypoint_utils.get_cumulative_lap_progress()
-        nearest_waypoint_index, nearest_waypoint_dist = get_nearest_waypoint(car_state, waypoint_utils.next_waypoints)
-
+        # Reward Track Progress (Encourage Fast Forward Movement)
+        progress = waypoint_utils.get_cumulative_lap_progress() # 1 per complete lap in small steps (1/number of waypoints)
         delta_progress = progress - self.last_progress
-
-        # 🛠 Fix: Ensure progress is within a reasonable range to avoid glitches
-        if abs(delta_progress) > checkpoint_size * 1.5:
-            print(f"BUG: Unexpected jump in progress! {delta_progress}")
-            delta_progress = -1  # Ignore unexpected jumps
-
-
-        # check for waypoint skipping
-        total_waypoints = len(waypoint_utils.next_waypoints)
-        if (nearest_waypoint_index > self.last_wp_index + 5) or \
-        (self.last_wp_index > nearest_waypoint_index and self.last_wp_index - nearest_waypoint_index > total_waypoints - 5):
-            print("Waypoint skipping detected", nearest_waypoint_index, self.last_wp_index)
-            delta_progress = -1  # Ignore unexpected jumps
-            
-        self.last_wp_index = nearest_waypoint_index
-
-
+        
 
         # ✅ Reward for Moving Forward (Scaled to Time)
-        if delta_progress > checkpoint_size:
+        if abs(delta_progress) > self.checkpoint_fraction:
             time_since_last_progress = self.time - self.last_progress_time
             if time_since_last_progress > 0.02:
                 reward += (delta_progress / time_since_last_progress)
-                reward *= checkpoint_size # Normalize by checkpoint size so the reward is consistent
-                
+                reward *= self.checkpoint_fraction # Normalize by checkpoint size so the reward is consistent
                 reward *= 10000 
             
             # print("Checkpoint reached, reward: ", reward)
             self.last_progress_time = self.time
             self.last_progress = progress
+            
+        if abs(delta_progress) > 2 * self.checkpoint_fraction:
+            print("Unrealistic progress jump detected", delta_progress)
+            delta_progress = 0
 
 
-        # ❌ Penalize Backward Movement
-        if delta_progress < 0:
-            reward += delta_progress * 900  # Strong penalty for going backward
-
+        if(reward != 0):
+            print(f"Progress: {progress}, Reward: {reward}")
         # print(f"Progress: {progress}, Reward: {reward}")
 
         # ✅ Reward Higher Speed (Faster is Better)
