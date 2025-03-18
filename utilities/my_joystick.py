@@ -414,9 +414,29 @@ class joystick_simple:
         self.joystick = my_joystick()
 
         self.axes = np.zeros(self.joystick.numAxes, dtype=float)
+        self.offsets = np.zeros(self.joystick.numAxes, dtype=float)  # To store calibration offsets
 
         self.angular_control_normed = None
         self.translational_control_normed = None
+        
+        self.calibrate()  # Perform calibration during initialization
+
+    def calibrate(self):
+        """
+        Calibrate the joystick by capturing the idle state offsets.
+        """
+        print("Calibrating joystick... Please ensure it is not being touched.")
+        pygame.event.get()  # Process events
+        for i in range(3):
+            if(self.joystick.joy.get_axis(i) < 0.15):
+                self.offsets[i] = self.joystick.joy.get_axis(i)  # Capture idle state
+            else:
+                print(f"Axis {i} is not in idle state. Please ensure it is not being touched during callibration.")
+                time.sleep(1)
+                self.calibrate()  # Restart calibration if any axis is not in idle state
+                return
+        print(f"Calibration complete. Offsets: {self.offsets}")
+
 
 
     def run_test(self):
@@ -452,13 +472,17 @@ class joystick_simple:
         
         pygame.event.get()  # must call get() to handle internal queue
         for i in range(self.joystick.numAxes):
-            self.axes[i] = self.joystick.joy.get_axis(i)  # assemble list of analog values
-
+            raw_value = self.joystick.joy.get_axis(i)
+            self.axes[i] = raw_value - self.offsets[i]  # Subtract calibration offset
+            
+            
         self.angular_control_normed = -self.axes[2]
         self.translational_control_normed = -self.axes[1]
-
+        
+            
         return self.angular_control_normed, self.translational_control_normed
 
+            
     def read_test(self):
         while True:
             self.read()
