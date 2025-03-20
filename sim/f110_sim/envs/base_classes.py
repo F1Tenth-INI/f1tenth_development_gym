@@ -240,7 +240,7 @@ class RaceCar(object):
         # clear collision indicator
         self.in_collision = False
         # clear state
-        self.state = np.zeros((7, ))
+        self.state = np.zeros((StateIndices.number_of_states, ))
         self.state[StateIndices.pose_x] = pose[0]
         self.state[StateIndices.pose_y] = pose[1]
         self.state[StateIndices.yaw_angle] = pose[2]
@@ -324,7 +324,7 @@ class RaceCar(object):
             self.state = self.dynamic_model.step(s, u)
 
         if self.ode_implementation == 'ODE_TF':
-            s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
+            s = np.expand_dims(self.state, 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32)
 
             u_pid = self.car_model.pid(s, u)
@@ -335,7 +335,7 @@ class RaceCar(object):
             s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
             # wrap yaw angle
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
-            self.state = full_state_alphabetical_to_original(s)
+            self.state = s
             
 
         

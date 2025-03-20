@@ -18,7 +18,7 @@ from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
-    full_state_alphabetical_to_original, full_state_original_to_alphabetical)
+    )
 from utilities.Exceptions import CarCrashException
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -277,7 +277,7 @@ class RacingSimulation:
         if not Settings.FORGE_HISTORY: return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
-                driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.sim.agents[index].state))
+                driver.history_forger.update_state_history(self.sim.agents[index].state)
 
     def render_env(self):
         
@@ -389,9 +389,9 @@ class RacingSimulation:
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
             driver.set_car_state(self.state_recording[self.sim_index])
-            self.env.sim.agents[agent_index].state = full_state_alphabetical_to_original(driver.car_state)
+            self.env.sim.agents[agent_index].state = driver.car_state
         else:
-            car_state = full_state_original_to_alphabetical(self.sim.agents[agent_index].state) 
+            car_state = self.sim.agents[agent_index].state 
             car_state_with_noise = self.add_state_noise(car_state)
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])

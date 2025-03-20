@@ -69,7 +69,6 @@ class MPPILitePlanner(template_planner):
         last_Q_sq = self.last_Q_sq
 
         s = np.array(self.car_state)
-        s = full_state_alphabetical_to_original(s)
         
         # Call JIT-compiled function
         next_control, Q_sequence = process_observation_jit(

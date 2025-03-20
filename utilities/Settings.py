@@ -19,6 +19,7 @@ class Settings():
     CONTROLLER = 'mpc' # Options: 'manual' (requires connected joystick) ,'mpc', 'ftg' (follow the gap), neural (neural network),  'pp' (pure pursuit), 'stanley' (stanley controller)
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_SIM = 0.01       # Dont touch.
     ACCELERATION_TIME = 5                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -161,7 +162,7 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
-    OPTIMIZE_FOR_RL = True # Optimize for RL training
+    OPTIMIZE_FOR_RL = False # Optimize for RL training
     
     if(OPTIMIZE_FOR_RL):
         

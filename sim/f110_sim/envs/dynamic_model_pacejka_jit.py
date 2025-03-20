@@ -2,17 +2,21 @@ import numpy as np
 from numba import njit, prange
 
 
-
 class StateIndices:
-    pose_x = 0
-    pose_y = 1
-    yaw_angle = 2
-    v_x = 3
-    v_y = 4
-    yaw_rate = 5
-    steering_angle = 6
+    yaw_rate = 0
+    v_x = 1
+    v_y = 2
+    yaw_angle = 3
+    yaw_angle_cos = 4
+    yaw_angle_sin = 5
+    pose_x = 6
+    pose_y = 7
+    slip_angle = 8
+    steering_angle = 9
 
-    number_of_states = 7
+
+    number_of_states = 10
+    
     
     
 class ControlIndices:
@@ -32,7 +36,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
 
     # Unpack state
-    s_x, s_y, psi, v_x, v_y, psi_dot, delta = s
+    psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s
 
     # Unpack control inputs
     desired_steering_angle, desired_velocity = Q
@@ -103,8 +107,11 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     psi = (1 - weight) * psi_ks + weight * psi
     v_y = (1 - weight) * v_y_ks + weight * v_y
 
+    psi_sin = np.sin(psi)
+    psi_cos = np.cos(psi)
+    
     # Return the updated state (8 elements)
-    return np.array([s_x, s_y, psi, v_x, v_y, psi_dot, delta], dtype=np.float32)
+    return np.array([psi_dot, v_x, v_y,psi,psi_cos, psi_sin, s_x ,s_y ,  0, delta], dtype=np.float32)
 
 
 
