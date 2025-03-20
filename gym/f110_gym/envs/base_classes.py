@@ -32,9 +32,7 @@ Author: Hongrui Zheng
 """
 
 import numpy as np
-from numba import njit
 
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
 from f110_gym.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
 
 from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
@@ -561,18 +559,36 @@ class Simulator(object):
 
     def reset(self, poses):
         """
-        Resets the simulation environment by given poses
+        Resets the simulation environment by given poses.
 
-        Arges:
+        Args:
             poses (np.ndarray (num_agents, 3)): poses to reset agents to
 
         Returns:
-            None
+            obs (dict): initial observation dictionary
         """
-        
         if poses.shape[0] != self.num_agents:
             raise ValueError('Number of poses for reset does not match number of agents.')
 
-        # loop over poses to reset
+        # Reset all agents
         for i in range(self.num_agents):
             self.agents[i].reset(poses[i, :])
+
+        # Construct initial observation
+        obs = {
+            "poses_x": np.array([self.agents[i].state[0] for i in range(self.num_agents)]),
+            "poses_y": np.array([self.agents[i].state[1] for i in range(self.num_agents)]),
+            "poses_theta": np.array([self.agents[i].state[2] for i in range(self.num_agents)]),
+            "linear_vels_x": np.array([self.agents[i].state[3] for i in range(self.num_agents)]),  # Assuming index 3 is velocity
+            "collisions": np.zeros(self.num_agents, dtype=bool),  # No collisions at start
+            "lap_times": np.zeros(self.num_agents),  # Start with 0 lap time
+            "lap_counts": np.zeros(self.num_agents, dtype=int),  # No laps completed
+        }
+
+        # If LiDAR is available, include scans in observation
+        if hasattr(self.agents[0], "get_lidar_scan"):
+            obs["scans"] = np.array([self.agents[i].get_lidar_scan() for i in range(self.num_agents)])
+        else:
+            obs["scans"] = np.array([np.zeros(1080) for i in range(self.num_agents)])
+
+        return obs

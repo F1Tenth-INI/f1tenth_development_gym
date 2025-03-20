@@ -1,12 +1,11 @@
 from setuptools import setup
 
-setup(name='f110_gym',
+setup(name='f110_sim',
       version='0.2.1',
       author='Hongrui Zheng',
       author_email='billyzheng.bz@gmail.com',
       url='https://f1tenth.org',
-      install_requires=['gym==0.23.1',
-                        'numpy==1.24.3',
+      install_requires=['numpy==1.24.3',
                         'Pillow',
                         'scipy',
                         'numba',

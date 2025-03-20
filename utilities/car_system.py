@@ -181,7 +181,8 @@ class CarSystem:
         self.LIDAR.update_ranges(ranges, self.car_state)
 
     def render(self, e):
-        self.render_utils.render(e)
+        if Settings.RENDER_MODE is not None:
+            self.render_utils.render(e)
 
     def process_observation(self, ranges=None, ego_odom=None):
         

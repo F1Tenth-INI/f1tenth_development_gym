@@ -7,7 +7,6 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 from stable_baselines3.common.evaluation import evaluate_policy
-from torch.utils.tensorboard import SummaryWriter
 import time
 from typing import Optional
 
@@ -105,7 +104,7 @@ class RacingEnv(gym.Env):
             self.simulation.init_drivers() # at least re-init drivers in any case
             
         self.simulation.get_starting_positions() # reinitialize starting positions in case of randomization
-        self.simulation.env.reset(poses=np.array(self.simulation.starting_positions))
+        self.simulation.reset(poses=np.array(self.simulation.starting_positions))
         
         driver : CarSystem = self.simulation.drivers[0]
         driver.reward_calculator.checkpoint_fraction = 1 / self.checkpoints_per_lap
@@ -254,7 +253,7 @@ if __name__ == "__main__":
     from utilities.car_system import CarSystem
     from run.run_simulation import RacingSimulation
 
-    debug = True
+    debug = False
     print_info = False
     num_envs = 1
     
