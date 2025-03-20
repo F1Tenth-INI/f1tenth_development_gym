@@ -252,6 +252,8 @@ class CarSystem:
             '0: angular_control': self.angular_control,
             '1: translational_control': self.translational_control,
             '4: Surface Friction': Settings.SURFACE_FRICTION,
+            '5: Laptimes:': str(self.laptimes),
+            '6: Reward': self.reward,
         }
 
         self.render_utils.set_label_dict(label_dict)
@@ -383,7 +385,7 @@ class CarSystem:
     '''
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
-        # print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
+        print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
 
      
     

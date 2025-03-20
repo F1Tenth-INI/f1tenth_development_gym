@@ -9,7 +9,7 @@ except Exception as e:
     print(f"TensorFlow is forbidden: {e}")
     print("not importing it saves you 200mb of memory :)")
 
-
+from tensorboardX import SummaryWriter
 from stable_baselines3 import SAC
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
@@ -89,7 +89,7 @@ class RacingEnv(gym.Env):
         self.reward_history = []  # Store the last N rewards
         self.step_history = []  # Store the last N observations
         
-        self.writer = SummaryWriter(log_dir)
+        self.writer = SummaryWriter(log_dir = log_dir)
 
     
     def reset(self, seed=None, options=None):
@@ -158,6 +158,14 @@ class RacingEnv(gym.Env):
 
         # if terminated:
             # simulation.drivers[0].on_simulation_end()
+        if self.global_step_counter % 1000 == 0:
+            driver : CarSystem = simulation.drivers[0]
+            
+            self.writer.add_scalar("params/checkpoints_per_lap", self.checkpoints_per_lap, self.global_step_counter)
+            
+            laptimes = driver.laptimes
+            if laptimes:
+                self.writer.add_scalar("params/laptimes", laptimes[-1], self.global_step_counter)
         
         return obs, reward, terminated, truncated, {}
     
@@ -271,7 +279,7 @@ if __name__ == "__main__":
         check_env(env)
         
     else:
-        num_envs = 32
+        num_envs = 16
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         
