@@ -60,7 +60,7 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
 
 def full_state_original_to_alphabetical(o):
-    from f110_gym.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
+    from f110_sim.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
     
     slipping_angle = 0 if o[StateIndices.v_x] == 0 else np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
     alphabetical = np.zeros(len(STATE_VARIABLES))
@@ -82,7 +82,7 @@ def full_state_original_to_alphabetical(o):
 
 def full_state_alphabetical_to_original(a):
     
-    from f110_gym.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
+    from f110_sim.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
 
     original = np.zeros(7)
     original[StateIndices.pose_x] = a[POSE_X_IDX]

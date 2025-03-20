@@ -1,13 +1,14 @@
 from setuptools import setup
 
 setup(name='f110_sim',
-      version='0.2.1',
-      author='Hongrui Zheng',
+      version='0.3.0',
+      author='Hongrui Zheng / Marcin Paluch / Florian Bolli',
       author_email='billyzheng.bz@gmail.com',
       url='https://f1tenth.org',
       install_requires=['numpy==1.24.3',
                         'Pillow',
                         'scipy',
+                        'psutil',
                         'numba',
                         'pyyaml',
                         'pyglet==1.5.26',

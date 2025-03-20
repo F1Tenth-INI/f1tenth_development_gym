@@ -40,7 +40,7 @@ from utilities.Settings import Settings
 
 
 # helpers
-from f110_gym.envs.collision_models import get_vertices
+from f110_sim.envs.collision_models import get_vertices
 
 # zooming constants
 ZOOM_IN_FACTOR = 1.2

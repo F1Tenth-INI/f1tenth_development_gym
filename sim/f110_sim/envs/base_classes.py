@@ -33,10 +33,10 @@ Author: Hongrui Zheng
 
 import numpy as np
 
-from f110_gym.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
+from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
 
-from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
-from f110_gym.envs.collision_models import get_vertices, collision_multiple
+from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
+from f110_sim.envs.collision_models import get_vertices, collision_multiple
 
 
 from utilities.Settings import Settings

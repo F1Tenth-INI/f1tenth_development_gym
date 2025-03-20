@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import trange
 from argparse import Namespace
 
-from f110_gym.envs.base_classes import Simulator, wrap_angle_rad
+from f110_sim.envs.base_classes import Simulator, wrap_angle_rad
 
 from typing import Optional
 from utilities.Settings import Settings
@@ -96,7 +96,7 @@ class RacingSimulation:
         # Init renderer
         
         if Settings.RENDER_MODE is not None:        
-            from f110_gym.envs.rendering import EnvRenderer
+            from f110_sim.envs.rendering import EnvRenderer
 
             map_name = Settings.MAP_NAME
             map_ext = ".png"
