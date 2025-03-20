@@ -8,11 +8,11 @@ import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utilities.Settings import Settings
-from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name, tensorboard_log_dir
+from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name, log_dir
 
 import numpy as np
 
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 
 model_name = model_name + '_running'
 # model_name = "sac_ini_1_rca1_22200000"
@@ -59,7 +59,7 @@ def evaluate_model(recording_name_extension=""):
     print(f"Mean reward: {mean_reward}, Mean Lap Time: {mean_lap_time}")
 
     # ✅ Log results to TensorBoard
-    writer = SummaryWriter(log_dir=os.path.join(tensorboard_log_dir, model_name))
+    writer = SummaryWriter(log_dir=os.path.join(log_dir, model_name))
     writer.add_scalar("evaluation/mean_lap_time", mean_lap_time, int(recording_name_extension))
     writer.add_scalar("evaluation/mean_reward", mean_reward, int(recording_name_extension))
     writer.close()
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     parser.add_argument('timestep', type=int, nargs='?', default=0, help='Training time step that is evaluated')
     
     args = parser.parse_args()
-    timestep = int(args.timestep)
+    timestep = int(args.timestep) 
     print(f"Evaluating model at timestep {timestep}")
     
     evaluate_model(timestep)
