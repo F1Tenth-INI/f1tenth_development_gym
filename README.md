@@ -20,8 +20,8 @@ conda activate f1t
 
 And now you can install the gym package.
 
-```bash
-pip install --user -e gym/
+```bash\
+pip install --user -e sim/
 ```
 
 Install the SI Toolkit package.
@@ -42,6 +42,13 @@ python run.py
 
 ## Troubleshooting
 
+After renaming gym to sim (updating from an oplder to a newer verfsion of this project), the JIT compiled functions might still be cached. If you face errors of caching scripts, that are looking for f110_gym or similar, delete the jit cache by running:
+
+```bash
+rm -rf ~/.numba_cache
+rm -rf ~/.cache/numba
+```
+
 Check if the submodules are present. The folder SI_Toolkit and Control_Toolkit should not be empty. If they are empty, run:
 
 ```bash
@@ -55,13 +62,16 @@ python -m pip install --user -e ./SI_Toolkit
 ```
 
 ## Quality of life
+
 Add the aliases to .bashrc
+
 ```bash
 echo -e "\nalias f1t='conda activate f1t'\nalias pypa='export PYTHONPATH=./'" >> ~/.bashrc
-source ~/.bashrc 
+source ~/.bashrc
 ```
 
 now you can use them like this
+
 ```bash
 f1t
 pypa
