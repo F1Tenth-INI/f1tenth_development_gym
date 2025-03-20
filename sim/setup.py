@@ -26,5 +26,8 @@ setup(name='f110_sim',
                         'gitpython',
                         'pandas',
                         'shapely',
+                        'gymnasium',
+                        'stable_baselines3',
+                        'tensorboard==2.14',
                         ]
       )

@@ -1,12 +1,20 @@
 import gymnasium as gym
 import numpy as np
 
+import sys
+sys.modules["tensorflow"] = None
+try:
+    import tensorflow as tf
+except Exception as e:
+    print(f"TensorFlow is forbidden: {e}")
+    print("not importing it saves you 200mb of memory :)")
+
+
 from stable_baselines3 import SAC
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
-from stable_baselines3.common.evaluation import evaluate_policy
 import time
 from typing import Optional
 
@@ -31,7 +39,6 @@ tensorboad_log_name = f"{model_name}_{experiment_index}"
 
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
-tensorboard_log_dir = os.path.join(model_dir, "tensorboard_logs")
 
 print_info = False
 
@@ -81,6 +88,8 @@ class RacingEnv(gym.Env):
         
         self.reward_history = []  # Store the last N rewards
         self.step_history = []  # Store the last N observations
+        
+        self.writer = SummaryWriter(log_dir)
 
     
     def reset(self, seed=None, options=None):
@@ -262,7 +271,7 @@ if __name__ == "__main__":
         check_env(env)
         
     else:
-        num_envs = 16
+        num_envs = 32
         # env = DummyVecEnv([make_env() for _ in range(num_envs)])
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
         
@@ -287,7 +296,7 @@ if __name__ == "__main__":
             train_freq=1,
             gradient_steps=1,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
-            tensorboard_log=os.path.join(tensorboard_log_dir, tensorboad_log_name),  # Enable TensorBoard logging
+            tensorboard_log=os.path.join(log_dir),  # Enable TensorBoard logging
             learning_rate=lr_schedule  # Use the dynamic learning rate function
         )
         
@@ -319,7 +328,7 @@ if __name__ == "__main__":
     model.learn(total_timesteps=40_000_000, 
                 callback=[
                     TrainingStatusCallback(check_freq=12_500, save_path=model_path),
-                    AdjustCheckpointsCallback(check_freq=3_000_000, model_name=model_name, log_dir=tensorboard_log_dir)
+                    AdjustCheckpointsCallback(check_freq=3_000_000, model_name=model_name, log_dir=log_dir)
                     ],
                 )
     
