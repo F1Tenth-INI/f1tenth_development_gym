@@ -248,12 +248,15 @@ class CarSystem:
 
              # Rendering and recording
         label_dict = {
-            '2: slip_angle': car_state[SLIP_ANGLE_IDX],
             '0: angular_control': self.angular_control,
             '1: translational_control': self.translational_control,
+            'yaw': car_state[POSE_THETA_IDX],
             '4: Surface Friction': Settings.SURFACE_FRICTION,
-            '5: Laptimes:': str(self.laptimes),
+            '5: Laptimes:': ', '.join(f'{lt:.2f}' for lt in self.laptimes),
             '6: Reward': self.reward,
+            'Distance to raceline': self.waypoint_utils.current_distance_to_raceline,
+            'speed': car_state[LINEAR_VEL_X_IDX],
+            'Wp_idx': self.waypoint_utils.nearest_waypoint_index,
         }
 
         self.render_utils.set_label_dict(label_dict)

@@ -391,9 +391,12 @@ class WaypointUtils:
         self.cumulative_progress += delta_distance / total_distance
 
         # **Lap Increment (Crossing Initial Position Forward)**
+        # TODO: Fix: this is not the a lap completion but the car crossing the zero waypoint
         if self.previous_distance > self.initial_position and current_distance < self.initial_position:
             self.lap_count += 1
-            print(f"Lap completed! Total laps: {self.lap_count}")
+            # print(f"Lap completed! Total laps: {self.lap_count}")
+            
+            
 
         # **Lap Decrement (Crossing Initial Position Backward)**
         if self.previous_distance < self.initial_position and current_distance > self.initial_position:

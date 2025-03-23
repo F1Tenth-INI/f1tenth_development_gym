@@ -194,11 +194,7 @@ class RacingSimulation:
         self.reset()
     
         # Main loop
-        
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/0.01)
-        experiment_length = Settings.EXPERIMENT_LENGTH * intermediate_steps
-        if Settings.REPLAY_RECORDING:
-            experiment_length = len(self.state_recording) 
+        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.EXPERIMENT_LENGTH
         for _ in trange(experiment_length):
 
             self.simulation_step()
@@ -225,7 +221,7 @@ class RacingSimulation:
         # From here on, controls have to be in [steering angle, speed ]
 
         self.laptime += self.step_reward
-        self.sim_time += Settings.TIMESTEP_CONTROL
+        self.sim_time += Settings.TIMESTEP_SIM
         self.sim_index += 1
 
         
@@ -289,13 +285,11 @@ class RacingSimulation:
                 'poses_theta': self.obs['poses_theta'],
                 'linear_vels_x': self.obs['linear_vels_x'],
                 'lap_times': self.obs.get('lap_times', [0]),
-                'lap_counts': self.obs.get('lap_counts', [0])
+                'lap_counts': self.obs.get('lap_counts', [0]),
+                'simulation_time': self.sim_time,
             }
 
-            self.renderer.update_obs(render_obs)
-            self.renderer.dispatch_events()  # Handle window events
-            self.renderer.on_draw()
-            self.renderer.flip()  # Swap buffers
+            self.renderer.render(render_obs)
             
             self.render_callback(self.renderer)
 
@@ -424,6 +418,7 @@ class RacingSimulation:
                 self.on_simulation_end(collision=True)
                 if not Settings.OPTIMIZE_FOR_RL:
                     raise CarCrashException('car crashed')
+
                 
     '''
     Called at the end of experiment
@@ -431,6 +426,7 @@ class RacingSimulation:
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
+        self.renderer.close()
 
     
    
