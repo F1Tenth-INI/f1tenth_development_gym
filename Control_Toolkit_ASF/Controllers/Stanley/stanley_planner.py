@@ -14,7 +14,7 @@ else:
 
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_PSI_IDX
 
-from f110_gym.envs.base_classes import wrap_angle_rad
+from f110_sim.envs.base_classes import wrap_angle_rad
 from SI_Toolkit.computation_library import TensorType
 
 from utilities.state_utilities import (

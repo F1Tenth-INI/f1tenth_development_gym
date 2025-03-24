@@ -70,11 +70,13 @@ def create_csv_file_name(Settings, csv_name=None):
             controller_name = 'None'
         else:
             controller_name = Settings.CONTROLLER
+        
+        reverse_string = 'reverse_' if Settings.REVERSE_DIRECTION else ''
             
-        dataset_name = Settings.MAP_NAME + '_' + controller_name + '_' + str(
+        dataset_name = Settings.MAP_NAME + '_' + reverse_string + controller_name + '_' + str(
             int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
-            Settings.SURFACE_FRICTION) + '_mu_control_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
+            Settings.SURFACE_FRICTION) + '_mu_c_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
         timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + str(Settings.RECORDING_INDEX) + '_' + dataset_name + '.csv'
     else:

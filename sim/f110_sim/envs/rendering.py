@@ -40,7 +40,7 @@ from utilities.Settings import Settings
 
 
 # helpers
-from f110_gym.envs.collision_models import get_vertices
+from f110_sim.envs.collision_models import get_vertices
 
 # zooming constants
 ZOOM_IN_FACTOR = 1.2
@@ -357,6 +357,7 @@ class EnvRenderer(pyglet.window.Window):
         poses_x = obs['poses_x']
         poses_y = obs['poses_y']
         poses_theta = obs['poses_theta']
+        simulation_time = obs['simulation_time']
         # estimate_friction = Settings.SURFACE_FRICTION
         
         num_agents = len(poses_x)
@@ -383,9 +384,14 @@ class EnvRenderer(pyglet.window.Window):
 
     
         state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
-        self.score_label.text = '{number_of_laps: .0f}-Lap Time: {laptime:.2f}, Ego Lap Count: {count:.0f}'.format(number_of_laps=Settings.STOP_TIMER_AFTER_N_LAPS, laptime=obs['lap_times'][0], count=obs['lap_counts'][obs['ego_idx']])
+        self.score_label.text = 'Sim Time: {simulation_time:.2f}, Ego Lap Count: {count:.0f}'.format(simulation_time=simulation_time, count=obs['lap_counts'][obs['ego_idx']])
         self.score_label.text +=  "\n" + state_text
 
+    def render(self, render_obs):
+        self.update_obs(render_obs)
+        self.dispatch_events()  # Handle window events
+        self.on_draw()
+        self.flip()  # Swap buffers
         
     def close(self):
         self.vertices = None

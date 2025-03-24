@@ -35,8 +35,8 @@ jobs:
           python -m venv venv
           source venv/bin/activate
 
-      - name: Install gym
-        run: pip install -e gym/
+      - name: Install sim
+        run: pip install -e sim/
 
       - name: Check submodules
         run: |

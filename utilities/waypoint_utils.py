@@ -96,6 +96,8 @@ class WaypointUtils:
 
         self.nearest_waypoint_index = None
         self.lap_count = 0
+        self.cumulative_progress = 0
+        self.initial_position = None
         self.previous_distance = 0
         self.initial_distance = None
 
@@ -363,36 +365,49 @@ class WaypointUtils:
                 scaling_factor = np.clip(distance_to_obstacle / 5, 0.1, 1)
                 self.next_waypoints[:, WP_VX_IDX] *= scaling_factor
                 
-    def get_progress_along_track(self):
-        total_distance = self.waypoints[-1][WP_S_IDX]
-        current_distance = self.waypoints[self.nearest_waypoint_index][WP_S_IDX]
+    def get_cumulative_lap_progress(self):
+        total_distance = self.waypoints[-1][WP_S_IDX]  # Full track length
+        current_distance = self.next_waypoints[0][WP_S_IDX]
 
-        if self.initial_distance is None:
-            self.initial_distance = current_distance
+
+        # Initialize progress tracking
+        if self.initial_position is None:
+            self.initial_position = current_distance  # Store starting position
+            self.cumulative_progress = 0.0  # Start cumulative progress at 0
             self.previous_distance = current_distance
+            self.lap_count = 0
             return 0.0
 
-        adjusted_distance = current_distance - self.initial_distance
-        # if adjusted_distance < 0:
-        #     adjusted_distance += total_distance
+        # Compute movement since last step
+        delta_distance = current_distance - self.previous_distance
 
-        # Only count as a lap if we cross from high distance back to start (forward direction only)
-        if (self.previous_distance > 0.9 * total_distance and
-            adjusted_distance < 0.1 * total_distance and
-            (current_distance - self.previous_distance) < -0.5 * total_distance):
+        # Handle wraparound at start/finish line (correct sign of delta)
+        if delta_distance < -0.5 * total_distance:
+            delta_distance += total_distance  # Fix for crossing from last to first waypoint
+        elif delta_distance > 0.5 * total_distance:
+            delta_distance -= total_distance  # Fix for crossing from first to last waypoint
+
+        # Update cumulative progress (keeps accumulating beyond 1.0 and below 0.0)
+        self.cumulative_progress += delta_distance / total_distance
+
+        # **Lap Increment (Crossing Initial Position Forward)**
+        # TODO: Fix: this is not the a lap completion but the car crossing the zero waypoint
+        if self.previous_distance > self.initial_position and current_distance < self.initial_position:
             self.lap_count += 1
-            self.initial_distance = current_distance  # Reset initial distance for the new lap
-            adjusted_distance = 0.0  # Reset adjusted distance at lap completion
+            # print(f"Lap completed! Total laps: {self.lap_count}")
+            
+            
 
-        self.previous_distance = adjusted_distance
+        # **Lap Decrement (Crossing Initial Position Backward)**
+        if self.previous_distance < self.initial_position and current_distance > self.initial_position:
+            self.lap_count -= 1
+            print(f"Lap decremented! Total laps: {self.lap_count}")
 
-        return adjusted_distance / total_distance
+        #  Store previous position for next step
+        self.previous_distance = current_distance  
 
-    def get_cumulative_progress(self):
-        
-        progress_along_track = self.get_progress_along_track()
-     
-        return self.lap_count + progress_along_track
+        return self.cumulative_progress
+
     @staticmethod
     def get_relative_positions(waypoints, car_state):
         return get_relative_positions_jit(waypoints, car_state)
@@ -493,8 +508,7 @@ def get_nearest_waypoint(car_state, waypoints, last_nearest_waypoint_index=None,
 
     return best_index, best_dist
 
-from numba import njit
-from numba.np.extensions import cross2d
+
 
 @njit
 def get_distance_to_raceline_jit(waypoints, nearest_waypoint_index, car_position):

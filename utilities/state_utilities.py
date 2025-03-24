@@ -59,42 +59,6 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
     return s
 
 
-def full_state_original_to_alphabetical(o):
-    from f110_gym.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
-    
-    slipping_angle = 0 if o[StateIndices.v_x] == 0 else np.arctan(o[StateIndices.v_y] / o[StateIndices.v_x])
-    alphabetical = np.zeros(len(STATE_VARIABLES))
-    
-    alphabetical[ANGULAR_VEL_Z_IDX] = o[StateIndices.yaw_rate]
-    alphabetical[LINEAR_VEL_X_IDX] = o[StateIndices.v_x]
-    alphabetical[LINEAR_VEL_Y_IDX] = o[StateIndices.v_y]
-    alphabetical[POSE_THETA_IDX] = o[StateIndices.yaw_angle]
-    alphabetical[POSE_THETA_COS_IDX] = np.cos(o[StateIndices.yaw_angle])
-    alphabetical[POSE_THETA_SIN_IDX] = np.sin(o[StateIndices.yaw_angle])
-    alphabetical[POSE_X_IDX] = o[StateIndices.pose_x]
-    alphabetical[POSE_Y_IDX] = o[StateIndices.pose_y]
-    alphabetical[SLIP_ANGLE_IDX] = 0 #slipping_angle
-    alphabetical[STEERING_ANGLE_IDX] = o[StateIndices.steering_angle]
-    # alphabetical[9] = o[StateIndices.v_y]
-    
-    return alphabetical
-
-
-def full_state_alphabetical_to_original(a):
-    
-    from f110_gym.envs.dynamic_model_pacejka_jit import StateIndices, ControlIndices
-
-    original = np.zeros(7)
-    original[StateIndices.pose_x] = a[POSE_X_IDX]
-    original[StateIndices.pose_y] = a[POSE_Y_IDX]
-    original[StateIndices.yaw_angle] = a[POSE_THETA_IDX]
-    original[StateIndices.v_x] = a[LINEAR_VEL_X_IDX]
-    original[StateIndices.v_y] = a[LINEAR_VEL_Y_IDX]
-    original[StateIndices.yaw_rate] = a[ANGULAR_VEL_Z_IDX]
-    original[StateIndices.steering_angle] = a[STEERING_ANGLE_IDX]
-    # original[7] = a[SLIP_ANGLE_IDX]
-    
-    return original
 
 
 ANGULAR_CONTROL_IDX = CONTROL_INDICES['angular_control'] # 0

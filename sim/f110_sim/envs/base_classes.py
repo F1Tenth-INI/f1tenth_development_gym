@@ -32,15 +32,13 @@ Author: Hongrui Zheng
 """
 
 import numpy as np
-from numba import njit
 
-from f110_gym.envs.dynamic_models import vehicle_dynamics_st, pid
-from f110_gym.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
+from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
 
-from f110_gym.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
-from f110_gym.envs.collision_models import get_vertices, collision_multiple
+from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
+from f110_sim.envs.collision_models import get_vertices, collision_multiple
 
-from SI_Toolkit_ASF.car_model import car_model
+
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -113,6 +111,7 @@ class RaceCar(object):
 
         self.state = np.zeros((StateIndices.number_of_states, ))
         if self.ode_implementation == 'ODE_TF':
+            from SI_Toolkit_ASF.car_model import car_model
             self.car_model = car_model(
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
@@ -241,7 +240,7 @@ class RaceCar(object):
         # clear collision indicator
         self.in_collision = False
         # clear state
-        self.state = np.zeros((7, ))
+        self.state = np.zeros((StateIndices.number_of_states, ))
         self.state[StateIndices.pose_x] = pose[0]
         self.state[StateIndices.pose_y] = pose[1]
         self.state[StateIndices.yaw_angle] = pose[2]
@@ -325,7 +324,7 @@ class RaceCar(object):
             self.state = self.dynamic_model.step(s, u)
 
         if self.ode_implementation == 'ODE_TF':
-            s = np.expand_dims(full_state_original_to_alphabetical(self.state), 0).astype(np.float32)
+            s = np.expand_dims(self.state, 0).astype(np.float32)
             u = np.array([[desired_steering_angle, desired_speed]], dtype=np.float32)
 
             u_pid = self.car_model.pid(s, u)
@@ -336,7 +335,7 @@ class RaceCar(object):
             s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
             # wrap yaw angle
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
-            self.state = full_state_alphabetical_to_original(s)
+            self.state = s
             
 
         
@@ -560,18 +559,36 @@ class Simulator(object):
 
     def reset(self, poses):
         """
-        Resets the simulation environment by given poses
+        Resets the simulation environment by given poses.
 
-        Arges:
+        Args:
             poses (np.ndarray (num_agents, 3)): poses to reset agents to
 
         Returns:
-            None
+            obs (dict): initial observation dictionary
         """
-        
         if poses.shape[0] != self.num_agents:
             raise ValueError('Number of poses for reset does not match number of agents.')
 
-        # loop over poses to reset
+        # Reset all agents
         for i in range(self.num_agents):
             self.agents[i].reset(poses[i, :])
+
+        # Construct initial observation
+        obs = {
+            "poses_x": np.array([self.agents[i].state[0] for i in range(self.num_agents)]),
+            "poses_y": np.array([self.agents[i].state[1] for i in range(self.num_agents)]),
+            "poses_theta": np.array([self.agents[i].state[2] for i in range(self.num_agents)]),
+            "linear_vels_x": np.array([self.agents[i].state[3] for i in range(self.num_agents)]),  # Assuming index 3 is velocity
+            "collisions": np.zeros(self.num_agents, dtype=bool),  # No collisions at start
+            "lap_times": np.zeros(self.num_agents),  # Start with 0 lap time
+            "lap_counts": np.zeros(self.num_agents, dtype=int),  # No laps completed
+        }
+
+        # If LiDAR is available, include scans in observation
+        if hasattr(self.agents[0], "get_lidar_scan"):
+            obs["scans"] = np.array([self.agents[i].get_lidar_scan() for i in range(self.num_agents)])
+        else:
+            obs["scans"] = np.array([np.zeros(1080) for i in range(self.num_agents)])
+
+        return obs

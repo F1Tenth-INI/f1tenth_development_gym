@@ -1,31 +1,28 @@
+import psutil
 import os
-import gym
 import time
 import yaml
 
 import numpy as np
-import pandas as pd
 
 from tqdm import trange
 from argparse import Namespace
 
-from f110_gym.envs.base_classes import wrap_angle_rad
+from f110_sim.envs.base_classes import Simulator, wrap_angle_rad
 
+from typing import Optional
 from utilities.Settings import Settings
 from utilities.car_system import CarSystem
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
-from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
-    full_state_alphabetical_to_original, full_state_original_to_alphabetical)
+    )
 from utilities.Exceptions import CarCrashException
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
-
 
 
 
@@ -50,12 +47,17 @@ class RacingSimulation:
         self.control_delay_buffer = []
 
         self.env = None
+        self.sim : Optional[Simulator] = None
         self.laptime = 0.0
+        
+        self.renderer = None
 
         self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
         self.state_recording = None
         if Settings.REPLAY_RECORDING:
+            import pandas as pd
+
             self.state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
             self.time_axis = self.state_recording['time'].to_numpy()
             self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
@@ -90,9 +92,26 @@ class RacingSimulation:
                 
     
     def prepare_simulation(self):
+        
+        # Init renderer
+        
+        if Settings.RENDER_MODE is not None:        
+            from f110_sim.envs.rendering import EnvRenderer
+
+            map_name = Settings.MAP_NAME
+            map_ext = ".png"
+            map_path = os.path.join(Settings.MAP_PATH, map_name)
+
+            WINDOW_W, WINDOW_H = 1000, 800
+            self.renderer = EnvRenderer(WINDOW_W, WINDOW_H)
+            self.renderer.update_map(map_path, map_ext)
+        
+        
         self.init_drivers()
         self.get_starting_positions()
         self.setup_gym_environment()
+        
+        
 
 
         self.sim_time = 0.0
@@ -109,10 +128,22 @@ class RacingSimulation:
             random_obstacle_creator = RandomObstacleCreator()
             racetrack=random_obstacle_creator.add_random_obstacles(racetrack, self.starting_positions) # uses its own yaml, sets racetrack to the resulting new map in temp folder
 
-        self.env = gym.make('f110-v0', map=racetrack, map_ext=".png", num_agents=len(self.drivers))
-        self.env.add_render_callback(self.render_callback)
-        assert(self.env.timestep == 0.01)
+        car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE
+        path = 'utilities/car_files/'
+        env_car_parameters = yaml.load(open(os.path.join(path, car_parameter_file), "r"), Loader=yaml.FullLoader)
 
+        # Simulation settings
+        num_agents = 1 + Settings.NUMBER_OF_OPPONENTS
+        timestep = 0.01
+        seed = 12345
+
+        # Initialize Simulator
+        self.sim = Simulator(env_car_parameters, num_agents, seed)
+
+        # Set the map
+        map_file = os.path.join(Settings.MAP_PATH, Settings.MAP_NAME + ".png")  
+        self.sim.set_map(Settings.MAP_CONFIG_FILE, ".png")
+        
     '''
     Initialize the drivers (car_systems) for the simulation:
     First driver is the main car, the others are opponents as defined in Settings.NUMBER_OF_OPPONENTS
@@ -121,7 +152,7 @@ class RacingSimulation:
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
-                    'lap_times': lambda: self.obs['lap_times'][0],
+                    # 'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
@@ -152,42 +183,45 @@ class RacingSimulation:
         control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
 
+    def reset(self, poses = None):
+        if poses is None:
+            poses = np.array(self.starting_positions)
+        self.obs = self.sim.reset(poses=poses)
+
 
     def run_simulation(self):
 
-        # Reset env
-        self.obs, self.step_reward, self.done, self.info = self.env.reset(poses=np.array(self.starting_positions) )
+        self.reset()
     
         # Main loop
-        
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
-        experiment_length = Settings.EXPERIMENT_LENGTH * intermediate_steps
-        if Settings.REPLAY_RECORDING:
-            experiment_length = len(self.state_recording) 
+        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.EXPERIMENT_LENGTH
         for _ in trange(experiment_length):
 
             self.simulation_step()
 
-        self.env.close()
 
         self.on_simulation_end(collision=False)
 
         print('Sim elapsed time:', self.laptime, 'Real elapsed time:', time.time()-self.start_time)
-        print(Settings.STOP_TIMER_AFTER_N_LAPS, ' laptime:', str(self.obs['lap_times']), 's')
+        print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
 
     def simulation_step(self, agent_controls=None):
 
+        # try:
         if(agent_controls is None):
             agent_controls_execute = self.get_agent_controls()
         else:
             agent_controls_execute = agent_controls
+        # except Exception as e:
+        #     print("Error in get_agent_controls", e) 
+        #     agent_controls_execute = [[0.0, 0.0]]
 
+        self.obs = self.sim.step(np.array(agent_controls_execute))
         # From here on, controls have to be in [steering angle, speed ]
-        self.obs, self.step_reward, self.done, self.info = self.env.step(np.array(agent_controls_execute))
 
         self.laptime += self.step_reward
-        self.sim_time += Settings.TIMESTEP_CONTROL
+        self.sim_time += Settings.TIMESTEP_SIM
         self.sim_index += 1
 
         
@@ -203,13 +237,14 @@ class RacingSimulation:
         self.get_control_for_history_forger()
 
         # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/self.env.timestep)
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
         if self.sim_index % intermediate_steps == 0:
 
             self.agent_controls_calculated = []
 
             #Process observations and get control actions
             for index, driver in enumerate(self.drivers):
+                driver : CarSystem = driver
                 self.update_driver_state(driver, index)
 
                 # Get control actions from driver 
@@ -232,18 +267,31 @@ class RacingSimulation:
         if self.sim_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
-                    driver.history_forger.update_control_history(self.env.sim.agents[index].u_pid_with_constrains)
+                    driver.history_forger.update_control_history(self.sim.agents[index].u_pid_with_constrains)
 
     def get_state_for_history_forger(self):
         if not Settings.FORGE_HISTORY: return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
-                driver.history_forger.update_state_history(full_state_original_to_alphabetical(self.env.sim.agents[index].state))
+                driver.history_forger.update_state_history(self.sim.agents[index].state)
 
     def render_env(self):
-        # Render the environment
-        if Settings.RENDER_MODE is not None:
-            self.env.render(mode=Settings.RENDER_MODE)
+        
+        if self.renderer is not None:
+            render_obs = {
+                'ego_idx': 0,  # Only one agent
+                'poses_x': self.obs['poses_x'],
+                'poses_y': self.obs['poses_y'],
+                'poses_theta': self.obs['poses_theta'],
+                'linear_vels_x': self.obs['linear_vels_x'],
+                'lap_times': self.obs.get('lap_times', [0]),
+                'lap_counts': self.obs.get('lap_counts', [0]),
+                'simulation_time': self.sim_time,
+            }
+
+            self.renderer.render(render_obs)
+            
+            self.render_callback(self.renderer)
 
 
     '''
@@ -290,7 +338,7 @@ class RacingSimulation:
         if hasattr(conf, 'starting_positions'):
             starting_positions =  conf.starting_positions[0:self.number_of_drivers]
         else:
-            print("No starting positions in INI.yaml. Taking value from settings.py")
+            # print("No starting positions in INI.yaml. Taking value from settings.py")
             starting_positions = Settings.STARTING_POSITION
 
         if(len(starting_positions) < self.number_of_drivers):
@@ -319,7 +367,7 @@ class RacingSimulation:
             random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
             
             starting_positions[0] = random_wp[1:4]
-            print("Starting position: ", random_wp[1:4])
+            # print("Starting position: ", random_wp[1:4])
                 
        
         
@@ -335,9 +383,9 @@ class RacingSimulation:
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
             driver.set_car_state(self.state_recording[self.sim_index])
-            self.env.sim.agents[agent_index].state = full_state_alphabetical_to_original(driver.car_state)
+            self.env.sim.agents[agent_index].state = driver.car_state
         else:
-            car_state = full_state_original_to_alphabetical(self.env.sim.agents[agent_index].state) 
+            car_state = self.sim.agents[agent_index].state 
             car_state_with_noise = self.add_state_noise(car_state)
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
@@ -370,6 +418,7 @@ class RacingSimulation:
                 self.on_simulation_end(collision=True)
                 if not Settings.OPTIMIZE_FOR_RL:
                     raise CarCrashException('car crashed')
+
                 
     '''
     Called at the end of experiment
@@ -377,6 +426,7 @@ class RacingSimulation:
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
+        # self.renderer.close()
 
     
    
