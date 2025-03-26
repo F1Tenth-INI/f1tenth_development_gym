@@ -74,7 +74,7 @@ def get_control_limits(clip_control_input):
 
     return clip_control_input_low, clip_control_input_high
 
-control_limits_low, control_limits_high = get_control_limits([[-0.4 , -2], [0.4, 18]])
+control_limits_low, control_limits_high = get_control_limits([[-0.4 , -10], [0.4, 10]])
 control_limits_max_abs = np.max(np.vstack((np.abs(control_limits_low), np.abs(control_limits_high))), axis=0)
 
 
