@@ -29,7 +29,23 @@ class ControlIndices:
 
 @njit(fastmath=True)
 def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
-    """Advance car dynamics using optimized Pacejka model with JIT, fully matching batch version."""
+    """Advance car dynamics using optimized Pacejka model with JIT, fully matching batch version.
+    
+     Args:
+        s (np.ndarray): Car state as deinfed in state_utilities,
+        
+        Q (np.ndarray): Control input vector with the following elements:
+            - Q[0]: desired_steering_angle (desired steering angle input)
+            - Q[1]: acceleration (translational control input)
+
+        car_params (np.ndarray): Array of car parameters as defined in VehicleParameters.to_np_array().
+
+        t_step (float): Time step for integration.
+
+    Returns:
+        np.ndarray: updated carstate
+          
+    """
     
     # Unpack car parameters from NumPy array
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
@@ -39,7 +55,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s
 
     # Unpack control inputs
-    desired_steering_angle, desired_velocity = Q
+    desired_steering_angle, translational_control = Q
 
     # Apply Servo PID Control for Steering (Matches Batch Model)
     steering_angle_difference = desired_steering_angle - delta
@@ -47,12 +63,9 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     delta_dot = max(min(delta_dot, sv_max), sv_min)  # Apply steering velocity constraints
 
     # Apply Motor PID Control for Acceleration (Matches Batch Model)
-    speed_difference = desired_velocity - v_x
-    if v_x > 0:  # Forward
-        v_x_dot = 10.0 * (a_max / v_max * speed_difference) if speed_difference > 0 else 10.0 * (a_max / (-v_min) * speed_difference)
-    else:  # Backward
-        v_x_dot = 2.0 * (a_max / v_max * speed_difference) if speed_difference > 0 else 2.0 * (a_max / (-v_min) * speed_difference)
-
+  
+    v_x_dot = translational_control
+        
     v_x_dot = max(min(v_x_dot, a_max), a_min)  # Apply acceleration constraints
 
     # Euler integration with optimized calculations

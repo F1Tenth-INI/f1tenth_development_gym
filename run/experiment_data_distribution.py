@@ -13,11 +13,11 @@ random.seed(42)
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
 
 # Input folder with CSV files
-input_folder = "../ExperimentRecordings/Experiments_03_03_2025"
+input_folder = "TrainingLite/Datasets/Custom_IPZ34b"
 
 # Change to desired directory in Experiment
-root_dir = "../SI_Toolkit_ASF/Experiments"
-experiment_dir = "MyTest"
+root_dir = "SI_Toolkit_ASF/Experiments"
+experiment_dir = "Custom_IPZ34b"
 
 past_recordings = os.path.join(root_dir, experiment_dir, "Past_trainings")
 
@@ -49,6 +49,7 @@ def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, lengt
 
 # Create the ZIP archive
 def csv_comprimisation(folder_path, save_folder):
+    return
     # Zip up old trainingsdata
     ending = os.path.basename(folder_path)
     timestamp = datetime.now().strftime("%Y-%m-%d--%H-%M-%S")

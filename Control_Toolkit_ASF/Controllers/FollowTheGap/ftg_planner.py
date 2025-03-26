@@ -7,8 +7,9 @@ import math
 import matplotlib.pyplot as plt
 
 from Control_Toolkit_ASF.Controllers import template_planner
-
+from utilities.controller_utilities import ControllerUtilities
 from utilities.Settings import Settings
+from utilities.state_utilities import *
 
 LOOK_FORWARD_ONLY =True
 
@@ -27,7 +28,7 @@ class FollowTheGapPlanner(template_planner):
    
  
 
-    def __init__(self, speed_fraction=1.0):
+    def __init__(self, speed_fraction=0.5):
 
         super().__init__()
     
@@ -47,6 +48,9 @@ class FollowTheGapPlanner(template_planner):
         self.angular_control = None
         
         self.draw_position_history = True
+        
+        self.controller_utils = ControllerUtilities()
+        self.car_state = None
 
 
 
@@ -74,11 +78,12 @@ class FollowTheGapPlanner(template_planner):
             'angular_vel_z': float,
         }
         """
-        pose_x = ego_odom['pose_x']
-        pose_y = ego_odom['pose_y']
-        pose_theta = ego_odom['pose_theta']
+        pose_x = self.car_state[POSE_X_IDX]
+        pose_y = self.car_state[POSE_Y_IDX]
+        pose_theta = self.car_state[POSE_THETA_IDX]
+        v_x = self.car_state[LINEAR_VEL_X_IDX]
         
-        self.current_position = [pose_x, pose_y, ego_odom['linear_vel_x']]
+        self.current_position = [pose_x, pose_y, v_x]
 
         scans = np.array(ranges)
         # Take into account size of car
@@ -139,13 +144,16 @@ class FollowTheGapPlanner(template_planner):
         self.plot_lidar_data_f(angles,
                                distances, distances_filtered,
                                gaps, largest_gap_center)
+        
+        
+        acceleration = self.controller_utils.motor_pid(speed, v_x)
 
         self.simulation_index += 1
 
-        self.translational_control = speed
         self.angular_control = steering_angle
+        self.translational_control = acceleration
 
-        return steering_angle, speed 
+        return self.angular_control, self.translational_control
 
     def plot_lidar_data_f(self,
                           angles,

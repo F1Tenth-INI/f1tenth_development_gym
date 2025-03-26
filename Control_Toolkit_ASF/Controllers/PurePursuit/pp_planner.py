@@ -9,6 +9,7 @@ from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.state_utilities import *
 
+from utilities.controller_utilities import ControllerUtilities
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
 '''
@@ -51,7 +52,7 @@ class PurePursuitPlanner(template_planner):
         self.angular_control = 0.
         self.translational_control = 0.
 
-
+        self.controller_utils = ControllerUtilities()
         self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((0.0, 1.0), (1.0, 0.0) , fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
 
         self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
@@ -163,11 +164,14 @@ class PurePursuitPlanner(template_planner):
         else:
             self.correcting_index = 0
 
+        
         self.speed = speed
         # print(self.speed)
-
+        
+        acceleration = self.controller_utils.motor_pid(speed, v_x)
+        
         self.angular_control = steering_angle
-        self.translational_control = speed
+        self.translational_control = acceleration
 
         self.render_utils.update_pp(
             target_point=lookahead_point,
@@ -175,7 +179,7 @@ class PurePursuitPlanner(template_planner):
 
         self.simulation_index += 1
 
-        return steering_angle, speed
+        return self.angular_control, self.translational_control
 
 
 

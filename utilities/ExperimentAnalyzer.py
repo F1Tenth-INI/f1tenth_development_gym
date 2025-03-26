@@ -16,17 +16,18 @@ class ExperimentAnalyzer:
         self.step_start = 0
         self.step_end = step_end
         
-        self.experiment_path = Settings.RECORDING_FOLDER #experiment_path
+        self.experiment_path = experiment_path
         self.experiment_name = experiment_name
         self.map_name = Settings.MAP_NAME
+        self.map_path = Settings.MAP_PATH
         self.controller_name = 'neural'
-        self.analyse_folder = 'ExperimentRecordings/Analyse'
         
         csv_path = os.path.join(self.experiment_path, self.experiment_name) 
         self.experiment_data_path = os.path.join(csv_path + "_data")
         self.experiment_configs_path = os.path.join(self.experiment_data_path, "configs")
         
-        self.waypoints_file = os.path.join(self.experiment_configs_path, self.map_name + "_wp")
+        self.waypoints_file = os.path.join(self.map_path, self.map_name + "_wp")
+        # self.waypoints_file = os.path.join(self.experiment_configs_path, self.map_name + "_wp")
         
         # Waypoints from 
         self.waypoints: pd.DataFrame = pd.read_csv(self.waypoints_file + ".csv", comment='#')   
@@ -118,6 +119,10 @@ class ExperimentAnalyzer:
               
     def plot_errors(self):
         
+        # Check of plot folder exists
+        if not os.path.exists(self.experiment_data_path):
+            os.makedirs(self.experiment_data_path)
+            
         time_recorded = self.recording['time'].values
         
         controller_name = self.controller_name
@@ -195,6 +200,10 @@ class ExperimentAnalyzer:
 
 # Test function
 if __name__ == "__main__":
-
-    ea = ExperimentAnalyzer("F1TENTH__2024-09-25_10-20-05Recording1_RCA2_nni-lite_50Hz_vel_1.2_noise_c[0.0, 0.0]_mu_0.5") 
+    experiment_dir = "TrainingLite/Datasets/Custom_IPZ34b/"
+    experiment_name = "2025-03-24_08-05-47_Custom_IPZ34b_139_IPZ34b_noise_mpc_50Hz_vel_1.0_noise_c[0.1, 0.1]_mu_0.4_mu_control_0.4_"
+    
+    experiment_path = os.path.join(experiment_dir, experiment_name)
+    
+    ea = ExperimentAnalyzer(experiment_name=experiment_name, experiment_path=experiment_dir) 
     ea.plot_experiment()
