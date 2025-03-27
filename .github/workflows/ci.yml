@@ -47,6 +47,10 @@ jobs:
       - name: Install SI_Toolkit
         run: pip install -e ./SI_Toolkit
 
+      - name: Add project root to PYTHONPATH
+        run: |
+          echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
+
       - name: Run pytest tests
         run: |
           pytest tests --junitxml=pytest-results.xml
