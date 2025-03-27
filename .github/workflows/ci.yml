@@ -47,6 +47,12 @@ jobs:
       - name: Install SI_Toolkit
         run: pip install -e ./SI_Toolkit
 
+      - name: Run pytest tests
+        run: |
+          pytest tests --junitxml=pytest-results.xml
+        env:
+          CI_TEST: true
+
       - name: Run simulation
         run: python run/ci_test.py
         env:
@@ -57,3 +63,9 @@ jobs:
         with:
           name: ExperimentRecordings
           path: ExperimentRecordings/
+
+      - name: Upload pytest results
+        uses: actions/upload-artifact@v4
+        with:
+          name: PytestResults
+          path: pytest-results.xml
