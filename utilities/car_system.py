@@ -58,8 +58,15 @@ class CarSystem:
         self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
         self.laptimes = []
 
+        # Pure control without noise
+        self.angular_control_calculated = 0
+        self.translational_control_calculated = 0
+        
+        # Control with added control noise
         self.angular_control = 0
         self.translational_control = 0
+        
+        self.control_noise = None
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
@@ -218,6 +225,12 @@ class CarSystem:
 
         self.control_index += 1
         self.time += self.time_increment
+        
+        self.angular_control_calculated = self.angular_control
+        self.translational_control_calculated = self.translational_control
+        
+        # Add noise to control
+        self.angular_control, self.translational_control = self.add_control_noise(np.array([self.angular_control, self.translational_control]))
 
         return self.angular_control, self.translational_control
 
@@ -431,6 +444,15 @@ class CarSystem:
             self.recorder.start_csv_recording()
 
     
+    def add_control_noise(self, control):
+        if self.control_noise is None or self.control_index % Settings.CONTROL_NOISE_DURATION == 0:
+            noise_level = Settings.NOISE_LEVEL_CONTROL
+            noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
+            self.control_noise = noise_array
+        control_with_noise = control + self.control_noise
+        return control_with_noise
+
+
     
     '''
     Called by parent on the end of the simulation before terminating the program

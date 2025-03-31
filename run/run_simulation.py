@@ -152,7 +152,6 @@ class RacingSimulation:
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
-                    # 'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
@@ -240,7 +239,7 @@ class RacingSimulation:
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
         if self.sim_index % intermediate_steps == 0:
 
-            self.agent_controls_calculated = []
+            self.agent_controls = []
 
             #Process observations and get control actions
             for index, driver in enumerate(self.drivers):
@@ -249,12 +248,10 @@ class RacingSimulation:
 
                 # Get control actions from driver 
                 angular_control, translational_control = driver.process_observation(ranges[index], None)
-
-                control_with_noise = self.add_control_noise([angular_control, translational_control])
-                self.agent_controls_calculated.append(control_with_noise)
+                self.agent_controls.append([angular_control, translational_control ])
 
         # Control delay buffer
-        self.control_delay_buffer.append(self.agent_controls_calculated)        
+        self.control_delay_buffer.append(self.agent_controls)        
         agent_controls_execute  = self.control_delay_buffer.pop(0)
 
         self.get_state_for_history_forger()
@@ -404,13 +401,7 @@ class RacingSimulation:
                 
         return state_with_noise
 
-    def add_control_noise(self, control):
-        noise_level = Settings.NOISE_LEVEL_CONTROL
-        noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
-        control_with_noise = control + noise_array
-        return control_with_noise
-
-
+ 
     def check_and_handle_collisions(self):
         # Collision ends simulation
         if Settings.CRASH_DETECTION:
@@ -426,7 +417,7 @@ class RacingSimulation:
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
-        # self.renderer.close()
+        self.renderer.close()
 
     
    
