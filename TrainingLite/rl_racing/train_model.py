@@ -1,5 +1,7 @@
 import gymnasium as gym
 import numpy as np
+import torch
+torch.set_num_threads(12)  # or 16, depending on your CPU
 
 import sys
 sys.modules["tensorflow"] = None
@@ -31,8 +33,8 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, Adju
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_load_name = "SAC_fast_lr"
-model_name = "SAC_fast_lr"
+model_load_name = "SAC_RCA1_Full_1"
+model_name = "SAC_RCA1_Full_1"
 
 experiment_index = 0
 tensorboad_log_name = f"{model_name}_{experiment_index}"
@@ -82,7 +84,7 @@ class RacingEnv(gym.Env):
         self.stuck_counter = 0
         self.spin_counter = 0
         
-        self.checkpoints_per_lap = 20
+        self.checkpoints_per_lap = 100
         
         self.max_episode_steps = 20000
         
@@ -123,6 +125,7 @@ class RacingEnv(gym.Env):
         return self.get_observation(), {}
 
     def step(self, action):
+        
         simulation: Optional[RacingSimulation] = self.simulation
         self.eposode_step_counter += 1  # Steps within an episode
         self.global_step_counter += 1   # Training-wide step counter
@@ -179,9 +182,8 @@ class RacingEnv(gym.Env):
         driver.waypoint_utils.update_next_waypoints(car_state)
         
         lidar_scan = driver.LIDAR.processed_ranges
-        lidar_scan = np.clip(1.0 / (driver.LIDAR.processed_ranges + 1e-3), 0, 10.0)
+        lidar_scan = np.clip(1.0 / (driver.LIDAR.processed_ranges + 1e-3), 0, 10.0) 
 
-        next_waypoints = driver.waypoint_utils.next_waypoint_positions_relative[:, 1]
         state_features = np.array([
             # car_state[POSE_X_IDX],
             # car_state[POSE_Y_IDX],
@@ -192,9 +194,13 @@ class RacingEnv(gym.Env):
             # car_state[POSE_THETA_SIN_IDX],
             car_state[STEERING_ANGLE_IDX]
         ], dtype=np.float32)
+        
+        observation_array = np.concatenate([lidar_scan, state_features]).astype(np.float32)
+        normalization_array = [10.0] * len(lidar_scan) + [10.0, 10.0, 10.0, np.pi]
+        
+        observation_array_normalized = observation_array / normalization_array
 
-        return np.concatenate([lidar_scan, state_features]).astype(np.float32)
-        # return np.concatenate([lidar_scan, state_features, next_waypoints]).astype(np.float32)
+        return observation_array_normalized
 
     def _calculate_reward(self):
         
@@ -247,7 +253,7 @@ def lr_schedule(progress_remaining: float) -> float:
     - progress_remaining = 1.0 at the start of training
     - progress_remaining = 0.0 at the end of training
     """
-    base_lr = 0.003  # Initial learning rate
+    base_lr = 0.001  # Initial learning rate
     min_lr = 0.0001  # Minimum learning rate
     
     return max(min_lr, base_lr * progress_remaining)
@@ -272,19 +278,16 @@ if __name__ == "__main__":
 
     debug = False
     print_info = False
-    num_envs = 1
+    num_envs = 12
     
     if(debug): # Single environment
-        env = make_env()()
-        check_env(env)
-        
+        num_envs = 1
+        env = DummyVecEnv([make_env() for _ in range(num_envs)])
     else:
-        num_envs = 16
-        # env = DummyVecEnv([make_env() for _ in range(num_envs)])
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
-        
-        env = VecMonitor(env, log_dir)  # Keeps track of episode rewards
-        env.reset()
+    
+    env = VecMonitor(env, log_dir)  # Keeps track of episode rewards
+    env.reset()
 
 
 
@@ -293,6 +296,7 @@ if __name__ == "__main__":
     model_load_path = os.path.join(model_dir, model_load_name)
     try:
         model = SAC.load(model_load_path, env=env)
+        model.lr_schedule = lr_schedule  # Set the learning rate schedule
         print("Model loaded successfully.")
     except FileNotFoundError:
         print("No existing model found. Creating a new one.")
@@ -301,8 +305,8 @@ if __name__ == "__main__":
         policy_kwargs = dict(net_arch=[256, 256])
         model = SAC(
             "MlpPolicy", env, verbose=1,
-            train_freq=1,
-            gradient_steps=1,  # Number of gradient steps to perform after each rollout
+            train_freq=10,
+            gradient_steps=10,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
             tensorboard_log=os.path.join(log_dir),  # Enable TensorBoard logging
             learning_rate=lr_schedule  # Use the dynamic learning rate function
@@ -310,16 +314,16 @@ if __name__ == "__main__":
         
 
     # model = PPO(
-    #     "MlpPolicy", env, verbose=1,
-    #     policy_kwargs=policy_kwargs,
-    #     n_steps=int(2048/num_envs),  # Reduce step size for faster feedback
-    #     tensorboard_log=tensorboard_log_dir,  # Enable TensorBoard logging
+    #     "MlpPolicy", env,
+    #     verbose=1,
+    #     n_steps=2048 // num_envs,
+    #     batch_size=64,
+    #     tensorboard_log=log_dir,
+    #     policy_kwargs=dict(net_arch=[256, 256]),
+    #     learning_rate=lr_schedule,
     # )
-    
 
-    
-
-    # Save the current Python file under the model name
+        
 
 
     # Save the current Python file under the model name
@@ -333,10 +337,10 @@ if __name__ == "__main__":
     
     
     then = time.time()
-    model.learn(total_timesteps=40_000_000, 
+    model.learn(total_timesteps=10_000_000, 
                 callback=[
                     TrainingStatusCallback(check_freq=12_500, save_path=model_path),
-                    AdjustCheckpointsCallback(check_freq=3_000_000, model_name=model_name, log_dir=log_dir)
+                    # AdjustCheckpointsCallback(check_freq=3_000_000, model_name=model_name, log_dir=log_dir)
                     ],
                 )
     

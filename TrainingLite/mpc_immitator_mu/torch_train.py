@@ -25,8 +25,8 @@ from utilities.state_utilities import *
 
 # Setup experiment paths and parameters
 experiment_path = os.path.dirname(os.path.realpath(__file__))
-model_name = "2025-03-10_mu075-4"
-dataset_name = "2025-03-10-delay"
+model_name = "03_26_RCA1-1"
+dataset_name = "03_26_RCA1"
 number_of_epochs = 30
 batch_size = 64
 save_historgrams = False
@@ -54,7 +54,7 @@ wypt_x_cols = ["WYPT_REL_X_{:02d}".format(i) for i in range(0, 30)]
 wypt_y_cols = ["WYPT_REL_Y_{:02d}".format(i) for i in range(0, 30)]
 wypt_vx_cols = ["WYPT_VX_{:02d}".format(i) for i in range(0, 30)]
 input_cols = state_cols + wypt_x_cols + wypt_y_cols + wypt_vx_cols + lidar_cols
-output_cols = ["angular_control_calculated", "translational_control_calculated", "mu"]
+output_cols = ["angular_control_calculated", "translational_control_calculated",]
 
 df = df.dropna()
 

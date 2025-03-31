@@ -53,26 +53,26 @@ class TrainingHelper:
             df['d_time'] = df['time'].diff()
 
             state_variables = ['angular_vel_z', 'linear_vel_x', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_theta', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
-            for var in state_variables:
-                df['d_' + var] = df[var].diff() / df['d_time']
+            # for var in state_variables:
+            #     df['d_' + var] = df[var].diff() / df['d_time']
                 
             control_variables = ['angular_control_calculated', 'translational_control_calculated']
             for var in control_variables:
                 df['prev_' + var] = df[var].shift(1)
             
 
-            df = df[df['d_angular_vel_z'] <= 60]
-            df = df[df['linear_vel_x'] <= 20]
-            df = df[df['d_pose_x'] <= 20.]
-            df = df[df['d_pose_y'] <= 20.]
+            # df = df[df['d_angular_vel_z'] <= 60]
+            # df = df[df['linear_vel_x'] <= 20]
+            # df = df[df['d_pose_x'] <= 20.]
+            # df = df[df['d_pose_y'] <= 20.]
             
-            df = df[df['imu_a_x'] <= 20.]
-            df = df[df['imu_a_y'] <= 20.]
-            df = df[df['imu_av_z'] <= 20.]
+            # df = df[df['imu_a_x'] <= 20.]
+            # df = df[df['imu_a_y'] <= 20.]
+            # df = df[df['imu_av_z'] <= 20.]
             
-            df = df[df['imu_a_x'] >= -20.]
-            df = df[df['imu_a_y'] >= -20.]
-            df = df[df['imu_av_z'] >= -20.]
+            # df = df[df['imu_a_x'] >= -20.]
+            # df = df[df['imu_a_y'] >= -20.]
+            # df = df[df['imu_av_z'] >= -20.]
 
             df['source'] = file
             
@@ -87,28 +87,33 @@ class TrainingHelper:
         return df, file_change_indices
     
     def create_histograms(self, df, input_cols, output_cols):
-        
         print("Creating histograms, might take a while...")
         # Create figures folder
         os.makedirs(self.experiment_path + '/figures', exist_ok=True)
-        
-        for col in df[input_cols]:
-            plt.figure()
-            df[col].hist(bins=100)  # Increase the number of bins to 100
-            plt.title(col)
-            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
 
-            time.sleep(0.15)  # Sleep for 50 milliseconds
-            
-        for col in df[output_cols]:
-            plt.figure()
-            df[col].hist(bins=100)  # Increase the number of bins to 100
-            plt.title(col)
-            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+        # Process input columns
+        for col in input_cols:
+            if pd.api.types.is_numeric_dtype(df[col]):  # Check if the column is numeric
+                plt.figure()
+                df[col].hist(bins=100)  # Increase the number of bins to 100
+                plt.title(col)
+                plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+                time.sleep(0.15)  # Sleep for 150 milliseconds
+            else:
+                print(f"Skipping non-numeric column: {col}")
 
-            time.sleep(0.15)  # Sleep for 150 milliseconds
+        # Process output columns
+        for col in output_cols:
+            if pd.api.types.is_numeric_dtype(df[col]):  # Check if the column is numeric
+                plt.figure()
+                df[col].hist(bins=100)  # Increase the number of bins to 100
+                plt.title(col)
+                plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+                time.sleep(0.15)  # Sleep for 150 milliseconds
+            else:
+                print(f"Skipping non-numeric column: {col}")
+
         print("Histograms created.")
-    
     def shuffle_dataset_by_files(self, X, y, file_change_indices):
  
         # Split X_train and Y_train at file_change_indices
