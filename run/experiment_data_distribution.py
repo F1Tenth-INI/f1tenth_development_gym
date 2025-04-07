@@ -13,11 +13,11 @@ random.seed(42)
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
 
 # Input folder with CSV files
-input_folder = "TrainingLite/Datasets/Custom_IPZ34b"
+input_folder = "TrainingLite/Datasets/03_26_RCA1"
 
 # Change to desired directory in Experiment
 root_dir = "SI_Toolkit_ASF/Experiments"
-experiment_dir = "Custom_IPZ34b"
+experiment_dir = "03_26_RCA1"
 
 past_recordings = os.path.join(root_dir, experiment_dir, "Past_trainings")
 
