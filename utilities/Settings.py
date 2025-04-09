@@ -59,14 +59,14 @@ class Settings():
     
     # Head2Head Settings
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
-    SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = True # Slow down if obstacle is close to the next waypoints
+    SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = False # Slow down if obstacle is close to the next waypoints
     ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
     
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     CRASH_DETECTION = True
-    REPEAT_IF_CRASHED = True
+    REPEAT_IF_CRASHED = False
     MAX_CRASH_REPETITIONS = 5
 
 
@@ -120,7 +120,7 @@ class Settings():
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
     PP_NORMING_V_FOR_CURRVATURE = 10.0  # Bigger number - higher velocity required to have effect on shortening of lookahead horizon
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
-    PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.1
+    PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.5
 
     ## MPC Controller ##
     CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
@@ -169,7 +169,6 @@ class Settings():
         # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
         TIMESTEP_CONTROL = 0.01
         CONTROLLER = None # No controller needed
-        DECREASE_RESOLUTION_FACTOR = 4 # Max resolution of WP
         CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
         SAVE_RECORDINGS = False # Performance
         EXPERIMENT_LENGTH = 10000 # dont stop experiment

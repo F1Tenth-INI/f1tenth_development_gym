@@ -86,14 +86,14 @@ class ExperimentAnalyzer:
         
     def plot_controls(self):
         # Plot States
-        state_names = ['angular_vel_z','linear_vel_x','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
+        state_names = ['angular_vel_z','linear_vel_x','linear_vel_y','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
         
         # Create a new figure
         fig = plt.figure(figsize=(15, 20))  # width: 15 inches, height: 20 inches
 
         for index, state_name in enumerate(state_names):
             # Add subplot for each state
-            plt.subplot(7, 1, index+1)  # 7 rows, 1 column, nth plot
+            plt.subplot(len(state_names), 1, index+1)  # 7 rows, 1 column, nth plot
             plt.title(state_name)
             plt.plot(self.recording[state_name].to_numpy()[1:], color="red")
 
@@ -200,8 +200,9 @@ class ExperimentAnalyzer:
 
 # Test function
 if __name__ == "__main__":
-    experiment_dir = "TrainingLite/Datasets/Custom_IPZ34b/"
-    experiment_name = "2025-03-24_08-05-47_Custom_IPZ34b_139_IPZ34b_noise_mpc_50Hz_vel_1.0_noise_c[0.1, 0.1]_mu_0.4_mu_control_0.4_"
+    # experiment_dir = "TrainingLite/Datasets/Custom_IPZ34b/"
+    experiment_dir = "ExperimentRecordings/"
+    experiment_name = "2025-03-31_12-34-45_Recording1_0_RCA1_neural_50Hz_vel_0.8_noise_c[0.0, 0.0]_mu_0.5_mu_c_None_"
     
     experiment_path = os.path.join(experiment_dir, experiment_name)
     
