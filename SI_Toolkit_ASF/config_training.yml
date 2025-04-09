@@ -1,10 +1,10 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "GRU-64H1-64H2"
+  NET_NAME: "GRU-128H1-128H2-128H3"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/04_08_RCA1_noise/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -21,9 +21,11 @@ training_default:
       "WYPT_VX(30)",
       "angular_vel_z",
       "linear_vel_x",
-      "steering_angle",
       "linear_vel_y",
-
+      "steering_angle",
+      # "mu",
+      # "angular_control_calculated_-1",
+      # "translational_control_calculated_-1",
     ]
 
   
@@ -33,7 +35,7 @@ training_default:
 
   setpoint_inputs: []
   outputs:
-    ["angular_control_calculated", "translational_control_calculated"]
+    ["angular_control_calculated", "translational_control_calculated"] # "mu"
 
   EPOCHS: 5
   BATCH_SIZE: 16
@@ -48,11 +50,11 @@ training_default:
     MIN_DELTA: 0.00
   VALIDATE_ALSO_ON_TRAINING_SET: False
 
-  WASH_OUT_LEN: 10
-  POST_WASH_OUT_LEN: 40
+  WASH_OUT_LEN: 20
+  POST_WASH_OUT_LEN: 300
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 0 # for k, as a label to row i is taken row i+k
   USE_NNI: False # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
 
