@@ -417,7 +417,9 @@ class RacingSimulation:
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
-        self.renderer.close()
+        if(hasattr(self, 'renderer')):
+            if(hasattr(self.renderer, 'close')):
+                self.renderer.close()
 
     
    
