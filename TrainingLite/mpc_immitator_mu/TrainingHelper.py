@@ -47,6 +47,9 @@ class TrainingHelper:
         csv_files = glob.glob(self.dataset_dir + '/*.csv')
         df_list = []
         for i, file in enumerate(csv_files):
+            if i % reduce_size_by != 0: 
+                continue
+
             df = pd.read_csv(file, comment='#')
             df['pose_theta_cos'] = np.cos(df['pose_theta'])
             df['pose_theta_sin'] = np.sin(df['pose_theta'])
@@ -75,9 +78,7 @@ class TrainingHelper:
             # df = df[df['imu_av_z'] >= -20.]
 
             df['source'] = file
-            
-            if i % reduce_size_by == 0:
-                df_list.append(df)
+            df_list.append(df)
             # df_list.append(df)
 
 

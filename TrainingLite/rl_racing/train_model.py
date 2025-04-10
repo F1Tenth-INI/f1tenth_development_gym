@@ -1,7 +1,10 @@
 import gymnasium as gym
 import numpy as np
+# torch.set_num_threads(12)  # or 16, depending on your CPU
+
 import torch
-torch.set_num_threads(12)  # or 16, depending on your CPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 import sys
 sys.modules["tensorflow"] = None
@@ -278,7 +281,7 @@ if __name__ == "__main__":
 
     debug = False
     print_info = False
-    num_envs = 12
+    num_envs = 64
     
     if(debug): # Single environment
         num_envs = 1
@@ -305,11 +308,13 @@ if __name__ == "__main__":
         policy_kwargs = dict(net_arch=[256, 256])
         model = SAC(
             "MlpPolicy", env, verbose=1,
-            train_freq=10,
-            gradient_steps=10,  # Number of gradient steps to perform after each rollout
+            train_freq=1,
+            gradient_steps=1,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
             tensorboard_log=os.path.join(log_dir),  # Enable TensorBoard logging
-            learning_rate=lr_schedule  # Use the dynamic learning rate function
+            learning_rate=lr_schedule,  # Use the dynamic learning rate function
+            device=device,  # Ensure the model is trained on GPU
+
         )
         
 
