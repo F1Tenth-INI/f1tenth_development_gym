@@ -70,6 +70,7 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
+        self.car_state_history = []
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -182,6 +183,7 @@ class CarSystem:
     
     def set_car_state(self, car_state):
         self.car_state = car_state
+        self.car_state_history.append(car_state)
 
     def set_scans(self, ranges):
         ranges = np.array(ranges)
@@ -482,6 +484,12 @@ class CarSystem:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
 
             if collision:
+                print('Collision detected, moving csv to crash folder')
+                print('Car State at crtash:', self.car_state)
+                print('Car State at -200 steps:', self.car_state_history[-200])
+                
+                # Save to csv file
+                np.savetxt("Test.csv", [self.car_state_history[-200]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
     
 def initialize_planner(controller: str):

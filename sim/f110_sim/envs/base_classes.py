@@ -224,7 +224,7 @@ class RaceCar(object):
         """
         RaceCar.scan_simulator.set_map(map_path, map_ext)
 
-    def reset(self, pose):
+    def reset(self, initial_state):
         """
         Resets the vehicle to a pose
         
@@ -240,10 +240,8 @@ class RaceCar(object):
         # clear collision indicator
         self.in_collision = False
         # clear state
-        self.state = np.zeros((StateIndices.number_of_states, ))
-        self.state[StateIndices.pose_x] = pose[0]
-        self.state[StateIndices.pose_y] = pose[1]
-        self.state[StateIndices.yaw_angle] = pose[2]
+        self.state = initial_state
+        
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
         self.scan_rng = np.random.default_rng(seed=self.seed)
@@ -557,22 +555,22 @@ class Simulator(object):
 
         return observations
 
-    def reset(self, poses):
+    def reset(self, initial_states):
         """
-        Resets the simulation environment by given poses.
+        Resets the simulation environment by given initial_states.
 
         Args:
-            poses (np.ndarray (num_agents, 3)): poses to reset agents to
+            initial_states (np.ndarray (num_agents, 3)): initial_states to reset agents to
 
         Returns:
             obs (dict): initial observation dictionary
         """
-        if poses.shape[0] != self.num_agents:
-            raise ValueError('Number of poses for reset does not match number of agents.')
+        if initial_states.shape[0] != self.num_agents:
+            raise ValueError('Number of initial_states for reset does not match number of agents.')
 
         # Reset all agents
         for i in range(self.num_agents):
-            self.agents[i].reset(poses[i, :])
+            self.agents[i].reset(initial_states[i, :])
 
         # Construct initial observation
         obs = {
