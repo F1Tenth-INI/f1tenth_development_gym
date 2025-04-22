@@ -5,6 +5,8 @@ import glob
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from torch.utils.data import DataLoader, Dataset, TensorDataset
+
 import yaml
 from typing import Optional
 from joblib import load
@@ -25,9 +27,11 @@ class TrainingHelper:
         return
     
     def create_and_clear_model_folder(self, model_dir: str):
-        if os.path.exists(model_dir):
-            shutil.rmtree(model_dir)
-        os.makedirs(model_dir, exist_ok=True)
+        # if os.path.exists(model_dir):
+        #     shutil.rmtree(model_dir)
+
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir, exist_ok=True)
         
     def save_training_scripts(self, training_file_path: str):
         # Zip the training script for reconstruction
@@ -43,8 +47,9 @@ class TrainingHelper:
             
         return 
  
-    def load_dataset(self, reduce_size_by: int = 1):
-        csv_files = glob.glob(self.dataset_dir + '/*.csv')
+    def load_dataset(self, dataset_dir: str, reduce_size_by: int = 1):
+        csv_files = glob.glob(dataset_dir + '/*.csv')
+        print(dataset_dir)
         df_list = []
         for i, file in enumerate(csv_files):
             if i % reduce_size_by != 0: 
@@ -244,3 +249,25 @@ class TrainingHelper:
         plt.title('Training and Validation Loss')
         plt.grid(True)
         plt.savefig(os.path.join(self.model_dir, 'loss_plot.png'))
+
+
+
+
+
+# Custom streamed windowing dataset
+class SequenceWindowDataset(Dataset):
+    def __init__(self, X, y, window_size, step_size=1):
+        self.X = X
+        self.y = y
+        self.window_size = window_size
+        self.step_size = step_size
+        self.indices = list(range(0, len(X) - window_size + 1, step_size))
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        i = self.indices[idx]
+        x_window = self.X[i:i + self.window_size]
+        y_window = self.y[i:i + self.window_size]
+        return torch.tensor(x_window, dtype=torch.float32), torch.tensor(y_window, dtype=torch.float32)

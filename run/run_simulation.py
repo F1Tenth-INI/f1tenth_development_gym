@@ -49,6 +49,8 @@ class RacingSimulation:
         self.env = None
         self.sim : Optional[Simulator] = None
         self.laptime = 0.0
+        self.initial_states = None
+
         
         self.renderer = None
 

@@ -484,12 +484,20 @@ class CarSystem:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
 
             if collision:
+                index = min(len(self.car_state_history), 200)
+                
+                # Save or append self.control_index to csv file
+                # if a csv file called survival.csv already exists, just add a new line, otherwise cfreate the file
+                with open('survival.csv', 'a') as f:
+                    f.write(f"{self.control_index}\n")
+          
+                
                 print('Collision detected, moving csv to crash folder')
                 print('Car State at crtash:', self.car_state)
-                print('Car State at -200 steps:', self.car_state_history[-200])
+                print('Car State at -index steps:', self.car_state_history[-index])
                 
                 # Save to csv file
-                np.savetxt("Test.csv", [self.car_state_history[-200]], delimiter=",")
+                np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
     
 def initialize_planner(controller: str):

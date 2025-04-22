@@ -36,8 +36,8 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, Adju
 
 from stable_baselines3.common.vec_env import VecMonitor
 
-model_load_name = "SAC_RCA1_Full_1"
-model_name = "SAC_RCA1_Full_1"
+model_load_name = "SAC_RCA1"
+model_name = "SAC_RCA1"
 
 experiment_index = 0
 tensorboad_log_name = f"{model_name}_{experiment_index}"

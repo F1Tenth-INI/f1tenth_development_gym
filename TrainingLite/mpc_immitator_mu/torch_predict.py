@@ -14,8 +14,8 @@ from joblib import load
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir)
@@ -73,7 +73,7 @@ class ControlPredictor:
         # plt.clf()
         # time.sleep(0.1)    
 
-        current_input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx, ranges))
+        current_input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx))
 
         self.history.append(current_input)
         if len(self.history) > self.sequence_length:
