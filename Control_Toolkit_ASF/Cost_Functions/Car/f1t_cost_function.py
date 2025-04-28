@@ -15,8 +15,12 @@ distance_normalization = 6.0
 # TODO: Config should be loaded at specific functions
 # load constants from config file config_controllers
 gym_path = get_gym_path()
-config = yaml.load(open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
-config_controllers = yaml.load(open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
+with open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r", encoding="utf-8") as f:
+    config = yaml.load(f, Loader=yaml.FullLoader)
+
+with open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r", encoding="utf-8") as f:
+    config_controllers = yaml.load(f, Loader=yaml.FullLoader)
+
 
 mpc_type = config_controllers["mpc"]['optimizer']
 
