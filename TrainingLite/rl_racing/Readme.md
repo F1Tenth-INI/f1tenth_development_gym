@@ -16,5 +16,6 @@ Checkout the RewardCalculator.py for the reward function.
 ## Tensorboard
 
 '''console
-tensorboard --logdir=TrainingLite/rl_racing/models/#EXPERIMENT_NAME#/tensorboard_logs/
+tensorboard --logdir=TrainingLite/rl_racing/models/#EXPERIMENT_NAME#/logs/ --host 0.0.0.0 --port 6006
+tensorboard --logdir=TrainingLite/rl_racing/models/SAC_RCA1_residual_3/logs/ --host 0.0.0.0 --port 6006
 '''

@@ -474,7 +474,14 @@ class CarSystem:
         # plt.savefig('accumulated_rewards.png')
         # plt.clf()
         
+       
+        
         if self.recorder is not None:    
+            
+            if Settings.SAVE_REWARDS:
+                self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
+            
+            
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
