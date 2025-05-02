@@ -117,15 +117,11 @@ class CarSystem:
 
         ### Planner
         self.controller_name = controller
-        self.planner = initialize_planner(self.controller_name)
-        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
-
-        if hasattr(self.planner, 'waypoint_utils'):
-            self.planner.waypoint_utils = self.waypoint_utils
-        if hasattr(self.planner, 'LIDAR'):
-            self.planner.LIDAR = self.LIDAR
+        self.planner = self.initialize_controller(self.controller_name)
+        # self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
 
+            
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -134,8 +130,7 @@ class CarSystem:
                     predictor.next_step_predictor.env.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
 
 
-        if(hasattr(self.planner, 'render_utils')):
-            self.planner.render_utils = self.render_utils
+        
 
 
         self.savse_recording = save_recording
@@ -173,7 +168,16 @@ class CarSystem:
         self.init_recorder_and_start(recorder_dict=recorder_dict)
 
            
-            
+    def initialize_controller(self, controller_name):
+        
+        self.planner = initialize_planner(controller_name)
+        
+        if(hasattr(self.planner, 'render_utils')):
+            self.planner.render_utils = self.render_utils
+        if(hasattr(self.planner, 'waypoint_utils')):
+            self.planner.waypoint_utils = self.waypoint_utils
+        
+        
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -385,11 +389,11 @@ class CarSystem:
                 updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
             )
             
-        basic_dict = get_basic_data_dict(self)
         if Settings.FORGE_HISTORY:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
+            basic_dict = get_basic_data_dict(self)
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         

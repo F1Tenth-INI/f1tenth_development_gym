@@ -51,7 +51,7 @@ self.Render.update(
 
 '''
 
-if Settings.RENDER_MODE is not None:
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
     class PointSizeGroup(pyglet.graphics.Group):
         def __init__(self, point_size, parent=None):
             super().__init__(parent)

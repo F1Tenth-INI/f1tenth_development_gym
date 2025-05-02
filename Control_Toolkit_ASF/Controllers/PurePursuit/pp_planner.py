@@ -173,9 +173,10 @@ class PurePursuitPlanner(template_planner):
         self.angular_control = steering_angle
         self.translational_control = acceleration
 
-        self.render_utils.update_pp(
-            target_point=lookahead_point,
-        )
+        if hasattr(self.render_utils, 'update_pp'):
+            self.render_utils.update_pp(
+                target_point=lookahead_point,
+            )
 
         self.simulation_index += 1
 
