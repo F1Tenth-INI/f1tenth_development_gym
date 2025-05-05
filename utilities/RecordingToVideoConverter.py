@@ -88,11 +88,7 @@ class RecordingToVideoConverter:
 
     # === Draw car as rectangle ===
     def draw_car(self, img, x, y, theta, car_length=0.58, car_width=0.31):
-        # Shift (x, y) to be at the center of the car
-        x += (car_length / 2) * math.cos(theta)
-        y += (car_length / 2) * math.sin(theta)
-
-        # Convert to image coords
+        # Convert to image coordinates (no shift needed for center alignment)
         cx, cy = self.world_to_image(x, y)
 
         # Car size in pixels
@@ -113,14 +109,19 @@ class RecordingToVideoConverter:
             [-half_l,  half_w]
         ])
 
-        # Rotate and translate to image coords
+        # Rotate and translate to image coordinates
         rotated = []
         for dx, dy in corners:
             px = int(cx + dx * cos_theta - dy * sin_theta)
             py = int(cy - dx * sin_theta - dy * cos_theta)
             rotated.append((px, py))
 
-        cv2.drawContours(img, [np.array(rotated)], 0, (0, 0, 255), -1)
+        # Convert to numpy array for OpenCV
+        rotated = np.array(rotated, dtype=np.int32)
+
+        # Draw the car as a filled polygon with anti-aliasing
+        cv2.fillPoly(img, [rotated], (0, 0, 255))
+            
 
     def velocity_to_color(self, v, v_min=-0.0, v_max=10.0):
         """ Map velocity to a BGR color from blue (slow) to red (fast). """
