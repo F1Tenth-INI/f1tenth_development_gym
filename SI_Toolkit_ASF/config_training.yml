@@ -1,11 +1,13 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "GRU-64H1-64H2"
+  NET_NAME: "GRU-256H1-128H2-128H3"
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/" # Path where the experiments data is stored
-  DATA_FOLDER: "Recordings"
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/04_08_RCA1_noise/" # Path where the experiments data is stored
+  # DATA_FOLDER: "Recordings"
+  DATA_FOLDER: "Recordings_preprocessed"
+
 
 training_default:
   AUGMENT_DATA: False
@@ -21,9 +23,12 @@ training_default:
       "WYPT_VX(30)",
       "angular_vel_z",
       "linear_vel_x",
-      "steering_angle",
       "linear_vel_y",
-
+      "steering_angle",
+      # "mu",
+      # "angular_control_calculated_-1",
+      # "translational_control_calculated_-1",
+      # LIDAR_0040,LIDAR_0065,LIDAR_0090,LIDAR_0115,LIDAR_0140,LIDAR_0165,LIDAR_0190,LIDAR_0215,LIDAR_0240,LIDAR_0265,LIDAR_0290,LIDAR_0315,LIDAR_0340,LIDAR_0365,LIDAR_0390,LIDAR_0415,LIDAR_0440,LIDAR_0465,LIDAR_0490,LIDAR_0515,LIDAR_0540,LIDAR_0565,LIDAR_0590,LIDAR_0615,LIDAR_0640,LIDAR_0665,LIDAR_0690,LIDAR_0715,LIDAR_0740,LIDAR_0765,LIDAR_0790,LIDAR_0815,LIDAR_0840,LIDAR_0865,LIDAR_0890,LIDAR_0915,LIDAR_0940,LIDAR_0965,LIDAR_0990,LIDAR_1015
     ]
 
   
@@ -33,7 +38,7 @@ training_default:
 
   setpoint_inputs: []
   outputs:
-    ["angular_control_calculated", "translational_control_calculated"]
+    ["angular_control_calculated", "translational_control_calculated", "mu"] # "mu"
 
   EPOCHS: 5
   BATCH_SIZE: 16
@@ -48,11 +53,11 @@ training_default:
     MIN_DELTA: 0.00
   VALIDATE_ALSO_ON_TRAINING_SET: False
 
-  WASH_OUT_LEN: 10
-  POST_WASH_OUT_LEN: 40
+  WASH_OUT_LEN: 20
+  POST_WASH_OUT_LEN: 300
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
+  SHIFT_LABELS: 0 # for k, as a label to row i is taken row i+k
   USE_NNI: False # Decide if you want to use NNI package
   CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
 

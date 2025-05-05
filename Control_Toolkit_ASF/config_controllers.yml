@@ -13,8 +13,10 @@ mpc:
 
 neural-imitator:
   seed: null # If null, random seed based on datetime is used
-  PATH_TO_MODELS: "./SI_Toolkit_ASF/Experiments/Milan/Models/"
-  net_name: "Dense-78IN-64H1-64H2-64H3-2OUT-1" # TF
+  PATH_TO_MODELS: "./SI_Toolkit_ASF/Experiments/04_08_RCA1_noise/Models/"
+  # net_name: "GRU-134IN-256H1-128H2-128H3-3OUT-2" # TF
+  net_name: "GRU-94IN-128H1-128H2-128H3-2OUT-0" # TF
+
   input_at_input: True
   input_precision: "float" #'ap_fixed<20,6>'   # Can be 'float' - currently do nothing, or 'ap_fixed<total number of bits, integer bits + 1 sign bit>' - adjusting the number precision of the input
   controller_logging: True
