@@ -1,11 +1,11 @@
 build/
-gym/f110_gym.egg-info
+sim/f110_sim.egg-info
 __pycache__
 *.pyc
 .DS_Store
 .vscode/
-gym/f110_gym/unittest/maps/
-gym/f110_gym/unittest/centerline/
+sim/f110_sim/unittest/maps/
+sim/f110_sim/unittest/centerline/
 docs/_build/
 *.mypy_cache/
 flycheck_*
@@ -57,6 +57,8 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/RCA2
 !utilities/maps/Milan1
 !utilities/maps/Germany2022
+!utilities/maps/IPZ33
+!utilities/maps/Blank
 
 
 # TrainingLite
@@ -76,3 +78,4 @@ AnalyseData/Desperate/*
 scripts/EulerCluster/out/*
 
 RaceTuner/CopiedSettings/*
+ppo_models/*

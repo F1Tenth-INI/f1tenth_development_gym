@@ -21,6 +21,7 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = None
         self.cost_components.speed_control_difference_to_wp_cost = None
         self.cost_components.distance_to_wp_segments_cost = None
+        self.cost_components.velocity_difference_to_wp_cost = None
         self.single_step = False
 
     def configure(
@@ -40,6 +41,8 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.speed_control_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.distance_to_wp_segments_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.velocity_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        
         if horizon == 1:
             self.single_step = True
 
@@ -54,6 +57,7 @@ class racing(f1t_cost_function):
             "angle_difference_to_wp_cost": lambda: float(self.cost_components.angle_difference_to_wp_cost),
             "speed_control_difference_to_wp_cost": lambda: float(self.cost_components.speed_control_difference_to_wp_cost),
             "distance_to_wp_segments_cost": lambda: float(self.cost_components.distance_to_wp_segments_cost),
+            "velocity_difference_to_wp_cost": lambda: float(self.cost_components.velocity_difference_to_wp_cost),
         })
 
 
@@ -84,9 +88,6 @@ class racing(f1t_cost_function):
             crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
         else:
             crash_cost = self.lib.zeros_like(cc)
-        # Cost related to control
-        acceleration_cost = self.get_acceleration_cost(u)
-        steering_cost = self.get_steering_cost(u)
 
         # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
@@ -130,23 +131,24 @@ class racing(f1t_cost_function):
                 + angular_velocity_cost
                 # + angle_difference_to_wp_cost
                 # + speed_control_difference_to_wp_cost
-                + steering_cost
                 # + acceleration_cost
                 # + slipping_cost
                 # + cost_for_stopping
             )
 
         if (Settings.ANALYZE_COST or self.cost_function_for_state_metric) and Settings.ROS_BRIDGE is False:
-            self.lib.assign(self.total_stage_cost, stage_cost)
-            self.lib.assign(self.cost_components.crash_cost, crash_cost)
-            self.lib.assign(self.cost_components.cc, cc)
-            self.lib.assign(self.cost_components.ccrc, ccrc)
-            self.lib.assign(self.cost_components.ccocrc, ccocrc)
-            self.lib.assign(self.cost_components.icdc, icdc)
-            self.lib.assign(self.cost_components.angular_velocity_cost, angular_velocity_cost)
-            self.lib.assign(self.cost_components.angle_difference_to_wp_cost, angle_difference_to_wp_cost)
-            self.lib.assign(self.cost_components.speed_control_difference_to_wp_cost, speed_control_difference_to_wp_cost)
-            self.lib.assign(self.cost_components.distance_to_wp_segments_cost, distance_to_wp_segments_cost)
+            if cc.shape == self.cost_components.cc.shape:
+                self.lib.assign(self.total_stage_cost, stage_cost)
+                self.lib.assign(self.cost_components.crash_cost, crash_cost)
+                self.lib.assign(self.cost_components.cc, cc)
+                self.lib.assign(self.cost_components.ccrc, ccrc)
+                self.lib.assign(self.cost_components.ccocrc, ccocrc)
+                self.lib.assign(self.cost_components.icdc, icdc)
+                self.lib.assign(self.cost_components.angular_velocity_cost, angular_velocity_cost)
+                self.lib.assign(self.cost_components.angle_difference_to_wp_cost, angle_difference_to_wp_cost)
+                self.lib.assign(self.cost_components.speed_control_difference_to_wp_cost, speed_control_difference_to_wp_cost)
+                self.lib.assign(self.cost_components.distance_to_wp_segments_cost, distance_to_wp_segments_cost)
+                self.lib.assign(self.cost_components.velocity_difference_to_wp_cost, velocity_difference_to_wp_cost)
 
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00

@@ -1,14 +1,13 @@
-import sklearn # Don't touch
-# sklearn is needed later, need to import it here for nni planner to work on nvidia jetson:
-# https://forums.developer.nvidia.com/t/sklearn-skimage-cannot-allocate-memory-in-static-tls-block/236960
+from typing import Optional
 
 from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
+from utilities.lidar_utils import *
 
 from Control_Toolkit_ASF.Controllers import template_planner
 
 # from TrainingLite.mpc_immitator_mu.predict import predict_next_control
-from TrainingLite.mpc_immitator_mu.torch_predict import predict_next_control
+from TrainingLite.mpc_immitator_mu.torch_predict import ControlPredictor
 # from TrainingLite.slip_prediction.predict import predict_slip_angle
 # from TrainingLite.pp_immitator.predict import predict_next_control
 
@@ -24,9 +23,10 @@ class NNLitePlanner(template_planner):
         self.car_state = None
         self.waypoints = None
         self.imu_data = None
-        
+        self.LIDAR = Optional[LidarHelper]
         self.car_state_history = []
         
+        self.control_predictor = ControlPredictor()
         self.render_utils = RenderUtils()
         self.send_to_recorder = None
 
@@ -67,9 +67,10 @@ class NNLitePlanner(template_planner):
         
         # print(self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[STEERING_ANGLE_IDX])
         
-        controls = predict_next_control(self.car_state, waypoints_relative, self.waypoints)
-        control = controls[0]
+        controls = self.control_predictor.predict_next_control(self.car_state, waypoints_relative, self.waypoints, self.LIDAR.processed_ranges)
         
+        # control = controls[0]
+        control = controls
         # print("control", control)
         
         if len(control) == 3:
@@ -80,7 +81,7 @@ class NNLitePlanner(template_planner):
             if len(self.predicted_frictions) > Settings.AVERAGE_WINDOW:
                 self.predicted_frictions.pop(0)
             average_friction = sum(self.predicted_frictions) / len(self.predicted_frictions)
-            
+            print("predicted_friction", predicted_friction, "average_friction", average_friction, "true_friction", Settings.SURFACE_FRICTION)
             record_dict = {
                 'predicted_friction': predicted_friction,
                 'average_friction': average_friction,
@@ -92,7 +93,7 @@ class NNLitePlanner(template_planner):
         self.angular_control = control[0]
         self.translational_control = control[1]
 
-        if self.control_index < 20:
+        if self.control_index < 5:
             self.angular_control = 0
             self.translational_control = 2
 

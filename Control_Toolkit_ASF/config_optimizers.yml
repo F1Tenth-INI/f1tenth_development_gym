@@ -35,8 +35,8 @@ rpgd-tf:
   sample_stdev: [0.3, 0.3] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
   sample_mean: [0.0, 3.8] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: normal
   sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
-  uniform_dist_max: [0.6, 12] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  uniform_dist_min: [-0.6, -1] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  uniform_dist_max: [0.4, 10] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
+  uniform_dist_min: [-0.4, -10] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   shift_previous: 3
   warmup: false
   warmup_iterations: 250

@@ -121,8 +121,10 @@ def get_basic_data_dict(driver):
     }
 
     control_input_calculated_dict = {
-        'angular_control_calculated': lambda: driver.angular_control,
-        'translational_control_calculated': lambda: driver.translational_control,
+        'angular_control': lambda: driver.angular_control,
+        'angular_control_calculated': lambda: driver.angular_control_calculated,
+        'translational_control': lambda: driver.translational_control,
+        'translational_control_calculated': lambda: driver.translational_control_calculated,
     }
 
     # Creating lidar_names based on indices

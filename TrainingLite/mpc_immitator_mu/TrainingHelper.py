@@ -53,26 +53,26 @@ class TrainingHelper:
             df['d_time'] = df['time'].diff()
 
             state_variables = ['angular_vel_z', 'linear_vel_x', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_theta', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
-            for var in state_variables:
-                df['d_' + var] = df[var].diff() / df['d_time']
+            # for var in state_variables:
+            #     df['d_' + var] = df[var].diff() / df['d_time']
                 
             control_variables = ['angular_control_calculated', 'translational_control_calculated']
             for var in control_variables:
                 df['prev_' + var] = df[var].shift(1)
             
 
-            df = df[df['d_angular_vel_z'] <= 60]
-            df = df[df['linear_vel_x'] <= 20]
-            df = df[df['d_pose_x'] <= 20.]
-            df = df[df['d_pose_y'] <= 20.]
+            # df = df[df['d_angular_vel_z'] <= 60]
+            # df = df[df['linear_vel_x'] <= 20]
+            # df = df[df['d_pose_x'] <= 20.]
+            # df = df[df['d_pose_y'] <= 20.]
             
-            df = df[df['imu_a_x'] <= 20.]
-            df = df[df['imu_a_y'] <= 20.]
-            df = df[df['imu_av_z'] <= 20.]
+            # df = df[df['imu_a_x'] <= 20.]
+            # df = df[df['imu_a_y'] <= 20.]
+            # df = df[df['imu_av_z'] <= 20.]
             
-            df = df[df['imu_a_x'] >= -20.]
-            df = df[df['imu_a_y'] >= -20.]
-            df = df[df['imu_av_z'] >= -20.]
+            # df = df[df['imu_a_x'] >= -20.]
+            # df = df[df['imu_a_y'] >= -20.]
+            # df = df[df['imu_av_z'] >= -20.]
 
             df['source'] = file
             
@@ -87,25 +87,33 @@ class TrainingHelper:
         return df, file_change_indices
     
     def create_histograms(self, df, input_cols, output_cols):
-        
         print("Creating histograms, might take a while...")
-        for col in df[input_cols]:
-            plt.figure()
-            df[col].hist(bins=100)  # Increase the number of bins to 100
-            plt.title(col)
-            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+        # Create figures folder
+        os.makedirs(self.experiment_path + '/figures', exist_ok=True)
 
-            time.sleep(0.15)  # Sleep for 50 milliseconds
-            
-        for col in df[output_cols]:
-            plt.figure()
-            df[col].hist(bins=100)  # Increase the number of bins to 100
-            plt.title(col)
-            plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+        # Process input columns
+        for col in input_cols:
+            if pd.api.types.is_numeric_dtype(df[col]):  # Check if the column is numeric
+                plt.figure()
+                df[col].hist(bins=100)  # Increase the number of bins to 100
+                plt.title(col)
+                plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+                time.sleep(0.15)  # Sleep for 150 milliseconds
+            else:
+                print(f"Skipping non-numeric column: {col}")
 
-            time.sleep(0.15)  # Sleep for 150 milliseconds
+        # Process output columns
+        for col in output_cols:
+            if pd.api.types.is_numeric_dtype(df[col]):  # Check if the column is numeric
+                plt.figure()
+                df[col].hist(bins=100)  # Increase the number of bins to 100
+                plt.title(col)
+                plt.savefig(self.experiment_path + '/figures/' + col + '.png')
+                time.sleep(0.15)  # Sleep for 150 milliseconds
+            else:
+                print(f"Skipping non-numeric column: {col}")
+
         print("Histograms created.")
-    
     def shuffle_dataset_by_files(self, X, y, file_change_indices):
  
         # Split X_train and Y_train at file_change_indices
@@ -125,7 +133,64 @@ class TrainingHelper:
         file_change_indices = np.cumsum([len(seq) for seq in X_shuffled[:-1]])
         
         return X, y, file_change_indices
-    
+        
+    def shuffle_dataset_by_chunks(self, X, y, file_change_indices, window_size, step_size):
+        """
+        Splits each file into smaller overlapping chunks, shuffles these chunks, 
+        and reconstructs the dataset while updating file_change_indices.
+
+        Parameters:
+        - X: numpy array of input data (samples, features)
+        - y: numpy array of target data (samples, outputs)
+        - file_change_indices: indices where files change in the original dataset
+        - window_size: size of each chunk
+        - step_size: step size between chunks (controls overlap)
+
+        Returns:
+        - X_shuffled: shuffled input data (num_chunks, seq_length, features)
+        - y_shuffled: shuffled target data (num_chunks, seq_length, outputs)
+        - new_file_change_indices: updated indices reflecting chunk boundaries
+        """
+
+        # ✅ Use np.array_split to avoid errors with uneven splits
+        X_splits = np.array_split(X, file_change_indices)
+        y_splits = np.array_split(y, file_change_indices)
+
+        chunks_X = []
+        chunks_y = []
+
+        for i in range(len(X_splits)):
+            seq_X = X_splits[i]
+            seq_y = y_splits[i]
+
+            num_chunks = max(1, (len(seq_X) - window_size) // step_size + 1)
+            for j in range(num_chunks):
+                start_idx = j * step_size
+                end_idx = start_idx + window_size
+                if end_idx > len(seq_X):
+                    break  # Stop if we exceed sequence length
+
+                chunks_X.append(seq_X[start_idx:end_idx])
+                chunks_y.append(seq_y[start_idx:end_idx])  # Ensure y has the same shape
+
+        # Convert to numpy arrays
+        if len(chunks_X) == 0 or len(chunks_y) == 0:
+            raise ValueError("No valid chunks created! Check window_size and step_size.")
+
+        chunks_X = np.array(chunks_X)  # Shape: (num_chunks, seq_length, features)
+        chunks_y = np.array(chunks_y)  # Shape: (num_chunks, seq_length, outputs)
+
+        # Shuffle the chunks
+        shuffled_indices = np.random.permutation(len(chunks_X))
+        X_shuffled = chunks_X[shuffled_indices]
+        y_shuffled = chunks_y[shuffled_indices]
+
+        # ✅ Ensure new file_change_indices are valid
+        new_file_change_indices = np.cumsum([len(chunk) for chunk in X_shuffled[:-1]])
+        new_file_change_indices = new_file_change_indices[new_file_change_indices < len(X_shuffled)]  # Remove out-of-range indices
+
+        return X_shuffled, y_shuffled, new_file_change_indices
+
     
     def fit_trainsform_save_scalers(self, X, y):
         

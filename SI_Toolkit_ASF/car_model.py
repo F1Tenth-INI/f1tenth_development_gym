@@ -49,11 +49,11 @@ class car_model:
     def set_model_of_car_dynamics(self, model_of_car_dynamics):
 
         if model_of_car_dynamics == 'ODE:ks':
-            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_ks)
+            self.step_dynamics = self._step_model_with_servo_pid_with_constrains_(self._step_dynamics_ks)
         elif model_of_car_dynamics == 'ODE:pacejka':
-            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_pacejka)
+            self.step_dynamics = self._step_model_with_servo_pid_with_constrains_(self._step_dynamics_pacejka)
         elif model_of_car_dynamics == 'ODE:ks_pacejka':
-            self.step_dynamics = self._step_model_with_servo_and_motor_pid_with_constrains_(self._step_dynamics_ks_pacejka)
+            self.step_dynamics = self._step_model_with_servo_pid_with_constrains_(self._step_dynamics_ks_pacejka)
 
         if model_of_car_dynamics == 'ODE:ks':
             self.step_dynamics_core = self._step_dynamics_ks
@@ -327,6 +327,7 @@ class car_model:
 
         return steering_velocity
 
+    # Deprecated. Motor PID is no longer a part of the car model
     def motor_controller_pid(self, desired_speed, current_speed):
         
         speed_difference = desired_speed - current_speed
@@ -350,7 +351,7 @@ class car_model:
         forward_acceleration = self.lib.where(forward_accelerating_indices, 10.0 * max_a_v, zeros)
 
         # fwd break
-        forward_breaking = self.lib.where(forward_breaking_indices, 10.0 * min_a_v, zeros)
+        forward_breaking = self.lib.where(forward_breaking_indices, 0.5 * min_a_v, zeros)
 
         # bkw accl
         backward_acceleration = self.lib.where(backward_accelerating_indices, 2.0 * min_a_v, zeros)
@@ -362,7 +363,7 @@ class car_model:
 
         return total_acceleration
 
-    def _step_model_with_servo_and_motor_pid_with_constrains_(self, model):
+    def _step_model_with_servo_pid_with_constrains_(self, model):
 
         def _step_model_with_servo_and_motor_pid_with_constrains(s, Q):
 
@@ -378,13 +379,14 @@ class car_model:
     def pid(self, s, Q):
 
         # Control Input (desired speed, desired steering angle)
-        desired_angle, desired_speed = self.lib.unstack(Q, 2, 1)
+        desired_angle, translational_control = self.lib.unstack(Q, 2, 1)
 
         delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
         vel_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         delta_dot = self.servo_proportional(desired_angle, delta)
-        vel_x_dot = self.motor_controller_pid(desired_speed, vel_x)
+        
+        vel_x_dot = translational_control   
 
         Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
 

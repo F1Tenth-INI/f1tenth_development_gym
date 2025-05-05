@@ -94,14 +94,6 @@ class mpc_planner(template_planner):
 
         self.lidar_points = self.LIDAR.processed_points_map_coordinates
 
-        # Accelerate at the beginning (St model expoldes for small velocity)
-        # Give it a little "Schupf"
-        if self.simulation_index < Settings.ACCELERATION_TIME:
-            self.simulation_index += 1
-            self.translational_control = Settings.ACCELERATION_AMPLITUDE
-            self.angular_control = 0
-            return self.angular_control, self.translational_control
-
 
         angular_control, translational_control  = self.mpc.step(self.car_state,
                                                                self.time,
@@ -139,15 +131,27 @@ class mpc_planner(template_planner):
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=rollout_trajectories,
-            optimal_trajectory=optimal_trajectory,
-        )
+        if hasattr(self.render_utils, 'update_mpc'):
+            self.render_utils.update_mpc(
+                rollout_trajectory=rollout_trajectories,
+                optimal_trajectory=optimal_trajectory,
+            )
 
         self.translational_control = translational_control
         self.angular_control = angular_control
         
         self.simulation_index += 1
+        
+        # Accelerate at the beginning (St model expoldes for small velocity)
+        # Give it a little "Schupf"
+        if self.simulation_index < Settings.ACCELERATION_TIME:
+            self.simulation_index += 1
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
+            self.angular_control = 0
+            self.optimal_control_sequence = np.zeros_like(self.optimal_control_sequence)
+            return self.angular_control, self.translational_control
+
+
 
         return angular_control, translational_control
 

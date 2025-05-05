@@ -127,7 +127,7 @@ class my_joystick:
     XBOX_WIRED = 'Controller (Xbox One For Windows)' #Although in the name the word 'Wireless' appears, the controller is wired
     XBOX_ELITE = 'Xbox One Elite Controller' # XBox One when plugged into USB in Windows
     PS4_DUALSHOCK4 = 'Sony Interactive Entertainment Wireless Controller' # Only wired connection tested
-    PS4_WIRELESS_CONTROLLER = 'Sony Computer Entertainment Wireless Controller' # Only wired connection on macOS tested
+    PS4_WIRELESS_CONTROLLER = 'PS4 Controller' # Only wired connection on macOS tested
 
     def __init__(self, joystick_number=JOYSTICK_NUMBER):
         """
@@ -414,9 +414,29 @@ class joystick_simple:
         self.joystick = my_joystick()
 
         self.axes = np.zeros(self.joystick.numAxes, dtype=float)
+        self.offsets = np.zeros(self.joystick.numAxes, dtype=float)  # To store calibration offsets
 
         self.angular_control_normed = None
         self.translational_control_normed = None
+        
+        self.calibrate()  # Perform calibration during initialization
+
+    def calibrate(self):
+        """
+        Calibrate the joystick by capturing the idle state offsets.
+        """
+        print("Calibrating joystick... Please ensure it is not being touched.")
+        pygame.event.get()  # Process events
+        for i in range(3):
+            if(self.joystick.joy.get_axis(i) < 0.15):
+                self.offsets[i] = self.joystick.joy.get_axis(i)  # Capture idle state
+            else:
+                print(f"Axis {i} is not in idle state. Please ensure it is not being touched during callibration.")
+                time.sleep(1)
+                self.calibrate()  # Restart calibration if any axis is not in idle state
+                return
+        print(f"Calibration complete. Offsets: {self.offsets}")
+
 
 
     def run_test(self):
@@ -452,13 +472,17 @@ class joystick_simple:
         
         pygame.event.get()  # must call get() to handle internal queue
         for i in range(self.joystick.numAxes):
-            self.axes[i] = self.joystick.joy.get_axis(i)  # assemble list of analog values
-
+            raw_value = self.joystick.joy.get_axis(i)
+            self.axes[i] = raw_value - self.offsets[i]  # Subtract calibration offset
+            
+            
         self.angular_control_normed = -self.axes[2]
         self.translational_control_normed = -self.axes[1]
-
+        
+            
         return self.angular_control_normed, self.translational_control_normed
 
+            
     def read_test(self):
         while True:
             self.read()
@@ -471,50 +495,3 @@ class joystick_simple:
 if __name__ == '__main__':
     test = joystick_simple()
     test.read_test()
-#
-# if __name__ == '__main__':
-#     from colorama import init, deinit, Fore, Style
-#     import numpy as np
-#     import atexit
-#     init()
-#     atexit.register(deinit)
-#     pygame.init()
-#     joy = my_joystick()
-#     axes = np.zeros(joy.numAxes,dtype=float)
-#     old_axes = axes.copy()
-#     it = 0
-#     print('Name of the current joystick is {}.'.format(joy.name))
-#     print('Your platform name is {}'.format(joy.platform))
-#     while True:
-#         # joy.read()
-#         # print("steer={:4.1f} throttle={:4.1f} brake={:4.1f}".format(joy.steering, joy.throttle, joy.brake))
-#         pygame.event.get()  # must call get() to handle internal queue
-#         for i in range(joy.numAxes):
-#             axes[i] = joy.joy.get_axis(i)  # assemble list of analog values
-#         diff = axes-old_axes
-#         old_axes = axes.copy()
-#         joy.buttons = list()
-#         for i in range(joy.numButtons):
-#             joy.buttons.append(joy.joy.get_button(i))
-#
-#         # format output so changed are red
-#         axStr = 'axes: '
-#         axStrIdx = 'axes:'
-#         for i in range(joy.numAxes):
-#             if abs(diff[i]) > 0.3:
-#                 axStr += (Fore.RED+Style.BRIGHT+'{:5.2f} '.format(axes[i])+Fore.RESET+Style.DIM)
-#                 axStrIdx += '__'+str(i)+'__'
-#             else:
-#                 axStr += (Fore.RESET+Style.DIM+'{:5.2f} '.format(axes[i]))
-#                 axStrIdx += '______'
-#
-#         butStr = 'buttons: '
-#         for button_index, button_on in enumerate(joy.buttons):
-#             butStr = butStr+(str(button_index) if button_on else '_')
-#
-#         print(str(it) + ': ' + axStr + ' '+butStr)
-#         print(str(it) + ': ' + axStrIdx)
-#         it += 1
-#         pygame.time.wait(300)
-#
-#

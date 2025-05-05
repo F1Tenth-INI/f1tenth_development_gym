@@ -1,6 +1,7 @@
 import numpy as np
 from numba import jit
 from utilities.Settings import Settings
+from typing import Optional
 
 from utilities.waypoint_utils import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -9,6 +10,7 @@ from Control_Toolkit_ASF.Controllers.PurePursuit.pp_helpers import *
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.state_utilities import *
 
+from utilities.controller_utilities import ControllerUtilities
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
 '''
@@ -51,8 +53,10 @@ class PurePursuitPlanner(template_planner):
         self.angular_control = 0.
         self.translational_control = 0.
 
-
+        self.waypoint_utils : Optional[WaypointUtils] = None
+        self.controller_utils = ControllerUtilities()
         self.hyperbolic_function_for_curvature_factor, _, _ = return_hyperbolic_function((0.0, 1.0), (1.0, 0.0) , fixed_point=Settings.PP_FIXPOINT_FOR_CURVATURE_FACTOR)
+
 
         self.pp_use_curvature_correction = Settings.PP_USE_CURVATURE_CORRECTION
 
@@ -96,7 +100,7 @@ class PurePursuitPlanner(template_planner):
         self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
 
         # Needs too much time
-        lookahead_point, i, i2 = get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+        lookahead_point, i, i2 = get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
         if self.waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
             for idx in range(1, len(self.waypoints[i:])):
@@ -163,19 +167,23 @@ class PurePursuitPlanner(template_planner):
         else:
             self.correcting_index = 0
 
+        
         self.speed = speed
         # print(self.speed)
-
+        
+        acceleration = self.controller_utils.motor_pid(speed, v_x)
+        
         self.angular_control = steering_angle
-        self.translational_control = speed
+        self.translational_control = acceleration
 
-        self.render_utils.update_pp(
-            target_point=lookahead_point,
-        )
+        if hasattr(self.render_utils, 'update_pp'):
+            self.render_utils.update_pp(
+                target_point=lookahead_point,
+            )
 
         self.simulation_index += 1
 
-        return steering_angle, speed
+        return self.angular_control, self.translational_control
 
 
 

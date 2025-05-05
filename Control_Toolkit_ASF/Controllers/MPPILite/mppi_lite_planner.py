@@ -1,7 +1,7 @@
 from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
 from Control_Toolkit_ASF.Controllers import template_planner
-from f110_gym.envs.dynamic_model_pacejka_jit import *
+from f110_sim.envs.dynamic_model_pacejka_jit import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
 import time
 from scipy.special import softmax
@@ -69,7 +69,6 @@ class MPPILitePlanner(template_planner):
         last_Q_sq = self.last_Q_sq
 
         s = np.array(self.car_state)
-        s = full_state_alphabetical_to_original(s)
         
         # Call JIT-compiled function
         next_control, Q_sequence = process_observation_jit(

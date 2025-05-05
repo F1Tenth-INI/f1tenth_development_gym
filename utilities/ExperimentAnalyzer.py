@@ -16,17 +16,18 @@ class ExperimentAnalyzer:
         self.step_start = 0
         self.step_end = step_end
         
-        self.experiment_path = Settings.RECORDING_FOLDER #experiment_path
+        self.experiment_path = experiment_path
         self.experiment_name = experiment_name
         self.map_name = Settings.MAP_NAME
+        self.map_path = Settings.MAP_PATH
         self.controller_name = 'neural'
-        self.analyse_folder = 'ExperimentRecordings/Analyse'
         
         csv_path = os.path.join(self.experiment_path, self.experiment_name) 
         self.experiment_data_path = os.path.join(csv_path + "_data")
         self.experiment_configs_path = os.path.join(self.experiment_data_path, "configs")
         
-        self.waypoints_file = os.path.join(self.experiment_configs_path, self.map_name + "_wp")
+        self.waypoints_file = os.path.join(self.map_path, self.map_name + "_wp")
+        # self.waypoints_file = os.path.join(self.experiment_configs_path, self.map_name + "_wp")
         
         # Waypoints from 
         self.waypoints: pd.DataFrame = pd.read_csv(self.waypoints_file + ".csv", comment='#')   
@@ -85,14 +86,14 @@ class ExperimentAnalyzer:
         
     def plot_controls(self):
         # Plot States
-        state_names = ['angular_vel_z','linear_vel_x','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
+        state_names = ['angular_vel_z','linear_vel_x','linear_vel_y','pose_theta','pose_theta_cos','pose_theta_sin','pose_x','pose_y',]
         
         # Create a new figure
         fig = plt.figure(figsize=(15, 20))  # width: 15 inches, height: 20 inches
 
         for index, state_name in enumerate(state_names):
             # Add subplot for each state
-            plt.subplot(7, 1, index+1)  # 7 rows, 1 column, nth plot
+            plt.subplot(len(state_names), 1, index+1)  # 7 rows, 1 column, nth plot
             plt.title(state_name)
             plt.plot(self.recording[state_name].to_numpy()[1:], color="red")
 
@@ -118,6 +119,10 @@ class ExperimentAnalyzer:
               
     def plot_errors(self):
         
+        # Check of plot folder exists
+        if not os.path.exists(self.experiment_data_path):
+            os.makedirs(self.experiment_data_path)
+            
         time_recorded = self.recording['time'].values
         
         controller_name = self.controller_name
@@ -195,6 +200,11 @@ class ExperimentAnalyzer:
 
 # Test function
 if __name__ == "__main__":
-
-    ea = ExperimentAnalyzer("F1TENTH__2024-09-25_10-20-05Recording1_RCA2_nni-lite_50Hz_vel_1.2_noise_c[0.0, 0.0]_mu_0.5") 
+    # experiment_dir = "TrainingLite/Datasets/Custom_IPZ34b/"
+    experiment_dir = "ExperimentRecordings/"
+    experiment_name = "2025-03-31_12-34-45_Recording1_0_RCA1_neural_50Hz_vel_0.8_noise_c[0.0, 0.0]_mu_0.5_mu_c_None_"
+    
+    experiment_path = os.path.join(experiment_dir, experiment_name)
+    
+    ea = ExperimentAnalyzer(experiment_name=experiment_name, experiment_path=experiment_dir) 
     ea.plot_experiment()

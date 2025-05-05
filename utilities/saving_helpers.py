@@ -3,7 +3,6 @@ import shutil
 
 import pandas as pd
 
-import matplotlib.pyplot as plt
 
 from utilities.Settings import Settings
 from utilities.ExperimentAnalyzer import ExperimentAnalyzer
@@ -32,6 +31,7 @@ def save_experiment_data(csv_filepath):
     """
     Copy relevant settings to the data folder and analyze experiment
     """
+    import matplotlib.pyplot as plt
 
     path_to_experiment_recordings, experiment_name = os.path.split(csv_filepath)
     experiment_name = experiment_name[:-4]  # Remove .csv
