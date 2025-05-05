@@ -3,10 +3,10 @@
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
 #SBATCH --mem-per-cpu=3G        # Request memory per CPU
 #SBATCH --time=2:00:00           # Set the maximum job time
-#SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
+#SBATCH --output=./scripts/EulerCluster/out/data_collection/slurm-%A_%a.out   # Output file
 
 # Create output and error directories if they do not exist
-mkdir -p ./scripts/EulerCluster/out/
+mkdir -p ./scripts/EulerCluster/out/data_collection
 
 source $HOME/miniconda3/bin/activate
 conda activate f1t

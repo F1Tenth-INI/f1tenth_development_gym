@@ -3,7 +3,7 @@ from run.run_simulation import RacingSimulation
 from utilities.Settings import Settings
 import time
 import datetime
-import os
+import os 
 import zipfile
 import subprocess 
 from utilities.EncodeDecodeEulerFlag import euler_index, decode_flag
@@ -12,14 +12,15 @@ from itertools import product  # Enables Cartesian product iteration over multip
 started = datetime.datetime.now()
 print(f"Started at: {started}")
 
-Settings.DATASET_NAME = "Experiments_03_03_2025_noiseless"
-Settings.RECORDING_INDEX = euler_index
+Settings.DATASET_NAME = "04_08_RCA2_noise"
+Settings.RECORDING_INDEX = euler_index 
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA1'
 
-Settings.EXPERIMENT_LENGTH = 2000
+map_names = ['RCA2']
+
+Settings.EXPERIMENT_LENGTH = 4000
 
 # Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
 # Settings.NOISE_LEVEL_ANGULAR_CONTROL = 0.3  # ftg: 0.05  # mppi: 3.0
@@ -29,11 +30,11 @@ Settings.EXPERIMENT_LENGTH = 2000
 # Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.0]
 # Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
 Settings.NOISE_LEVEL_CONTROL = [0.1, 0.1]  # noise level [angular, translational]
-Settings.CONTROL_NOISE_DURATION = 30  # Number of timesteps for which the control noise is applied
+Settings.CONTROL_NOISE_DURATION = 50  # Number of timesteps for which the control noise is applied
 
 
-Settings.CONTROL_DELAY = 0.0
-Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 0
+Settings.CONTROL_DELAY = 0.08
+Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
 
 
 Settings.START_FROM_RANDOM_POSITION = True
@@ -52,7 +53,7 @@ runs_without_obstacles = 1
 runs_with_oponents = 0
 
 # global_surface_friction_values = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
-global_surface_friction_values = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
+global_surface_friction_values = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 # global_surface_friction_for_controller_values = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
 global_surface_friction_for_controller_values = None  # If None, always same as global_surface_friction
 
@@ -146,35 +147,38 @@ for reverse_direction, global_waypoint_velocity_factor, global_surface_friction,
         Settings.FRICTION_FOR_CONTROLLER = friction_for_controller
         print("FRICTION_FOR_CONTROLLER:", friction_for_controller)
 
-    # Run experiments with obstacles enabled.
-    for i in range(runs_with_obstacles):
-        # Set the flag to enable random obstacles.
-        Settings.PLACE_RANDOM_OBSTACLES = True
-        print("runs_with_obstacles iteration:", i)
-        time.sleep(1)
-        try:
-            simulation = RacingSimulation()
-            simulation.run_experiments()
-        except Exception as e:
-            print(f"An error occurred while running the experiments: {e}")
+    for map_name in map_names:
+        Settings.MAP_NAME = map_name
+        print("map_name:", map_name)
+        # Run experiments with obstacles enabled.
+        for i in range(runs_with_obstacles):
+            # Set the flag to enable random obstacles.
+            Settings.PLACE_RANDOM_OBSTACLES = True
+            print("runs_with_obstacles iteration:", i)
+            time.sleep(1)
+            try:
+                simulation = RacingSimulation()
+                simulation.run_experiments()
+            except Exception as e:
+                print(f"An error occurred while running the experiments: {e}")
 
-    # Run experiments with obstacles disabled.
-    for i in range(runs_without_obstacles):
-        Settings.PLACE_RANDOM_OBSTACLES = False
-        print("runs_without_obstacles iteration:", i)
-        time.sleep(1)
-        try:
-            simulation = RacingSimulation()
-            simulation.run_experiments()
-        except Exception as e:
-            print(f"An error occurred while running the experiments: {e}")
+        # Run experiments with obstacles disabled.
+        for i in range(runs_without_obstacles):
+            Settings.PLACE_RANDOM_OBSTACLES = False
+            print("runs_without_obstacles iteration:", i)
+            time.sleep(1)
+            try:
+                simulation = RacingSimulation()
+                simulation.run_experiments()
+            except Exception as e:
+                print(f"An error occurred while running the experiments: {e}")
 
-    # for i in range(runs_with_oponents):
-    #     Settings.PLACE_RANDOM_OBSTACLES = False
-    #     print("runs_with_oponents", i)
-    #     time.sleep(1)
-    #     simulation = RacingSimulation()
-    #     simulation.run_experiments()
+        # for i in range(runs_with_oponents):
+        #     Settings.PLACE_RANDOM_OBSTACLES = False
+        #     print("runs_with_oponents", i)
+        #     time.sleep(1)
+        #     simulation = RacingSimulation()
+        #     simulation.run_experiments()
 
 finished = datetime.datetime.now()
 print(f"Finished at: {finished}")
