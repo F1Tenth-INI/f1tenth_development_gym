@@ -115,5 +115,6 @@ class LapAnalyzer:
         if self.distance_log:
             mean_distance, std_distance, max_distance = self.get_distance_stats()
             self.lap_finished_callback(self.current_lap_time, mean_distance, std_distance, max_distance)
+            self.distance_log = []
         else:
             self.lap_finished_callback(self.current_lap_time)

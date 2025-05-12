@@ -2,7 +2,7 @@ import numpy as np
 
 from SI_Toolkit.General.data_manager import DataManager
 from SI_Toolkit.Functions.FunctionalDict import FunctionalDict
-
+import json as JSON
 from utilities.Settings import Settings
 from utilities.state_utilities import STATE_VARIABLES
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
@@ -59,8 +59,7 @@ class Recorder:
         if not self.starting_recording:
             if not self.recording_running:
 
-                self.controller_info = self.driver.controller_name
-
+                self.controller_info = self.driver.controller_name                
                 self.csv_name = create_csv_file_name(Settings)
 
                 if time_limited_recording:
@@ -144,15 +143,19 @@ def get_basic_data_dict(driver):
         for key in driver.current_imu_dict.keys()
     }
     
-    angular_control_dict = {
-        key: (lambda k=key: driver.angular_control_dict[k])
-        for key in driver.angular_control_dict.keys()
-    }
-    
-    translational_control_dict = {
-        key: (lambda k=key: driver.translational_control_dict[k])
-        for key in driver.translational_control_dict.keys()
-    }
+    if hasattr(driver, 'angular_control_dict'):
+        angular_control_dict = {
+            key: (lambda k=key: driver.angular_control_dict[k])
+            for key in driver.angular_control_dict.keys()
+        }
+        
+        translational_control_dict = {
+            key: (lambda k=key: driver.translational_control_dict[k])
+            for key in driver.translational_control_dict.keys()
+        }
+    else:
+        angular_control_dict = {}
+        translational_control_dict = {}
             
     # Combine all dictionaries into one
     combined_dict = {

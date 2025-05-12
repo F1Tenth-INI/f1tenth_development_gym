@@ -156,12 +156,15 @@ class RacingSimulation:
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
         }
-         
+        
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
 
         if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             driver.launch_tuner_connector()
+        
+        #Start looking for keyboard press
+        driver.start_keyboard_listener()
 
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
