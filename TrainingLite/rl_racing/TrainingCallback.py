@@ -4,6 +4,7 @@ import numpy as np
 import importlib
 import subprocess
 import os
+import csv
 
 
 
@@ -29,8 +30,8 @@ class TrainingStatusCallback(BaseCallback):
             
         if self.n_calls % self.save_freq == 0:
             # Save the model periodically
-            model_filename = f"{self.save_path}_{self.num_timesteps}.zip"
-            self.model.save(model_filename)
+            # model_filename = f"{self.save_path}_{self.num_timesteps}.zip"
+            # self.model.save(model_filename)
             model_filename = f"{self.save_path}_running.zip"
             self.model.save(model_filename)
             
@@ -44,25 +45,101 @@ class TrainingStatusCallback(BaseCallback):
     
 
 class AdjustCheckpointsCallback(BaseCallback):
-    def __init__(self, check_freq=1_000_000, model_name = "SAC", log_dir="tensorboard_logs", verbose=1):
+    def __init__(self, check_freq=1000, verbose=1):
         super().__init__(verbose)
-        self.check_freq = check_freq  # Check every 1M steps
-    
+        self.check_freq = check_freq
+        self.total_episodes = 0
+        self.crash_count = 0
+
     def _on_step(self) -> bool:
-        # Every 1M steps, decrease checkpoints_per_lap and log it
-        if self.n_calls % self.check_freq == 0:
-            print(f"🔄 Adjusting checkpoints_per_lap at step {self.num_timesteps}")
-            envs = self.training_env.envs if hasattr(self.training_env, "envs") else [self.training_env]
-            for env in envs:
-                env = env.env
-                if hasattr(env, "checkpoints_per_lap"):
-                    env.checkpoints_per_lap = max(5, env.checkpoints_per_lap - 10)  # Reduce by 5, min value 5
-                    env.simulation.drivers[0].reward_calculator.checkpoint_fraction = 1 / env.checkpoints_per_lap
+        dones = self.locals["dones"]
+        infos = self.locals["infos"]
 
-                    if self.verbose > 0:
-                        print(f"🔄 Adjusted checkpoints_per_lap to {env.checkpoints_per_lap} at step {self.num_timesteps}")
+        for i, done in enumerate(dones):
+            if done:
+                self.total_episodes += 1
+                if infos[i].get("crashed", False):
+                    self.crash_count += 1
 
-        return True  # Continue training
-    
+        if self.num_timesteps % self.check_freq == 0 and self.total_episodes > 0:
+            crash_percentage = (self.crash_count / self.total_episodes) * 100
+
+            print(f"\n🧠 Checkpoint Adjustment Check at {self.num_timesteps} steps:")
+            print(f"Crash rate: {crash_percentage:.2f}% ({self.crash_count}/{self.total_episodes})")
+
+            if crash_percentage < 20:
+                self.training_env.call("set_adjust_checkpoint_flag", True)
+            else:
+                print("⚠️ Crash rate too high, no adjustment.")
+
+            # Reset stats for next interval
+            self.total_episodes = 0
+            self.crash_count = 0
+
+        return True
+
+
+
+class EpisodeCSVLogger(BaseCallback):
+    def __init__(self, csv_path: str, verbose=0):
+        super().__init__(verbose)
+        self.csv_path = csv_path
+        self.csv_file = None
+        self.writer = None
+        self.episode_rewards = []
+        self.episode_lengths = []
+
+        # Add any custom fields you want here
+        self.fields = [
+            'episode', 'reward', 'length', 'lap_time', 'crashed',
+            'laptimes', 'laptime_min', 'laptime_max', 'laptime_mean',
+            'step', 'global_step', 'checkpoints_per_lap'
+        ]
+    def _on_training_start(self):
+        # Check if the file already exists and create a new one with an incremented suffix
+        base_path, ext = os.path.splitext(self.csv_path)
+        counter = 1
+        while os.path.exists(self.csv_path):
+            self.csv_path = f"{base_path}_{counter}{ext}"
+            counter += 1
+
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+
+        # Open the new CSV file and write the header
+        self.csv_file = open(self.csv_path, mode='w', newline='')
+        self.writer = csv.DictWriter(self.csv_file, fieldnames=self.fields)
+        self.writer.writeheader()
+
+    def _on_step(self):
+        dones = self.locals["dones"]
+        infos = self.locals["infos"]
+        rewards = self.locals["rewards"]
+        for i, done in enumerate(dones):
+            if done:
+                info = infos[i]
+
+                # Collect data
+                log_data = {
+                    'episode': self.num_timesteps,
+                    'reward': info.get('episode', {}).get('r', float('nan')),
+                    'length': info.get('episode', {}).get('l', float('nan')),
+                    'lap_time': info.get('lap_time', float('nan')),
+                    'crashed': info.get('crashed', False),
+                    'laptimes': info.get('laptimes', []),  # Assuming list of lap times
+                    'laptime_min': info.get('laptime_min', float('nan')),
+                    'laptime_max': info.get('laptime_max', float('nan')),
+                    'laptime_mean': info.get('laptime_mean', float('nan')),
+                    'step': info.get('step', float('nan')),
+                    'global_step': info.get('global_step', float('nan')),
+                    'checkpoints_per_lap': info.get('checkpoints_per_lap', float('nan')),
+                }
+
+                self.writer.writerow(log_data)
+                self.csv_file.flush()
+
+        return True
+
     def _on_training_end(self):
-        self.writer.close()  # ✅ Close TensorBoard writer properly
+        if self.csv_file:
+            self.csv_file.close()
