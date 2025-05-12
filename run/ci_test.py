@@ -1,7 +1,9 @@
 # This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
 
+
 if __name__ == "__main__":
     
+    import importlib
     import os
     import sys
     import time
@@ -37,6 +39,8 @@ if __name__ == "__main__":
     time.sleep(1)
 
     from run_simulation import RacingSimulation
+    import run_simulation
+    importlib.reload(run_simulation)
 
     simulation = RacingSimulation()
     simulation.run_experiments()
@@ -52,7 +56,7 @@ if __name__ == "__main__":
     Settings.CONTROL_DELAY = 0.08
     Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
 
-
+    importlib.reload(run_simulation)    
     time.sleep(1)
 
 

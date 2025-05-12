@@ -119,8 +119,8 @@ class CarSystem:
 
         ### Planner
         self.controller_name = controller
-        self.planner = self.initialize_controller(self.controller_name)
-        # self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+        self.initialize_controller(self.controller_name)
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
 
             
