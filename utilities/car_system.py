@@ -10,7 +10,7 @@ import os
 # Utilities
 from utilities.Settings import Settings
 
-if not Settings.ROS_BRIDGE:
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
     from pynput import keyboard
 
 from utilities.state_utilities import *
