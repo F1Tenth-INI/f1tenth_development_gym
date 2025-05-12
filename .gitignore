@@ -15,6 +15,12 @@ dev.py
 utilites/Settings.py
 Control_Toolkit_ASF/config_controllers.yml
 
+sosuke_code
+!sosuke_code/combine_csv
+!sosuke_code/plot_traj
+!sosuke_code/rosbag_to_csv
+!sosuke_code/train_NN
+!sosuke_code/train_NN_history
 # NN Models
 SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator
 
