@@ -80,7 +80,7 @@ class NeuralNetImitatorPlanner(template_planner):
         }
         
         env_dict = {
-            'mu': Settings.SURFACE_FRICITON,
+            'mu': Settings.SURFACE_FRICTION,
         }
 
         control_dict = {

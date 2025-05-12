@@ -6,7 +6,7 @@ import pandas as pd
 
 from utilities.Settings import Settings
 from utilities.ExperimentAnalyzer import ExperimentAnalyzer
-
+from utilities.RecordingToVideoConverter import RecordingToVideoConverter
 
 def move_csv_to_crash_folder(csv_filepath, path_to_plots):
     import os
@@ -35,7 +35,6 @@ def save_experiment_data(csv_filepath):
 
     path_to_experiment_recordings, experiment_name = os.path.split(csv_filepath)
     experiment_name = experiment_name[:-4]  # Remove .csv
-
     save_path = csv_filepath[:-4] + "_data"
 
     if not os.path.exists(save_path):
@@ -90,5 +89,12 @@ def save_experiment_data(csv_filepath):
         experiment_analyzer.plot_experiment()
     except Exception as e:
         print(f'Warning: experiment analysis did not work. Error: {e}')
+        
+    if Settings.SAVE_VIDEOS:
+        try:
+            recording_to_video_converter = RecordingToVideoConverter(path_to_experiment_recordings, experiment_name, Settings.MAP_NAME)
+            recording_to_video_converter.render_video()
+        except Exception as e:
+            print(f'Warning: video conversion did not work. Error: {e}')
 
     return save_path

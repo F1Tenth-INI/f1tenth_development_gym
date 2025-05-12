@@ -1,5 +1,5 @@
 import numpy as np
-
+import os
 from SI_Toolkit.General.data_manager import DataManager
 from SI_Toolkit.Functions.FunctionalDict import FunctionalDict
 import json as JSON
@@ -38,7 +38,7 @@ class Recorder:
         self.controller_info = ''
 
         self.csv_filepath = None
-
+        self.recording_path = None
     def step(self):
         self.csv_recording_step()
 
@@ -91,6 +91,7 @@ class Recorder:
                 recording_length=self.recording_length
             )
             self.csv_filepath = self.data_manager.csv_filepath
+            self.recording_path, _ = os.path.split(self.csv_filepath)
 
     def csv_recording_step(self):
         if self.recording_running:

@@ -49,6 +49,8 @@ class RacingSimulation:
         self.env = None
         self.sim : Optional[Simulator] = None
         self.laptime = 0.0
+        self.initial_states = None
+
         
         self.renderer = None
 
@@ -66,8 +68,9 @@ class RacingSimulation:
     '''
     Run a number of experiments including repetitions on crash as defined in Settings
     '''
-    def run_experiments(self):
-
+    def run_experiments(self, initial_states=None):
+        self.initial_states = initial_states
+            
         number_of_experiments = Settings.NUMBER_OF_EXPERIMENTS
         i = 0
         while i < number_of_experiments:
@@ -78,6 +81,7 @@ class RacingSimulation:
             except CarCrashException as e:
                 print("the car crashed.")
                 if(Settings.REPEAT_IF_CRASHED):
+                    
                     if self.crash_repetition < Settings.MAX_CRASH_REPETITIONS:
                         self.crash_repetition += 1
                         number_of_experiments += 1
@@ -184,11 +188,23 @@ class RacingSimulation:
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
-
+  
     def reset(self, poses = None):
-        if poses is None:
-            poses = np.array(self.starting_positions)
-        self.obs = self.sim.reset(poses=poses)
+        if self.initial_states is not None:
+            initial_states = np.array(self.initial_states)
+        else:
+            initial_states = np.zeros((self.number_of_drivers, len(STATE_VARIABLES)))            
+            for i in range(len(self.starting_positions)):
+                initial_states[i][POSE_X_IDX] = self.starting_positions[i][0]
+                initial_states[i][POSE_Y_IDX] = self.starting_positions[i][1]
+                initial_states[i][POSE_THETA_IDX] = self.starting_positions[i][2]
+                initial_states[i][POSE_THETA_COS_IDX] = np.cos(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][LINEAR_VEL_X_IDX] = 0.0
+                initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
+                
+                
+        self.obs = self.sim.reset(initial_states=initial_states)
 
 
     def run_simulation(self):
@@ -368,8 +384,7 @@ class RacingSimulation:
             
             starting_positions[0] = random_wp[1:4]
             # print("Starting position: ", random_wp[1:4])
-                
-       
+            
         
         self.starting_positions = starting_positions
         Settings.STARTING_POSITION = starting_positions

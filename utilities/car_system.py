@@ -10,7 +10,7 @@ import os
 # Utilities
 from utilities.Settings import Settings
 
-if not Settings.ROS_BRIDGE:
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
     from pynput import keyboard
 
 from utilities.state_utilities import *
@@ -72,6 +72,7 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
+        self.car_state_history = []
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -119,8 +120,8 @@ class CarSystem:
 
         ### Planner
         self.controller_name = controller
-        self.planner = self.initialize_controller(self.controller_name)
-        # self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+        self.initialize_controller(self.controller_name)
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
 
             
@@ -189,6 +190,7 @@ class CarSystem:
     
     def set_car_state(self, car_state):
         self.car_state = car_state
+        self.car_state_history.append(car_state)
 
     def set_scans(self, ranges):
         ranges = np.array(ranges)
@@ -457,6 +459,10 @@ class CarSystem:
             pass  # For special keys like shift, ctrl, etc.
 
     def start_keyboard_listener(self):
+        if Settings.RENDER_MODE is None:
+            print("Keyboard listener not started, starting recording automatically")
+            self.start_recorder()
+            return
         listener = keyboard.Listener(on_press=self.on_press)
         listener.start()
 
@@ -529,7 +535,14 @@ class CarSystem:
         # plt.savefig('accumulated_rewards.png')
         # plt.clf()
         
+       
+        
         if self.recorder is not None:    
+            
+            if Settings.SAVE_REWARDS:
+                self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
+            
+            
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -539,6 +552,20 @@ class CarSystem:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
 
             if collision:
+                index = min(len(self.car_state_history), 200)
+                
+                # Save or append self.control_index to csv file
+                # if a csv file called survival.csv already exists, just add a new line, otherwise cfreate the file
+                with open('survival.csv', 'a') as f:
+                    f.write(f"{self.control_index}\n")
+          
+                
+                print('Collision detected, moving csv to crash folder')
+                print('Car State at crtash:', self.car_state)
+                print('Car State at -index steps:', self.car_state_history[-index])
+                
+                # Save to csv file
+                np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
     
 def initialize_planner(controller: str):
