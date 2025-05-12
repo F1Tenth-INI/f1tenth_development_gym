@@ -457,6 +457,9 @@ class CarSystem:
             pass  # For special keys like shift, ctrl, etc.
 
     def start_keyboard_listener(self):
+        if Settings.RENDER_MODE is None:
+            print("Keyboard listener not started, as no rendering is active")
+            return
         listener = keyboard.Listener(on_press=self.on_press)
         listener.start()
 
