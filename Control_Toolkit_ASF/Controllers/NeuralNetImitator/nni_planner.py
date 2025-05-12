@@ -4,7 +4,7 @@ import sklearn # Don't touch
 
 from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
-
+from utilities.Settings import Settings
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
 from collections import deque  # Import deque for an efficient rolling buffer
@@ -60,10 +60,10 @@ class NeuralNetImitatorPlanner(template_planner):
         # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
         # Lidar dict
-        lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
-        lidar_values = self.LIDAR.all_lidar_ranges
-        lidar_dict = dict(zip(lidar_keys, lidar_values))
-
+        # lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
+        # lidar_values = self.LIDAR.all_lidar_ranges
+        # lidar_dict = dict(zip(lidar_keys, lidar_values))
+        lidar_dict = {}
         # Waypoint dict
         waypoints_relative = self.waypoint_utils.get_relative_positions(self.waypoints, self.car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
@@ -80,7 +80,7 @@ class NeuralNetImitatorPlanner(template_planner):
         }
         
         env_dict = {
-            'mu': Settings.SURFACE_FRICTION,
+            'mu': Settings.SURFACE_FRICITON,
         }
 
         control_dict = {
@@ -117,7 +117,7 @@ class NeuralNetImitatorPlanner(template_planner):
                 self.friction_estimate.append(fricition)
                 self.friction = np.mean(self.friction_estimate)
             
-            self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
+            # self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
             # print("Estimated friction: ", self.friction)
         else:
             self.angular_control = net_output[0, 0, 0]

@@ -2,14 +2,16 @@ import yaml
 import numpy as np
 from tqdm import trange
 from typing import Optional
-
-from pynput import keyboard
+import importlib
                 
 import os
 
 
 # Utilities
 from utilities.Settings import Settings
+
+if not Settings.ROS_BRIDGE:
+    from pynput import keyboard
 
 from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
