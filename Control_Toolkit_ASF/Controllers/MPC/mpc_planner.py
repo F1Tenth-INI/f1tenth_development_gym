@@ -131,10 +131,11 @@ class mpc_planner(template_planner):
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=rollout_trajectories,
-            optimal_trajectory=optimal_trajectory,
-        )
+        if hasattr(self.render_utils, 'update_mpc'):
+            self.render_utils.update_mpc(
+                rollout_trajectory=rollout_trajectories,
+                optimal_trajectory=optimal_trajectory,
+            )
 
         self.translational_control = translational_control
         self.angular_control = angular_control

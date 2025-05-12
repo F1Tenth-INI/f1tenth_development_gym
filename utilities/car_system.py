@@ -2,14 +2,16 @@ import yaml
 import numpy as np
 from tqdm import trange
 from typing import Optional
-
-
+import importlib
                 
 import os
 
 
 # Utilities
 from utilities.Settings import Settings
+
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
+    from pynput import keyboard
 
 from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
@@ -118,15 +120,11 @@ class CarSystem:
 
         ### Planner
         self.controller_name = controller
-        self.planner = initialize_planner(self.controller_name)
+        self.initialize_controller(self.controller_name)
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
-        if hasattr(self.planner, 'waypoint_utils'):
-            self.planner.waypoint_utils = self.waypoint_utils
-        if hasattr(self.planner, 'LIDAR'):
-            self.planner.LIDAR = self.LIDAR
 
-
+            
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -135,8 +133,7 @@ class CarSystem:
                     predictor.next_step_predictor.env.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
 
 
-        if(hasattr(self.planner, 'render_utils')):
-            self.planner.render_utils = self.render_utils
+        
 
 
         self.savse_recording = save_recording
@@ -171,10 +168,20 @@ class CarSystem:
 
        
         # Recorder
-        self.init_recorder_and_start(recorder_dict=recorder_dict)
+        # self.init_recorder_and_start(recorder_dict=recorder_dict)
+        self.init_recorder(recorder_dict=recorder_dict)
 
            
-            
+    def initialize_controller(self, controller_name):
+        
+        self.planner = initialize_planner(controller_name)
+        
+        if(hasattr(self.planner, 'render_utils')):
+            self.planner.render_utils = self.render_utils
+        if(hasattr(self.planner, 'waypoint_utils')):
+            self.planner.waypoint_utils = self.waypoint_utils
+        
+        
     def launch_tuner_connector(self):
         try:
             self.tuner_connector = TunerConnectorSim()
@@ -387,11 +394,11 @@ class CarSystem:
                 updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
             )
             
-        basic_dict = get_basic_data_dict(self)
         if Settings.FORGE_HISTORY:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
+            basic_dict = get_basic_data_dict(self)
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         
@@ -409,8 +416,8 @@ class CarSystem:
     
     '''
     Initialize the recorder, add basic dict active dictionary and start recording
-    '''            
-    def init_recorder_and_start(self, recorder_dict={}):
+    '''        
+    def init_recorder(self,recorder_dict={}):
         self.recorder: Optional[Recorder] = None
         
         if Settings.SAVE_RECORDINGS and self.save_recordings:
@@ -442,8 +449,62 @@ class CarSystem:
                     recorder_base_dict=self.recorder.dict_data_to_save_basic
                 )
             
-            # Start Recording
-            self.recorder.start_csv_recording()
+
+    def on_press(self,key):
+        try:
+            if key.char == 'r':  # Press 'r' to start recording
+                print("Start recording...")
+                self.start_recorder()  # Replace 'car' with your object instance
+        except AttributeError:
+            pass  # For special keys like shift, ctrl, etc.
+
+    def start_keyboard_listener(self):
+        if Settings.RENDER_MODE is None:
+            print("Keyboard listener not started, starting recording automatically")
+            self.start_recorder()
+            return
+        listener = keyboard.Listener(on_press=self.on_press)
+        listener.start()
+
+    def start_recorder(self):
+        self.recorder.start_csv_recording()
+    
+
+
+    # def init_recorder_and_start(self, recorder_dict={}):
+    #     self.recorder: Optional[Recorder] = None
+        
+    #     if Settings.SAVE_RECORDINGS and self.save_recordings:
+    #         self.recorder = Recorder(driver=self)
+            
+    #         # Add more internal data to recording dict:
+    #         self.recorder.dict_data_to_save_basic.update(
+    #             {   
+    #                 'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
+    #                 'reward': lambda: self.reward,
+    #             }
+    #         )
+    #         # Add data from outside the car stysem
+    #         self.recorder.dict_data_to_save_basic.update(recorder_dict)
+       
+    #         if Settings.FORGE_HISTORY:
+    #             self.recorder.dict_data_to_save_basic.update(
+    #                 {
+    #                     'forged_history_applied': lambda: self.history_forger.forged_history_applied,
+    #                 }
+    #             )
+    #         if Settings.SAVE_STATE_METRICS:
+    #             from utilities.StateMetricCalculator import StateMetricCalculator
+    #             self.state_metric_calculator = StateMetricCalculator(
+    #                 environment_name="Car",
+    #                 initial_environment_attributes={
+    #                     "next_waypoints": self.waypoint_utils.next_waypoints,
+    #                 },
+    #                 recorder_base_dict=self.recorder.dict_data_to_save_basic
+    #             )
+            
+            # # Start Recording
+            # self.recorder.start_csv_recording()
 
     
     def add_control_noise(self, control):

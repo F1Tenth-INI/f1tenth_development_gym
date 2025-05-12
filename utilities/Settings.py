@@ -41,6 +41,7 @@ class Settings():
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
+    SAVE_VIDEOS = True
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
