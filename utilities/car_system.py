@@ -567,15 +567,17 @@ class CarSystem:
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
-    else:
+                
 def initialize_planner(controller: str):
 
     if controller is None:
             planner = None
     elif controller == 'mpc':
-        from Control_Toolkit_ASF.Controllers.MPC import mpc_planner
-        importlib.reload(mpc_planner)
-        planner = mpc_planner.mpc_planner()
+        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
+        planner = mpc_planner()
+    elif controller == 'mppi-lite':
+        from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_planner import MPPILitePlanner
+        planner = MPPILitePlanner()
     elif controller == 'ftg':
         from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
         importlib.reload(ftg_planner)
@@ -620,5 +622,7 @@ def if_mpc_define_cs_variables(planner):
     if hasattr(planner, 'mpc'):
         horizon = planner.mpc.predictor.horizon
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-        translational_control_di
+        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+        return angular_control_dict, translational_control_dict
+    else:
         return {}, {}
