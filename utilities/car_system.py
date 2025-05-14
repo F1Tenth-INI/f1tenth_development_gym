@@ -567,7 +567,7 @@ class CarSystem:
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
-    else:
+                
 def initialize_planner(controller: str):
 
     if controller is None:
