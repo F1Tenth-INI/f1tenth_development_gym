@@ -25,8 +25,8 @@ class next_state_predictor_ODE():
 
         self.params = None
 
-        self.intermediate_steps = intermediate_steps
-        self.t_step = dt / float(self.intermediate_steps)
+        self.intermediate_steps = int(intermediate_steps)
+        self.t_step = float(dt / float(self.intermediate_steps))
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
