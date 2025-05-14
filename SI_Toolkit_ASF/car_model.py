@@ -289,7 +289,9 @@ class car_model:
         accl = self.lib.where(condition, 0., accl)
 
         # Constraint longitudinal acceleration by motor power
-        accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
+        # accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
+        a_min = self.lib.constant(self.car_parameters.a_min, t=self.lib.float32)
+        accl = self.lib.clip(accl, a_min, pos_limit)
 
         # Constraint longitudinal acceleration by slipping
         max_acceleration = self.car_parameters.g * self.car_parameters.mu        
@@ -388,7 +390,8 @@ class car_model:
         
         vel_x_dot = translational_control   
 
-        Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
+        # Q_pid = self.lib.permute(self.lib.stack([delta_dot, vel_x_dot]))
+        Q_pid = self.lib.stack([delta_dot, vel_x_dot], axis=1)
 
         return Q_pid
 
@@ -404,7 +407,7 @@ class car_model:
         delta_dot = self.steering_constraints(delta, delta_dot)
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
 
-        Q_pid_with_constrains = self.lib.permute(self.lib.stack([delta_dot, v_x_dot]))
+        Q_pid_with_constrains = self.lib.stack([delta_dot, v_x_dot], axis=1)
 
         return Q_pid_with_constrains
 
