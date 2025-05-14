@@ -26,7 +26,7 @@ mpc_type = config_controllers["mpc"]['optimizer']
 
 R = config["Car"]["racing"]["R"]
 
-cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
+cc_weight = config["Car"]["racing"]["cc_weight"]
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
 ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
@@ -77,7 +77,7 @@ class f1t_cost_function(cost_function_base):
     def P1(self, P1):
         self._P1 = P1
         if not hasattr(self, "_P1_tf"):
-            self._P1_tf = tf.Variable(P1, dtype=tf.float32)
+            self._P1_tf = self.lib.to_variable(P1, self.lib.float32)
         else:
             self._P1_tf.assign(P1)
 
@@ -93,7 +93,7 @@ class f1t_cost_function(cost_function_base):
     def P2(self, P2):
         self._P2 = P2
         if not hasattr(self, "_P2_tf"):
-            self._P2_tf = tf.Variable(P2, dtype=tf.float32)
+            self._P2_tf = self.lib.to_variable(P2, self.lib.float32)
         else:
             self._P2_tf.assign(P2)
 
@@ -102,13 +102,13 @@ class f1t_cost_function(cost_function_base):
     # TODO: Make it library agnostic. This also justifies why some methods are not static, although currently they could be
     def get_actuation_cost(self, u):
         cc_cost = R * (u ** 2)
-        return tf.math.reduce_sum(cc_weight * cc_cost, axis=-1)
+        return self.lib.sum(cc_weight * cc_cost, -1)
 
     def get_terminal_speed_cost(self, terminal_state):
         ''' Compute penality for deviation from desired max speed'''
         terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
 
-        speed_diff = tf.abs(terminal_speed - desired_max_speed)
+        speed_diff = self.lib.abs(terminal_speed - desired_max_speed)
         terminal_speed_cost = terminal_speed_cost_weight * speed_diff
 
         return terminal_speed_cost
@@ -123,21 +123,21 @@ class f1t_cost_function(cost_function_base):
         The weight of this cost should be in general small, it should help to eliminate sudden changes of big magnitude which the physical car might not handle correctly
         """
         s0, _, s2 = u.shape
-        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
+        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), 1)
         ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
-        return tf.math.reduce_sum(ccrc_weight * ccrc, axis=-1)
+        return self.lib.sum(ccrc_weight * ccrc, -1)
 
     def get_control_change_rate_within_horizon_cost(self, u):
         """
         Compute penalty of instant control change within the horizon.
         Args:
-        u (tf.Tensor): Tensor of shape (#rollouts, horizon, #control_inputs) representing the control actions.
+        u (TensorType): Tensor of shape (#rollouts, horizon, #control_inputs) representing the control actions.
         Returns:
-        tf.Tensor: Tensor of shape (#rollouts, horizon) representing the sum of absolute differences between consecutive control actions.
+        TensorType: Tensor of shape (#rollouts, horizon) representing the sum of absolute differences between consecutive control actions.
         """
         # Calculate the absolute differences between consecutive control actions
-        control_diff = tf.abs(u[:, 1:, :] - u[:, :-1, :])
+        control_diff = self.lib.abs(u[:, 1:, :] - u[:, :-1, :])
         control_diff = self.lib.square(control_diff)
         weighted_control_diff = control_diff * ccrh_weight
         control_change = tf.reduce_sum(weighted_control_diff, axis=-1) # sum over the control inputs     
@@ -152,18 +152,18 @@ class f1t_cost_function(cost_function_base):
         We use absolute difference: the control input should stay smooth same for big and low control inputs
         """
         s0, _, s2 = u.shape
-        u_prev_vec = tf.concat((tf.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
-        u_next_vec = tf.concat((u[:, 1:, :], u[:, -1:, :]), axis=1)
+        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), 1)
+        u_next_vec = self.lib.concat((u[:, 1:, :], u[:, -1:, :]), 1)
         ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
 
-        return tf.math.reduce_sum(ccocrc_weight * ccocrc, axis=-1)
+        return self.lib.sum(ccocrc_weight * ccocrc, 1)
 
 
     def get_immediate_control_discontinuity_cost(self, u, u_prev):
-        u_prev_vec = tf.ones_like(u) * u_prev  # The vector is just to keep dimensions right and scaling with gr
+        u_prev_vec = self.lib.ones_like(u) * u_prev  # The vector is just to keep dimensions right and scaling with gr
         icdc = (u_prev_vec - u[:, :1, :])**2
 
-        return tf.math.reduce_sum(icdc_weight * icdc, axis=-1)
+        return self.lib.sum(icdc_weight * icdc, -1)
 
 
 
@@ -171,16 +171,16 @@ class f1t_cost_function(cost_function_base):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''
         accelerations = u[:, :, TRANSLATIONAL_CONTROL_IDX]
         acceleration_cost = max_acceleration - accelerations
-        acceleration_cost = tf.abs(acceleration_cost)
+        acceleration_cost = self.lib.abs(acceleration_cost)
         acceleration_cost = acceleration_cost_weight * acceleration_cost
-        acceleration_cost = tf.cast(acceleration_cost, tf.float32)
+        acceleration_cost = self.lib.cast(acceleration_cost, self.lib.float32)
         return acceleration_cost
 
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
         steering = u[:, :, ANGULAR_CONTROL_IDX]
-        steering = tf.square(steering)
-        steering = tf.cast(steering, tf.float32)
+        steering = self.lib.square(steering)
+        steering = self.lib.cast(steering, self.lib.float32)
         steering_cost = steering_cost_weight * steering
 
         return steering_cost
@@ -305,7 +305,7 @@ class f1t_cost_function(cost_function_base):
         vector_car_pos_to_nearest_wp_norm_square = tf.multiply(vector_car_pos_to_nearest_wp_norm, vector_car_pos_to_nearest_wp_norm)
         
         # Get projection of car_pos_to_nearest_wp on nearest wp_segment
-        car_pos_to_nearest_wp_dot_wp_segment =  tf.reduce_sum(vector_car_pos_to_nearest_wp * wp_segment_vectors, axis=2)
+        car_pos_to_nearest_wp_dot_wp_segment =  self.lib.sum(vector_car_pos_to_nearest_wp * wp_segment_vectors, 2)
         projection_car_pos_to_wp_on_wp_segment = car_pos_to_nearest_wp_dot_wp_segment / wp_segment_vector_norms
         projection_square = tf.multiply(projection_car_pos_to_wp_on_wp_segment, projection_car_pos_to_wp_on_wp_segment)
         
@@ -321,7 +321,7 @@ class f1t_cost_function(cost_function_base):
 
         car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
-        horizon = tf.cast(tf.shape(s)[1], dtype=tf.float32)
+        horizon = self.lib.cast(self.lib.shape(s)[1], self.lib.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
         return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
     

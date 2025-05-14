@@ -22,7 +22,7 @@ mpc_type = config_controllers["mpc"]['optimizer']
 
 R = config["Car"]["racing"]["R"]
 
-cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
+cc_weight = config["Car"]["racing"]["cc_weight"]
 ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
 ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
@@ -73,7 +73,7 @@ class f1t_cost_function(cost_function_base):
     def P1(self, P1):
         self._P1 = P1
         if not hasattr(self, "_P1_tf"):
-            self._P1_tf = tf.Variable(P1, dtype=tf.float32)
+            self._P1_tf = self.lib.to_variable(P1, self.lib.float32)
         else:
             self._P1_tf.assign(P1)
 
@@ -89,7 +89,7 @@ class f1t_cost_function(cost_function_base):
     def P2(self, P2):
         self._P2 = P2
         if not hasattr(self, "_P2_tf"):
-            self._P2_tf = tf.Variable(P2, dtype=tf.float32)
+            self._P2_tf = self.lib.to_variable(P2, self.lib.float32)
         else:
             self._P2_tf.assign(P2)
 
@@ -98,7 +98,7 @@ class f1t_cost_function(cost_function_base):
     # TODO: Make it library agnostic. This also justifies why some methods are not static, although currently they could be
     def get_actuation_cost(self, u):
         cc_cost = R * (u ** 2)
-        return tf.math.reduce_sum(cc_weight * cc_cost, axis=-1)
+        return self.lib.sum(cc_weight * cc_cost, -1)
 
     def get_terminal_speed_cost(self, terminal_state):
         ''' Compute penality for deviation from desired max speed'''
@@ -236,7 +236,7 @@ class f1t_cost_function(cost_function_base):
 
         minima = tf.reshape(minima, [trajectories_shape[0], trajectories_shape[1]])
 
-        minima = tf.clip_by_value(minima, 0.0, crash_cost_safe_margin)
+        minima = self.lib.clip(minima, 0.0, crash_cost_safe_margin)
 
         cost_for_passing_close = self.hyperbolic_function_for_crash_cost(minima)
 
@@ -261,15 +261,15 @@ class f1t_cost_function(cost_function_base):
     def distances_from_list_to_list_of_points(self, points1, points2):
 
         # TODO: Cast both as float
-        points1 = tf.cast(points1, tf.float32)
-        points2 = tf.cast(points2, tf.float32)
+        points1 = self.lib.cast(points1, self.lib.float32)
+        points2 = self.lib.cast(points2, self.lib.float32)
     
         points1 = tf.expand_dims(points1, 1)
         points2 = tf.expand_dims(points2, 0)
 
         diff = points2 - points1
         squared_diff = tf.math.square(diff)
-        squared_dist = tf.reduce_sum(squared_diff, axis=2)
+        squared_dist = self.lib.sum(squared_diff, 2)
 
         return squared_dist
 
