@@ -567,38 +567,50 @@ class CarSystem:
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
-    
+    else:
 def initialize_planner(controller: str):
 
     if controller is None:
-        planner = None
+            planner = None
     elif controller == 'mpc':
-        from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
-        planner = mpc_planner()
+        from Control_Toolkit_ASF.Controllers.MPC import mpc_planner
+        importlib.reload(mpc_planner)
+        planner = mpc_planner.mpc_planner()
     elif controller == 'ftg':
-        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-        planner = FollowTheGapPlanner()
+        from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
+        importlib.reload(ftg_planner)
+        planner = ftg_planner.FollowTheGapPlanner()
     elif controller == 'neural':
-        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-        planner = NeuralNetImitatorPlanner()
+        from Control_Toolkit_ASF.Controllers.NeuralNetImitator import nni_planner
+        importlib.reload(nni_planner)
+        planner = nni_planner.NeuralNetImitatorPlanner()
     elif controller == 'nni-lite':
-        from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
-        planner = NNLitePlanner()
+        from Control_Toolkit_ASF.Controllers.NNLite import nni_lite_planner
+        importlib.reload(nni_lite_planner)
+        planner = nni_lite_planner.NNLitePlanner()
     elif controller == 'pp':
-        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-        planner = PurePursuitPlanner()
+        from Control_Toolkit_ASF.Controllers.PurePursuit import pp_planner
+        importlib.reload(pp_planner)
+        planner = pp_planner.PurePursuitPlanner()
     elif controller == 'stanley':
-        from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
-        planner = StanleyPlanner()
+        from Control_Toolkit_ASF.Controllers.Stanley import stanley_planner
+        importlib.reload(stanley_planner)
+        planner = stanley_planner.StanleyPlanner()
+    elif controller == 'sysid':
+        from Control_Toolkit_ASF.Controllers.SysId import sysid_planner
+        importlib.reload(sysid_planner)
+        planner = sysid_planner.SysIdPlanner()
     elif controller == 'manual':
-        from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
-        planner = manual_planner()
+        from Control_Toolkit_ASF.Controllers.Manual import manual_planner
+        importlib.reload(manual_planner)
+        planner = manual_planner.manual_planner()
     elif controller == 'random':
-        from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
-        planner = random_planner()
+        from Control_Toolkit_ASF.Controllers.Random import random_planner
+        importlib.reload(random_planner)
+        planner = random_planner.random_planner()
     else:
         print(f"controller {controller} not recognized")
-        NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+        raise NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
         exit()
 
     return planner
@@ -608,7 +620,5 @@ def if_mpc_define_cs_variables(planner):
     if hasattr(planner, 'mpc'):
         horizon = planner.mpc.predictor.horizon
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-        return angular_control_dict, translational_control_dict
-    else:
+        translational_control_di
         return {}, {}
