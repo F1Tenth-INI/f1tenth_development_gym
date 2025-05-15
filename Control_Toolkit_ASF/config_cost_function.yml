@@ -35,7 +35,7 @@ Car:
     # Different optimizers works the best with different cost functions parameters
     mppi:
 
-    rpgd-tf:
+    rpgd:
 
   following_target:
     # TODO: The parameters not set yet, same as for racing
