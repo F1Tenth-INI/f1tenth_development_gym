@@ -62,6 +62,22 @@ class f1t_cost_function(cost_function_base):
 
         self.cost_function_for_state_metric = False
 
+        self.POSE_THETA_IDX = self.lib.to_tensor(POSE_THETA_IDX, self.lib.int32)
+        self.POSE_THETA_COS_IDX = self.lib.to_tensor(POSE_THETA_COS_IDX, self.lib.int32)
+        self.POSE_THETA_SIN_IDX = self.lib.to_tensor(POSE_THETA_SIN_IDX, self.lib.int32)
+        self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
+        self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
+        self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
+        self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
+        self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
+        self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
+        self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+
+        self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
+        self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
+
+
+
 
     # region updating P1 & P2
     @property
@@ -106,7 +122,7 @@ class f1t_cost_function(cost_function_base):
 
     def get_terminal_speed_cost(self, terminal_state):
         ''' Compute penality for deviation from desired max speed'''
-        terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
+        terminal_speed = terminal_state[:, self.LINEAR_VEL_X_IDX]
 
         speed_diff = self.lib.abs(terminal_speed - self.lib.to_tensor(desired_max_speed, self.lib.float32))
         terminal_speed_cost = self.lib.to_tensor(terminal_speed_cost_weight, self.lib.float32) * speed_diff
@@ -169,7 +185,7 @@ class f1t_cost_function(cost_function_base):
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''
-        accelerations = u[:, :, TRANSLATIONAL_CONTROL_IDX]
+        accelerations = u[:, :, self.TRANSLATIONAL_CONTROL_IDX]
         acceleration_cost = self.lib.to_tensor(max_acceleration, self.lib.float32) - accelerations
         acceleration_cost = self.lib.abs(acceleration_cost)
         acceleration_cost = self.lib.to_tensor(acceleration_cost_weight, self.lib.float32) * acceleration_cost
@@ -178,7 +194,7 @@ class f1t_cost_function(cost_function_base):
 
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
-        steering = u[:, :, ANGULAR_CONTROL_IDX]
+        steering = u[:, :, self.ANGULAR_CONTROL_IDX]
         steering = self.lib.square(steering)
         steering = self.lib.cast(steering, self.lib.float32)
         steering_cost = self.lib.to_tensor(steering_cost_weight, self.lib.float32) * steering
@@ -186,13 +202,13 @@ class f1t_cost_function(cost_function_base):
         return steering_cost
     
     def get_angular_velocity_cost(self, s):
-        angular_velovities = s[:, :, ANGULAR_VEL_Z_IDX]
+        angular_velovities = s[:, :, self.ANGULAR_VEL_Z_IDX]
         angula_velocity_cost = self.lib.to_tensor(angular_velocity_cost_weight, self.lib.float32) * self.lib.square(angular_velovities)
         angula_velocity_cost = self.lib.cast(angula_velocity_cost, self.lib.float32)
         return angula_velocity_cost
 
     def get_slipping_cost(self, s):
-        slipping_angles = s[:, :, SLIP_ANGLE_IDX]
+        slipping_angles = s[:, :, self.SLIP_ANGLE_IDX]
         slipping_cost = self.lib.to_tensor(slipping_cost_weight, self.lib.float32) * self.lib.square(slipping_angles)
         slipping_cost = self.lib.cast(slipping_cost, self.lib.float32)
         return slipping_cost
@@ -278,7 +294,7 @@ class f1t_cost_function(cost_function_base):
         return squared_dist
 
     def get_distance_to_wp_segments_cost(self, s, waypoints, nearest_waypoint_indices):
-        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        car_positions = s[:, :, self.POSE_X_IDX:self.POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:,1:3]
 
         return self.lib.to_tensor(distance_to_waypoints_cost_weight, self.lib.float32) * self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
@@ -319,7 +335,7 @@ class f1t_cost_function(cost_function_base):
         # if (velocity_diff_to_waypoints_cost_weight == 0): # Don't calculate if cost is 0
         #     return self.lib.zeros_like(s[:,:,0])
 
-        car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
+        car_vel_x = s[:, :, self.LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
         horizon = self.lib.to_tensor(self.lib.shape(s)[1], self.lib.int32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
@@ -338,7 +354,7 @@ class f1t_cost_function(cost_function_base):
     def get_speed_control_difference_to_wp_cost(self, u, s, waypoints, nearest_waypoint_indices):
         
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
-        speed_control = u[:, :, TRANSLATIONAL_CONTROL_IDX]
+        speed_control = u[:, :, self.TRANSLATIONAL_CONTROL_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(speed_control, waypoints, nearest_waypoint_indices)
         horizon = self.lib.cast(self.lib.to_tensor(self.lib.shape(s)[1], self.lib.int32), self.lib.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
@@ -361,8 +377,8 @@ class f1t_cost_function(cost_function_base):
         nearest_waypoint_psi_rad_sin = self.lib.sin(nearest_waypoints)
         nearest_waypoint_psi_rad_cos = self.lib.cos(nearest_waypoints)
         
-        car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
-        car_angle_cos = s[:, :, POSE_THETA_COS_IDX]
+        car_angle_sin = s[:, :, self.POSE_THETA_SIN_IDX]
+        car_angle_cos = s[:, :, self.POSE_THETA_COS_IDX]
         
         angle_difference_sin = self.lib.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
         angle_difference_cos= self.lib.square(nearest_waypoint_psi_rad_cos - car_angle_cos)

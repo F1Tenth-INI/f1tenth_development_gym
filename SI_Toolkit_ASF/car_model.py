@@ -25,6 +25,22 @@ class car_model:
         self.lib = computation_lib
 
         self.car_parameters = VehicleParameters(car_parameter_file)
+
+        self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
+        self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)
+
+        self.POSE_THETA_IDX = self.lib.to_tensor(POSE_THETA_IDX, self.lib.int32)
+        self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
+        self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
+        self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
+        self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
+        self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
+        self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
+        self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+
+        self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
+        self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
+            
               
         self.model_of_car_dynamics = model_of_car_dynamics
         self.step_dynamics = None
@@ -80,14 +96,14 @@ class car_model:
         returns s_next: (batch_size, len(state)) all nexts states
         '''
         
-        angular_vel_z = s[:, ANGULAR_VEL_Z_IDX]
-        v_x = s[:, LINEAR_VEL_X_IDX]
-        psi = s[:, POSE_THETA_IDX]
+        angular_vel_z = s[:, self.ANGULAR_VEL_Z_IDX]
+        v_x = s[:, self.LINEAR_VEL_X_IDX]
+        psi = s[:,self.POSE_THETA_IDX]
       
-        s_x = s[:, POSE_X_IDX]
-        s_y = s[:, POSE_Y_IDX]
-        beta = s[:, SLIP_ANGLE_IDX]
-        delta = s[:, STEERING_ANGLE_IDX]
+        s_x = s[:, self.POSE_X_IDX]
+        s_y = s[:, self.POSE_Y_IDX]
+        beta = s[:, self.SLIP_ANGLE_IDX]
+        delta = s[:, self.STEERING_ANGLE_IDX]
 
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
 
@@ -157,15 +173,15 @@ class car_model:
         E_r = self.car_parameters.C_Pr[3]
 
         # State
-        s_x = s[:, POSE_X_IDX]  # Pose X
-        s_y = s[:, POSE_Y_IDX]  # Pose Y
-        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
-        v_y = s[:, LINEAR_VEL_Y_IDX]  # Lateral velocity    
-        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
-        psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
-        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        s_x = s[:, self.POSE_X_IDX]  # Pose X
+        s_y = s[:, self.POSE_Y_IDX]  # Pose Y
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        v_y = s[:, self.LINEAR_VEL_Y_IDX]  # Lateral velocity    
+        psi = s[:,self.POSE_THETA_IDX]  # Yaw Angle
+        psi_dot = s[:, self.ANGULAR_VEL_Z_IDX]  # Yaw Rate
+        delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
         for _ in range(self.intermediate_steps):
             v_x = self.lib.where(v_x < 1.0e-3, self.lib.constant(1.0e-3, self.lib.float32), v_x)
@@ -223,7 +239,7 @@ class car_model:
 
     def _step_dynamics_ks_pacejka(self, s, Q):
 
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         # switch to kinematic model for small velocities
         # Define speed thresholds
@@ -383,8 +399,8 @@ class car_model:
         # Control Input (desired speed, desired steering angle)
         desired_angle, translational_control = self.lib.unstack(Q, 2, 1)
 
-        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
-        vel_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
+        vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         delta_dot = self.servo_proportional(desired_angle, delta)
         
@@ -398,11 +414,11 @@ class car_model:
 
     def apply_constrains(self, s, Q_pid):
 
-        delta = s[:, STEERING_ANGLE_IDX]  # Front wheels steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front wheels steering angle
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
-        delta_dot = Q_pid[:, ANGULAR_CONTROL_IDX]  # Front wheels steering angle velocity
-        v_x_dot = Q_pid[:, TRANSLATIONAL_CONTROL_IDX]  # Longitudinal acceleration
+        delta_dot = Q_pid[:, self.ANGULAR_CONTROL_IDX]  # Front wheels steering angle velocity
+        v_x_dot = Q_pid[:, self.TRANSLATIONAL_CONTROL_IDX]  # Longitudinal acceleration
 
         delta_dot = self.steering_constraints(delta, delta_dot)
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -412,8 +428,8 @@ class car_model:
         return Q_pid_with_constrains
 
     def return_control_cmd_components(self, control_cmd):
-        steering_speed = control_cmd[:, ANGULAR_CONTROL_IDX]
-        acceleration_x = control_cmd[:, TRANSLATIONAL_CONTROL_IDX]
+        steering_speed = control_cmd[:, self.ANGULAR_CONTROL_IDX]
+        acceleration_x = control_cmd[:, self.TRANSLATIONAL_CONTROL_IDX]
         return steering_speed, acceleration_x
 
 

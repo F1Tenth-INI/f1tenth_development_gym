@@ -121,8 +121,8 @@ class mpc_planner(template_planner):
         traj_cost = None
 
         if hasattr(self.mpc.optimizer, 'rollout_trajectories'):
-            rollout_trajectories = self.mpc.optimizer.rollout_trajectories
-            self.rollout_trajectories = rollout_trajectories[:20,:,:].numpy()
+            rollout_trajectories = self.mpc.lib.to_numpy(self.mpc.optimizer.rollout_trajectories)
+            self.rollout_trajectories = rollout_trajectories[:20,:,:]
         if hasattr(self.mpc.optimizer, 'optimal_trajectory'):
             optimal_trajectory = self.mpc.optimizer.optimal_trajectory
             self.optimal_trajectory = optimal_trajectory
