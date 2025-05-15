@@ -5,16 +5,28 @@ cost_function_name_default: racing
 
 Car:
   racing:
-    # cc_weight: 0.05                        # control cost; for mppi, to concord with theory, check that cc, ccrc and R are the same as in config_optimizers.yml
-    cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
-    ccrc_weight: [20.0, 1.0] # Steering and throttle; penalty of instant control change (compared to prev input)
-    ccrh_weight: [20.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
+    # Different optimizers works the best with different cost functions parameters
+    rpgd-tf:
+      cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
+      ccrc_weight: [20.0, 1.0] # Steering and throttle; penalty of instant control change (compared to prev input)
+      ccrh_weight: [20.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
+
+      crash_cost_max_cost: 100.0
+      crash_cost_safe_margin: 0.4
+      crash_cost_slope: 30.0
+
+    mppi:
+      cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
+      ccrc_weight: [2.0, 0.1] # Steering and throttle; penalty of instant control change (compared to prev input)
+      ccrh_weight: [0.0, 0.0] # Steering and throttle; penalty of instant control change within the
+
+      crash_cost_max_cost: 0.0
+      crash_cost_safe_margin: 0.4
+      crash_cost_slope: 30.0
+
+    # horizon
     ccocrc_weight: [0.0, 0.0] # Steering and throttle; penalizing |∆u(t)-∆u(t-1)|
     icdc_weight: [0.0, 0.0] # Steering and throttle; special penalty to discourage change at the very first control input
-
-    crash_cost_safe_margin: 0.4
-    crash_cost_max_cost: 100.0
-    crash_cost_slope: 30.0
 
     R: 1.0 # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
     distance_to_waypoints_cost_weight: 20.0
@@ -31,11 +43,6 @@ Car:
     acceleration_cost_weight: 0.0
     max_acceleration: 9.2
     desired_max_speed: 3.8 # desired max speed for the car [m/s]
-
-    # Different optimizers works the best with different cost functions parameters
-    mppi:
-
-    rpgd-tf:
 
   following_target:
     # TODO: The parameters not set yet, same as for racing

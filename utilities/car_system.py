@@ -170,6 +170,9 @@ class CarSystem:
         # Recorder
         # self.init_recorder_and_start(recorder_dict=recorder_dict)
         self.init_recorder(recorder_dict=recorder_dict)
+        
+        if(not Settings.ROS_BRIDGE):
+            self.start_recorder()
 
            
     def initialize_controller(self, controller_name):
