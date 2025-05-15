@@ -25,8 +25,8 @@ class next_state_predictor_ODE():
 
         self.params = None
 
-        self.intermediate_steps = intermediate_steps
-        self.t_step = dt / float(self.intermediate_steps)
+        self.intermediate_steps = int(intermediate_steps)
+        self.t_step = float(dt / float(self.intermediate_steps))
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
@@ -56,11 +56,15 @@ class next_state_predictor_ODE():
             self.step = CompileTF(self._step)
 
     def _step(self, s, Q):
+        self.lib.break_compilation_graph()
+
 
         if self.core_dynamics_only:
             s_next = self.env.step_dynamics_core(s, Q)
         else:
             s_next = self.env.step_dynamics(s, Q)
+
+        self.lib.break_compilation_graph()
         return s_next
 
 
