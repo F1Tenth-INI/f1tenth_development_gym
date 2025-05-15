@@ -62,7 +62,7 @@ class car_model:
 
 
         self.dt = dt
-        self.intermediate_steps = int(intermediate_steps)
+        self.intermediate_steps = self.lib.to_tensor(intermediate_steps, self.lib.int32)
         self.intermediate_steps_float = float(intermediate_steps)
         self.t_step = float(self.dt / float(self.intermediate_steps))
 
