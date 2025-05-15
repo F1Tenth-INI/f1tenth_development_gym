@@ -21,13 +21,13 @@ with open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"
     config_controllers = yaml.load(f, Loader=yaml.FullLoader)
 
 
-mpc_type = config_controllers["mpc"]['optimizer']
+mpc_optimizier_name = config_controllers["mpc"]['optimizer']
 
 R = config["Car"]["racing"]["R"]
 
-cc_weight = config["Car"]["racing"]["cc_weight"]
-ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
-ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
+cc_weight = config["Car"]["racing"][mpc_optimizier_name]["cc_weight"]
+ccrc_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
+ccrh_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 icdc_weight = config["Car"]["racing"]["icdc_weight"]
 
@@ -46,9 +46,9 @@ max_acceleration = config["Car"]["racing"]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
 waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
-crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
-crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
-crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
+crash_cost_slope = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_max_cost"]
 
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
@@ -58,7 +58,9 @@ class f1t_cost_function(cost_function_base):
         self._P1 = None
         self._P2 = None
 
-        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
+
+        crash_cost_max_cost_init = crash_cost_max_cost if crash_cost_max_cost > 0 else 1e-5 # Trick to initialize hyperboli function, even without crash cost
+        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost_init), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
         self.cost_function_for_state_metric = False
 

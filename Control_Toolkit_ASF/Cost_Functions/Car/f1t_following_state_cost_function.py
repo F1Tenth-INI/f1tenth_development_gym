@@ -226,6 +226,10 @@ class f1t_cost_function(cost_function_base):
 
     def get_crash_cost(self, trajectories, border_points):
 
+        # Dont calculate if max is 0
+        if crash_cost_max_cost == 0.0:
+            return self.lib.zeros_like(trajectories[:, :, 0])
+
         trajectories_shape = self.lib.shape(trajectories)
 
         points_of_trajectories = self.lib.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1], 2])
