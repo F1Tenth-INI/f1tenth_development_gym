@@ -29,17 +29,30 @@ class car_model:
         self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
         self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)
 
-        self.POSE_THETA_IDX = self.lib.to_tensor(POSE_THETA_IDX, self.lib.int32)
-        self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
-        self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
-        self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
-        self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
-        self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
-        self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
-        self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+        # self.POSE_THETA_IDX = self.lib.constant(POSE_THETA_IDX, self.lib.int32)
+        # self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
+        # self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
+        # self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
+        # self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
+        # self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
+        # self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
+        # self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+        #
+        # self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
+        # self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
 
-        self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
-        self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
+
+        self.POSE_THETA_IDX = int(POSE_THETA_IDX)
+        self.POSE_X_IDX = int(POSE_X_IDX)
+        self.POSE_Y_IDX = int(POSE_Y_IDX)
+        self.LINEAR_VEL_X_IDX = int(LINEAR_VEL_X_IDX)
+        self.LINEAR_VEL_Y_IDX = int(LINEAR_VEL_Y_IDX)
+        self.ANGULAR_VEL_Z_IDX = int(ANGULAR_VEL_Z_IDX)
+        self.SLIP_ANGLE_IDX = int(SLIP_ANGLE_IDX)
+        self.STEERING_ANGLE_IDX = int(STEERING_ANGLE_IDX)
+
+        self.ANGULAR_CONTROL_IDX = int(ANGULAR_CONTROL_IDX)
+        self.TRANSLATIONAL_CONTROL_IDX = int(TRANSLATIONAL_CONTROL_IDX)
             
               
         self.model_of_car_dynamics = model_of_car_dynamics
@@ -49,9 +62,9 @@ class car_model:
 
 
         self.dt = dt
-        self.intermediate_steps = self.lib.to_tensor(intermediate_steps, self.lib.int32)
-        self.intermediate_steps_float = self.lib.to_tensor(intermediate_steps, self.lib.float32)
-        self.t_step = self.lib.to_tensor(self.dt / float(self.intermediate_steps), self.lib.float32)
+        self.intermediate_steps = int(intermediate_steps)
+        self.intermediate_steps_float = float(intermediate_steps)
+        self.t_step = float(self.dt / float(self.intermediate_steps))
 
         self.variable_parameters = variable_parameters
         if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):

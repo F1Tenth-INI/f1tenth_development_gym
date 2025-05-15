@@ -62,19 +62,18 @@ class f1t_cost_function(cost_function_base):
 
         self.cost_function_for_state_metric = False
 
-        self.POSE_THETA_IDX = self.lib.to_tensor(POSE_THETA_IDX, self.lib.int32)
-        self.POSE_THETA_COS_IDX = self.lib.to_tensor(POSE_THETA_COS_IDX, self.lib.int32)
-        self.POSE_THETA_SIN_IDX = self.lib.to_tensor(POSE_THETA_SIN_IDX, self.lib.int32)
-        self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
-        self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
-        self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
-        self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
-        self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
-        self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
-        self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+        self.POSE_THETA_IDX = int(POSE_THETA_IDX)
+        self.POSE_THETA_COS_IDX = int(POSE_THETA_COS_IDX)
+        self.POSE_THETA_SIN_IDX = int(POSE_THETA_SIN_IDX)
+        self.POSE_X_IDX = int(POSE_X_IDX)
+        self.POSE_Y_IDX = int(POSE_Y_IDX)
+        self.LINEAR_VEL_X_IDX = int(LINEAR_VEL_X_IDX)
+        self.ANGULAR_VEL_Z_IDX = int(ANGULAR_VEL_Z_IDX)
+        self.SLIP_ANGLE_IDX = int(SLIP_ANGLE_IDX)
+        self.STEERING_ANGLE_IDX = int(STEERING_ANGLE_IDX)
 
-        self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
-        self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
+        self.ANGULAR_CONTROL_IDX = int(ANGULAR_CONTROL_IDX)
+        self.TRANSLATIONAL_CONTROL_IDX = int(TRANSLATIONAL_CONTROL_IDX)
 
 
 
