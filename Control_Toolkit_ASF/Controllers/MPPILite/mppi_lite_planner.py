@@ -10,8 +10,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from numba import njit, prange
+import numba
 os.environ["NUMBA_NUM_THREADS"] = '8'
 
+
+#Decorator to enable or disable Numba JIT
+USE_JIT = True  # Set to False to disable JIT compilation
+def njit_compile(*args, **kwargs):
+    if USE_JIT:
+        return numba.njit(*args, **kwargs)
+    else:
+        def identity(f): return f
+        return identity
 
 class MPPILitePlanner(template_planner):
 
@@ -21,6 +31,7 @@ class MPPILitePlanner(template_planner):
 
         super().__init__()
 
+        # Initialize variables
         self.simulation_index = 0
         self.car_state = None
         self.waypoints = None
@@ -28,47 +39,38 @@ class MPPILitePlanner(template_planner):
         
         self.car_state_history = []
         
-        self.render_utils = RenderUtils()
-        self.send_to_recorder = None
-
-        
-        self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
+        self.render_utils = RenderUtils()        
+        self.waypoint_utils = WaypointUtils()
         
         self.angular_control = 0
         self.translational_control = 0
-        
+
         self.control_index = 0
+        # Settings
         self.dt = 0.02
         
-        self.mu_predicted = 0
-        self.predicted_frictions = []
-        
-        
-        # Precompute variables
         self.batch_size = 1024
         self.horizon = 50    
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array()
 
-        s_batch = np.zeros(( self.batch_size, 10), dtype=np.float32)
-        Q_batch_sequence = np.random.rand(self.horizon,  self.batch_size, 2).astype(np.float32)
+        s_batch = np.zeros(( self.batch_size, NUMBER_OF_STATES), dtype=np.float32)
+        Q_batch_sequence = np.random.rand(self.batch_size, self.horizon, 2).astype(np.float32)
+        s_batch_sequence = np.zeros((self.batch_size, self.horizon, NUMBER_OF_STATES), dtype=np.float32)
+
         total_cost_batch = np.random.rand(self.batch_size).astype(np.float32)
         
         
         print("JIT compilation started", Q_batch_sequence.shape)
         # Call JIT functions once to force compilation
-        _ = car_step_parallel(s_batch, Q_batch_sequence[0], self.car_params_array, 0.02)
-        _ = batch_sequence(Q_batch_sequence, s_batch, self.car_params_array)
         _ = car_batch_sequence(s_batch,  Q_batch_sequence, self.car_params_array)
-        _ = cost_function_batch_sequence(Q_batch_sequence, Q_batch_sequence, np.zeros((30, 8)))
+        _ = cost_function_batch_sequence(s_batch_sequence, Q_batch_sequence, np.zeros((30, 8)))
         _ = exponential_weighting(Q_batch_sequence, total_cost_batch)
-        _ = compute_waypoint_distance(np.zeros(10), np.zeros((30, 8)))
+        _ = compute_waypoint_distance(np.zeros(NUMBER_OF_STATES), np.zeros((30, 8)))
         print("JIT compilation completed")
         
 
-        
 
-    
     def process_observation(self, ranges=None, ego_odom=None):
         # Convert self variables into local variables
         batch_size = self.batch_size    
@@ -79,38 +81,18 @@ class MPPILitePlanner(template_planner):
         s = np.array(self.car_state)
         
         # Call JIT-compiled function
-        next_control, Q_sequence, optimal_trajectory, state_batch_rollout, total_cost_batch = process_observation_jit(
+        Q_sequence, optimal_trajectory, state_batch_sequence, total_cost_batch = process_observation_jit(
             s, last_Q_sq, batch_size, horizon, car_params_array, self.waypoint_utils.next_waypoints
+        )
+
+        self.render_utils.update_mpc(
+            rollout_trajectory=state_batch_sequence,
+            optimal_trajectory=np.expand_dims(optimal_trajectory, axis=0),  # Add a new dimension
         )
 
         # Plotting rollout
         if False:
-            plt.clf()
-            for i in range(20):
-                plt.scatter(
-                    state_batch_rollout[:, i, 6],  # X position
-                    state_batch_rollout[:, i, 7],  # Y position
-                    s=5,
-                    c=np.full(state_batch_rollout.shape[0], total_cost_batch[i]),  # color by cost
-                    cmap='viridis',
-                    vmin=np.min(total_cost_batch),
-                    vmax=np.max(total_cost_batch),
-                    label=f'Batch {i}' if i == 0 else None
-                )
-            plt.scatter(
-                optimal_trajectory[:, 6],  # X position
-                optimal_trajectory[:, 7],  # Y position
-                s=5,
-                c='red',  # color for the optimal trajectory
-                label='Optimal Trajectory'
-            )
-
-            plt.colorbar(label='Total Cost')
-            plt.title("Car positions colored by cost")
-            plt.xlabel("X position")
-            plt.ylabel("Y position")
-            plt.axis('equal')
-            plt.savefig("car_positions_colored_by_cost.png")
+            self.plot_rollout(state_batch_sequence, optimal_trajectory, total_cost_batch)
         
         # Store updated Q sequence
         self.last_Q_sq = Q_sequence
@@ -121,73 +103,95 @@ class MPPILitePlanner(template_planner):
 
         self.control_index += 1
         return self.angular_control, self.translational_control
+    
+    def plot_rollout(self, state_batch_sequence, optimal_trajectory, total_cost_batch):
+        plt.clf()
+        for i in range(50):
+            plt.scatter(
+                state_batch_sequence[:, i, 6],  # X position
+                state_batch_sequence[:, i, 7],  # Y position
+                s=5,
+                c=np.full(state_batch_sequence.shape[0], total_cost_batch[i]),  # color by cost
+                cmap='viridis',
+                vmin=np.min(total_cost_batch),
+                vmax=np.max(total_cost_batch),
+                label=f'Batch {i}' if i == 0 else None
+            )
+        plt.scatter(
+            optimal_trajectory[:, 6],  # X position
+            optimal_trajectory[:, 7],  # Y position
+            s=5,
+            c='red',  # color for the optimal trajectory
+            label='Optimal Trajectory'
+        )
 
-@njit(fastmath=True)
+        plt.colorbar(label='Total Cost')
+        plt.title("Car positions colored by cost")
+        plt.xlabel("X position")
+        plt.ylabel("Y position")
+        plt.axis('equal')
+        plt.savefig("car_positions_colored_by_cost.png")
+
+@njit_compile(fastmath=True)
 def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array, next_waypoints):
-    # Initialize s_batch manually
+    
+    # Tile s to s_batch 
     s_batch = np.zeros((batch_size, s.shape[0]), dtype=np.float32)
     for i in prange(batch_size):  # Parallelize batch expansion
         s_batch[i] = s
 
-    # Manually shift last_Q_sq instead of using np.roll()
-    # print(f"Before shift: last_Q_sq.shape = {last_Q_sq.shape}")
-
-    last_Q_sq[:-1] = last_Q_sq[1:]  # Shift all rows forward
+    # Shift last_Q_sq to be the base for the next batch
+    last_Q_sq[:-1] = last_Q_sq[1:] 
     last_Q_sq[-1] = np.random.rand(2).astype(np.float32)  # Update last row
-    # print(f"After shift: last_Q_sq.shape = {last_Q_sq.shape}")
 
-
-    # Expand last_Q_sq to batch size using a loop (Numba-compatible)
-    Q_batch_sequence = np.zeros((horizon, batch_size, 2), dtype=np.float32)
+    # Tile last_Q_sq to create Q_batch_sequence
+    Q_batch_sequence = np.zeros((batch_size, horizon, 2), dtype=np.float32)
     for i in prange(batch_size):  # Parallelize over batch
-        Q_batch_sequence[:, i, :] = last_Q_sq
+        Q_batch_sequence[i] = last_Q_sq
 
 
     # Perturb Qs by adding random noise
-    random_perturbation = np.zeros((horizon, batch_size, 2), dtype=np.float32)
-    # random_perturbation[:, :, 0] = np.random.uniform(-0.2, 0.2, size=(horizon, batch_size))
-    # random_perturbation[:, :, 1] = np.random.uniform(-1., 1., size=(horizon, batch_size))
-    
-    random_perturbation[:, :, 0] = np.random.normal(0, 0.3, size=(horizon, batch_size))
-    random_perturbation[:, :, 1] = np.random.normal(0.1, 1.0, size=(horizon, batch_size))
+    random_perturbation = np.zeros((batch_size, horizon, 2), dtype=np.float32)
+    # random_perturbation[:, :, 0] = np.random.uniform(-0.2, 0.2, size=(batch_size, horizon))
+    # random_perturbation[:, :, 1] = np.random.uniform(-1., 1., size=(batch_size, horizon))
+    random_perturbation[:, :, 0] = np.random.normal(0, 0.2, size=(batch_size, horizon))
+    random_perturbation[:, :, 1] = np.random.normal(0.1, 1.0, size=(batch_size, horizon))
     Q_batch_sequence += random_perturbation
-    
 
-
-    # Clip control values (steering angle -0.4 - 0.4 and throttle -10, 10)
-    # Define control limits
-    steering_min, steering_max = -0.4, 0.4  # Example range for steering
-    throttle_min, throttle_max = -5, 10  # Example range for throttle
-
-    # Clip the control values to ensure they stay within limits
+    # Clip control values 
+    steering_min, steering_max = -0.4, 0.4 
+    throttle_min, throttle_max = -5, 10
     Q_batch_sequence[:, :, 0] = np.clip(Q_batch_sequence[:, :, 0], steering_min, steering_max)  # Clip steering
     Q_batch_sequence[:, :, 1] = np.clip(Q_batch_sequence[:, :, 1], throttle_min, throttle_max)  # Clip throttle
 
         
-    # Run batch rollout
-    # state_batch_rollout = batch_sequence(Q_batch_sequence, s_batch, car_params_array)
-    state_batch_rollout = car_batch_sequence(s_batch, Q_batch_sequence, car_params_array)
+    # Rollout the car model to state_batch_sequences
+    state_batch_sequence = car_batch_sequence(s_batch, Q_batch_sequence, car_params_array)
     waypoints = next_waypoints
-    cost_batch_sequence = cost_function_batch_sequence(state_batch_rollout, Q_batch_sequence, waypoints) # 50, 1024
-    total_cost_batch = np.sum(cost_batch_sequence, axis=0)  # Sum costs over the horizon for each batch
+    cost_batch_sequence = cost_function_batch_sequence(state_batch_sequence, Q_batch_sequence, waypoints)
+    total_cost_batch = np.sum(cost_batch_sequence, axis=1)  # Sum costs over the horizon for each batch
     
     Q_sequence = exponential_weighting(Q_batch_sequence, total_cost_batch)
-    optimal_trajectory = cat_steps_sequential(s, Q_sequence, car_params_array, 0.02, horizon)
+    optimal_trajectory = car_steps_sequential(s, Q_sequence, car_params_array, 0.02, horizon)
+
+    return Q_sequence, optimal_trajectory, state_batch_sequence, total_cost_batch
+
+
+
     
+@njit_compile(fastmath=True, parallel=True)
+def car_batch_sequence(s_batch, Q_batch_sequence, car_params): 
+    batch_size, horizon, _ = Q_batch_sequence.shape
+
+    state_batch_trajectory = np.zeros((batch_size, horizon, NUMBER_OF_STATES), dtype=np.float32)
+    for i in prange(batch_size - 1):
+        state_trajectory = car_steps_sequential(s_batch[i],  Q_batch_sequence[i], car_params, 0.02, horizon)
+        state_batch_trajectory[i] = state_trajectory
     
-            
-    # Compute total cost
-    # Compute optimal Q sequence
-
-    # Extract the first control decision
-    next_control = Q_sequence[0]
-
-    return next_control, Q_sequence, optimal_trajectory, state_batch_rollout, total_cost_batch
+    return state_batch_trajectory
 
 
-
-
-@njit(fastmath=True)
+@njit_compile(fastmath=True)
 def cost_function(state, control, waypoints):
     """
     Computes cost based on speed, control effort, and distance to the next waypoint.
@@ -208,7 +212,7 @@ def cost_function(state, control, waypoints):
     return total_cost
 
 
-@njit(fastmath=True)
+@njit_compile(fastmath=True)
 def cost_function_sequence(state_sequence, control_sequence, waypoints):
     """
     Computes cost for a batch of states and controls.
@@ -222,22 +226,22 @@ def cost_function_sequence(state_sequence, control_sequence, waypoints):
     return cost_sequence
 
 
-@njit(fastmath=True, parallel=True)
-def cost_function_batch_sequence(state_batch_rollout, Q_batch_sequence, waypoints):
+@njit_compile(fastmath=True, parallel=True)
+def cost_function_batch_sequence(state_batch_sequence, Q_batch_sequence, waypoints):
     """
     Computes total cost for an entire batch sequence using waypoint distances.
     """
-    horizon, batch_size, _ = state_batch_rollout.shape
+    batch_size, horizon, _ = state_batch_sequence.shape
     
-    cost_sequence_batch = np.zeros((horizon, batch_size), dtype=np.float32)
+    cost_sequence_batch = np.zeros((batch_size, horizon), dtype=np.float32)
 
     for index in prange(batch_size):  
-        cost_sequence_batch[:, index] = cost_function_sequence(state_batch_rollout[:, index], Q_batch_sequence[:, index], waypoints)
+        cost_sequence_batch[index] = cost_function_sequence(state_batch_sequence[index], Q_batch_sequence[index], waypoints)
 
     return cost_sequence_batch
 
 
-@njit(fastmath=True, parallel=True)
+@njit_compile(fastmath=True, parallel=True)
 def exponential_weighting(Q_batch_sequence, total_cost_batch, temperature=0.25):
     # Softmax manually implemented for Numba compatibility
     max_cost = np.max(-total_cost_batch)  # Subtract max for numerical stability
@@ -245,45 +249,15 @@ def exponential_weighting(Q_batch_sequence, total_cost_batch, temperature=0.25):
     weights = exp_weights / np.sum(exp_weights)
     
     # Reshape weights for broadcasting
-    Q_batch_sequence_weighted = Q_batch_sequence * weights.reshape(1, -1, 1)
+    Q_batch_sequence_weighted = Q_batch_sequence * weights.reshape(-1, 1, 1)
 
     # Compute weighted sum over the batch dimension
-    Q_sequence = np.sum(Q_batch_sequence_weighted, axis=1)
+    Q_sequence = np.sum(Q_batch_sequence_weighted, axis=0)
 
     return Q_sequence
-    
-@njit(fastmath=True, parallel=True)
-def batch_sequence(Q_batch_sequence, s_batch, car_params):
-    horizon, batch_size, _ = Q_batch_sequence.shape
-    state_batch_sequence = np.zeros((horizon, batch_size, 10), dtype=np.float32)
-
-    dt = 0.02  
-
-    for i in range(horizon):  
-        # Process all batches in parallel
-        
-        s_batch[:, :] = car_step_parallel(s_batch, Q_batch_sequence[i], car_params, dt)
-        state_batch_sequence[i] = s_batch
-
-        # Optionally update s_batch here if needed
-        # but it's usually not needed
-
-    return state_batch_sequence
 
 
-@njit(fastmath=True, parallel=True, nopython=True)
-def car_batch_sequence(s_batch, Q_batch_sequence, car_params): 
-    horizon, batch_size, _ = Q_batch_sequence.shape
-
-    state_batch_trajectory = np.zeros((horizon, batch_size, 10), dtype=np.float32)
-    for i in prange(batch_size - 1):
-        state_trajectory = cat_steps_sequential(s_batch[i],  Q_batch_sequence[:, i], car_params, 0.02, horizon)
-        state_batch_trajectory[:, i] = state_trajectory
-    
-    return state_batch_trajectory
-
-
-@njit(fastmath=True)
+@njit_compile(fastmath=True)
 def compute_waypoint_distance(state, waypoints):
     """
     Computes the squared Euclidean distance between the car state and all waypoints,

@@ -129,7 +129,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
 
 
 @njit(fastmath=True)
-def cat_steps_sequential(s, Q_sequence, car_params, t_step, num_steps):
+def car_steps_sequential(s, Q_sequence, car_params, t_step, num_steps):
     """
     Runs car_step for single car sequentially.
 
