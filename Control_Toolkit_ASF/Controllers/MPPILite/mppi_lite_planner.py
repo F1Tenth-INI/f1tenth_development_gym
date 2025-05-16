@@ -50,7 +50,7 @@ class MPPILitePlanner(template_planner):
         self.dt = 0.02
         
         self.batch_size = 1024
-        self.horizon = 50    
+        self.horizon = 75    
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array()
 
@@ -154,8 +154,8 @@ def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array,
     random_perturbation = np.zeros((batch_size, horizon, 2), dtype=np.float32)
     # random_perturbation[:, :, 0] = np.random.uniform(-0.2, 0.2, size=(batch_size, horizon))
     # random_perturbation[:, :, 1] = np.random.uniform(-1., 1., size=(batch_size, horizon))
-    random_perturbation[:, :, 0] = np.random.normal(0, 0.2, size=(batch_size, horizon))
-    random_perturbation[:, :, 1] = np.random.normal(0.1, 1.0, size=(batch_size, horizon))
+    random_perturbation[:, :, 0] = np.random.normal(0.0, 0.2, size=(batch_size, horizon))
+    random_perturbation[:, :, 1] = np.random.normal(0.0, 1.2, size=(batch_size, horizon))
     Q_batch_sequence += random_perturbation
 
     # Clip control values 
@@ -202,7 +202,7 @@ def cost_function(state, control, waypoints):
     
     # Compute waypoint distance cost
     waypoint_dist_sq, min_dist_wp_idx = compute_waypoint_distance(state, waypoints)
-    waypoint_cost = waypoint_dist_sq * 1.0  # Scale weight for balancing
+    waypoint_cost = waypoint_dist_sq * 5.0  # Scale weight for balancing
 
     # Compute target speed cost
     target_speed = waypoints[min_dist_wp_idx][5]  # Target speed in m/s
@@ -219,8 +219,9 @@ def cost_function_sequence(state_sequence, control_sequence, waypoints):
     """
     sequence_length = state_sequence.shape[0]
     cost_sequence = np.zeros(sequence_length, dtype=np.float32)
-    
-    for i in prange(sequence_length):  # Parallel execution
+  
+    #Exponential decay for cost
+    for i in prange(sequence_length): 
         cost_sequence[i] = cost_function(state_sequence[i], control_sequence[i], waypoints)
 
     return cost_sequence
@@ -235,9 +236,19 @@ def cost_function_batch_sequence(state_batch_sequence, Q_batch_sequence, waypoin
     
     cost_sequence_batch = np.zeros((batch_size, horizon), dtype=np.float32)
 
+
+    # Define discount factor outsidd the loop
+    discount_factor = 0.99
+    discount_sequence = np.zeros(horizon, dtype=np.float32)
+    discount_sequence[0] = 1.0
+    for i in range(1, horizon):
+        discount_sequence[i] = discount_sequence[i - 1] * discount_factor
+    discount_sequence = discount_sequence[::-1]  # Reverse the discount sequence
+
+
     for index in prange(batch_size):  
         cost_sequence_batch[index] = cost_function_sequence(state_batch_sequence[index], Q_batch_sequence[index], waypoints)
-
+        cost_sequence_batch[index] *= discount_sequence  # Apply discounting
     return cost_sequence_batch
 
 
