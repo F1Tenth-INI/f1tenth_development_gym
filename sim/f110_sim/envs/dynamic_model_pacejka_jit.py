@@ -128,6 +128,31 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
 
 
 
+@njit(fastmath=True)
+def cat_steps_sequential(s, Q_sequence, car_params, t_step, num_steps):
+    """
+    Runs car_step for single car sequentially.
+
+    Inputs:
+    - states: (10) array of states
+    - Qs: (2, H) Sequence of H Controlls applied to the car
+    - car_params: (fixed-size) array of car parameters
+    - t_step: time step
+    - num_steps: number of steps to run
+
+    Output:
+    - state_trajectory: Trajetory of states during apng aplying the H controlls
+    """
+    
+    state_trajectory = np.zeros((num_steps, 10), dtype=np.float32)
+    
+    for i in range(num_steps):
+        s = car_dynamics_pacejka_jit(s, Q_sequence[i], car_params, t_step)
+        state_trajectory[i] = s
+    return state_trajectory
+
+        
+        
 
 @njit(parallel=True, fastmath=True)
 def car_step_parallel(states, Qs, car_params, t_step):
