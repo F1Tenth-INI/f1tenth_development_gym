@@ -38,6 +38,7 @@ class MPPILitePlanner(template_planner):
         self.translational_control = 0
         
         self.control_index = 0
+        self.dt = 0.02
         
         self.mu_predicted = 0
         self.predicted_frictions = []
@@ -55,7 +56,6 @@ class MPPILitePlanner(template_planner):
         
         
         print("JIT compilation started", Q_batch_sequence.shape)
-
         # Call JIT functions once to force compilation
         _ = car_step_parallel(s_batch, Q_batch_sequence[0], self.car_params_array, 0.02)
         _ = batch_sequence(Q_batch_sequence, s_batch, self.car_params_array)
@@ -79,15 +79,45 @@ class MPPILitePlanner(template_planner):
         s = np.array(self.car_state)
         
         # Call JIT-compiled function
-        next_control, Q_sequence = process_observation_jit(
+        next_control, Q_sequence, optimal_trajectory, state_batch_rollout, total_cost_batch = process_observation_jit(
             s, last_Q_sq, batch_size, horizon, car_params_array, self.waypoint_utils.next_waypoints
         )
 
+        # Plotting rollout
+        if False:
+            plt.clf()
+            for i in range(20):
+                plt.scatter(
+                    state_batch_rollout[:, i, 6],  # X position
+                    state_batch_rollout[:, i, 7],  # Y position
+                    s=5,
+                    c=np.full(state_batch_rollout.shape[0], total_cost_batch[i]),  # color by cost
+                    cmap='viridis',
+                    vmin=np.min(total_cost_batch),
+                    vmax=np.max(total_cost_batch),
+                    label=f'Batch {i}' if i == 0 else None
+                )
+            plt.scatter(
+                optimal_trajectory[:, 6],  # X position
+                optimal_trajectory[:, 7],  # Y position
+                s=5,
+                c='red',  # color for the optimal trajectory
+                label='Optimal Trajectory'
+            )
+
+            plt.colorbar(label='Total Cost')
+            plt.title("Car positions colored by cost")
+            plt.xlabel("X position")
+            plt.ylabel("Y position")
+            plt.axis('equal')
+            plt.savefig("car_positions_colored_by_cost.png")
+        
         # Store updated Q sequence
         self.last_Q_sq = Q_sequence
 
         # Extract final control
-        self.angular_control, self.translational_control = next_control
+        execute_control_index = (int)(Settings.CONTROL_DELAY / self.dt)
+        self.angular_control, self.translational_control = Q_sequence[execute_control_index]
 
         self.control_index += 1
         return self.angular_control, self.translational_control
@@ -144,33 +174,7 @@ def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array,
     Q_sequence = exponential_weighting(Q_batch_sequence, total_cost_batch)
     optimal_trajectory = cat_steps_sequential(s, Q_sequence, car_params_array, 0.02, horizon)
     
-    if False:
-        plt.clf()
-        for i in range(20):
-            plt.scatter(
-                state_batch_rollout[:, i, 6],  # X position
-                state_batch_rollout[:, i, 7],  # Y position
-                s=5,
-                c=np.full(state_batch_rollout.shape[0], total_cost_batch[i]),  # color by cost
-                cmap='viridis',
-                vmin=np.min(total_cost_batch),
-                vmax=np.max(total_cost_batch),
-                label=f'Batch {i}' if i == 0 else None
-            )
-        plt.scatter(
-            optimal_trajectory[:, 6],  # X position
-            optimal_trajectory[:, 7],  # Y position
-            s=5,
-            c='red',  # color for the optimal trajectory
-            label='Optimal Trajectory'
-        )
-
-        plt.colorbar(label='Total Cost')
-        plt.title("Car positions colored by cost")
-        plt.xlabel("X position")
-        plt.ylabel("Y position")
-        plt.axis('equal')
-        plt.savefig("car_positions_colored_by_cost.png")
+    
             
     # Compute total cost
     # Compute optimal Q sequence
@@ -178,7 +182,7 @@ def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array,
     # Extract the first control decision
     next_control = Q_sequence[0]
 
-    return next_control, Q_sequence
+    return next_control, Q_sequence, optimal_trajectory, state_batch_rollout, total_cost_batch
 
 
 
@@ -188,19 +192,19 @@ def cost_function(state, control, waypoints):
     """
     Computes cost based on speed, control effort, and distance to the next waypoint.
     """
-       
+    # Constants for control effort
+    angular_control_cost = abs(control[0]) * 0.01  # Penalize sharp steering
+    translational_control_cost = abs(control[1]) * 0.01  # Penalize throttle/brake effort
     
-    angular_cost = abs(control[0]) * 0.0  # Penalize sharp steering
-
     # Compute waypoint distance cost
     waypoint_dist_sq, min_dist_wp_idx = compute_waypoint_distance(state, waypoints)
     waypoint_cost = waypoint_dist_sq * 1.0  # Scale weight for balancing
 
-
+    # Compute target speed cost
     target_speed = waypoints[min_dist_wp_idx][5]  # Target speed in m/s
     speed_cost = 0.1 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2 
 
-    total_cost = speed_cost + angular_cost + waypoint_cost
+    total_cost = speed_cost + angular_control_cost + translational_control_cost + waypoint_cost
     return total_cost
 
 
@@ -234,7 +238,7 @@ def cost_function_batch_sequence(state_batch_rollout, Q_batch_sequence, waypoint
 
 
 @njit(fastmath=True, parallel=True)
-def exponential_weighting(Q_batch_sequence, total_cost_batch, temperature=0.1):
+def exponential_weighting(Q_batch_sequence, total_cost_batch, temperature=0.25):
     # Softmax manually implemented for Numba compatibility
     max_cost = np.max(-total_cost_batch)  # Subtract max for numerical stability
     exp_weights = np.exp((-total_cost_batch - max_cost) / temperature)
@@ -275,7 +279,6 @@ def car_batch_sequence(s_batch, Q_batch_sequence, car_params):
     for i in prange(batch_size - 1):
         state_trajectory = cat_steps_sequential(s_batch[i],  Q_batch_sequence[:, i], car_params, 0.02, horizon)
         state_batch_trajectory[:, i] = state_trajectory
-
     
     return state_batch_trajectory
 
