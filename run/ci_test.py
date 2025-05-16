@@ -54,7 +54,24 @@ if __name__ == "__main__":
     Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
     
     Settings.CONTROL_DELAY = 0.08
-    Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE = 4
+
+    importlib.reload(run_simulation)    
+    time.sleep(1)
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()
+
+    # Assert at least one lap was completed
+    laptimes = simulation.drivers[0].laptimes
+    assert len(laptimes) > 0, "No lap times recorded"
+
+
+    time.sleep(1)
+     # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
+    Settings.CONTROLLER = 'mppi-lite'
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.9 
+    
+    Settings.CONTROL_DELAY = 0.08
 
     importlib.reload(run_simulation)    
     time.sleep(1)
@@ -63,4 +80,7 @@ if __name__ == "__main__":
     simulation = RacingSimulation()
     simulation.run_experiments()
 
+    # Assert at least one lap was completed
+    laptimes = simulation.drivers[0].laptimes
+    assert len(laptimes) > 0, "No lap times recorded"
 
