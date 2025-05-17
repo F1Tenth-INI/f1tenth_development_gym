@@ -288,7 +288,6 @@ class RaceCar(object):
 
         # if in collision stop vehicle
         if in_collision:
-            self.state[StateIndices.v_x:] = 0.0
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
