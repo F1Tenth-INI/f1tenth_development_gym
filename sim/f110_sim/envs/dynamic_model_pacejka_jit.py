@@ -66,7 +66,18 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
   
     v_x_dot = translational_control
         
-    v_x_dot = max(min(v_x_dot, a_max), a_min)  # Apply acceleration constraints
+    # v_x_dot = max(min(v_x_dot, a_max), a_min)  # Apply acceleration constraints
+    # Limit due to velocity (motor power)
+    if v_x > v_switch:
+        pos_limit = a_max * v_switch / v_x
+    else:
+        pos_limit = a_max
+    v_x_dot = min(v_x_dot, pos_limit)
+
+    # Limit due to tire friction
+    max_a_friction = mu * g_
+    v_x_dot = min(max(v_x_dot, -max_a_friction), max_a_friction)
+
 
     # Euler integration with optimized calculations
     for _ in range(1):  # Keep intermediate_steps = 1 for simplicity
@@ -84,7 +95,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
         # Compute lateral forces using Pacejka's formula
         F_yf = mu * F_zf * D_f * np.sin(C_f * np.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - np.arctan(B_f * alpha_f))))
         F_yr = mu * F_zr * D_r * np.sin(C_r * np.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - np.arctan(B_r * alpha_r))))
-
+                
         # Compute state derivatives
         d_s_x = v_x * np.cos(psi) - v_y * np.sin(psi)
         d_s_y = v_x * np.sin(psi) + v_y * np.cos(psi)
@@ -128,6 +139,31 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
 
 
 
+@njit(fastmath=True)
+def car_steps_sequential(s, Q_sequence, car_params, t_step, num_steps):
+    """
+    Runs car_step for single car sequentially.
+
+    Inputs:
+    - states: (10) array of states
+    - Qs: (2, H) Sequence of H Controlls applied to the car
+    - car_params: (fixed-size) array of car parameters
+    - t_step: time step
+    - num_steps: number of steps to run
+
+    Output:
+    - state_trajectory: Trajetory of states during apng aplying the H controlls
+    """
+    
+    state_trajectory = np.zeros((num_steps, 10), dtype=np.float32)
+    
+    for i in range(num_steps):
+        s = car_dynamics_pacejka_jit(s, Q_sequence[i], car_params, t_step)
+        state_trajectory[i] = s
+    return state_trajectory
+
+        
+        
 
 @njit(parallel=True, fastmath=True)
 def car_step_parallel(states, Qs, car_params, t_step):
