@@ -170,6 +170,9 @@ class CarSystem:
         # Recorder
         # self.init_recorder_and_start(recorder_dict=recorder_dict)
         self.init_recorder(recorder_dict=recorder_dict)
+        
+        if(not Settings.ROS_BRIDGE):
+            self.start_recorder()
 
            
     def initialize_controller(self, controller_name):
@@ -304,7 +307,8 @@ class CarSystem:
         self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
         
         # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
-        angular_control, translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
+        mpc_execution_step = (int)(Settings.CONTROL_DELAY / self.planner.config_optimizer["mpc_timestep"])
+        angular_control, translational_control = optimal_control_sequence[mpc_execution_step]
         
         return angular_control, translational_control
         
