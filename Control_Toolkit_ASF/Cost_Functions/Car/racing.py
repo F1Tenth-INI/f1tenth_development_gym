@@ -84,7 +84,7 @@ class racing(f1t_cost_function):
             icdc = self.lib.zeros_like(cc)
 
         ## Crash cost: comment out for faster calculation...
-        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
+        car_positions = s[:, :, self.POSE_X_IDX:self.POSE_Y_IDX + 1]
         if hasattr(self.variable_parameters, 'lidar_points'):
             crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
         else:
