@@ -201,11 +201,15 @@ class car_model:
 
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
 
-        i = 0
-        while i < self.intermediate_steps:
+        # i = 0
+        # while i < self.intermediate_steps:
+        #     s_x, s_y, delta, v_x, psi, angular_vel_z = \
+        #     self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
+        #     i += 1
+
+        for _ in range(self.intermediate_steps):
             s_x, s_y, delta, v_x, psi, angular_vel_z = \
             self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
-            i += 1
 
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
@@ -248,11 +252,15 @@ class car_model:
         delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
-        i = 0
-        while i < self.intermediate_steps:
+        # i = 0
+        # while i < self.intermediate_steps:
+        #     s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
+        #         self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
+        #     i += 1
+
+        for _ in range(self.intermediate_steps):
             s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
                 self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
-            i += 1
 
         pose_theta = psi
         pose_theta_cos = self.lib.cos(psi)
