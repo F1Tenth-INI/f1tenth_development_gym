@@ -15,7 +15,7 @@ except ModuleNotFoundError:
     print('SI_Toolkit_ASF not yet created')
 
 from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
-from SI_Toolkit.Functions.TF.Compile import CompileTF
+from SI_Toolkit.Compile import CompileTF
 
 from SI_Toolkit.computation_library import TensorFlowLibrary
 

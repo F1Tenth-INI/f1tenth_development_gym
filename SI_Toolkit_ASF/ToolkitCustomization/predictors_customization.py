@@ -52,7 +52,7 @@ class next_state_predictor_ODE():
         if disable_individual_compilation:
             self.step = self._step
         else:
-            from SI_Toolkit.Functions.TF.Compile import CompileTF # Lazy import 
+            from SI_Toolkit.Compile import CompileTF # Lazy import
             self.step = CompileTF(self._step)
 
     def _step(self, s, Q):
@@ -116,7 +116,7 @@ class predictor_output_augmentation:
         if disable_individual_compilation:
             self.augment = self._augment
         else:
-            from SI_Toolkit.Functions.TF.Compile import CompileTF # Lazy import
+            from SI_Toolkit.Compile import CompileTF # Lazy import
             self.augment = CompileTF(self._augment)
 
     def get_indices_augmentation(self):
