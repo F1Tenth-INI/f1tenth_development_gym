@@ -122,7 +122,7 @@ class RaceCar(object):
                 )
             
             # In case you want to use other library than numpy
-            # from SI_Toolkit.Functions.TF.Compile import CompileAdaptive
+            # from SI_Toolkit.Compile import CompileAdaptive
             # self.step_dynamics = CompileAdaptive(self.car_model.lib)(self.car_model.step_dynamics)
             self.step_dynamics = self.car_model.step_dynamics
             self.step_dynamics_core = self.car_model.step_dynamics_core # step dynamics without constratins an PID
