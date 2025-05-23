@@ -6,6 +6,84 @@ from SI_Toolkit.computation_library import NumpyLibrary
 
 from utilities.state_utilities import *
 
+
+def _ks_step_factory(lib, car_parameters, t_step):
+
+    def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot):
+        s_x_dot = v_x * lib.cos(psi)
+        s_y_dot = v_x * lib.sin(psi)
+        psi_dot = (v_x / car_parameters.l_wb) * lib.tan(delta)
+        psi_dot_dot = (v_x_dot * lib.tan(delta) / car_parameters.l_wb) \
+                        + v_x * delta_dot / (car_parameters.l_wb * lib.cos(delta) ** 2)
+
+        s_x = s_x + t_step * s_x_dot
+        s_y = s_y + t_step * s_y_dot
+        delta = lib.clip(delta + t_step * delta_dot, car_parameters.s_min, car_parameters.s_max)
+        v_x = v_x + t_step * v_x_dot
+        psi = psi + t_step * psi_dot
+        angular_vel_z = angular_vel_z + t_step * psi_dot_dot
+
+        return s_x, s_y, delta, v_x, psi, angular_vel_z
+
+    return _ks_step
+
+
+def _pacejka_step_factory(lib, car_parameters, t_step):
+
+    # params
+    lf = car_parameters.lf  # distance from center of gravity to front axle [m]
+    lr = car_parameters.lr  # distance from center of gravity to rear axle [m]
+    h_cg = car_parameters.h  # center of gravity height of total mass [m]
+    m = car_parameters.m  # Total Mass of car [kg]
+    I_z = car_parameters.I_z  # Moment of inertia for entire mass about z axis  [kgm^2]
+    g_ = car_parameters.g  # gravity [m/s^2]
+
+    # pacejka tire model parameters
+    B_f = car_parameters.C_Pf[0]
+    C_f = car_parameters.C_Pf[1]
+    D_f = car_parameters.C_Pf[2]
+    E_f = car_parameters.C_Pf[3]
+    B_r = car_parameters.C_Pr[0]
+    C_r = car_parameters.C_Pr[1]
+    D_r = car_parameters.C_Pr[2]
+    E_r = car_parameters.C_Pr[3]
+
+    def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu):
+        v_x_safe = lib.where(v_x < 1.0e-3, lib.constant(1.0e-3, lib.float32), v_x)
+        alpha_f = -lib.atan((v_y + psi_dot * lf) / v_x_safe) + delta
+        alpha_r = -lib.atan((v_y - psi_dot * lr) / v_x_safe)
+
+        # compute vertical tire forces
+        F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
+        F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
+
+        F_yf = mu * F_zf * D_f * lib.sin(
+            C_f * lib.atan(B_f * alpha_f - E_f * (B_f * alpha_f - lib.atan(B_f * alpha_f))))
+        F_yr = mu * F_zr * D_r * lib.sin(
+            C_r * lib.atan(B_r * alpha_r - E_r * (B_r * alpha_r - lib.atan(B_r * alpha_r))))
+
+        d_pos_x = v_x * lib.cos(psi) - v_y * lib.sin(psi)
+        d_pos_y = v_x * lib.sin(psi) + v_y * lib.cos(psi)
+        d_psi = psi_dot
+        d_v_x = v_x_dot
+        d_v_y = 1 / m * (F_yr + F_yf) - v_x * psi_dot
+        # print d_v_y + v_x * psi_dot
+        # Should be equal to IMUs a_y
+
+        d_psi_dot = 1 / I_z * (-lr * F_yr + lf * F_yf)
+
+        s_x = s_x + t_step * d_pos_x
+        s_y = s_y + t_step * d_pos_y
+        delta = lib.clip(delta + t_step * delta_dot, car_parameters.s_min, car_parameters.s_max)
+        v_x = v_x + t_step * d_v_x
+        v_y = v_y + t_step * d_v_y
+        psi = psi + t_step * d_psi
+        psi_dot = psi_dot + t_step * d_psi_dot
+        return s_x, s_y, delta, v_x, v_y, psi, psi_dot
+
+    return _pacejka_step
+
+
 class car_model:
 
     num_actions = len(CONTROL_INPUTS)
@@ -25,6 +103,35 @@ class car_model:
         self.lib = computation_lib
 
         self.car_parameters = VehicleParameters(car_parameter_file)
+
+        self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
+        self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)
+
+        # self.POSE_THETA_IDX = self.lib.constant(POSE_THETA_IDX, self.lib.int32)
+        # self.POSE_X_IDX = self.lib.to_tensor(POSE_X_IDX, self.lib.int32)
+        # self.POSE_Y_IDX = self.lib.to_tensor(POSE_Y_IDX, self.lib.int32)
+        # self.LINEAR_VEL_X_IDX = self.lib.to_tensor(LINEAR_VEL_X_IDX, self.lib.int32)
+        # self.LINEAR_VEL_Y_IDX = self.lib.to_tensor(LINEAR_VEL_Y_IDX, self.lib.int32)
+        # self.ANGULAR_VEL_Z_IDX = self.lib.to_tensor(ANGULAR_VEL_Z_IDX, self.lib.int32)
+        # self.SLIP_ANGLE_IDX = self.lib.to_tensor(SLIP_ANGLE_IDX, self.lib.int32)
+        # self.STEERING_ANGLE_IDX = self.lib.to_tensor(STEERING_ANGLE_IDX, self.lib.int32)
+        #
+        # self.ANGULAR_CONTROL_IDX = self.lib.to_tensor(ANGULAR_CONTROL_IDX, self.lib.int32)
+        # self.TRANSLATIONAL_CONTROL_IDX = self.lib.to_tensor(TRANSLATIONAL_CONTROL_IDX, self.lib.int32)
+
+
+        self.POSE_THETA_IDX = int(POSE_THETA_IDX)
+        self.POSE_X_IDX = int(POSE_X_IDX)
+        self.POSE_Y_IDX = int(POSE_Y_IDX)
+        self.LINEAR_VEL_X_IDX = int(LINEAR_VEL_X_IDX)
+        self.LINEAR_VEL_Y_IDX = int(LINEAR_VEL_Y_IDX)
+        self.ANGULAR_VEL_Z_IDX = int(ANGULAR_VEL_Z_IDX)
+        self.SLIP_ANGLE_IDX = int(SLIP_ANGLE_IDX)
+        self.STEERING_ANGLE_IDX = int(STEERING_ANGLE_IDX)
+
+        self.ANGULAR_CONTROL_IDX = int(ANGULAR_CONTROL_IDX)
+        self.TRANSLATIONAL_CONTROL_IDX = int(TRANSLATIONAL_CONTROL_IDX)
+            
               
         self.model_of_car_dynamics = model_of_car_dynamics
         self.step_dynamics = None
@@ -33,15 +140,18 @@ class car_model:
 
 
         self.dt = dt
-        self.intermediate_steps = self.lib.to_tensor(intermediate_steps, self.lib.int32)
-        self.intermediate_steps_float = self.lib.to_tensor(intermediate_steps, self.lib.float32)
-        self.t_step = self.lib.to_tensor(self.dt / float(self.intermediate_steps), self.lib.float32)
+        self.intermediate_steps = int(intermediate_steps)
+        self.intermediate_steps_float = float(intermediate_steps)
+        self.t_step = float(self.dt / float(self.intermediate_steps))
 
         self.variable_parameters = variable_parameters
         if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
             self.mu = self.variable_parameters.mu
         else:
-            self.mu = self.lib.to_tensor(self.car_parameters.mu, dtype=self.lib.float32)
+            self.mu = self.lib.to_tensor(self.car_parameters.mu, self.lib.float32)
+
+        self._ks_step = _ks_step_factory(self.lib, self.car_parameters, self.t_step)
+        self._pacejka_step = _pacejka_step_factory(self.lib, self.car_parameters, self.t_step)
 
 
     # region Various dynamical models for a car
@@ -80,33 +190,41 @@ class car_model:
         returns s_next: (batch_size, len(state)) all nexts states
         '''
         
-        angular_vel_z = s[:, ANGULAR_VEL_Z_IDX]
-        v_x = s[:, LINEAR_VEL_X_IDX]
-        psi = s[:, POSE_THETA_IDX]
+        angular_vel_z = s[:, self.ANGULAR_VEL_Z_IDX]
+        v_x = s[:, self.LINEAR_VEL_X_IDX]
+        psi = s[:,self.POSE_THETA_IDX]
       
-        s_x = s[:, POSE_X_IDX]
-        s_y = s[:, POSE_Y_IDX]
-        beta = s[:, SLIP_ANGLE_IDX]
-        delta = s[:, STEERING_ANGLE_IDX]
+        s_x = s[:, self.POSE_X_IDX]
+        s_y = s[:, self.POSE_Y_IDX]
+        beta = s[:, self.SLIP_ANGLE_IDX]
+        delta = s[:, self.STEERING_ANGLE_IDX]
 
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
 
-        # Euler stepping
-        for _ in range(self.intermediate_steps):
-            s_x_dot = v_x * self.lib.cos(psi)
-            s_y_dot = v_x * self.lib.sin(psi)
-            # delta_dot = delta_dot
-            # v_x_dot = v_x_dot
-            psi_dot = (v_x / self.car_parameters.l_wb) * self.lib.tan(delta)
-            psi_dot_dot = (v_x_dot * self.lib.tan(delta) / self.car_parameters.l_wb) \
-                + v_x * delta_dot / (self.car_parameters.l_wb * self.lib.cos(delta) ** 2)
+        final_counter, *final_state = self.lib.loop(
+            # ─── wrapper body_fn ──────────────────────────────────────────
+            lambda counter,
+                   s_x, s_y, delta,
+                   v_x, psi, angular_vel_z:
+            # increment counter, then delegate to your original ks_step
+            (counter + 1,
+             *self._ks_step(
+                 s_x, s_y, delta,
+                 v_x, psi, angular_vel_z,
+                 delta_dot, v_x_dot,
+             )
+             ),
 
-            s_x = s_x + self.t_step * s_x_dot
-            s_y = s_y + self.t_step * s_y_dot
-            delta = self.lib.clip(delta + self.t_step * delta_dot, self.car_parameters.s_min, self.car_parameters.s_max)
-            v_x = v_x + self.t_step * v_x_dot
-            psi = psi + self.t_step * psi_dot
-            angular_vel_z = angular_vel_z + self.t_step * psi_dot_dot
+            # ─── initial state (six vars; no counter here)────────────────
+            (s_x, s_y, delta,
+             v_x, psi, angular_vel_z),
+
+            # ─── number of iterations ────────────────────────────────────
+            self.intermediate_steps,
+        )
+
+        # unpack the six-dimensional state, discarding the counter
+        s_x, s_y, delta, v_x, psi, angular_vel_z = final_state
 
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
@@ -137,65 +255,42 @@ class car_model:
 
         mu = self.mu
         # Q: Control after PID (steering velocity: delta_dot, acceleration_x: v_x_dot)
-                
-        # params
-        lf = self.car_parameters.lf  # distance from center of gravity to front axle [m]
-        lr = self.car_parameters.lr  # distance from center of gravity to rear axle [m]
-        h_cg = self.car_parameters.h  # center of gravity height of total mass [m]
-        m = self.car_parameters.m  # Total Mass of car [kg]
-        I_z = self.car_parameters.I_z  # Moment of inertia for entire mass about z axis  [kgm^2]
-        g_ = self.car_parameters.g # gravity [m/s^2]
-
-        # pacejka tire model parameters
-        B_f = self.car_parameters.C_Pf[0]
-        C_f = self.car_parameters.C_Pf[1]
-        D_f = self.car_parameters.C_Pf[2]
-        E_f = self.car_parameters.C_Pf[3]
-        B_r = self.car_parameters.C_Pr[0]
-        C_r = self.car_parameters.C_Pr[1]
-        D_r = self.car_parameters.C_Pr[2]
-        E_r = self.car_parameters.C_Pr[3]
 
         # State
-        s_x = s[:, POSE_X_IDX]  # Pose X
-        s_y = s[:, POSE_Y_IDX]  # Pose Y
-        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
-        v_y = s[:, LINEAR_VEL_Y_IDX]  # Lateral velocity    
-        psi = s[:, POSE_THETA_IDX]  # Yaw Angle
-        psi_dot = s[:, ANGULAR_VEL_Z_IDX]  # Yaw Rate
-        delta_dot = Q[:, ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        v_x_dot = Q[:, TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        s_x = s[:, self.POSE_X_IDX]  # Pose X
+        s_y = s[:, self.POSE_Y_IDX]  # Pose Y
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        v_y = s[:, self.LINEAR_VEL_Y_IDX]  # Lateral velocity    
+        psi = s[:,self.POSE_THETA_IDX]  # Yaw Angle
+        psi_dot = s[:, self.ANGULAR_VEL_Z_IDX]  # Yaw Rate
+        delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
+        v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
-        for _ in range(self.intermediate_steps):
-            v_x = self.lib.where(v_x < 1.0e-3, self.lib.constant(1.0e-3, self.lib.float32), v_x)
-            alpha_f = -self.lib.atan((v_y + psi_dot * lf) / v_x) + delta
-            alpha_r = -self.lib.atan((v_y - psi_dot * lr) / v_x)
+        # compile-aware loop as above
+        final_counter, *final_state = self.lib.loop(
+            # ─── wrapper body_fn ──────────────────────────────────────────
+            lambda counter,
+                   s_x, s_y, delta,
+                   v_x, v_y, psi, psi_dot:
+            # increment the counter, then splice in pacejka_step’s return
+            (counter + 1,
+             *self._pacejka_step(
+                 s_x, s_y, delta,
+                 v_x, v_y, psi, psi_dot,
+                 delta_dot, v_x_dot, mu,
+             )
+             ),
 
-            # compute vertical tire forces
-            F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
-            F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
+            # ─── initial state (no counter here)──────────────────────────
+            (s_x, s_y, delta, v_x, v_y, psi, psi_dot),
 
-            F_yf = mu * F_zf * D_f * self.lib.sin(C_f * self.lib.atan(B_f * alpha_f - E_f*(B_f * alpha_f - self.lib.atan(B_f * alpha_f))))
-            F_yr = mu * F_zr * D_r * self.lib.sin(C_r * self.lib.atan(B_r * alpha_r - E_r*(B_r * alpha_r - self.lib.atan(B_r * alpha_r))))
+            # ─── number of iterations ────────────────────────────────────
+            self.intermediate_steps,
+        )
 
-            d_pos_x = v_x * self.lib.cos(psi) - v_y * self.lib.sin(psi)
-            d_pos_y = v_x * self.lib.sin(psi) + v_y * self.lib.cos(psi)
-            d_psi = psi_dot
-            d_v_x = v_x_dot
-            d_v_y = 1/m * (F_yr + F_yf) - v_x * psi_dot
-            # print d_v_y + v_x * psi_dot
-            # Should be equal to IMUs a_y
-            
-            d_psi_dot = 1/I_z * (-lr * F_yr + lf * F_yf)
-
-            s_x = s_x + self.t_step * d_pos_x
-            s_y = s_y + self.t_step * d_pos_y
-            delta = self.lib.clip(delta + self.t_step * delta_dot, self.car_parameters.s_min, self.car_parameters.s_max)
-            v_x = v_x + self.t_step * d_v_x
-            v_y = v_y + self.t_step * d_v_y
-            psi = psi + self.t_step * d_psi
-            psi_dot = psi_dot + self.t_step * d_psi_dot
+        # unpack the vehicle state, ignoring the final counter:
+        s_x, s_y, delta, v_x, v_y, psi, psi_dot = final_state
 
         pose_theta = psi
         pose_theta_cos = self.lib.cos(psi)
@@ -203,7 +298,8 @@ class car_model:
         
         pose_x = s_x
         pose_y = s_y
-        slip_angle = self.lib.atan(v_y / v_x)  # Calculate slip angle for consistency
+        v_x_safe = self.lib.where(v_x < 1.0e-3, self.lib.constant(1.0e-3, self.lib.float32), v_x)
+        slip_angle = self.lib.atan(v_y / v_x_safe)  # Calculate slip angle for consistency
 
         s_next_ts = self.next_step_output(psi_dot,
                                         v_x,
@@ -223,7 +319,7 @@ class car_model:
 
     def _step_dynamics_ks_pacejka(self, s, Q):
 
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         # switch to kinematic model for small velocities
         # Define speed thresholds
@@ -383,8 +479,8 @@ class car_model:
         # Control Input (desired speed, desired steering angle)
         desired_angle, translational_control = self.lib.unstack(Q, 2, 1)
 
-        delta = s[:, STEERING_ANGLE_IDX]  # Front Wheel steering angle
-        vel_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
+        vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
         delta_dot = self.servo_proportional(desired_angle, delta)
         
@@ -398,11 +494,11 @@ class car_model:
 
     def apply_constrains(self, s, Q_pid):
 
-        delta = s[:, STEERING_ANGLE_IDX]  # Front wheels steering angle
-        v_x = s[:, LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        delta = s[:, self.STEERING_ANGLE_IDX]  # Front wheels steering angle
+        v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
 
-        delta_dot = Q_pid[:, ANGULAR_CONTROL_IDX]  # Front wheels steering angle velocity
-        v_x_dot = Q_pid[:, TRANSLATIONAL_CONTROL_IDX]  # Longitudinal acceleration
+        delta_dot = Q_pid[:, self.ANGULAR_CONTROL_IDX]  # Front wheels steering angle velocity
+        v_x_dot = Q_pid[:, self.TRANSLATIONAL_CONTROL_IDX]  # Longitudinal acceleration
 
         delta_dot = self.steering_constraints(delta, delta_dot)
         v_x_dot = self.accl_constraints(v_x, v_x_dot)
@@ -412,8 +508,8 @@ class car_model:
         return Q_pid_with_constrains
 
     def return_control_cmd_components(self, control_cmd):
-        steering_speed = control_cmd[:, ANGULAR_CONTROL_IDX]
-        acceleration_x = control_cmd[:, TRANSLATIONAL_CONTROL_IDX]
+        steering_speed = control_cmd[:, self.ANGULAR_CONTROL_IDX]
+        acceleration_x = control_cmd[:, self.TRANSLATIONAL_CONTROL_IDX]
         return steering_speed, acceleration_x
 
 

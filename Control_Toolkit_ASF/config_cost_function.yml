@@ -6,7 +6,7 @@ cost_function_name_default: racing
 Car:
   racing:
     # Different optimizers works the best with different cost functions parameters
-    rpgd-tf:
+    rpgd:
       cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
       ccrc_weight: [20.0, 1.0] # Steering and throttle; penalty of instant control change (compared to prev input)
       ccrh_weight: [20.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
