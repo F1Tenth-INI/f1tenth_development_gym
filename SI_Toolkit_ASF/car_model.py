@@ -207,9 +207,21 @@ class car_model:
         #     self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
         #     i += 1
 
-        for _ in range(self.intermediate_steps):
-            s_x, s_y, delta, v_x, psi, angular_vel_z = \
-            self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
+        # for _ in range(self.intermediate_steps):
+        #     s_x, s_y, delta, v_x, psi, angular_vel_z = \
+        #     self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
+
+
+        (s_x, s_y, delta, v_x, psi, angular_vel_z) = self.lib.loop(
+            lambda s_x, s_y, delta, v_x, psi, angular_vel_z:
+                self._ks_step(
+                    s_x, s_y, delta,
+                    v_x, psi, angular_vel_z,
+                    delta_dot, v_x_dot,
+                ),
+            (s_x, s_y, delta, v_x, psi, angular_vel_z),
+            self.intermediate_steps,
+        )
 
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
@@ -258,9 +270,21 @@ class car_model:
         #         self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
         #     i += 1
 
-        for _ in range(self.intermediate_steps):
-            s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
-                self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
+        # for _ in range(self.intermediate_steps):
+        #     s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
+        #         self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
+
+        # compile-aware loop as above
+        (s_x, s_y, delta, v_x, v_y, psi, psi_dot) = self.lib.loop(
+            lambda s_x, s_y, delta, v_x, v_y, psi, psi_dot:
+                self._pacejka_step(
+                    s_x, s_y, delta,
+                    v_x, v_y, psi, psi_dot,
+                    delta_dot, v_x_dot, mu,
+                ),
+            (s_x, s_y, delta, v_x, v_y, psi, psi_dot),
+            self.intermediate_steps,
+        )
 
         pose_theta = psi
         pose_theta_cos = self.lib.cos(psi)
