@@ -201,27 +201,30 @@ class car_model:
 
         delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
 
-        # i = 0
-        # while i < self.intermediate_steps:
-        #     s_x, s_y, delta, v_x, psi, angular_vel_z = \
-        #     self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
-        #     i += 1
+        final_counter, *final_state = self.lib.loop(
+            # ─── wrapper body_fn ──────────────────────────────────────────
+            lambda counter,
+                   s_x, s_y, delta,
+                   v_x, psi, angular_vel_z:
+            # increment counter, then delegate to your original ks_step
+            (counter + 1,
+             *self._ks_step(
+                 s_x, s_y, delta,
+                 v_x, psi, angular_vel_z,
+                 delta_dot, v_x_dot,
+             )
+             ),
 
-        # for _ in range(self.intermediate_steps):
-        #     s_x, s_y, delta, v_x, psi, angular_vel_z = \
-        #     self._ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot)
+            # ─── initial state (six vars; no counter here)────────────────
+            (s_x, s_y, delta,
+             v_x, psi, angular_vel_z),
 
-
-        (s_x, s_y, delta, v_x, psi, angular_vel_z) = self.lib.loop(
-            lambda s_x, s_y, delta, v_x, psi, angular_vel_z:
-                self._ks_step(
-                    s_x, s_y, delta,
-                    v_x, psi, angular_vel_z,
-                    delta_dot, v_x_dot,
-                ),
-            (s_x, s_y, delta, v_x, psi, angular_vel_z),
+            # ─── number of iterations ────────────────────────────────────
             self.intermediate_steps,
         )
+
+        # unpack the six-dimensional state, discarding the counter
+        s_x, s_y, delta, v_x, psi, angular_vel_z = final_state
 
         linear_vel_x = v_x
         pose_theta_cos = self.lib.cos(psi)
@@ -264,27 +267,30 @@ class car_model:
         delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
         v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
 
-        # i = 0
-        # while i < self.intermediate_steps:
-        #     s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
-        #         self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
-        #     i += 1
-
-        # for _ in range(self.intermediate_steps):
-        #     s_x, s_y, delta, v_x, v_y, psi, psi_dot = \
-        #         self._pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot, mu)
-
         # compile-aware loop as above
-        (s_x, s_y, delta, v_x, v_y, psi, psi_dot) = self.lib.loop(
-            lambda s_x, s_y, delta, v_x, v_y, psi, psi_dot:
-                self._pacejka_step(
-                    s_x, s_y, delta,
-                    v_x, v_y, psi, psi_dot,
-                    delta_dot, v_x_dot, mu,
-                ),
+        final_counter, *final_state = self.lib.loop(
+            # ─── wrapper body_fn ──────────────────────────────────────────
+            lambda counter,
+                   s_x, s_y, delta,
+                   v_x, v_y, psi, psi_dot:
+            # increment the counter, then splice in pacejka_step’s return
+            (counter + 1,
+             *self._pacejka_step(
+                 s_x, s_y, delta,
+                 v_x, v_y, psi, psi_dot,
+                 delta_dot, v_x_dot, mu,
+             )
+             ),
+
+            # ─── initial state (no counter here)──────────────────────────
             (s_x, s_y, delta, v_x, v_y, psi, psi_dot),
+
+            # ─── number of iterations ────────────────────────────────────
             self.intermediate_steps,
         )
+
+        # unpack the vehicle state, ignoring the final counter:
+        s_x, s_y, delta, v_x, v_y, psi, psi_dot = final_state
 
         pose_theta = psi
         pose_theta_cos = self.lib.cos(psi)
