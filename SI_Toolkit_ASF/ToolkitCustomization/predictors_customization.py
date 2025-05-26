@@ -1,7 +1,11 @@
 
-
+from types import SimpleNamespace
 from utilities.state_utilities import *
 from utilities.Settings import Settings
+import os
+from SI_Toolkit.Predictors.neural_network_evaluator import neural_network_evaluator
+from SI_Toolkit.Functions.General.Initialization import get_net, get_norm_info_for_net
+import tensorflow as tf
 
 from SI_Toolkit.computation_library import NumpyLibrary
 
@@ -27,6 +31,32 @@ class next_state_predictor_ODE():
 
         self.intermediate_steps = intermediate_steps
         self.t_step = dt / float(self.intermediate_steps)
+
+        #TODO: Probably not best to hard code these things
+        self.nn_path = "SI_Toolkit_ASF/Experiments/DNN_history/Models/Dense-72IN-32H1-64H2-128H3-9OUT-0"
+        self.state_residual_NN = neural_network_evaluator(
+            net_name=os.path.basename(self.nn_path),
+            path_to_models=os.path.dirname(self.nn_path),
+            batch_size=batch_size
+            )
+
+        # a = SimpleNamespace()
+        # a.path_to_models = os.path.dirname(self.nn_path)
+        # a.net_name = os.path.basename(self.nn_path)
+        # self.net, self.net_info = \
+        #     get_net(a, time_series_length=1,
+        #             batch_size=batch_size, stateful=True)
+        print("Yay, loaded the pretrained NN!")
+        self.past_states=[]
+        self.history=7
+        self.hist_count=0
+        for i, w in enumerate(self.state_residual_NN.net.weights):
+            if tf.reduce_any(tf.math.is_nan(w)).numpy():
+                print(f"🚨 NaN found in weight {i}: {w.name}")
+            else:
+                print(f"Weight {i} is fine: {w.name}")
+
+
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
@@ -59,9 +89,67 @@ class next_state_predictor_ODE():
 
         if self.core_dynamics_only:
             s_next = self.env.step_dynamics_core(s, Q)
+            print("IN CORE DYNAMICS ONLY")
+            return s_next
         else:
             s_next = self.env.step_dynamics(s, Q)
-        return s_next
+
+            #alter the output to remove the pos_x,pos_y (index 7,8)
+            if self.hist_count < self.history:
+                print("There is not enough History, appending!")
+                s_del = tf.concat([s[:, :7], s[:, 10:]], axis=1)
+                # print("s.shape:", s.shape)
+                # print("Q.shape:", Q.shape)
+
+                sq=tf.concat([s_del,Q], axis=1)
+                # print("sq.shape:", sq.shape)
+
+                self.past_states.append(sq)
+                self.hist_count+=1
+                # print("current history count:", self.hist_count)
+                return s_next
+
+            else:
+                # print("Have full history, trying to calculate")
+                s_del = tf.concat([s[:, :7], s[:, 10:]], axis=1)
+                sq=tf.concat([s_del,Q], axis=1)
+
+                self.past_states.append(sq)
+                NN_input = tf.concat(self.past_states, axis=1)
+
+                # print("NN_input min:", tf.reduce_min(NN_input).numpy())
+                # print("NN_input max:", tf.reduce_max(NN_input).numpy())
+                # tf.debugging.assert_all_finite(NN_input, "NN_input contains NaN or Inf")
+                # print("NN_input.shape:", NN_input.shape)
+
+                NN_residual = self.state_residual_NN.step(NN_input)
+                # print(NN_residual)
+                # tf.debugging.assert_all_finite(NN_residual, "NN_residual contains NaN or Inf")
+                # s_next = s_next + NN_residual
+                self.past_states.pop()
+                # print("NN_residual:", NN_residual)
+                # print(type(s_next), type(NN_residual))
+                # print(s_next.shape, NN_residual.shape)
+                NN_residual = tf.squeeze(NN_residual, axis=1) 
+
+                nn_index_map  = [6, 7, 0, 1, 2, 3, 4, 5, 9]
+                batch_size = tf.shape(s_next)[0]
+
+                # Prepare indices and updates
+                indices = []
+                updates = []
+
+                for i, index in enumerate(nn_index_map):
+                    for b in range(batch_size):
+                        indices.append([b, index])
+                        updates.append(NN_residual[b, i] + s_next[b, index])
+
+                indices = tf.constant(indices, dtype=tf.int32)
+                updates = tf.stack(updates)
+
+                # Create the updated tensor
+                s_next_copy = tf.tensor_scatter_nd_update(s_next, indices, updates)
+                return s_next_copy
 
 
 

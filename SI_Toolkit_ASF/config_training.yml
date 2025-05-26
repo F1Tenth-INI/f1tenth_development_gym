@@ -1,10 +1,14 @@
-library: "TF" # TF or Pytorch
+library: "TF" # TF or Pytorch 
+#!!!If using pytorch, in SI_toolkit/Functions/Pytorch/Training.py, remove verbose=True in line 68!!!
+
 modeling:
-  NET_NAME: "GRU-128H1-128H2-128H3"
+  # NET_NAME: "GRU-128H1-128H2-128H3"
+  NET_NAME: "Dense-32H1-64H2-128H3"
+
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/04_08_RCA1_noise/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "SI_Toolkit_ASF/Experiments/DNN_history/" # Path where the experiments data is stored
   DATA_FOLDER: "Recordings"
 
 training_default:
@@ -13,19 +17,21 @@ training_default:
   ## translation_invariant_variables: ['pose_x', 'pose_y']
   translation_invariant_variables: []
 
-  state_inputs: []
+  # state_inputs: ["input_0", "input_1", "input_2", "input_3", "input_4", "input_5", "input_6", "input_7", "input_10", "input_11", "input_12", "input_13", "input_14", "input_15", "input_16", "input_17", "input_20", "input_21", "input_22", "input_23", "input_24", "input_25", "input_26", "input_27", "input_30", "input_31", "input_32", "input_33", "input_34", "input_35", "input_36", "input_37", "input_40", "input_41", "input_42", "input_43", "input_44", "input_45", "input_46", "input_47", "input_50", "input_51", "input_52", "input_53", "input_54", "input_55", "input_56", "input_57", "input_60", "input_61", "input_62", "input_63", "input_64", "input_65", "input_66", "input_67", "input_70", "input_71", "input_72", "input_73", "input_74", "input_75", "input_76", "input_77"]
 
+  state_inputs: ["angular_vel_z_1","linear_vel_x_1","linear_vel_y_1","pose_theta_1","pose_theta_cos_1","pose_theta_sin_1","steering_angle_1","angular_control_1","translational_control_1",
+                "angular_vel_z_2","linear_vel_x_2","linear_vel_y_2","pose_theta_2","pose_theta_cos_2","pose_theta_sin_2","steering_angle_2","angular_control_2","translational_control_2",
+                "angular_vel_z_3","linear_vel_x_3","linear_vel_y_3","pose_theta_3","pose_theta_cos_3","pose_theta_sin_3","steering_angle_3","angular_control_3","translational_control_3",
+                "angular_vel_z_4","linear_vel_x_4","linear_vel_y_4","pose_theta_4","pose_theta_cos_4","pose_theta_sin_4","steering_angle_4","angular_control_4","translational_control_4",
+                "angular_vel_z_5","linear_vel_x_5","linear_vel_y_5","pose_theta_5","pose_theta_cos_5","pose_theta_sin_5","steering_angle_5","angular_control_5","translational_control_5",
+                "angular_vel_z_6","linear_vel_x_6","linear_vel_y_6","pose_theta_6","pose_theta_cos_6","pose_theta_sin_6","steering_angle_6","angular_control_6","translational_control_6",
+                "angular_vel_z_7","linear_vel_x_7","linear_vel_y_7","pose_theta_7","pose_theta_cos_7","pose_theta_sin_7","steering_angle_7","angular_control_7","translational_control_7",
+                "angular_vel_z_8","linear_vel_x_8","linear_vel_y_8","pose_theta_8","pose_theta_cos_8","pose_theta_sin_8","steering_angle_8",
+  ]
+  
   control_inputs: [
-      "WYPT_REL_X(30)",
-      "WYPT_REL_Y(30)",
-      "WYPT_VX(30)",
-      "angular_vel_z",
-      "linear_vel_x",
-      "linear_vel_y",
-      "steering_angle",
-      # "mu",
-      # "angular_control_calculated_-1",
-      # "translational_control_calculated_-1",
+      "angular_control_8",
+      "translational_control_8"
     ]
 
   
@@ -35,10 +41,19 @@ training_default:
 
   setpoint_inputs: []
   outputs:
-    ["angular_control_calculated", "translational_control_calculated"] # "mu"
-
-  EPOCHS: 5
-  BATCH_SIZE: 16
+    ["err_x",
+    "err_y",
+    "err_angular_vel_z", 
+    "err_linear_vel_x", 
+    "err_linear_vel_y",
+    "err_pose_theta",
+    "err_pose_theta_cos",
+    "err_pose_theta_sin",
+    "err_steering_angle"
+    ]
+  
+  EPOCHS: 50
+  BATCH_SIZE: 32
   SEED: 1873
   LR:
     INITIAL: 1.0e-3
@@ -50,8 +65,8 @@ training_default:
     MIN_DELTA: 0.00
   VALIDATE_ALSO_ON_TRAINING_SET: False
 
-  WASH_OUT_LEN: 20
-  POST_WASH_OUT_LEN: 300
+  WASH_OUT_LEN: 0
+  POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
   SHIFT_LABELS: 0 # for k, as a label to row i is taken row i+k
