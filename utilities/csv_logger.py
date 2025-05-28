@@ -136,25 +136,29 @@ def augment_csv_header(s: str, p: str, i: int = 0, after_header: bool = False):
     s = f"# {s}"
 
     # Read the contents of the file
-    with open(p, mode='r', newline='') as file:
-        lines = file.readlines()
+    try:
+        with open(p, mode='r', newline='') as file:
+            lines = file.readlines()
 
-    # Determine the correct insertion point
-    if after_header:
-        # Find the last header line (lines starting with "#  ")
-        last_header_index = max(i for i, line in enumerate(lines) if line.startswith('# '))
-        i = last_header_index
+        # Determine the correct insertion point
+        if after_header:
+            # Find the last header line (lines starting with "#  ")
+            last_header_index = max(i for i, line in enumerate(lines) if line.startswith('# '))
+            i = last_header_index
 
-    # If i is larger than the available lines, append at the end
-    if i >= len(lines):
-        lines.append(s + '\n')
-    else:
-        # Insert the string after line `i`
-        lines.insert(i + 1, s + '\n')
+        # If i is larger than the available lines, append at the end
+        if i >= len(lines):
+            lines.append(s + '\n')
+        else:
+            # Insert the string after line `i`
+            lines.insert(i + 1, s + '\n')
 
-    # Write the updated contents back to the file
-    with open(p, mode='w', newline='') as outfile:
-        outfile.writelines(lines)
+        # Write the updated contents back to the file
+        with open(p, mode='w', newline='') as outfile:
+            outfile.writelines(lines)
+    except FileNotFoundError:
+        # If the file does not exist, create it and write the string
+        print(f"Cant save laptimes after crash. File {p} does not exist.")
         
 def augment_csv_header_with_laptime(laptimes, csv_filepath):
     """

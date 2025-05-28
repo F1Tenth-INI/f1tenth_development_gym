@@ -1,8 +1,8 @@
 import numpy as np
-
+import os
 from SI_Toolkit.General.data_manager import DataManager
 from SI_Toolkit.Functions.FunctionalDict import FunctionalDict
-
+import json as JSON
 from utilities.Settings import Settings
 from utilities.state_utilities import STATE_VARIABLES
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
@@ -38,7 +38,7 @@ class Recorder:
         self.controller_info = ''
 
         self.csv_filepath = None
-
+        self.recording_path = None
     def step(self):
         self.csv_recording_step()
 
@@ -59,8 +59,7 @@ class Recorder:
         if not self.starting_recording:
             if not self.recording_running:
 
-                self.controller_info = self.driver.controller_name
-
+                self.controller_info = self.driver.controller_name                
                 self.csv_name = create_csv_file_name(Settings)
 
                 if time_limited_recording:
@@ -92,6 +91,7 @@ class Recorder:
                 recording_length=self.recording_length
             )
             self.csv_filepath = self.data_manager.csv_filepath
+            self.recording_path, _ = os.path.split(self.csv_filepath)
 
     def csv_recording_step(self):
         if self.recording_running:
@@ -121,8 +121,10 @@ def get_basic_data_dict(driver):
     }
 
     control_input_calculated_dict = {
-        'angular_control_calculated': lambda: driver.angular_control,
-        'translational_control_calculated': lambda: driver.translational_control,
+        'angular_control': lambda: driver.angular_control,
+        'angular_control_calculated': lambda: driver.angular_control_calculated,
+        'translational_control': lambda: driver.translational_control,
+        'translational_control_calculated': lambda: driver.translational_control_calculated,
     }
 
     # Creating lidar_names based on indices
@@ -142,15 +144,19 @@ def get_basic_data_dict(driver):
         for key in driver.current_imu_dict.keys()
     }
     
-    angular_control_dict = {
-        key: (lambda k=key: driver.angular_control_dict[k])
-        for key in driver.angular_control_dict.keys()
-    }
-    
-    translational_control_dict = {
-        key: (lambda k=key: driver.translational_control_dict[k])
-        for key in driver.translational_control_dict.keys()
-    }
+    if hasattr(driver, 'angular_control_dict'):
+        angular_control_dict = {
+            key: (lambda k=key: driver.angular_control_dict[k])
+            for key in driver.angular_control_dict.keys()
+        }
+        
+        translational_control_dict = {
+            key: (lambda k=key: driver.translational_control_dict[k])
+            for key in driver.translational_control_dict.keys()
+        }
+    else:
+        angular_control_dict = {}
+        translational_control_dict = {}
             
     # Combine all dictionaries into one
     combined_dict = {

@@ -4,9 +4,10 @@ import sklearn # Don't touch
 
 from utilities.waypoint_utils import *
 from utilities.render_utilities import RenderUtils
-
+from utilities.Settings import Settings
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
+from collections import deque  # Import deque for an efficient rolling buffer
 
 class NeuralNetImitatorPlanner(template_planner):
 
@@ -25,6 +26,11 @@ class NeuralNetImitatorPlanner(template_planner):
         self.waypoint_utils = None  # Will be overwritten with a WaypointUtils instance from car_system
         self.LIDAR = None  # Will be overwritten with a LidarUtils instance from car_system
         self.render_utils = RenderUtils()
+        
+        # Initialize a rolling buffer with zeros for control history
+        self.control_history_size = 10  # Set the desired buffer size
+        self.control_history = deque([(0.0, 0.0)] * self.control_history_size, maxlen=self.control_history_size)
+
 
         self.nni = controller_neural_imitator(
             environment_name="Car",
@@ -54,10 +60,10 @@ class NeuralNetImitatorPlanner(template_planner):
         # If you need NNI to be running faster, you dont calculate the dics but build the array by hand.
 
         # Lidar dict
-        lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
-        lidar_values = self.LIDAR.all_lidar_ranges
-        lidar_dict = dict(zip(lidar_keys, lidar_values))
-
+        # lidar_keys = self.LIDAR.get_all_lidar_ranges_names()
+        # lidar_values = self.LIDAR.all_lidar_ranges
+        # lidar_dict = dict(zip(lidar_keys, lidar_values))
+        lidar_dict = {}
         # Waypoint dict
         waypoints_relative = self.waypoint_utils.get_relative_positions(self.waypoints, self.car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
@@ -72,11 +78,19 @@ class NeuralNetImitatorPlanner(template_planner):
             **dict(zip(keys_next_y_waypoints, waypoints_relative_y)),
             **dict(zip(keys_next_vx_waypoints, next_waypoint_vx))
         }
+        
+        env_dict = {
+            'mu': Settings.SURFACE_FRICTION,
+        }
 
+        control_dict = {
+            'angular_control_calculated_-1': self.control_history[-1][0],
+            'translational_control_calculated_-1': self.control_history[-1][1],
+        }
         # Carstate dict
         state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
         # print("angular_vel_z: ", state_dict.get('angular_vel_z', 'Key not found'))        # Combine all dictionaries into one
-        data_dict = {**waypoints_dict, **state_dict, **lidar_dict}
+        data_dict = {**waypoints_dict, **state_dict, **lidar_dict, **env_dict, **control_dict}
         
         # Check if every key in self.nn_inputs is present in data_dict
         if not all(key in data_dict for key in self.nn_inputs):
@@ -87,7 +101,7 @@ class NeuralNetImitatorPlanner(template_planner):
         input_data = [data_dict[key] for key in self.nn_inputs if key in data_dict]
         
         # NN prediction step 
-        net_output = self.nni.step(input_data)
+        net_output = self.nni.step(input_data).numpy()
         
         if net_output.shape[2] == 3:
             self.angular_control = net_output[0, 0, 0]
@@ -103,7 +117,7 @@ class NeuralNetImitatorPlanner(template_planner):
                 self.friction_estimate.append(fricition)
                 self.friction = np.mean(self.friction_estimate)
             
-            self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
+            # self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
             # print("Estimated friction: ", self.friction)
         else:
             self.angular_control = net_output[0, 0, 0]
@@ -114,8 +128,9 @@ class NeuralNetImitatorPlanner(template_planner):
             self.simulation_index += 1
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
-            return self.angular_control, self.translational_control,
 
+        self.control_history.append((self.angular_control, self.translational_control))
 
+        
         return self.angular_control, self.translational_control
         

@@ -49,6 +49,8 @@ class RacingSimulation:
         self.env = None
         self.sim : Optional[Simulator] = None
         self.laptime = 0.0
+        self.initial_states = None
+
         
         self.renderer = None
 
@@ -66,8 +68,9 @@ class RacingSimulation:
     '''
     Run a number of experiments including repetitions on crash as defined in Settings
     '''
-    def run_experiments(self):
-
+    def run_experiments(self, initial_states=None):
+        self.initial_states = initial_states
+            
         number_of_experiments = Settings.NUMBER_OF_EXPERIMENTS
         i = 0
         while i < number_of_experiments:
@@ -78,6 +81,7 @@ class RacingSimulation:
             except CarCrashException as e:
                 print("the car crashed.")
                 if(Settings.REPEAT_IF_CRASHED):
+                    
                     if self.crash_repetition < Settings.MAX_CRASH_REPETITIONS:
                         self.crash_repetition += 1
                         number_of_experiments += 1
@@ -152,17 +156,19 @@ class RacingSimulation:
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
-                    # 'lap_times': lambda: self.obs['lap_times'][0],
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
                     'mu': lambda: self.vehicle_parameters_instance.mu,
         }
-         
+        
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
 
         if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             driver.launch_tuner_connector()
+        
+        #Start looking for keyboard press
+        driver.start_keyboard_listener()
 
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
@@ -182,11 +188,23 @@ class RacingSimulation:
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
-
+  
     def reset(self, poses = None):
-        if poses is None:
-            poses = np.array(self.starting_positions)
-        self.obs = self.sim.reset(poses=poses)
+        if self.initial_states is not None:
+            initial_states = np.array(self.initial_states)
+        else:
+            initial_states = np.zeros((self.number_of_drivers, len(STATE_VARIABLES)))            
+            for i in range(len(self.starting_positions)):
+                initial_states[i][POSE_X_IDX] = self.starting_positions[i][0]
+                initial_states[i][POSE_Y_IDX] = self.starting_positions[i][1]
+                initial_states[i][POSE_THETA_IDX] = self.starting_positions[i][2]
+                initial_states[i][POSE_THETA_COS_IDX] = np.cos(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][LINEAR_VEL_X_IDX] = 0.0
+                initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
+                
+                
+        self.obs = self.sim.reset(initial_states=initial_states)
 
 
     def run_simulation(self):
@@ -240,7 +258,7 @@ class RacingSimulation:
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
         if self.sim_index % intermediate_steps == 0:
 
-            self.agent_controls_calculated = []
+            self.agent_controls = []
 
             #Process observations and get control actions
             for index, driver in enumerate(self.drivers):
@@ -249,12 +267,10 @@ class RacingSimulation:
 
                 # Get control actions from driver 
                 angular_control, translational_control = driver.process_observation(ranges[index], None)
-
-                control_with_noise = self.add_control_noise([angular_control, translational_control])
-                self.agent_controls_calculated.append(control_with_noise)
+                self.agent_controls.append([angular_control, translational_control ])
 
         # Control delay buffer
-        self.control_delay_buffer.append(self.agent_controls_calculated)        
+        self.control_delay_buffer.append(self.agent_controls)        
         agent_controls_execute  = self.control_delay_buffer.pop(0)
 
         self.get_state_for_history_forger()
@@ -368,8 +384,7 @@ class RacingSimulation:
             
             starting_positions[0] = random_wp[1:4]
             # print("Starting position: ", random_wp[1:4])
-                
-       
+            
         
         self.starting_positions = starting_positions
         Settings.STARTING_POSITION = starting_positions
@@ -404,13 +419,7 @@ class RacingSimulation:
                 
         return state_with_noise
 
-    def add_control_noise(self, control):
-        noise_level = Settings.NOISE_LEVEL_CONTROL
-        noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
-        control_with_noise = control + noise_array
-        return control_with_noise
-
-
+ 
     def check_and_handle_collisions(self):
         # Collision ends simulation
         if Settings.CRASH_DETECTION:
@@ -426,7 +435,8 @@ class RacingSimulation:
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
-        # self.renderer.close()
+        if self.renderer is not None:
+            self.renderer.close()
 
     
    

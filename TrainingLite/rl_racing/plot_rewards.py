@@ -1,3 +1,4 @@
+exit()  
 import os
 
 import gym

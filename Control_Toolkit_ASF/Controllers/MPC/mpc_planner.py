@@ -1,6 +1,7 @@
 
 import numpy as np
 import math
+import os
 from utilities.Settings import Settings
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -24,6 +25,10 @@ from Control_Toolkit_ASF.Controllers.MPC.TargetGenerator import TargetGenerator
 from Control_Toolkit_ASF.Controllers.MPC.SpeedGenerator import SpeedGenerator
 
 from Control_Toolkit.Cost_Functions.cost_function_tester import CostFunctionTester
+
+from SI_Toolkit.load_and_normalize import load_yaml
+
+
 
 class mpc_planner(template_planner):
     """
@@ -73,6 +78,13 @@ class mpc_planner(template_planner):
 
         self.mpc.configure()
 
+
+        # Make MPC settings available to other classes
+        config_optimizers = load_yaml(os.path.join("Control_Toolkit_ASF", "config_optimizers.yml"))
+        self.config_controllers =  load_yaml(os.path.join("Control_Toolkit_ASF", "config_controllers.yml"))
+        optimizer_name = self.config_controllers["mpc"]["optimizer"]
+        self.config_optimizer = config_optimizers[optimizer_name]
+        self.config_cost_function = load_yaml(os.path.join("Control_Toolkit_ASF", "config_cost_function.yml"))
 
         
         self.car_state = None
@@ -131,10 +143,11 @@ class mpc_planner(template_planner):
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=rollout_trajectories,
-            optimal_trajectory=optimal_trajectory,
-        )
+        if hasattr(self.render_utils, 'update_mpc'):
+            self.render_utils.update_mpc(
+                rollout_trajectory=rollout_trajectories,
+                optimal_trajectory=optimal_trajectory,
+            )
 
         self.translational_control = translational_control
         self.angular_control = angular_control

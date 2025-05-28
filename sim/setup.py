@@ -30,5 +30,8 @@ setup(name='f110_sim',
                         'stable_baselines3',
                         'tensorboard==2.14',
                         'seaborn',
+                        'pytest',
+                        'opencv-python',
+                        'tensorboardX',
                         ]
       )

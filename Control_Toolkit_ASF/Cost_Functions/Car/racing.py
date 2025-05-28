@@ -1,4 +1,3 @@
-import tensorflow as tf
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 
@@ -86,11 +85,9 @@ class racing(f1t_cost_function):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]
         if hasattr(self.variable_parameters, 'lidar_points'):
             crash_cost = self.get_crash_cost(car_positions, self.variable_parameters.lidar_points)
+            # crash_cost = self.lib.zeros_like(cc)
         else:
             crash_cost = self.lib.zeros_like(cc)
-        # Cost related to control
-        acceleration_cost = self.get_acceleration_cost(u)
-        steering_cost = self.get_steering_cost(u)
 
         # Cost related to state
         angular_velocity_cost = self.get_angular_velocity_cost(s)
@@ -112,9 +109,9 @@ class racing(f1t_cost_function):
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
 
         else:
-            distance_to_wp_segments_cost = tf.zeros_like(acceleration_cost)
-            velocity_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
-            speed_control_difference_to_wp_cost = tf.zeros_like(acceleration_cost)
+            distance_to_wp_segments_cost = self.lib.zeros_like(acceleration_cost)
+            velocity_difference_to_wp_cost = self.lib.zeros_like(acceleration_cost)
+            speed_control_difference_to_wp_cost = self.lib.zeros_like(acceleration_cost)
 
 
         speed_control_difference_to_wp_cost = self.normed_discount(speed_control_difference_to_wp_cost, s[0, :, 0], 0.95)
@@ -134,7 +131,6 @@ class racing(f1t_cost_function):
                 + angular_velocity_cost
                 # + angle_difference_to_wp_cost
                 # + speed_control_difference_to_wp_cost
-                + steering_cost
                 # + acceleration_cost
                 # + slipping_cost
                 # + cost_for_stopping

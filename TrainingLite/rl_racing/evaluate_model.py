@@ -11,14 +11,15 @@ from utilities.Settings import Settings
 from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name, log_dir
 
 import numpy as np
-
-from tensorboardX import SummaryWriter
-
+import torch
 model_name = model_name + '_running'
+
+device = 'cpu'
 # model_name = "sac_ini_1_rca1_22200000"
 def evaluate_model(recording_name_extension=""):
     experiment_name = model_name
-    Settings.RENDER_MODE = 'human'
+    # Settings.RENDER_MODE = 'human'
+    Settings.RENDER_MODE = None
     Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, experiment_name) + '/'
     Settings.DATASET_NAME = Settings.DATASET_NAME + '_' + str(recording_name_extension)
     Settings.SAVE_RECORDINGS = True
@@ -32,8 +33,11 @@ def evaluate_model(recording_name_extension=""):
     if not os.path.exists(model_path + ".zip"):
         print(f"Model {model_path} not found.")
         return
+    
+    # Dynamically set device and map model to CPU if CUDA is unavailable
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = SAC.load(model_path, map_location=device)  # Use map_location to handle CPU fallback
 
-    model = SAC.load(model_path)
     env = make_env()()
     env.max_episode_steps = 8000
 
@@ -49,20 +53,51 @@ def evaluate_model(recording_name_extension=""):
 
         if done or truncated:
             break  # Stop if episode ends
-
+        
+    env.simulation.on_simulation_end()
+    env.close()
+    print(f"Total reward: {total_reward}")
+    print(f"Mean reward: {np.mean(rewards)}")
+    
     # ✅ Extract driver data AFTER evaluation
     driver: CarSystem = env.simulation.drivers[0]
 
     mean_lap_time = np.mean(driver.laptimes) if driver.laptimes else float('nan')
+    min_lap_time = np.min(driver.laptimes) if driver.laptimes else float('nan')
+    max_lap_time = np.max(driver.laptimes) if driver.laptimes else float('nan')
     mean_reward = np.mean(rewards)
     
-    print(f"Mean reward: {mean_reward}, Mean Lap Time: {mean_lap_time}")
 
-    # ✅ Log results to TensorBoard
-    writer = SummaryWriter(log_dir=os.path.join(log_dir, model_name))
-    writer.add_scalar("evaluation/mean_lap_time", mean_lap_time, int(recording_name_extension))
-    writer.add_scalar("evaluation/mean_reward", mean_reward, int(recording_name_extension))
-    writer.close()
+
+    # Save results into dictionary
+    results = {
+        'timestep': recording_name_extension,
+        'mean_reward': mean_reward,
+        'min_lap_time': min_lap_time,
+        'max_lap_time': max_lap_time,
+        'mean_lap_time': mean_lap_time,
+        'total_reward': total_reward
+    }
+
+    # Print results
+    print(f"Mean lap time: {mean_lap_time}")
+    print(f"Min lap time: {min_lap_time}")
+    print(f"Max lap time: {max_lap_time}")
+    print(f"Total reward: {total_reward}")
+    print(f"Mean reward: {mean_reward}")
+    print(f"Mean lap time: {mean_lap_time}")
+    
+
+
+    # Save the results to a CSV file (add at the end of the file or create the file if it doesn't exist)
+    results_file = os.path.join(Settings.RECORDING_FOLDER, 'results.csv')
+
+    file_exists = os.path.exists(results_file)
+    with open(results_file, 'a') as f:
+        if not file_exists:
+            f.write(','.join(results.keys()) + '\n') 
+        # Write the values of the dictionary as a new row
+        f.write(','.join(map(str, results.values())) + '\n')
 
 
 

@@ -13,11 +13,11 @@ random.seed(42)
 # The data is distributed into the Train, Test and Validate folders according to the distribution probabilities
 
 # Input folder with CSV files
-input_folder = "TrainingLite/Datasets/Custom_IPZ34b"
+input_folder = "TrainingLite/Datasets/04_08_RCA1_noise"
 
 # Change to desired directory in Experiment
 root_dir = "SI_Toolkit_ASF/Experiments"
-experiment_dir = "Custom_IPZ34b"
+experiment_dir = "04_08_RCA1_noise"
 
 past_recordings = os.path.join(root_dir, experiment_dir, "Past_trainings")
 
@@ -145,7 +145,11 @@ print_progress_bar(0, total_files, prefix='Distributing Files:', suffix='Complet
 for i, file in enumerate(csv_files):
     
     file_path = os.path.join(input_folder, file)
-    df = pd.read_csv(file_path, comment='#')
+    try:
+        df = pd.read_csv(file_path, comment='#', on_bad_lines='skip')
+    except pd.errors.EmptyDataError:
+        print(f"Skipping file {file} because it contains no valid data.")
+        continue
     if df.empty or len(df) < 100:
         print(f"Skipping file {file} because it is empty or has less than 20 lines.")
         continue

@@ -15,20 +15,16 @@ distance_normalization = 6.0
 # TODO: Config should be loaded at specific functions
 # load constants from config file config_controllers
 gym_path = get_gym_path()
-with open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r", encoding="utf-8") as f:
-    config = yaml.load(f, Loader=yaml.FullLoader)
+config = yaml.load(open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
+config_controllers = yaml.load(open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
 
-with open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r", encoding="utf-8") as f:
-    config_controllers = yaml.load(f, Loader=yaml.FullLoader)
-
-
-mpc_optimizier_name = config_controllers["mpc"]['optimizer']
+mpc_type = config_controllers["mpc"]['optimizer']
 
 R = config["Car"]["racing"]["R"]
 
-cc_weight = tf.convert_to_tensor(config["Car"]["racing"][mpc_optimizier_name]["cc_weight"])
-ccrc_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
-ccrh_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
+cc_weight = tf.convert_to_tensor(config["Car"]["racing"]["cc_weight"])
+ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 icdc_weight = config["Car"]["racing"]["icdc_weight"]
 
@@ -47,9 +43,9 @@ max_acceleration = config["Car"]["racing"]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
 waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
-crash_cost_slope = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_slope"]
-crash_cost_safe_margin = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_safe_margin"]
-crash_cost_max_cost = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_max_cost"]
+crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
 
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
@@ -58,10 +54,8 @@ class f1t_cost_function(cost_function_base):
         super(f1t_cost_function, self).__init__(variable_parameters, ComputationLib)
         self._P1 = None
         self._P2 = None
-        
-        
-        crash_cost_max_cost_init = crash_cost_max_cost if crash_cost_max_cost > 0 else 1e-5 # Trick to initialize hyperboli function, even without crash cost
-        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost_init), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
+
+        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
         self.cost_function_for_state_metric = False
 
@@ -232,7 +226,11 @@ class f1t_cost_function(cost_function_base):
 
 
     def get_crash_cost(self, trajectories, border_points):
-
+        
+        # Dont calculaqte if max is 0
+        if crash_cost_max_cost == 0.0:
+            return tf.zeros_like(trajectories[:, :, 0])
+        
         trajectories_shape = tf.shape(trajectories)
 
         points_of_trajectories = tf.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1], 2])

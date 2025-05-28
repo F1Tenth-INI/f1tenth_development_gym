@@ -17,7 +17,13 @@ else:
             import pyglet.gl as gl
             from pyglet import shapes
             import pyglet
-        except:
+        except ImportError as e:
+
+            # Handle the import error gracefully
+            print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
+            # Optionally, you can print the error message
+            print(f"ImportError: {e}")
+   
             Settings.RENDER_MODE = None
 
 
@@ -51,7 +57,7 @@ self.Render.update(
 
 '''
 
-if Settings.RENDER_MODE is not None:
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
     class PointSizeGroup(pyglet.graphics.Group):
         def __init__(self, point_size, parent=None):
             super().__init__(parent)
