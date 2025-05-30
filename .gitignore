@@ -16,7 +16,7 @@ utilites/Settings.py
 Control_Toolkit_ASF/config_controllers.yml
 
 # sosuke_code
-sosuke_code/hardware_data
+sosuke_code/F1tenth_data
 # !sosuke_code/compute_error
 # !sosuke_code/plot_traj
 # !sosuke_code/rosbag_to_csv
