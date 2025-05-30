@@ -34,6 +34,7 @@ class next_state_predictor_ODE():
 
         #TODO: Probably not best to hard code these things
         self.nn_path = "SI_Toolkit_ASF/Experiments/DNN_history/Models/Dense-72IN-32H1-64H2-128H3-9OUT-0"
+        # self.nn_path = "SI_Toolkit_ASF/Experiments/DNN_history/Models/Dense-72IN-32H1-64H2-128H3-256H4-64H5-9OUT-0"
         self.state_residual_NN = neural_network_evaluator(
             net_name=os.path.basename(self.nn_path),
             path_to_models=os.path.dirname(self.nn_path),
@@ -52,7 +53,7 @@ class next_state_predictor_ODE():
         self.hist_count=0
         for i, w in enumerate(self.state_residual_NN.net.weights):
             if tf.reduce_any(tf.math.is_nan(w)).numpy():
-                print(f"🚨 NaN found in weight {i}: {w.name}")
+                print(f"NaN found in weight {i}: {w.name}")
             else:
                 print(f"Weight {i} is fine: {w.name}")
 
@@ -97,12 +98,14 @@ class next_state_predictor_ODE():
             #alter the output to remove the pos_x,pos_y (index 7,8)
             if self.hist_count < self.history:
                 print("There is not enough History, appending!")
-                s_del = tf.concat([s[:, :7], s[:, 10:]], axis=1)
+
+                s_del = tf.concat([s[:, :6], s[:, 9:]], axis=1)
+          
                 # print("s.shape:", s.shape)
                 # print("Q.shape:", Q.shape)
 
                 sq=tf.concat([s_del,Q], axis=1)
-                # print("sq.shape:", sq.shape)
+
 
                 self.past_states.append(sq)
                 self.hist_count+=1
@@ -111,45 +114,105 @@ class next_state_predictor_ODE():
 
             else:
                 # print("Have full history, trying to calculate")
-                s_del = tf.concat([s[:, :7], s[:, 10:]], axis=1)
+                return s_next
+                s_del = tf.concat([s[:, :6], s[:, 9:]], axis=1)
                 sq=tf.concat([s_del,Q], axis=1)
-
+                #sq now looks like this (batch, 9 states):
+                #[angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_theta_cos, pose_theta_sin, steering_angle, angular control, translational_control
                 self.past_states.append(sq)
-                NN_input = tf.concat(self.past_states, axis=1)
 
-                # print("NN_input min:", tf.reduce_min(NN_input).numpy())
-                # print("NN_input max:", tf.reduce_max(NN_input).numpy())
+
+
+                #Now re-order the states into alphabetical order:
+                #Angular control, angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_theta_cos, pose_theta_sin, steering_angle,translational_control
+                nn_index_map  = [7,0,1,2,3,4,5,6,8]
+                # print("past states before alter",self.past_states) LOOKS GOOD
+                NN_input = tf.concat(self.past_states, axis=1)
+                NN_input_reorder = []
+
+     
+                #add the controls first
+                NN_input_reorder.append(NN_input[:, (self.history +1) * 9 -2 : (self.history+1) * 9]) #angular control, translational co
+
+                for i in nn_index_map:
+                    for j in range(self.history+1):
+                        if i == 7 or i == 8: #skip the control inputs
+                            if j == self.history: #if it is the last one, we don't want to add it again
+                                continue
+                            else:
+                                NN_input_reorder.append(NN_input[:, i + 9 * j : i + 9 * j + 1])
+                        else:
+                            NN_input_reorder.append(NN_input[:, i + 9 * j : i + 9 * j + 1])
+    
+
+                #Now remove the duplicate control at the end
+                NN_input_final = tf.concat(NN_input_reorder, axis=1)
+
+                # print("reordered list",NN_input_final[0]) #Looks GOOD!
+                # print("OG looks like:",NN_input[0])
+
                 # tf.debugging.assert_all_finite(NN_input, "NN_input contains NaN or Inf")
                 # print("NN_input.shape:", NN_input.shape)
 
-                NN_residual = self.state_residual_NN.step(NN_input)
-                # print(NN_residual)
+                #Output of NN is in the following order:
+                #ang_vel_z, lin_vel_x, lin_vel_y, pose_theta, pose_theta_cos, pose_theta_sin, steering angle, err_x, err_y
+                NN_residual = self.state_residual_NN.step(NN_input_final)
+
+
+                #TODO: Make sure to log the NN_residual
+                
                 # tf.debugging.assert_all_finite(NN_residual, "NN_residual contains NaN or Inf")
-                # s_next = s_next + NN_residual
-                self.past_states.pop()
-                # print("NN_residual:", NN_residual)
+
+                self.past_states.pop(0)
+
+                print("NN_residual:", NN_residual)
                 # print(type(s_next), type(NN_residual))
                 # print(s_next.shape, NN_residual.shape)
+                # print("residual is",NN_residual) #(8,1,9)
+                # print("s_next is", s_next) #(8,10)
+
+                # NN_residual = tf.squeeze(NN_residual, axis=1) 
+                #Mapping the output of NN to correct index of state
+                nn_index_map  = [0,1,2,3,4,5,9,6,7]
                 NN_residual = tf.squeeze(NN_residual, axis=1) 
+                residual_padded = tf.zeros_like(s_next)  # shape (batch_size, 10)
 
-                nn_index_map  = [6, 7, 0, 1, 2, 3, 4, 5, 9]
-                batch_size = tf.shape(s_next)[0]
+                # Can't simply add with tf, use scatter
+                residual_padded = tf.tensor_scatter_nd_add(
+                    residual_padded,
+                    indices=tf.reshape(
+                        tf.stack([
+                            tf.repeat(tf.range(tf.shape(s_next)[0]), repeats=len(nn_index_map)),
+                            tf.tile(nn_index_map, [tf.shape(s_next)[0]])
+                        ], axis=1),
+                        [-1, 2]
+                    ),
+                    updates=tf.reshape(NN_residual, [-1])
+                )
+                print("residual_padded:", residual_padded[0]) #Looks good!
+                print("s_next:", s_next[0])
 
-                # Prepare indices and updates
-                indices = []
-                updates = []
+                s_next_updated = s_next + residual_padded
+                # print("s_next_updated:", s_next_updated[0])   
 
-                for i, index in enumerate(nn_index_map):
-                    for b in range(batch_size):
-                        indices.append([b, index])
-                        updates.append(NN_residual[b, i] + s_next[b, index])
 
-                indices = tf.constant(indices, dtype=tf.int32)
-                updates = tf.stack(updates)
+                # batch_size = tf.shape(s_next)[0]
+                # # Prepare indices and updates
+                # indices = []
+                # updates = []
 
-                # Create the updated tensor
-                s_next_copy = tf.tensor_scatter_nd_update(s_next, indices, updates)
-                return s_next_copy
+                # for i, index in enumerate(nn_index_map):
+                #     for b in range(batch_size):
+                #         indices.append([b, index])
+                #         updates.append(NN_residual[b, i] + s_next[b, index])
+
+                # indices = tf.constant(indices, dtype=tf.int32)
+                # updates = tf.stack(updates)
+
+                # # Create the updated tensor
+                # s_next_copy = tf.tensor_scatter_nd_update(s_next, indices, updates)
+
+                return s_next_updated
 
 
 
