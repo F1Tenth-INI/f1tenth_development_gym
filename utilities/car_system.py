@@ -581,6 +581,9 @@ def initialize_planner(controller: str):
         planner = mpc_planner()
     elif controller == 'mppi-lite':
         from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_planner import MPPILitePlanner
+        planner = MPPILitePlanner() 
+    elif controller == 'mppi-lite-jax':
+        from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_jax_planner import MPPILitePlanner
         planner = MPPILitePlanner()
     elif controller == 'ftg':
         from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
