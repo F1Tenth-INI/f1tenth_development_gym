@@ -7,9 +7,9 @@ Car:
   racing:
     # Different optimizers works the best with different cost functions parameters
     rpgd:
-      cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
-      ccrc_weight: [20.0, 1.0] # Steering and throttle; penalty of instant control change (compared to prev input)
-      ccrh_weight: [20.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
+      cc_weight: [0.1, 0.01] # Cost on control; steering and throttle
+      ccrc_weight: [40.0, 0.01] # Steering and throttle; penalty of instant control change (compared to prev input)
+      ccrh_weight: [30.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
 
       crash_cost_max_cost: 100.0
       crash_cost_safe_margin: 0.4
@@ -25,18 +25,19 @@ Car:
       crash_cost_slope: 30.0
 
     # horizon
-    ccocrc_weight: [0.0, 0.0] # Steering and throttle; penalizing |∆u(t)-∆u(t-1)|
+    ccocrc_weight: [1.0, 0.0] # Steering and throttle; penalizing |∆u(t)-∆u(t-1)|
     icdc_weight: [0.0, 0.0] # Steering and throttle; special penalty to discourage change at the very first control input
 
-    R: 1.0 # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
-    distance_to_waypoints_cost_weight: 20.0
-    velocity_diff_to_waypoints_cost_weight: 2.0
+    R: 7.0 # How much to punish Q, For MPPI YOU have to make sure that this is the same as in optimizer config, as it plays a special role in the optimization algorithm as well as is used in cost functions!
+    distance_to_waypoints_cost_weight: 25.0
+    velocity_diff_to_waypoints_cost_weight: 5.0
     angular_velocity_cost_weight: 0.01
-    angle_difference_to_wp_cost_weight: 0. #1.
+    angle_difference_to_wp_cost_weight: 10. #1.
     speed_control_diff_to_waypoints_cost_weight: 0.0 # Penalize difference between desired speed of control and the position's closest waypoint
-
+    velocity_diff_to_waypoints_cost_weight_fast: 10.0 #  Cost for beeing too fast
+    velocity_diff_to_waypoints_cost_weight_slow: 10.0 # Cost for beeing too slow
     slipping_cost_weight: 0.01
-    steering_cost_weight: 0.0
+    steering_cost_weight: 0.5
     terminal_speed_cost_weight: 0.0
     target_distance_cost_weight: 0.0 #only if you want to follow a target on an empty map
     waypoint_velocity_factor: 1.0 # Dont touch... adjust in maps/speed_scalling.yaml

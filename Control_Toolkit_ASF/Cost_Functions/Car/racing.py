@@ -22,7 +22,8 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = None
         self.cost_components.speed_control_difference_to_wp_cost = None
         self.cost_components.distance_to_wp_segments_cost = None
-        self.cost_components.velocity_difference_to_wp_cost = None
+        self.cost_components.velocity_difference_to_wp_cost_fast = None
+        self.cost_components.velocity_difference_to_wp_cost_slow = None
         self.single_step = False
 
     def configure(
@@ -42,7 +43,8 @@ class racing(f1t_cost_function):
         self.cost_components.angle_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.speed_control_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         self.cost_components.distance_to_wp_segments_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
-        self.cost_components.velocity_difference_to_wp_cost = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.velocity_difference_to_wp_cost_fast = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
+        self.cost_components.velocity_difference_to_wp_cost_slow = self.lib.to_variable(cost_vector, dtype=self.lib.float32)
         
         if horizon == 1:
             self.single_step = True
@@ -58,7 +60,8 @@ class racing(f1t_cost_function):
             "angle_difference_to_wp_cost": lambda: float(self.cost_components.angle_difference_to_wp_cost),
             "speed_control_difference_to_wp_cost": lambda: float(self.cost_components.speed_control_difference_to_wp_cost),
             "distance_to_wp_segments_cost": lambda: float(self.cost_components.distance_to_wp_segments_cost),
-            "velocity_difference_to_wp_cost": lambda: float(self.cost_components.velocity_difference_to_wp_cost),
+            "velocity_difference_to_wp_cost_fast": lambda: float(self.cost_components.velocity_difference_to_wp_cost_fast),
+            "velocity_difference_to_wp_cost_slow": lambda: float(self.cost_components.velocity_difference_to_wp_cost_slow),
         })
 
 
@@ -105,7 +108,8 @@ class racing(f1t_cost_function):
 
             # distance_to_wp_segments_cost = self.get_distance_to_wp_cost(s, waypoints, nearest_waypoint_indices)
             distance_to_wp_segments_cost = self.get_distance_to_wp_segments_cost(s, waypoints, nearest_waypoint_indices)
-            velocity_difference_to_wp_cost = self.get_velocity_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
+            velocity_difference_to_wp_cost_fast = self.get_velocity_difference_to_wp_cost_fast(s, waypoints, nearest_waypoint_indices)
+            velocity_difference_to_wp_cost_slow = self.get_velocity_difference_to_wp_cost_slow(s, waypoints, nearest_waypoint_indices)
             speed_control_difference_to_wp_cost = self.get_speed_control_difference_to_wp_cost(u, s, waypoints, nearest_waypoint_indices)
             angle_difference_to_wp_cost = self.get_angle_difference_to_wp_cost(s, waypoints, nearest_waypoint_indices)
 
@@ -117,13 +121,15 @@ class racing(f1t_cost_function):
 
 
         speed_control_difference_to_wp_cost = self.normed_discount(speed_control_difference_to_wp_cost, s[0, :, 0], 0.95)
+    
         # distance_to_wp_segments_cost = self.normed_discount(distance_to_wp_segments_cost, s[0, :, 0], 1.5)
         # distance_final = self.lib.concat((self.lib.zeros_like(distance_to_wp_segments_cost)[:, :-1], distance_to_wp_segments_cost[:, -2:-1]), 1)
         # distance_to_wp_segments_cost = distance_final
 
         stage_cost = (
                 distance_to_wp_segments_cost
-                + velocity_difference_to_wp_cost
+                + velocity_difference_to_wp_cost_fast
+                + velocity_difference_to_wp_cost_slow
                 + crash_cost
                 + cc
                 + ccrc
@@ -150,7 +156,8 @@ class racing(f1t_cost_function):
                 self.lib.assign(self.cost_components.angle_difference_to_wp_cost, angle_difference_to_wp_cost)
                 self.lib.assign(self.cost_components.speed_control_difference_to_wp_cost, speed_control_difference_to_wp_cost)
                 self.lib.assign(self.cost_components.distance_to_wp_segments_cost, distance_to_wp_segments_cost)
-                self.lib.assign(self.cost_components.velocity_difference_to_wp_cost, velocity_difference_to_wp_cost)
+                self.lib.assign(self.cost_components.velocity_difference_to_wp_cost_fast, velocity_difference_to_wp_cost_fast)
+                self.lib.assign(self.cost_components.velocity_difference_to_wp_cost_slow, velocity_difference_to_wp_cost_slow)
 
 
         discount_vector = self.lib.ones_like(s[0, :, 0])*1.00 #nth wypt has wheight factor^n, if no wheighting required use factor=1.00

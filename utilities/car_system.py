@@ -183,7 +183,7 @@ class CarSystem:
             self.planner.render_utils = self.render_utils
         if(hasattr(self.planner, 'waypoint_utils')):
             self.planner.waypoint_utils = self.waypoint_utils
-        
+
         
     def launch_tuner_connector(self):
         try:
@@ -303,8 +303,8 @@ class CarSystem:
         translational_control_sequence = optimal_control_sequence[:, 1]
         
         # Convert MPC's control sequence to dictionary for recording
-        self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
-        self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
+        # self.angular_control_dict = {"cs_a_{}".format(i): control for i, control in enumerate(angular_control_sequence)}
+        # self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
         
         # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
         mpc_execution_step = (int)(Settings.CONTROL_DELAY / self.planner.config_optimizer["mpc_timestep"])
@@ -571,7 +571,7 @@ class CarSystem:
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
-                
+    
 def initialize_planner(controller: str):
 
     if controller is None:

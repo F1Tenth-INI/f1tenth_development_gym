@@ -32,7 +32,8 @@ ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 icdc_weight = config["Car"]["racing"]["icdc_weight"]
 
 distance_to_waypoints_cost_weight = config["Car"]["racing"]["distance_to_waypoints_cost_weight"]
-velocity_diff_to_waypoints_cost_weight = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight"]
+velocity_diff_to_waypoints_cost_weight_fast = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight_fast"]
+velocity_diff_to_waypoints_cost_weight_slow = config["Car"]["racing"]["velocity_diff_to_waypoints_cost_weight_slow"]
 speed_control_diff_to_waypoints_cost_weight = config["Car"]["racing"]["speed_control_diff_to_waypoints_cost_weight"]
 steering_cost_weight = config["Car"]["racing"]["steering_cost_weight"]
 angular_velocity_cost_weight = config["Car"]["racing"]["angular_velocity_cost_weight"]
@@ -331,7 +332,7 @@ class f1t_cost_function(cost_function_base):
         distance_to_wp_segments_cost = distance_to_segment_square
         return distance_to_wp_segments_cost
     
-    def get_velocity_difference_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
+    def get_velocity_difference_to_wp_cost_fast(self, s, waypoints, nearest_waypoint_indices):
         
         # if (velocity_diff_to_waypoints_cost_weight == 0): # Don't calculate if cost is 0
         #     return self.lib.zeros_like(s[:,:,0])

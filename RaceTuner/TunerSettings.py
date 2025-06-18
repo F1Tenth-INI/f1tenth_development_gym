@@ -1,7 +1,7 @@
 # TunerSettings.py
 import os
 
-USE_REMOTE_FILES = False
+USE_REMOTE_FILES = True
 
 REMOTE_MAP_DIR = "catkin_ws/src/f1tenth_system/gym_bridge/f1tenth_development_gym/utilities/maps"
 REMOTE_SETTINGS_DIR = "catkin_ws/src/f1tenth_system/gym_bridge/f1tenth_development_gym/utilities"

@@ -16,7 +16,7 @@ mppi:
 
 rpgd:
   seed: null # If null, random seed based on datetime is used
-  mpc_horizon: 75 # steps
+  mpc_horizon: 40 # steps
   mpc_timestep: 0.02 # For model based planner (MPC) timestep of simulation, can be arbitrary number
   SAMPLING_DISTRIBUTION: uniform # "normal" or "uniform"
   period_interpolation_inducing_points: 1 #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
@@ -26,9 +26,9 @@ rpgd:
   adam_epsilon: 1.0e-08
   gradmax_clip: 5
   rtol: 1.0e-3
-  num_rollouts: 8
+  num_rollouts: 4
   opt_keep_k_ratio: 0.75
-  outer_its: 5
+  outer_its: 7
   resamp_per: 5
   #  sample_stdev: 0.2
   #  sample_mean: 0.0

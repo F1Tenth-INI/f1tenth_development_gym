@@ -528,7 +528,9 @@ def get_distance_to_raceline_jit(waypoints, nearest_waypoint_index, car_position
     current_distance_to_raceline = np.minimum(current_distance_to_last, current_distance_to_next)
     
     return current_distance_to_last, current_distance_to_next, current_distance_to_raceline
-@njit(fastmath=True)
+
+
+# @njit(fastmath=True)
 def squared_distance(p1, p2):
     squared_distance = abs(p1[0] - p2[0]) ** 2 + abs(p1[1] - p2[1]) ** 2
     return squared_distance

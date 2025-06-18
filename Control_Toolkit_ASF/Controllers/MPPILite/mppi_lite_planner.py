@@ -11,7 +11,7 @@ import numpy as np
 
 from numba import njit, prange
 import numba
-os.environ["NUMBA_NUM_THREADS"] = '8'
+# os.environ["NUMBA_NUM_THREADS"] = '8'
 
 
 #Decorator to enable or disable Numba JIT
@@ -49,8 +49,8 @@ class MPPILitePlanner(template_planner):
         # Settings
         self.dt = 0.02
         
-        self.batch_size = 1024
-        self.horizon = 75    
+        self.batch_size = 5
+        self.horizon = 5    
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array()
 
@@ -85,10 +85,11 @@ class MPPILitePlanner(template_planner):
             s, last_Q_sq, batch_size, horizon, car_params_array, self.waypoint_utils.next_waypoints
         )
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=state_batch_sequence,
-            optimal_trajectory=np.expand_dims(optimal_trajectory, axis=0),  # Add a new dimension
-        )
+        if(self.render_utils is not None):
+            self.render_utils.update_mpc(
+                rollout_trajectory=state_batch_sequence,
+                optimal_trajectory=np.expand_dims(optimal_trajectory, axis=0),  # Add a new dimension
+            )
 
         # Plotting rollout
         if False:
@@ -132,7 +133,7 @@ class MPPILitePlanner(template_planner):
         plt.axis('equal')
         plt.savefig("car_positions_colored_by_cost.png")
 
-@njit_compile(fastmath=True)
+@njit_compile(fastmath=True, parallel=True)
 def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array, next_waypoints):
     
     # Tile s to s_batch 
@@ -151,12 +152,18 @@ def process_observation_jit(s, last_Q_sq, batch_size, horizon, car_params_array,
 
 
     # Perturb Qs by adding random noise
-    random_perturbation = np.zeros((batch_size, horizon, 2), dtype=np.float32)
-    # random_perturbation[:, :, 0] = np.random.uniform(-0.2, 0.2, size=(batch_size, horizon))
-    # random_perturbation[:, :, 1] = np.random.uniform(-1., 1., size=(batch_size, horizon))
-    random_perturbation[:, :, 0] = np.random.normal(0.0, 0.2, size=(batch_size, horizon))
-    random_perturbation[:, :, 1] = np.random.normal(0.0, 1.2, size=(batch_size, horizon))
-    Q_batch_sequence += random_perturbation
+    # random_perturbation = np.zeros((batch_size, horizon, 2), dtype=np.float32)
+    # # random_perturbation[:, :, 0] = np.random.uniform(-0.2, 0.2, size=(batch_size, horizon))
+    # # random_perturbation[:, :, 1] = np.random.uniform(-1., 1., size=(batch_size, horizon))
+    # random_perturbation[:, :, 0] = np.random.normal(0.0, 0.2, size=(batch_size, horizon))
+    # random_perturbation[:, :, 1] = np.random.normal(0.0, 1.2, size=(batch_size, horizon))
+    # Q_batch_sequence += random_perturbation
+    
+    for i in prange(batch_size):
+        for j in range(horizon):
+            Q_batch_sequence[i, j, 0] += np.float32(0.2) * np.float32(np.random.randn())
+            Q_batch_sequence[i, j, 1] += np.float32(1.2) * np.float32(np.random.randn())
+
 
     # Clip control values 
     steering_min, steering_max = -0.4, 0.4 
@@ -212,7 +219,7 @@ def cost_function(state, control, waypoints):
     return total_cost
 
 
-@njit_compile(fastmath=True)
+@njit_compile(fastmath=True, parallel=True)
 def cost_function_sequence(state_sequence, control_sequence, waypoints):
     """
     Computes cost for a batch of states and controls.
