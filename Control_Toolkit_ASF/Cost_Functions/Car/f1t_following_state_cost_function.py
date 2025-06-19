@@ -14,20 +14,16 @@ distance_normalization = 6.0
 # TODO: Config should be loaded at specific functions
 # load constants from config file config_controllers
 gym_path = get_gym_path()
-with open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r", encoding="utf-8") as f:
-    config = yaml.load(f, Loader=yaml.FullLoader)
+config = yaml.load(open(os.path.join(gym_path , "Control_Toolkit_ASF", "config_cost_function.yml"), "r"), Loader=yaml.FullLoader)
+config_controllers = yaml.load(open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r"), Loader=yaml.FullLoader)
 
-with open(os.path.join(gym_path, "Control_Toolkit_ASF", "config_controllers.yml"), "r", encoding="utf-8") as f:
-    config_controllers = yaml.load(f, Loader=yaml.FullLoader)
-
-
-mpc_optimizier_name = config_controllers["mpc"]['optimizer']
+mpc_type = config_controllers["mpc"]['optimizer']
 
 R = config["Car"]["racing"]["R"]
 
-cc_weight = config["Car"]["racing"][mpc_optimizier_name]["cc_weight"]
-ccrc_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
-ccrh_weight = config["Car"]["racing"][mpc_optimizier_name]["ccrc_weight"]
+cc_weight = config["Car"]["racing"]["cc_weight"]
+ccrc_weight = config["Car"]["racing"]["ccrc_weight"]
+ccrh_weight = config["Car"]["racing"]["ccrc_weight"]
 ccocrc_weight = config["Car"]["racing"]["ccocrc_weight"]
 icdc_weight = config["Car"]["racing"]["icdc_weight"]
 
@@ -46,9 +42,9 @@ max_acceleration = config["Car"]["racing"]["max_acceleration"]
 desired_max_speed = config["Car"]["racing"]["desired_max_speed"]
 waypoint_velocity_factor = config["Car"]["racing"]["waypoint_velocity_factor"]
 
-crash_cost_slope = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_slope"]
-crash_cost_safe_margin = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_safe_margin"]
-crash_cost_max_cost = config["Car"]["racing"][mpc_optimizier_name]["crash_cost_max_cost"]
+crash_cost_slope = config["Car"]["racing"]["crash_cost_slope"]
+crash_cost_safe_margin = config["Car"]["racing"]["crash_cost_safe_margin"]
+crash_cost_max_cost = config["Car"]["racing"]["crash_cost_max_cost"]
 
 from SI_Toolkit.Functions.General.hyperbolic_functions import return_hyperbolic_function
 
@@ -58,26 +54,9 @@ class f1t_cost_function(cost_function_base):
         self._P1 = None
         self._P2 = None
 
-
-        crash_cost_max_cost_init = crash_cost_max_cost if crash_cost_max_cost > 0 else 1e-5 # Trick to initialize hyperboli function, even without crash cost
-        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost_init), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
+        self.hyperbolic_function_for_crash_cost, _, _ = return_hyperbolic_function((0.0, crash_cost_max_cost), (crash_cost_safe_margin, 0.0), slope=crash_cost_slope, mode=1)
 
         self.cost_function_for_state_metric = False
-
-        self.POSE_THETA_IDX = int(POSE_THETA_IDX)
-        self.POSE_THETA_COS_IDX = int(POSE_THETA_COS_IDX)
-        self.POSE_THETA_SIN_IDX = int(POSE_THETA_SIN_IDX)
-        self.POSE_X_IDX = int(POSE_X_IDX)
-        self.POSE_Y_IDX = int(POSE_Y_IDX)
-        self.LINEAR_VEL_X_IDX = int(LINEAR_VEL_X_IDX)
-        self.ANGULAR_VEL_Z_IDX = int(ANGULAR_VEL_Z_IDX)
-        self.SLIP_ANGLE_IDX = int(SLIP_ANGLE_IDX)
-        self.STEERING_ANGLE_IDX = int(STEERING_ANGLE_IDX)
-
-        self.ANGULAR_CONTROL_IDX = int(ANGULAR_CONTROL_IDX)
-        self.TRANSLATIONAL_CONTROL_IDX = int(TRANSLATIONAL_CONTROL_IDX)
-
-
 
 
     # region updating P1 & P2
@@ -118,15 +97,14 @@ class f1t_cost_function(cost_function_base):
     # TODO: Make it library agnostic. This also justifies why some methods are not static, although currently they could be
     def get_actuation_cost(self, u):
         cc_cost = R * (u ** 2)
-        cc_weight_tensor = self.lib.to_tensor(cc_weight, self.lib.float32)
-        return self.lib.sum(cc_weight_tensor * cc_cost, axis=-1)
+        return self.lib.sum(cc_weight * cc_cost, axis=-1)
 
     def get_terminal_speed_cost(self, terminal_state):
         ''' Compute penality for deviation from desired max speed'''
-        terminal_speed = terminal_state[:, self.LINEAR_VEL_X_IDX]
+        terminal_speed = terminal_state[:, LINEAR_VEL_X_IDX]
 
-        speed_diff = self.lib.abs(terminal_speed - self.lib.to_tensor(desired_max_speed, self.lib.float32))
-        terminal_speed_cost = self.lib.to_tensor(terminal_speed_cost_weight, self.lib.float32) * speed_diff
+        speed_diff = self.lib.abs(terminal_speed - desired_max_speed)
+        terminal_speed_cost = terminal_speed_cost_weight * speed_diff
 
         return terminal_speed_cost
 
@@ -140,10 +118,10 @@ class f1t_cost_function(cost_function_base):
         The weight of this cost should be in general small, it should help to eliminate sudden changes of big magnitude which the physical car might not handle correctly
         """
         s0, _, s2 = u.shape
-        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), 1)
-        ccrc = ((u - u_prev_vec)/self.lib.to_tensor(control_limits_max_abs, self.lib.float32)) ** 2
+        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
+        ccrc = ((u - u_prev_vec)/control_limits_max_abs) ** 2
 
-        return self.lib.sum(self.lib.to_tensor(ccrc_weight, self.lib.float32) * ccrc, axis=-1)
+        return self.lib.sum(ccrc_weight * ccrc, axis=-1)
 
     def get_control_change_rate_within_horizon_cost(self, u):
         """
@@ -156,7 +134,7 @@ class f1t_cost_function(cost_function_base):
         # Calculate the absolute differences between consecutive control actions
         control_diff = self.lib.abs(u[:, 1:, :] - u[:, :-1, :])
         control_diff = self.lib.square(control_diff)
-        weighted_control_diff = control_diff * self.lib.to_tensor(ccrh_weight, self.lib.float32)
+        weighted_control_diff = control_diff * ccrh_weight
         control_change = self.lib.sum(weighted_control_diff, axis=-1) # sum over the control inputs
         control_change_padded = self.lib.pad(control_change, [[0, 0], [1, 0]]) # pad with zeros to match the shape of u
         
@@ -169,48 +147,48 @@ class f1t_cost_function(cost_function_base):
         We use absolute difference: the control input should stay smooth same for big and low control inputs
         """
         s0, _, s2 = u.shape
-        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), 1)
-        u_next_vec = self.lib.concat((u[:, 1:, :], u[:, -1:, :]), 1)
-        ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/self.lib.to_tensor(control_limits_max_abs, self.lib.float32))
+        u_prev_vec = self.lib.concat((self.lib.ones((s0, 1, s2)) * u_prev, u[:, :-1, :]), axis=1)
+        u_next_vec = self.lib.concat((u[:, 1:, :], u[:, -1:, :]), axis=1)
+        ccocrc = self.lib.abs((u_next_vec + u_prev_vec - 2*u)/control_limits_max_abs)
 
-        return self.lib.sum(self.lib.to_tensor(ccocrc_weight, self.lib.float32) * ccocrc, axis=1)
+        return self.lib.sum(ccocrc_weight * ccocrc, axis=-1)
 
 
     def get_immediate_control_discontinuity_cost(self, u, u_prev):
         u_prev_vec = self.lib.ones_like(u) * u_prev  # The vector is just to keep dimensions right and scaling with gr
         icdc = (u_prev_vec - u[:, :1, :])**2
 
-        return self.lib.sum(self.lib.to_tensor(icdc_weight, self.lib.float32) * icdc, axis=-1)
+        return self.lib.sum(icdc_weight * icdc, axis=-1)
 
 
 
     def get_acceleration_cost(self, u):
         ''' Calculate cost for deviation from desired acceleration at every timestep'''
-        accelerations = u[:, :, self.TRANSLATIONAL_CONTROL_IDX]
-        acceleration_cost = self.lib.to_tensor(max_acceleration, self.lib.float32) - accelerations
+        accelerations = u[:, :, TRANSLATIONAL_CONTROL_IDX]
+        acceleration_cost = max_acceleration - accelerations
         acceleration_cost = self.lib.abs(acceleration_cost)
-        acceleration_cost = self.lib.to_tensor(acceleration_cost_weight, self.lib.float32) * acceleration_cost
+        acceleration_cost = acceleration_cost_weight * acceleration_cost
         acceleration_cost = self.lib.cast(acceleration_cost, self.lib.float32)
         return acceleration_cost
 
     def get_steering_cost(self, u):
         ''' Calculate cost for steering at every timestep'''
-        steering = u[:, :, self.ANGULAR_CONTROL_IDX]
+        steering = u[:, :, ANGULAR_CONTROL_IDX]
         steering = self.lib.square(steering)
         steering = self.lib.cast(steering, self.lib.float32)
-        steering_cost = self.lib.to_tensor(steering_cost_weight, self.lib.float32) * steering
+        steering_cost = steering_cost_weight * steering
 
         return steering_cost
     
     def get_angular_velocity_cost(self, s):
-        angular_velovities = s[:, :, self.ANGULAR_VEL_Z_IDX]
-        angula_velocity_cost = self.lib.to_tensor(angular_velocity_cost_weight, self.lib.float32) * self.lib.square(angular_velovities)
+        angular_velovities = s[:, :, ANGULAR_VEL_Z_IDX]
+        angula_velocity_cost = angular_velocity_cost_weight * self.lib.square(angular_velovities)
         angula_velocity_cost = self.lib.cast(angula_velocity_cost, self.lib.float32)
         return angula_velocity_cost
 
     def get_slipping_cost(self, s):
-        slipping_angles = s[:, :, self.SLIP_ANGLE_IDX]
-        slipping_cost = self.lib.to_tensor(slipping_cost_weight, self.lib.float32) * self.lib.square(slipping_angles)
+        slipping_angles = s[:, :, SLIP_ANGLE_IDX]
+        slipping_cost = slipping_cost_weight * self.lib.square(slipping_angles)
         slipping_cost = self.lib.cast(slipping_cost, self.lib.float32)
         return slipping_cost
     
@@ -248,6 +226,10 @@ class f1t_cost_function(cost_function_base):
 
     def get_crash_cost(self, trajectories, border_points):
 
+        # Dont calculate if max is 0
+        if crash_cost_max_cost == 0.0:
+            return self.lib.zeros_like(trajectories[:, :, 0])
+
         trajectories_shape = self.lib.shape(trajectories)
 
         points_of_trajectories = self.lib.reshape(trajectories, [trajectories_shape[0] * trajectories_shape[1], 2])
@@ -276,7 +258,7 @@ class f1t_cost_function(cost_function_base):
         return min_distance_from_trajectory_normed
 
     def get_target_distance_cost(self, trajectories, target_points):
-        return self.lib.to_tensor(target_distance_cost_weight, self.lib.float32) * self.get_target_distance_cost_normed(trajectories, target_points)
+        return target_distance_cost_weight * self.get_target_distance_cost_normed(trajectories, target_points)
 
 
     def distances_from_list_to_list_of_points(self, points1, points2):
@@ -295,10 +277,10 @@ class f1t_cost_function(cost_function_base):
         return squared_dist
 
     def get_distance_to_wp_segments_cost(self, s, waypoints, nearest_waypoint_indices):
-        car_positions = s[:, :, self.POSE_X_IDX:self.POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
+        car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
         waypoint_positions = waypoints[:,1:3]
 
-        return self.lib.to_tensor(distance_to_waypoints_cost_weight, self.lib.float32) * self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
+        return distance_to_waypoints_cost_weight * self.get_squared_distances_to_nearest_wp_segment(car_positions, waypoint_positions, nearest_waypoint_indices)
 
     def get_wp_segment_vectors(self, waypoint_positions, nearest_waypoint_indices):
         nearest_waypoints = self.lib.gather(waypoint_positions, nearest_waypoint_indices, axis=0)
@@ -336,15 +318,15 @@ class f1t_cost_function(cost_function_base):
         # if (velocity_diff_to_waypoints_cost_weight == 0): # Don't calculate if cost is 0
         #     return self.lib.zeros_like(s[:,:,0])
 
-        car_vel_x = s[:, :, self.LINEAR_VEL_X_IDX]
+        car_vel_x = s[:, :, LINEAR_VEL_X_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(car_vel_x, waypoints, nearest_waypoint_indices)
-        horizon = self.lib.to_tensor(self.lib.shape(s)[1], self.lib.int32)
+        horizon = self.lib.cast(self.lib.shape(s)[1], self.lib.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp # / 1 horizon
-        return self.lib.to_tensor(velocity_diff_to_waypoints_cost_weight, self.lib.float32) * velocity_difference_to_wp_normed
+        return velocity_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
     
     def get_distance_to_wp_cost(self, s, waypoints, nearest_waypoint_indices):
         car_positions = s[:, :, POSE_X_IDX:POSE_Y_IDX + 1]  # TODO: Maybe better access separatelly X&Y and concat them afterwards.
-        nearest_waypoints = self.lib.gather(waypoints, nearest_waypoint_indices, axis=0)
+        nearest_waypoints = self.lib.gather(waypoints, nearest_waypoint_indices)
         waypoint_positions = nearest_waypoints[:,:, 1:3]
 
         wp_car_vector = car_positions - waypoint_positions
@@ -355,17 +337,17 @@ class f1t_cost_function(cost_function_base):
     def get_speed_control_difference_to_wp_cost(self, u, s, waypoints, nearest_waypoint_indices):
         
         # Get nearest and the nearest_next waypoint for every position on the car's rollout
-        speed_control = u[:, :, self.TRANSLATIONAL_CONTROL_IDX]
+        speed_control = u[:, :, TRANSLATIONAL_CONTROL_IDX]
         velocity_difference_to_wp = self.get_velocity_difference_to_wp(speed_control, waypoints, nearest_waypoint_indices)
-        horizon = self.lib.cast(self.lib.to_tensor(self.lib.shape(s)[1], self.lib.int32), self.lib.float32)
+        horizon = self.lib.cast(self.lib.shape(s)[1], self.lib.float32)
         velocity_difference_to_wp_normed = velocity_difference_to_wp / horizon
-        return self.lib.to_tensor(speed_control_diff_to_waypoints_cost_weight, self.lib.float32) * velocity_difference_to_wp_normed
+        return speed_control_diff_to_waypoints_cost_weight * velocity_difference_to_wp_normed
         
     def get_velocity_difference_to_wp(self, car_vel, waypoints, nearest_waypoint_indices):
 
         nearest_waypoints = self.lib.gather(waypoints, nearest_waypoint_indices, axis=0)
 
-        nearest_waypoint_vel_x = self.lib.to_tensor(waypoint_velocity_factor, self.lib.float32) * nearest_waypoints[:,:,5]
+        nearest_waypoint_vel_x = waypoint_velocity_factor * nearest_waypoints[:,:,5]
 
         # nearest_waypoint_vel_x = self.lib.clip(nearest_waypoint_vel_x, 0.5, 17.5)
         
@@ -378,12 +360,12 @@ class f1t_cost_function(cost_function_base):
         nearest_waypoint_psi_rad_sin = self.lib.sin(nearest_waypoints)
         nearest_waypoint_psi_rad_cos = self.lib.cos(nearest_waypoints)
         
-        car_angle_sin = s[:, :, self.POSE_THETA_SIN_IDX]
-        car_angle_cos = s[:, :, self.POSE_THETA_COS_IDX]
+        car_angle_sin = s[:, :, POSE_THETA_SIN_IDX]
+        car_angle_cos = s[:, :, POSE_THETA_COS_IDX]
         
         angle_difference_sin = self.lib.square(nearest_waypoint_psi_rad_sin - car_angle_sin)
         angle_difference_cos= self.lib.square(nearest_waypoint_psi_rad_cos - car_angle_cos)
-        return self.lib.to_tensor(angle_difference_to_wp_cost_weight, self.lib.float32) * (angle_difference_sin + angle_difference_cos)
+        return angle_difference_to_wp_cost_weight * (angle_difference_sin + angle_difference_cos)
         
     def normed_discount(self, array_to_discount, model_array, discount_factor):
         discount_vector = self.lib.ones_like(model_array) * discount_factor

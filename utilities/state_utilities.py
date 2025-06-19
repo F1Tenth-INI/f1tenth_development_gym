@@ -24,6 +24,7 @@ STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLE
 
 CONTROL_INPUTS = np.sort(['angular_control', 'translational_control'])
 CONTROL_INDICES = {x: np.where(CONTROL_INPUTS == x)[0][0] for x in CONTROL_INPUTS}
+CONTROL_INPUTS_LEN = len(CONTROL_INPUTS)
 
 POSE_THETA_IDX = STATE_INDICES['pose_theta']
 POSE_THETA_COS_IDX = STATE_INDICES['pose_theta_cos']

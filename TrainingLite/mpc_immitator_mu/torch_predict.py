@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 
+
+
 import matplotlib.pyplot as plt
 
 from joblib import load
@@ -12,14 +14,17 @@ from joblib import load
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
+
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir)
 from TrainingHelper import TrainingHelper
-from TorchNetworks import LSTM as Network
+from TorchNetworks import GRU as Network
 
 class ControlPredictor:
     def __init__(self, sequence_length=100):
-        self.model_name = "03_26_RCA1-1"
+        self.model_name = "04_08_RCA1_noise"
         self.experiment_path = os.path.dirname(os.path.realpath(__file__))
 
         self.training_helper = TrainingHelper(self.experiment_path, self.model_name)
@@ -31,7 +36,13 @@ class ControlPredictor:
         num_layers = self.network_yaml["num_layers"]
 
         self.model = Network(input_size, hidden_size, output_size, num_layers)
-        self.model.load_state_dict(torch.load(os.path.join(self.training_helper.model_dir, "model.pth")))
+        self.model.load_state_dict(
+            torch.load(
+                os.path.join(self.training_helper.model_dir, "model.pth"),
+                map_location=device
+                )
+            )
+        self.model.to(device)  # Move the model to the correct device
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = self.model.to(self.device)
@@ -62,7 +73,7 @@ class ControlPredictor:
         # plt.clf()
         # time.sleep(0.1)    
 
-        current_input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx, ranges))
+        current_input = np.concatenate((state, waypoints_x, waypoints_y, waypoints_vx))
 
         self.history.append(current_input)
         if len(self.history) > self.sequence_length:

@@ -2,14 +2,16 @@ import yaml
 import numpy as np
 from tqdm import trange
 from typing import Optional
-
-
+import importlib
                 
 import os
 
 
 # Utilities
 from utilities.Settings import Settings
+
+if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
+    from pynput import keyboard
 
 from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
@@ -70,6 +72,7 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
+        self.car_state_history = []
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -117,8 +120,8 @@ class CarSystem:
 
         ### Planner
         self.controller_name = controller
-        self.planner = self.initialize_controller(self.controller_name)
-        # self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
+        self.initialize_controller(self.controller_name)
+        self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
 
             
@@ -165,7 +168,11 @@ class CarSystem:
 
        
         # Recorder
-        self.init_recorder_and_start(recorder_dict=recorder_dict)
+        # self.init_recorder_and_start(recorder_dict=recorder_dict)
+        self.init_recorder(recorder_dict=recorder_dict)
+        
+        if(not Settings.ROS_BRIDGE):
+            self.start_recorder()
 
            
     def initialize_controller(self, controller_name):
@@ -186,6 +193,7 @@ class CarSystem:
     
     def set_car_state(self, car_state):
         self.car_state = car_state
+        self.car_state_history.append(car_state)
 
     def set_scans(self, ranges):
         ranges = np.array(ranges)
@@ -299,7 +307,8 @@ class CarSystem:
         self.translational_control_dict = {"cs_t_{}".format(i): control for i, control in enumerate(translational_control_sequence)}
         
         # if controller gives an optimal sequence (MPC), extract the N'th step with delay or the 0th step without delay
-        angular_control, translational_control = optimal_control_sequence[Settings.EXECUTE_NTH_STEP_OF_CONTROL_SEQUENCE]
+        mpc_execution_step = (int)(Settings.CONTROL_DELAY / self.planner.config_optimizer["mpc_timestep"])
+        angular_control, translational_control = optimal_control_sequence[mpc_execution_step]
         
         return angular_control, translational_control
         
@@ -411,8 +420,8 @@ class CarSystem:
     
     '''
     Initialize the recorder, add basic dict active dictionary and start recording
-    '''            
-    def init_recorder_and_start(self, recorder_dict={}):
+    '''        
+    def init_recorder(self,recorder_dict={}):
         self.recorder: Optional[Recorder] = None
         
         if Settings.SAVE_RECORDINGS and self.save_recordings:
@@ -444,8 +453,62 @@ class CarSystem:
                     recorder_base_dict=self.recorder.dict_data_to_save_basic
                 )
             
-            # Start Recording
-            self.recorder.start_csv_recording()
+
+    def on_press(self,key):
+        try:
+            if key.char == 'r':  # Press 'r' to start recording
+                print("Start recording...")
+                self.start_recorder()  # Replace 'car' with your object instance
+        except AttributeError:
+            pass  # For special keys like shift, ctrl, etc.
+
+    def start_keyboard_listener(self):
+        if Settings.RENDER_MODE is None:
+            print("Keyboard listener not started, starting recording automatically")
+            self.start_recorder()
+            return
+        listener = keyboard.Listener(on_press=self.on_press)
+        listener.start()
+
+    def start_recorder(self):
+        self.recorder.start_csv_recording()
+    
+
+
+    # def init_recorder_and_start(self, recorder_dict={}):
+    #     self.recorder: Optional[Recorder] = None
+        
+    #     if Settings.SAVE_RECORDINGS and self.save_recordings:
+    #         self.recorder = Recorder(driver=self)
+            
+    #         # Add more internal data to recording dict:
+    #         self.recorder.dict_data_to_save_basic.update(
+    #             {   
+    #                 'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
+    #                 'reward': lambda: self.reward,
+    #             }
+    #         )
+    #         # Add data from outside the car stysem
+    #         self.recorder.dict_data_to_save_basic.update(recorder_dict)
+       
+    #         if Settings.FORGE_HISTORY:
+    #             self.recorder.dict_data_to_save_basic.update(
+    #                 {
+    #                     'forged_history_applied': lambda: self.history_forger.forged_history_applied,
+    #                 }
+    #             )
+    #         if Settings.SAVE_STATE_METRICS:
+    #             from utilities.StateMetricCalculator import StateMetricCalculator
+    #             self.state_metric_calculator = StateMetricCalculator(
+    #                 environment_name="Car",
+    #                 initial_environment_attributes={
+    #                     "next_waypoints": self.waypoint_utils.next_waypoints,
+    #                 },
+    #                 recorder_base_dict=self.recorder.dict_data_to_save_basic
+    #             )
+            
+            # # Start Recording
+            # self.recorder.start_csv_recording()
 
     
     def add_control_noise(self, control):
@@ -476,7 +539,14 @@ class CarSystem:
         # plt.savefig('accumulated_rewards.png')
         # plt.clf()
         
+       
+        
         if self.recorder is not None:    
+            
+            if Settings.SAVE_REWARDS:
+                self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
+            
+            
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -486,39 +556,70 @@ class CarSystem:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
 
             if collision:
+                index = min(len(self.car_state_history), 200)
+                
+                # Save or append self.control_index to csv file
+                # if a csv file called survival.csv already exists, just add a new line, otherwise cfreate the file
+                with open('survival.csv', 'a') as f:
+                    f.write(f"{self.control_index}\n")
+          
+                
+                print('Collision detected, moving csv to crash folder')
+                print('Car State at crtash:', self.car_state)
+                print('Car State at -index steps:', self.car_state_history[-index])
+                
+                # Save to csv file
+                np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
-    
+                
 def initialize_planner(controller: str):
 
     if controller is None:
-        planner = None
+            planner = None
     elif controller == 'mpc':
         from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
         planner = mpc_planner()
+    elif controller == 'mppi-lite':
+        from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_planner import MPPILitePlanner
+        planner = MPPILitePlanner() 
+    elif controller == 'mppi-lite-jax':
+        from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_jax_planner import MPPILitePlanner
+        planner = MPPILitePlanner()
     elif controller == 'ftg':
-        from Control_Toolkit_ASF.Controllers.FollowTheGap.ftg_planner import FollowTheGapPlanner
-        planner = FollowTheGapPlanner()
+        from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
+        importlib.reload(ftg_planner)
+        planner = ftg_planner.FollowTheGapPlanner()
     elif controller == 'neural':
-        from Control_Toolkit_ASF.Controllers.NeuralNetImitator.nni_planner import NeuralNetImitatorPlanner
-        planner = NeuralNetImitatorPlanner()
+        from Control_Toolkit_ASF.Controllers.NeuralNetImitator import nni_planner
+        importlib.reload(nni_planner)
+        planner = nni_planner.NeuralNetImitatorPlanner()
     elif controller == 'nni-lite':
-        from Control_Toolkit_ASF.Controllers.NNLite.nni_lite_planner import NNLitePlanner
-        planner = NNLitePlanner()
+        from Control_Toolkit_ASF.Controllers.NNLite import nni_lite_planner
+        importlib.reload(nni_lite_planner)
+        planner = nni_lite_planner.NNLitePlanner()
     elif controller == 'pp':
-        from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-        planner = PurePursuitPlanner()
+        from Control_Toolkit_ASF.Controllers.PurePursuit import pp_planner
+        importlib.reload(pp_planner)
+        planner = pp_planner.PurePursuitPlanner()
     elif controller == 'stanley':
-        from Control_Toolkit_ASF.Controllers.Stanley.stanley_planner import StanleyPlanner
-        planner = StanleyPlanner()
+        from Control_Toolkit_ASF.Controllers.Stanley import stanley_planner
+        importlib.reload(stanley_planner)
+        planner = stanley_planner.StanleyPlanner()
+    elif controller == 'sysid':
+        from Control_Toolkit_ASF.Controllers.SysId import sysid_planner
+        importlib.reload(sysid_planner)
+        planner = sysid_planner.SysIdPlanner()
     elif controller == 'manual':
-        from Control_Toolkit_ASF.Controllers.Manual.manual_planner import manual_planner
-        planner = manual_planner()
+        from Control_Toolkit_ASF.Controllers.Manual import manual_planner
+        importlib.reload(manual_planner)
+        planner = manual_planner.manual_planner()
     elif controller == 'random':
-        from Control_Toolkit_ASF.Controllers.Random.random_planner import random_planner
-        planner = random_planner()
+        from Control_Toolkit_ASF.Controllers.Random import random_planner
+        importlib.reload(random_planner)
+        planner = random_planner.random_planner()
     else:
         print(f"controller {controller} not recognized")
-        NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
+        raise NotImplementedError('{} is not a valid controller name for f1t'.format(controller))
         exit()
 
     return planner

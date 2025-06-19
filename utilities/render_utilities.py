@@ -17,7 +17,13 @@ else:
             import pyglet.gl as gl
             from pyglet import shapes
             import pyglet
-        except:
+        except ImportError as e:
+
+            # Handle the import error gracefully
+            print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
+            # Optionally, you can print the error message
+            print(f"ImportError: {e}")
+   
             Settings.RENDER_MODE = None
 
 

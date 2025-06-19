@@ -4,17 +4,17 @@ mppi:
   seed: null # Seed for rng, for MPPI  only, put null to set random seed (do it when you generate data for training!)
   mpc_horizon: 30 # steps
   mpc_timestep: 0.04 # For model based planner (MPC) timestep of simulation, can be arbitrary number
-  num_rollouts: 2048 # Number of Monte Carlo samples
-  LBD: 0.01 # Cost parameter lambda
-  NU: 2000.0 # Exploration variance
-  SQRTRHOINV: [0.03, 0.1] # Sampling variance
+  num_rollouts: 178 # Number of Monte Carlo samples
+  LBD: 0.15 # Cost parameter lambda
+  NU: 1000.0 # Exploration variance
+  SQRTRHOINV: [0.02, 0.1] # Sampling variance
   period_interpolation_inducing_points: 2 #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
   # Double check that the two values below are the same as in the cost function config!!!
-  cc_weight: [0.00, 0.0]
+  cc_weight: [0.2, 0.0]
 
   R: 1.0 # How much to punish Q
 
-rpgd-tf:
+rpgd:
   seed: null # If null, random seed based on datetime is used
   mpc_horizon: 75 # steps
   mpc_timestep: 0.02 # For model based planner (MPC) timestep of simulation, can be arbitrary number
