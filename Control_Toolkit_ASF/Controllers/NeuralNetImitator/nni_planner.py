@@ -111,7 +111,7 @@ class NeuralNetImitatorPlanner(template_planner):
         input_data = [data_dict[key] for key in self.nn_inputs if key in data_dict]
         
         # NN prediction step 
-        net_output = self.nni.step(input_data).numpy()
+        net_output = self.nni.step(input_data)
         
         if net_output.shape[2] == 3:
             self.angular_control = net_output[0, 0, 0]
