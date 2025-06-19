@@ -9,6 +9,9 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit.Controllers.controller_neural_imitator import controller_neural_imitator
 from collections import deque  # Import deque for an efficient rolling buffer
 
+EVALUATION = 'PC'  # 'PC' or 'FPGA'
+
+
 class NeuralNetImitatorPlanner(template_planner):
 
     def __init__(self, speed_fraction=1, batch_size=1):
@@ -31,12 +34,19 @@ class NeuralNetImitatorPlanner(template_planner):
         self.control_history_size = 10  # Set the desired buffer size
         self.control_history = deque([(0.0, 0.0)] * self.control_history_size, maxlen=self.control_history_size)
 
-
-        self.nni = controller_neural_imitator(
-            environment_name="Car",
-            initial_environment_attributes={},
-            control_limits=(control_limits_low, control_limits_high),
-        )
+        if EVALUATION == 'PC':
+            self.nni = controller_neural_imitator(
+                environment_name="Car",
+                initial_environment_attributes={},
+                control_limits=(control_limits_low, control_limits_high),
+            )
+        else:
+            from Control_Toolkit.Controllers.controller_fpga import controller_fpga as controller_fpga
+            self.nni = controller_fpga(
+                environment_name="Car",
+                initial_environment_attributes={},
+                control_limits=(control_limits_low, control_limits_high),
+            )
 
         self.nni.configure()
         self.nn_inputs = self.nni.input_mapping.keys()

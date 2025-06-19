@@ -23,3 +23,12 @@ neural-imitator:
 stanley:
   controller_logging: False
   computation_library: numpy
+fpga:
+  seed: null                            # If null, random seed based on datetime is used
+  PATH_TO_MODELS: './AnalyseData/iros24/IROS24_models/'
+  net_name: 'Dense-64IN-64H1-64H2-2OUT-0-0'  # TF
+  #  net_name: 'GRU-6IN-32H1-32H2-1OUT-0'  # Pytorch
+  input_at_input: true
+  controller_logging: True
+  SERIAL_PORT: 1
+  SERIAL_BAUD: 230400
