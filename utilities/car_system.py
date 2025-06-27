@@ -399,6 +399,7 @@ class CarSystem:
             )
             
         if Settings.FORGE_HISTORY:
+            basic_dict = get_basic_data_dict(self)
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
