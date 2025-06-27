@@ -1,0 +1,21 @@
+board: 'digilentinc.com:zybo-z7-20:part0:1.0'
+part: 'XC7Z020'
+path_to_hls_installation: '/tools/Xilinx/Vivado/2020.1/bin'
+
+
+PATH_TO_MODELS: './SI_Toolkit_ASF/Experiments/flo-mpc-cs-4/Models/'
+net_name: 'Dense-31IN-32H1-32H2-2OUT-8'  # Working with control delay of 0.03 - 0.11 (VERY NICE) speefactor up to
+
+batch_size: 1
+
+precision_layers: 'fixed<12,4>'
+precision_activation: 'fixed<12,4>' # Same as set for the whole model
+Strategy: 'Resources'  # Resources or Latency
+ReuseFactor: 8
+
+backend: 'Vivado'  # VivadoAccelerator or Vivado
+#backend: 'VivadoAccelerator'  # VivadoAccelerator or Vivado
+
+with_brunton_testing: false
+
+output_dir: '../../f1t/f1t_64_test' # Must be a very short path neer to the root filesystem. Otherwise it crashes silently
