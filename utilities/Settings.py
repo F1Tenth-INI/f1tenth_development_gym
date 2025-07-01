@@ -7,7 +7,7 @@ class Settings():
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
+    MAP_NAME = "my_map"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -16,7 +16,7 @@ class Settings():
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
-    CONTROLLER = 'mppi-lite' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax'
+    CONTROLLER = 'pp' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax'
 
     TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
@@ -31,9 +31,9 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.9
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     GLOBAL_SPEED_LIMIT = 15.0
-    APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
+    APPLY_SPEED_SCALING_FROM_CSV = True # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
     REPLAY_RECORDING = False
@@ -91,8 +91,8 @@ class Settings():
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
 
     ## waypoints generation ##
-    MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
-    LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
+    MIN_CURV_SAFETY_WIDTH = 0.6             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    LOOK_AHEAD_STEPS = 10                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
@@ -141,8 +141,8 @@ class Settings():
     
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
@@ -159,7 +159,7 @@ class Settings():
 
     
     ### Other Settings ###
-    ROS_BRIDGE = False # Automatically determined on program start
+    ROS_BRIDGE = True # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
