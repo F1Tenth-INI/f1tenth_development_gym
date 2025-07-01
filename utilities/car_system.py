@@ -613,6 +613,10 @@ def initialize_planner(controller: str):
         from Control_Toolkit_ASF.Controllers.Manual import manual_planner
         importlib.reload(manual_planner)
         planner = manual_planner.manual_planner()
+    elif controller == 'example':
+        from Control_Toolkit_ASF.Controllers.ExamplePlanner import example_planner
+        importlib.reload(example_planner)
+        planner = example_planner.ExamplePlanner()
     elif controller == 'random':
         from Control_Toolkit_ASF.Controllers.Random import random_planner
         importlib.reload(random_planner)
