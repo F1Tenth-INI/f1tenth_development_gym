@@ -28,3 +28,10 @@ Cancel job
 ```console
 scancel [jobid]
 ```
+
+
+To download experiment recordings to local machine, use rsync:
+
+```console
+rsync -avh --progress bollif@euler.ethz.ch:f1tenth_development_gym/ExperimentRecordings ./Downloads
+```
