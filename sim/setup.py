@@ -33,5 +33,7 @@ setup(name='f110_sim',
                         'pytest',
                         'opencv-python',
                         'tensorboardX',
+                        'jax',
+                        'optax',
                         ]
       )

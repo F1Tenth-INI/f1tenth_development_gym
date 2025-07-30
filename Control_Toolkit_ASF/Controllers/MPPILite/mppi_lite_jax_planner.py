@@ -10,10 +10,16 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
 
+# Configure JAX for optimal GPU usage
+jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
+jax.config.update('jax_default_device', jax.devices('gpu')[0] if jax.devices('gpu') else jax.devices('cpu')[0])
+
 class MPPILitePlanner(template_planner):
 
     def __init__(self):
         print('Loading JAX MPPI Lite Planner')
+        print(f'JAX devices available: {jax.devices()}')
+        print(f'Default JAX device: {jax.default_backend()}')
         super().__init__()
 
         self.simulation_index = 0
@@ -30,39 +36,69 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 512
+        self.batch_size = 2048
         self.horizon = 75
 
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array().astype(np.float32)
-        self.car_params_jax = jnp.array(self.car_params_array)
+        
+        # Ensure car params are on GPU
+        with jax.default_device(jax.devices()[0]):
+            self.car_params_jax = jnp.array(self.car_params_array)
 
         self.key = jax.random.PRNGKey(0)
+        
+        # Pre-compile the main computation function to GPU
+        print("Pre-compiling JAX functions on GPU...")
+        self._precompile_functions()
+
+        # Pre-compile the main computation function to GPU
+        print("Pre-compiling JAX functions on GPU...")
+        self._precompile_functions()
+
+    def _precompile_functions(self):
+        """Pre-compile JAX functions to ensure they run on GPU"""
+        # Create dummy data for compilation
+        dummy_state = jnp.zeros(10, dtype=jnp.float32)
+        dummy_last_Q = jnp.zeros((self.horizon, 2), dtype=jnp.float32)
+        dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
+        dummy_key = jax.random.PRNGKey(42)
+        
+        print("Compiling process_observation_jax...")
+        # Trigger compilation on GPU
+        _ = process_observation_jax(
+            dummy_state, dummy_last_Q, self.batch_size, self.horizon,
+            self.car_params_jax, dummy_waypoints, dummy_key
+        )
+        print("JAX functions compiled and ready for GPU execution!")
 
     def process_observation(self, ranges=None, ego_odom=None):
-        s = jnp.array(self.car_state, dtype=jnp.float32)
-        waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
+        # Ensure all data is on the default device (GPU)
+        with jax.default_device(jax.devices()[0]):
+            s = jnp.array(self.car_state, dtype=jnp.float32)
+            waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
 
-        self.key, subkey = jax.random.split(self.key)
-        Q_sequence, optimal_traj, state_batch_sequence, total_cost_batch = process_observation_jax(
-            s, jnp.array(self.last_Q_sq), self.batch_size, self.horizon,
-            self.car_params_jax, waypoints, subkey
-        )
+            self.key, subkey = jax.random.split(self.key)
+            Q_sequence, optimal_traj, state_batch_sequence, total_cost_batch = process_observation_jax(
+                s, jnp.array(self.last_Q_sq), self.batch_size, self.horizon,
+                self.car_params_jax, waypoints, subkey
+            )
 
-        # Todo for RPGD 
-        # Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, self.dt, self.horizon)
+            # Todo for RPGD 
+            # Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, self.dt, self.horizon)
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=np.array(state_batch_sequence),
-            optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
-        )
+            # Move results back to CPU for rendering (if needed)
+            self.render_utils.update_mpc(
+                rollout_trajectory=np.array(state_batch_sequence),
+                optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
+            )
 
-        execute_control_index = 4
-        self.angular_control, self.translational_control = Q_sequence[execute_control_index]
-        self.last_Q_sq = np.array(Q_sequence)
-        self.control_index += 1
+            execute_control_index = 4
+            self.angular_control, self.translational_control = Q_sequence[execute_control_index]
+            self.last_Q_sq = np.array(Q_sequence)
+            self.control_index += 1
 
-        return float(self.angular_control), float(self.translational_control)
+            return float(self.angular_control), float(self.translational_control)
 
 
 @jax.jit
@@ -186,22 +222,24 @@ def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params):
 
 @partial(jax.jit, static_argnames=["batch_size", "horizon"])
 def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, waypoints, key):
-    s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
-    base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
-    Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
-    key1, key2 = jax.random.split(key)
-    noise = jnp.stack([
-        jax.random.normal(key1, (batch_size, horizon)) * 0.2,
-        jax.random.normal(key2, (batch_size, horizon)) * 1.2
-    ], axis=-1)
-    Q_batch_sequence += noise
-    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 10.0]))
-    traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params)
-    cost_batch = cost_function_batch_sequence_jax(traj_batch, Q_batch_sequence, waypoints)
-    total_cost = jnp.sum(cost_batch, axis=1)
-    Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
-    optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.02, horizon)
-    return Q_sequence, optimal_trajectory, traj_batch, total_cost
+    # Ensure computation happens on GPU
+    with jax.default_device(jax.devices()[0]):
+        s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
+        base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
+        Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
+        key1, key2 = jax.random.split(key)
+        noise = jnp.stack([
+            jax.random.normal(key1, (batch_size, horizon)) * 0.2,
+            jax.random.normal(key2, (batch_size, horizon)) * 1.2
+        ], axis=-1)
+        Q_batch_sequence += noise
+        Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 10.0]))
+        traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params)
+        cost_batch = cost_function_batch_sequence_jax(traj_batch, Q_batch_sequence, waypoints)
+        total_cost = jnp.sum(cost_batch, axis=1)
+        Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
+        optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.02, horizon)
+        return Q_sequence, optimal_trajectory, traj_batch, total_cost
 
 
 
