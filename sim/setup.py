@@ -35,5 +35,6 @@ setup(name='f110_sim',
                         'tensorboardX',
                         'jax',
                         'optax',
+                        'pygame',
                         ]
       )

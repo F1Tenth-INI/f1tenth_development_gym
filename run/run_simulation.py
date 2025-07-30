@@ -20,6 +20,7 @@ from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     )
 from utilities.Exceptions import CarCrashException
+from utilities.screen_utils import ScreenUtils
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
@@ -106,8 +107,12 @@ class RacingSimulation:
             map_ext = ".png"
             map_path = os.path.join(Settings.MAP_PATH, map_name)
 
-            WINDOW_W, WINDOW_H = 1000, 800
-            self.renderer = EnvRenderer(WINDOW_W, WINDOW_H)
+
+            # screen size is 40% of the actual screen size
+            # Determine screen size
+            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+            window_height = int(window_width / 1.5)
+            self.renderer = EnvRenderer(window_width, window_height)
             self.renderer.update_map(map_path, map_ext)
         
         
