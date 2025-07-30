@@ -36,7 +36,7 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 128
+        self.batch_size = 1024
         self.horizon = 50
         
         # Control smoothness parameters
@@ -100,7 +100,21 @@ class MPPILitePlanner(template_planner):
 
             # Todo for RPGD 
             dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.06)
-            Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, dt_array, self.horizon)
+            
+            # Move data to CPU for Adam optimization
+            with jax.default_device(jax.devices('cpu')[0]):
+                Q_sequence_cpu = jax.device_put(Q_sequence, jax.devices('cpu')[0])
+                s_cpu = jax.device_put(s, jax.devices('cpu')[0])
+                car_params_cpu = jax.device_put(self.car_params_jax, jax.devices('cpu')[0])
+                waypoints_cpu = jax.device_put(waypoints, jax.devices('cpu')[0])
+                dt_array_cpu = jax.device_put(dt_array, jax.devices('cpu')[0])
+                
+                Q_sequence_refined = refine_optimal_control_adam(
+                    Q_sequence_cpu, s_cpu, car_params_cpu, waypoints_cpu, dt_array_cpu, self.horizon
+                )
+                
+                # Move refined result back to GPU
+                Q_sequence = jax.device_put(Q_sequence_refined, jax.devices()[0])
 
             # Move results back to CPU for rendering (if needed)
             self.render_utils.update_mpc(
