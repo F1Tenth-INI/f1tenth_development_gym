@@ -74,6 +74,7 @@ Datasets/
 !TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4
 
 AnalyseData/Desperate/*
+AnalyseData/physical_steering_response/*
 
 scripts/EulerCluster/out/*
 
