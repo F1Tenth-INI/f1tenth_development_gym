@@ -18,8 +18,32 @@ class MPPILitePlanner(template_planner):
 
     def __init__(self):
         print('Loading JAX MPPI Lite Planner')
-        print(f'JAX devices available: {jax.devices()}')
-        print(f'Default JAX device: {jax.default_backend()}')
+        
+        # Get available devices safely
+        try:
+            available_devices = jax.devices()
+            print(f'JAX devices available: {available_devices}')
+            print(f'Default JAX device: {jax.default_backend()}')
+            
+            # Try to get GPU device, fall back to CPU
+            gpu_devices = [d for d in available_devices if d.device_kind == 'gpu']
+            if gpu_devices:
+                self.default_device = gpu_devices[0]
+                print(f'Using GPU device: {self.default_device}')
+            else:
+                self.default_device = [d for d in available_devices if d.device_kind == 'cpu'][0]
+                print(f'Using CPU device: {self.default_device}')
+                
+        except Exception as e:
+            print(f'Warning: Error getting JAX devices: {e}')
+            print('Falling back to CPU-only mode')
+            # Force CPU mode
+            import os
+            os.environ['JAX_PLATFORMS'] = 'cpu'
+            available_devices = jax.devices()
+            self.default_device = available_devices[0]
+            print(f'Using fallback device: {self.default_device}')
+        
         super().__init__()
 
         self.simulation_index = 0
@@ -52,18 +76,18 @@ class MPPILitePlanner(template_planner):
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array().astype(np.float32)
         
-        # Ensure car params are on GPU
-        with jax.default_device(jax.devices()[0]):
+        # Ensure car params are on the selected device
+        with jax.default_device(self.default_device):
             self.car_params_jax = jnp.array(self.car_params_array)
 
         self.key = jax.random.PRNGKey(0)
         
-        # Pre-compile the main computation function to GPU
-        print("Pre-compiling JAX functions on GPU...")
+        # Pre-compile the main computation function
+        print("Pre-compiling JAX functions...")
         self._precompile_functions()
 
     def _precompile_functions(self):
-        """Pre-compile JAX functions to ensure they run on GPU"""
+        """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
         dummy_state = jnp.zeros(10, dtype=jnp.float32)
         dummy_last_Q = jnp.zeros((self.horizon, 2), dtype=jnp.float32)
@@ -71,7 +95,7 @@ class MPPILitePlanner(template_planner):
         dummy_key = jax.random.PRNGKey(42)
         
         print("Compiling process_observation_jax...")
-        # Trigger compilation on GPU
+        # Trigger compilation on the selected device
         _ = process_observation_jax(
             dummy_state, dummy_last_Q, self.batch_size, self.horizon,
             self.car_params_jax, dummy_waypoints, dummy_key,
@@ -80,11 +104,11 @@ class MPPILitePlanner(template_planner):
             angular_smoothness_weight=self.angular_smoothness_weight,
             translational_smoothness_weight=self.translational_smoothness_weight
         )
-        print("JAX functions compiled and ready for GPU execution!")
+        print(f"JAX functions compiled and ready for execution on {self.default_device}!")
 
     def process_observation(self, ranges=None, ego_odom=None):
-        # Ensure all data is on the default device (GPU)
-        with jax.default_device(jax.devices()[0]):
+        # Ensure all data is on the default device
+        with jax.default_device(self.default_device):
             s = jnp.array(self.car_state, dtype=jnp.float32)
             waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
 
@@ -101,20 +125,29 @@ class MPPILitePlanner(template_planner):
             # Todo for RPGD 
             dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.06)
             
-            # Move data to CPU for Adam optimization
-            with jax.default_device(jax.devices('cpu')[0]):
-                Q_sequence_cpu = jax.device_put(Q_sequence, jax.devices('cpu')[0])
-                s_cpu = jax.device_put(s, jax.devices('cpu')[0])
-                car_params_cpu = jax.device_put(self.car_params_jax, jax.devices('cpu')[0])
-                waypoints_cpu = jax.device_put(waypoints, jax.devices('cpu')[0])
-                dt_array_cpu = jax.device_put(dt_array, jax.devices('cpu')[0])
+            # Get CPU devices safely for Adam optimization
+            try:
+                cpu_devices = [d for d in jax.devices() if d.device_kind == 'cpu']
+                cpu_device = cpu_devices[0] if cpu_devices else self.default_device
                 
-                Q_sequence_refined = refine_optimal_control_adam(
-                    Q_sequence_cpu, s_cpu, car_params_cpu, waypoints_cpu, dt_array_cpu, self.horizon
-                )
+                # Move data to CPU for Adam optimization
+                with jax.default_device(cpu_device):
+                    Q_sequence_cpu = jax.device_put(Q_sequence, cpu_device)
+                    s_cpu = jax.device_put(s, cpu_device)
+                    car_params_cpu = jax.device_put(self.car_params_jax, cpu_device)
+                    waypoints_cpu = jax.device_put(waypoints, cpu_device)
+                    dt_array_cpu = jax.device_put(dt_array, cpu_device)
                 
-                # Move refined result back to GPU
-                Q_sequence = jax.device_put(Q_sequence_refined, jax.devices()[0])
+                    Q_sequence_refined = refine_optimal_control_adam(
+                        Q_sequence_cpu, s_cpu, car_params_cpu, waypoints_cpu, dt_array_cpu, self.horizon
+                    )
+                    
+                    # Move refined result back to default device
+                    Q_sequence = jax.device_put(Q_sequence_refined, self.default_device)
+                    
+            except Exception as e:
+                print(f"Warning: Adam optimization failed: {e}, using unrefined sequence")
+                # Use the original Q_sequence if refinement fails
 
             # Move results back to CPU for rendering (if needed)
             self.render_utils.update_mpc(
@@ -314,33 +347,31 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
                           intra_horizon_smoothness_weight=2.0,
                           angular_smoothness_weight=1.0,
                           translational_smoothness_weight=0.1):
-    # Ensure computation happens on GPU
-    with jax.default_device(jax.devices()[0]):
-        # Create dynamic dt array: 0.02 for first 20 steps, 0.04 afterwards
-        dt_array = jnp.where(jnp.arange(horizon) < 30, 0.02, 0.06)
-        
-        s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
-        base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
-        Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
-        key1, key2 = jax.random.split(key)
-        noise = jnp.stack([
-            jax.random.normal(key1, (batch_size, horizon)) * 0.25,
-            jax.random.normal(key2, (batch_size, horizon)) * 1.2
-        ], axis=-1)
-        Q_batch_sequence += noise
-        Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
-        traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array)
-        
-        # Compute costs with only intra-horizon smoothness
-        cost_batch = cost_function_batch_sequence_jax(
-            traj_batch, Q_batch_sequence, waypoints, 0.99,
-            intra_horizon_smoothness_weight, angular_smoothness_weight, translational_smoothness_weight
-        )
-        
-        total_cost = jnp.sum(cost_batch, axis=1)
-        Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
-        optimal_trajectory = car_steps_sequential_with_dt_array_jax(state, Q_sequence, car_params, dt_array, horizon)
-        return Q_sequence, optimal_trajectory, traj_batch, total_cost
+    # Create dynamic dt array: 0.02 for first 20 steps, 0.04 afterwards
+    dt_array = jnp.where(jnp.arange(horizon) < 30, 0.02, 0.06)
+    
+    s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
+    base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
+    Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
+    key1, key2 = jax.random.split(key)
+    noise = jnp.stack([
+        jax.random.normal(key1, (batch_size, horizon)) * 0.25,
+        jax.random.normal(key2, (batch_size, horizon)) * 1.2
+    ], axis=-1)
+    Q_batch_sequence += noise
+    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
+    traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array)
+    
+    # Compute costs with only intra-horizon smoothness
+    cost_batch = cost_function_batch_sequence_jax(
+        traj_batch, Q_batch_sequence, waypoints, 0.99,
+        intra_horizon_smoothness_weight, angular_smoothness_weight, translational_smoothness_weight
+    )
+    
+    total_cost = jnp.sum(cost_batch, axis=1)
+    Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
+    optimal_trajectory = car_steps_sequential_with_dt_array_jax(state, Q_sequence, car_params, dt_array, horizon)
+    return Q_sequence, optimal_trajectory, traj_batch, total_cost
 
 
 
