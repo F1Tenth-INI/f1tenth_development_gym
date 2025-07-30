@@ -12,7 +12,7 @@ from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, 
 
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
-jax.config.update('jax_default_device', jax.devices('gpu')[0] if jax.devices('gpu') else jax.devices('cpu')[0])
+# jax.config.update('jax_default_device', jax.devices('gpu')[0] if jax.devices('gpu') else jax.devices('cpu')[0])
 
 class MPPILitePlanner(template_planner):
 
@@ -36,8 +36,8 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 2048
-        self.horizon = 75
+        self.batch_size = 128
+        self.horizon = 50
         
         # Control smoothness parameters
         self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
@@ -99,7 +99,8 @@ class MPPILitePlanner(template_planner):
             )
 
             # Todo for RPGD 
-            # Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, self.dt, self.horizon)
+            dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.06)
+            Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, dt_array, self.horizon)
 
             # Move results back to CPU for rendering (if needed)
             self.render_utils.update_mpc(
@@ -275,11 +276,22 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon):
     _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
     return trajectory
 
+@partial(jax.jit, static_argnames=["horizon"])
+def car_steps_sequential_with_dt_array_jax(s0, Q_sequence, car_params, dt_array, horizon):
+    def rollout_fn(carry, step_idx):
+        state = carry
+        control = Q_sequence[step_idx]
+        dt = dt_array[step_idx]
+        next_state = car_step_jax(state, control, car_params, dt)
+        return next_state, next_state
+    
+    _, trajectory = jax.lax.scan(rollout_fn, s0, jnp.arange(horizon))
+    return trajectory
+
 @jax.jit
-def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params):
-    dt = 0.02
+def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array):
     horizon = Q_batch_sequence.shape[1]
-    rollout_fn = lambda s, Q: car_steps_sequential_jax(s, Q, car_params, dt=dt, horizon=horizon)
+    rollout_fn = lambda s, Q: car_steps_sequential_with_dt_array_jax(s, Q, car_params, dt_array, horizon=horizon)
     return jax.vmap(rollout_fn)(s_batch, Q_batch_sequence)
 
 @partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index"])
@@ -290,17 +302,20 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
                           translational_smoothness_weight=0.1):
     # Ensure computation happens on GPU
     with jax.default_device(jax.devices()[0]):
+        # Create dynamic dt array: 0.02 for first 20 steps, 0.04 afterwards
+        dt_array = jnp.where(jnp.arange(horizon) < 30, 0.02, 0.06)
+        
         s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
         base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
         Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
         key1, key2 = jax.random.split(key)
         noise = jnp.stack([
-            jax.random.normal(key1, (batch_size, horizon)) * 0.2,
+            jax.random.normal(key1, (batch_size, horizon)) * 0.25,
             jax.random.normal(key2, (batch_size, horizon)) * 1.2
         ], axis=-1)
         Q_batch_sequence += noise
-        Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 10.0]))
-        traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params)
+        Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
+        traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array)
         
         # Compute costs with only intra-horizon smoothness
         cost_batch = cost_function_batch_sequence_jax(
@@ -310,14 +325,14 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
         
         total_cost = jnp.sum(cost_batch, axis=1)
         Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
-        optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.02, horizon)
+        optimal_trajectory = car_steps_sequential_with_dt_array_jax(state, Q_sequence, car_params, dt_array, horizon)
         return Q_sequence, optimal_trajectory, traj_batch, total_cost
 
 
 
-@partial(jax.jit, static_argnames=["dt", "horizon", "num_steps"])
-def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt, horizon, 
-                              num_steps=2, lr=0.01,
+@partial(jax.jit, static_argnames=["horizon", "num_steps"])
+def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, horizon, 
+                              num_steps=20, lr=0.02,
                               intra_horizon_smoothness_weight=2.0,
                               angular_smoothness_weight=1.0,
                               translational_smoothness_weight=0.1):
@@ -325,7 +340,7 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt, horizon,
     opt_state = opt.init(Q_init)
 
     def cost_fn(Q_seq):
-        traj = car_steps_sequential_jax(s0, Q_seq, car_params, dt=dt, horizon=horizon)
+        traj = car_steps_sequential_with_dt_array_jax(s0, Q_seq, car_params, dt_array, horizon=horizon)
         costs = cost_function_sequence_jax(traj, Q_seq, waypoints, 
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
