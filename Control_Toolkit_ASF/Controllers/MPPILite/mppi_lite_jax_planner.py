@@ -60,7 +60,7 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 1024
+        self.batch_size = 32
         self.horizon = 50
         
         # Control smoothness parameters
@@ -355,7 +355,7 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
     Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
     key1, key2 = jax.random.split(key)
     noise = jnp.stack([
-        jax.random.normal(key1, (batch_size, horizon)) * 0.25,
+        jax.random.normal(key1, (batch_size, horizon)) * 0.1,
         jax.random.normal(key2, (batch_size, horizon)) * 1.2
     ], axis=-1)
     Q_batch_sequence += noise
@@ -377,11 +377,18 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
 
 @partial(jax.jit, static_argnames=["horizon", "num_steps"])
 def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, horizon, 
-                              num_steps=20, lr=0.02,
                               intra_horizon_smoothness_weight=2.0,
                               angular_smoothness_weight=1.0,
                               translational_smoothness_weight=0.1):
-    opt = optax.adam(lr)
+
+    # Alternative: Cosine decay schedule (often works better for optimization)
+
+    gradient_steps = 80
+    lr_max = 0.02  # Initial learning rate
+    lr_min = 0.005
+    lr_schedule = optax.cosine_decay_schedule(lr_max, decay_steps=gradient_steps, alpha=lr_min)
+    
+    opt = optax.adam(lr_schedule)
     opt_state = opt.init(Q_init)
 
     def cost_fn(Q_seq):
@@ -404,5 +411,5 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, hor
         # jax.debug.print("Adam Step {0}: Cost = {1:.4f}, Grad Norm = {2:.4f}", step_idx, cost, grad_norm)
         return (Q_seq, opt_state), None
 
-    (Q_final, _), _ = jax.lax.scan(scan_step, (Q_init, opt_state), jnp.arange(num_steps))
+    (Q_final, _), _ = jax.lax.scan(scan_step, (Q_init, opt_state), jnp.arange(gradient_steps))
     return Q_final
