@@ -10,10 +10,40 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
 
+# Configure JAX for optimal GPU usage
+jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
+# jax.config.update('jax_default_device', jax.devices('gpu')[0] if jax.devices('gpu') else jax.devices('cpu')[0])
+
 class MPPILitePlanner(template_planner):
 
     def __init__(self):
         print('Loading JAX MPPI Lite Planner')
+        
+        # Get available devices safely
+        try:
+            available_devices = jax.devices()
+            print(f'JAX devices available: {available_devices}')
+            print(f'Default JAX device: {jax.default_backend()}')
+            
+            # Try to get GPU device, fall back to CPU
+            gpu_devices = [d for d in available_devices if d.device_kind == 'gpu']
+            if gpu_devices:
+                self.default_device = gpu_devices[0]
+                print(f'Using GPU device: {self.default_device}')
+            else:
+                self.default_device = [d for d in available_devices if d.device_kind == 'cpu'][0]
+                print(f'Using CPU device: {self.default_device}')
+                
+        except Exception as e:
+            print(f'Warning: Error getting JAX devices: {e}')
+            print('Falling back to CPU-only mode')
+            # Force CPU mode
+            import os
+            os.environ['JAX_PLATFORMS'] = 'cpu'
+            available_devices = jax.devices()
+            self.default_device = available_devices[0]
+            print(f'Using fallback device: {self.default_device}')
+        
         super().__init__()
 
         self.simulation_index = 0
@@ -30,39 +60,118 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 512
-        self.horizon = 75
+        self.batch_size = 1024
+        self.horizon = 50
+        
+        # Control smoothness parameters
+        self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
+        self.angular_smoothness_weight = 1.0  # Relative weight for angular control smoothness
+        self.translational_smoothness_weight = 0.1  # Relative weight for translational control smoothness
+        
+        # Control output smoothing
+        self.control_smoothing_alpha = 0.5  # EMA smoothing factor (0 = no smoothing, 1 = no memory)
+        self.last_executed_angular = 0.0
+        self.last_executed_translational = 0.0
 
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.car_params_array = VehicleParameters().to_np_array().astype(np.float32)
-        self.car_params_jax = jnp.array(self.car_params_array)
+        
+        # Ensure car params are on the selected device
+        with jax.default_device(self.default_device):
+            self.car_params_jax = jnp.array(self.car_params_array)
 
         self.key = jax.random.PRNGKey(0)
+        
+        # Pre-compile the main computation function
+        print("Pre-compiling JAX functions...")
+        self._precompile_functions()
+
+    def _precompile_functions(self):
+        """Pre-compile JAX functions to ensure they run on the selected device"""
+        # Create dummy data for compilation
+        dummy_state = jnp.zeros(10, dtype=jnp.float32)
+        dummy_last_Q = jnp.zeros((self.horizon, 2), dtype=jnp.float32)
+        dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
+        dummy_key = jax.random.PRNGKey(42)
+        
+        print("Compiling process_observation_jax...")
+        # Trigger compilation on the selected device
+        _ = process_observation_jax(
+            dummy_state, dummy_last_Q, self.batch_size, self.horizon,
+            self.car_params_jax, dummy_waypoints, dummy_key,
+            execute_control_index=4,
+            intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
+            angular_smoothness_weight=self.angular_smoothness_weight,
+            translational_smoothness_weight=self.translational_smoothness_weight
+        )
+        print(f"JAX functions compiled and ready for execution on {self.default_device}!")
 
     def process_observation(self, ranges=None, ego_odom=None):
-        s = jnp.array(self.car_state, dtype=jnp.float32)
-        waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
+        # Ensure all data is on the default device
+        with jax.default_device(self.default_device):
+            s = jnp.array(self.car_state, dtype=jnp.float32)
+            waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
 
-        self.key, subkey = jax.random.split(self.key)
-        Q_sequence, optimal_traj, state_batch_sequence, total_cost_batch = process_observation_jax(
-            s, jnp.array(self.last_Q_sq), self.batch_size, self.horizon,
-            self.car_params_jax, waypoints, subkey
-        )
+            self.key, subkey = jax.random.split(self.key)
+            Q_sequence, optimal_traj, state_batch_sequence, total_cost_batch = process_observation_jax(
+                s, jnp.array(self.last_Q_sq), self.batch_size, self.horizon,
+                self.car_params_jax, waypoints, subkey, 
+                execute_control_index=4,
+                intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
+                angular_smoothness_weight=self.angular_smoothness_weight,
+                translational_smoothness_weight=self.translational_smoothness_weight
+            )
 
-        # Todo for RPGD 
-        # Q_sequence = refine_optimal_control_adam(Q_sequence, s, self.car_params_jax, waypoints, self.dt, self.horizon)
+            # Todo for RPGD 
+            dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.06)
+            
+            # Get CPU devices safely for Adam optimization
+            try:
+                cpu_devices = [d for d in jax.devices() if d.device_kind == 'cpu']
+                cpu_device = cpu_devices[0] if cpu_devices else self.default_device
+                
+                # Move data to CPU for Adam optimization
+                with jax.default_device(cpu_device):
+                    Q_sequence_cpu = jax.device_put(Q_sequence, cpu_device)
+                    s_cpu = jax.device_put(s, cpu_device)
+                    car_params_cpu = jax.device_put(self.car_params_jax, cpu_device)
+                    waypoints_cpu = jax.device_put(waypoints, cpu_device)
+                    dt_array_cpu = jax.device_put(dt_array, cpu_device)
+                
+                    Q_sequence_refined = refine_optimal_control_adam(
+                        Q_sequence_cpu, s_cpu, car_params_cpu, waypoints_cpu, dt_array_cpu, self.horizon
+                    )
+                    
+                    # Move refined result back to default device
+                    Q_sequence = jax.device_put(Q_sequence_refined, self.default_device)
+                    
+            except Exception as e:
+                print(f"Warning: Adam optimization failed: {e}, using unrefined sequence")
+                # Use the original Q_sequence if refinement fails
 
-        self.render_utils.update_mpc(
-            rollout_trajectory=np.array(state_batch_sequence),
-            optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
-        )
+            # Move results back to CPU for rendering (if needed)
+            self.render_utils.update_mpc(
+                rollout_trajectory=np.array(state_batch_sequence),
+                optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
+            )
 
-        execute_control_index = 4
-        self.angular_control, self.translational_control = Q_sequence[execute_control_index]
-        self.last_Q_sq = np.array(Q_sequence)
-        self.control_index += 1
+            execute_control_index = 4
+            raw_angular, raw_translational = Q_sequence[execute_control_index]
+            
+            # Apply exponential moving average smoothing to control outputs
+            self.angular_control = (self.control_smoothing_alpha * float(raw_angular) + 
+                                  (1 - self.control_smoothing_alpha) * self.last_executed_angular)
+            self.translational_control = (self.control_smoothing_alpha * float(raw_translational) + 
+                                        (1 - self.control_smoothing_alpha) * self.last_executed_translational)
+            
+            # Update last executed values for next iteration
+            self.last_executed_angular = self.angular_control
+            self.last_executed_translational = self.translational_control
+            
+            self.last_Q_sq = np.array(Q_sequence)
+            self.control_index += 1
 
-        return float(self.angular_control), float(self.translational_control)
+            return float(self.angular_control), float(self.translational_control)
 
 
 @jax.jit
@@ -77,28 +186,65 @@ def compute_waypoint_distance_jax(state, waypoints):
 @jax.jit
 def cost_function_jax(state, control, waypoints):
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 5.0
-    translational_control_cost = jnp.abs(control[1]) * 1.0
-    waypoint_cost = waypoint_dist_sq * 5.0
+    angular_control_cost = jnp.abs(control[0]) * 1.0
+    translational_control_cost = jnp.abs(control[1]) * 0.1
+    waypoint_cost = waypoint_dist_sq * 10.0
     target_speed = waypoints[min_idx, 5]
-    speed_cost = 0.1 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost
+    speed_cost = 0.25 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
+    
+    # Add quadratic penalty for large angular controls to discourage extreme values
+    angular_quadratic_penalty = control[0] ** 2 * 15.0  # Heavy penalty for large steering angles
+    
+    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty
 
 @jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints):
+def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, 
+                              intra_horizon_smoothness_weight=2.0, 
+                              angular_smoothness_weight=1.0, 
+                              translational_smoothness_weight=0.1):
+    # Standard cost for each state-control pair
     cost_fn = lambda s, u: cost_function_jax(s, u, waypoints)
-    return jax.vmap(cost_fn)(state_sequence, control_sequence)
+    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
+    
+    # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
+    control_diff = control_sequence[1:] - control_sequence[:-1]
+    
+    # Individual step smoothness costs
+    step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
+    step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
+    step_smoothness_costs = step_angular_smoothness + step_translational_smoothness
+    
+    # Add individual smoothness penalties to corresponding cost elements
+    total_costs = standard_costs.at[1:].add(step_smoothness_costs)
+    
+    # Also add overall smoothness penalty to first element for extra emphasis
+    total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
+    total_costs = total_costs.at[0].add(total_smoothness_penalty)
+    
+    return total_costs
 
 @jax.jit
-def cost_function_batch_sequence_jax(state_batch_sequence, Q_batch_sequence, waypoints, discount_factor=0.99):
+def cost_function_batch_sequence_jax(state_batch_sequence, Q_batch_sequence, waypoints, 
+                                   discount_factor=0.99, 
+                                   intra_horizon_smoothness_weight=2.0,
+                                   angular_smoothness_weight=1.0, 
+                                   translational_smoothness_weight=0.1):
     horizon = Q_batch_sequence.shape[1]
     discount = discount_factor ** jnp.arange(horizon - 1, -1, -1)
-    cost_fn = lambda states, controls: cost_function_sequence_jax(states, controls, waypoints) * discount
-    cost_batch = jax.vmap(cost_fn)(state_batch_sequence, Q_batch_sequence)
+    
+    def compute_total_cost(states, controls):
+        # Standard sequence cost with intra-horizon smoothness only
+        sequence_costs = cost_function_sequence_jax(states, controls, waypoints, 
+                                                  intra_horizon_smoothness_weight,
+                                                  angular_smoothness_weight, 
+                                                  translational_smoothness_weight)
+        return sequence_costs * discount
+    
+    cost_batch = jax.vmap(compute_total_cost)(state_batch_sequence, Q_batch_sequence)
     return cost_batch
 
 @jax.jit
-def exponential_weighting_jax(Q_batch_sequence, total_cost_batch, temperature=0.25):
+def exponential_weighting_jax(Q_batch_sequence, total_cost_batch, temperature=5.):
     weights = jax.nn.softmax(-total_cost_batch / temperature)
     Q_weighted = Q_batch_sequence * weights[:, None, None]
     Q_mean = jnp.sum(Q_weighted, axis=0)
@@ -177,42 +323,73 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon):
     _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
     return trajectory
 
+@partial(jax.jit, static_argnames=["horizon"])
+def car_steps_sequential_with_dt_array_jax(s0, Q_sequence, car_params, dt_array, horizon):
+    def rollout_fn(carry, step_idx):
+        state = carry
+        control = Q_sequence[step_idx]
+        dt = dt_array[step_idx]
+        next_state = car_step_jax(state, control, car_params, dt)
+        return next_state, next_state
+    
+    _, trajectory = jax.lax.scan(rollout_fn, s0, jnp.arange(horizon))
+    return trajectory
+
 @jax.jit
-def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params):
-    dt = 0.02
+def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array):
     horizon = Q_batch_sequence.shape[1]
-    rollout_fn = lambda s, Q: car_steps_sequential_jax(s, Q, car_params, dt=dt, horizon=horizon)
+    rollout_fn = lambda s, Q: car_steps_sequential_with_dt_array_jax(s, Q, car_params, dt_array, horizon=horizon)
     return jax.vmap(rollout_fn)(s_batch, Q_batch_sequence)
 
-@partial(jax.jit, static_argnames=["batch_size", "horizon"])
-def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, waypoints, key):
+@partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index"])
+def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, waypoints, key,
+                          execute_control_index=4,
+                          intra_horizon_smoothness_weight=2.0,
+                          angular_smoothness_weight=1.0,
+                          translational_smoothness_weight=0.1):
+    # Create dynamic dt array: 0.02 for first 20 steps, 0.04 afterwards
+    dt_array = jnp.where(jnp.arange(horizon) < 30, 0.02, 0.06)
+    
     s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
     base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
     Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
     key1, key2 = jax.random.split(key)
     noise = jnp.stack([
-        jax.random.normal(key1, (batch_size, horizon)) * 0.2,
+        jax.random.normal(key1, (batch_size, horizon)) * 0.25,
         jax.random.normal(key2, (batch_size, horizon)) * 1.2
     ], axis=-1)
     Q_batch_sequence += noise
-    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 10.0]))
-    traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params)
-    cost_batch = cost_function_batch_sequence_jax(traj_batch, Q_batch_sequence, waypoints)
+    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
+    traj_batch = car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array)
+    
+    # Compute costs with only intra-horizon smoothness
+    cost_batch = cost_function_batch_sequence_jax(
+        traj_batch, Q_batch_sequence, waypoints, 0.99,
+        intra_horizon_smoothness_weight, angular_smoothness_weight, translational_smoothness_weight
+    )
+    
     total_cost = jnp.sum(cost_batch, axis=1)
     Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
-    optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.02, horizon)
+    optimal_trajectory = car_steps_sequential_with_dt_array_jax(state, Q_sequence, car_params, dt_array, horizon)
     return Q_sequence, optimal_trajectory, traj_batch, total_cost
 
 
 
-@partial(jax.jit, static_argnames=["dt", "horizon", "num_steps"])
-def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt, horizon, num_steps=2, lr=0.01):
+@partial(jax.jit, static_argnames=["horizon", "num_steps"])
+def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, horizon, 
+                              num_steps=20, lr=0.02,
+                              intra_horizon_smoothness_weight=2.0,
+                              angular_smoothness_weight=1.0,
+                              translational_smoothness_weight=0.1):
     opt = optax.adam(lr)
     opt_state = opt.init(Q_init)
 
     def cost_fn(Q_seq):
-        traj = car_steps_sequential_jax(s0, Q_seq, car_params, dt=dt, horizon=horizon)
-        costs = cost_function_sequence_jax(traj, Q_seq, waypoints)
+        traj = car_steps_sequential_with_dt_array_jax(s0, Q_seq, car_params, dt_array, horizon=horizon)
+        costs = cost_function_sequence_jax(traj, Q_seq, waypoints, 
+                                         intra_horizon_smoothness_weight,
+                                         angular_smoothness_weight, 
+                                         translational_smoothness_weight)
         return jnp.sum(costs)
 
     def step(Q_seq, opt_state):
