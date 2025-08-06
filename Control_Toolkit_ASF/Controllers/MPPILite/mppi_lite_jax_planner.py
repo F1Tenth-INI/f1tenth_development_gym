@@ -383,9 +383,12 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, hor
 
     # Alternative: Cosine decay schedule (often works better for optimization)
 
-    gradient_steps = 80
-    lr_max = 0.02  # Initial learning rate
+    gradient_steps = 20
+    lr_max = 0.04  # Initial learning rate
     lr_min = 0.005
+
+    gradmax_clip = 1.0
+
     lr_schedule = optax.cosine_decay_schedule(lr_max, decay_steps=gradient_steps, alpha=lr_min)
     
     opt = optax.adam(lr_schedule)
@@ -401,6 +404,7 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, hor
 
     def step(Q_seq, opt_state):
         loss, grad = jax.value_and_grad(cost_fn)(Q_seq)
+        grad = jnp.clip(grad, -gradmax_clip, gradmax_clip)
         updates, opt_state = opt.update(grad, opt_state)
         Q_seq = optax.apply_updates(Q_seq, updates)
         return Q_seq, opt_state, loss, jnp.linalg.norm(grad)
