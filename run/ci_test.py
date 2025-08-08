@@ -68,7 +68,27 @@ if __name__ == "__main__":
 
     time.sleep(1)
      # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
-    Settings.CONTROLLER = 'mppi-lite'
+    Settings.CONTROLLER = 'mppi-lite-jax'
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.9 
+    
+    Settings.CONTROL_DELAY = 0.08
+
+    importlib.reload(run_simulation)    
+    time.sleep(1)
+
+
+    simulation = RacingSimulation()
+    simulation.run_experiments()
+
+    # Assert at least one lap was completed
+    laptimes = simulation.drivers[0].laptimes
+    assert len(laptimes) > 0, "No lap times recorded"
+
+
+
+    time.sleep(1)
+     # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
+    Settings.CONTROLLER = 'rpgd-lite-jax'
     Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.9 
     
     Settings.CONTROL_DELAY = 0.08

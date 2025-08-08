@@ -61,7 +61,7 @@ class MPPILitePlanner(template_planner):
 
         self.dt = 0.02
         self.batch_size = 32
-        self.horizon = 50
+        self.horizon = 75
         
         # Control smoothness parameters
         self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
@@ -95,10 +95,13 @@ class MPPILitePlanner(template_planner):
         dummy_key = jax.random.PRNGKey(42)
         
         print("Compiling process_observation_jax...")
+        # Create dummy dt_array for compilation
+        dummy_dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.02)
+        
         # Trigger compilation on the selected device
         _ = process_observation_jax(
             dummy_state, dummy_last_Q, self.batch_size, self.horizon,
-            self.car_params_jax, dummy_waypoints, dummy_key,
+            self.car_params_jax, dummy_waypoints, dummy_key, dummy_dt_array,
             execute_control_index=4,
             intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
             angular_smoothness_weight=self.angular_smoothness_weight,
@@ -113,18 +116,19 @@ class MPPILitePlanner(template_planner):
             waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
 
             self.key, subkey = jax.random.split(self.key)
+            
+            # Create dynamic dt array: 0.02 for first 30 steps, 0.02 afterwards  
+            dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.02)
+            
             Q_sequence, optimal_traj, state_batch_sequence, total_cost_batch = process_observation_jax(
                 s, jnp.array(self.last_Q_sq), self.batch_size, self.horizon,
-                self.car_params_jax, waypoints, subkey, 
+                self.car_params_jax, waypoints, subkey, dt_array,
                 execute_control_index=4,
                 intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
                 angular_smoothness_weight=self.angular_smoothness_weight,
                 translational_smoothness_weight=self.translational_smoothness_weight
             )
 
-            # Todo for RPGD 
-            dt_array = jnp.where(jnp.arange(self.horizon) < 30, 0.02, 0.06)
-            
             # Get CPU devices safely for Adam optimization
             try:
                 cpu_devices = [d for d in jax.devices() if d.device_kind == 'cpu']
@@ -155,7 +159,7 @@ class MPPILitePlanner(template_planner):
                 optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
             )
 
-            execute_control_index = 4
+            execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
             raw_angular, raw_translational = Q_sequence[execute_control_index]
             
             # Apply exponential moving average smoothing to control outputs
@@ -342,16 +346,18 @@ def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array):
     return jax.vmap(rollout_fn)(s_batch, Q_batch_sequence)
 
 @partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index"])
-def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, waypoints, key,
+def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, waypoints, key, dt_array,
                           execute_control_index=4,
                           intra_horizon_smoothness_weight=2.0,
                           angular_smoothness_weight=1.0,
                           translational_smoothness_weight=0.1):
-    # Create dynamic dt array: 0.02 for first 20 steps, 0.04 afterwards
-    dt_array = jnp.where(jnp.arange(horizon) < 30, 0.02, 0.06)
-    
     s_batch = jnp.repeat(state[None, :], batch_size, axis=0)
     base_Q = jnp.roll(last_Q_sq, shift=-1, axis=0).at[-1].set(jax.random.normal(key, (2,), dtype=jnp.float32))
+
+    # jax print for debugging
+    # jax.debug.print("last_Q first 3 values: {}", last_Q_sq[:3])
+    # jax.debug.print("base_Q first 3 values: {}, base_Q last element: {}", base_Q[:3], base_Q[-1])
+    
     Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
     key1, key2 = jax.random.split(key)
     noise = jnp.stack([
