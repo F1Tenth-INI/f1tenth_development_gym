@@ -162,7 +162,7 @@ class Settings():
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
-    DISABLE_GPU = False # Disable GPU usage for TF
+    DISABLE_GPU = True # Disable GPU usage for TF
 
     OPTIMIZE_FOR_RL = False # Optimize for RL training
     

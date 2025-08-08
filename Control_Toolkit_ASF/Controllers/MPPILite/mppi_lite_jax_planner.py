@@ -381,7 +381,7 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
 
 
 
-@partial(jax.jit, static_argnames=["horizon", "num_steps"])
+@partial(jax.jit, static_argnames=["horizon"])
 def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, dt_array, horizon, 
                               intra_horizon_smoothness_weight=2.0,
                               angular_smoothness_weight=1.0,
