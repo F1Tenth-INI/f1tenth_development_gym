@@ -60,7 +60,7 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.02
-        self.batch_size = 32
+        self.batch_size = 256
         self.horizon = 75
         
         # Control smoothness parameters
