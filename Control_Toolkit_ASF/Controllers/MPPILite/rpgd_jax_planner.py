@@ -80,7 +80,7 @@ class RPGDPlanner(template_planner):
         
         # RPGD specific parameters 
         self.elite_size = 6  # opt_keep_k_ratio
-        self.gradient_steps = 6  # More: Better convergence, but slower
+        self.gradient_steps = 4  # More: Better convergence, but slower
         self.resampling_freq = 5 
         
         # Interpolation
@@ -212,7 +212,7 @@ class RPGDPlanner(template_planner):
                 optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
             )
 
-            execute_control_index = 4
+            execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
             raw_angular, raw_translational = Q_sequence[execute_control_index]
             
             # Apply exponential moving average smoothing to control outputs
@@ -284,7 +284,7 @@ class RPGDPlanner(template_planner):
     def _time_shift_and_expand_elite_sequences(self, key):
         """Time shift elite sequences and expand with new random ones """
         # Time shift elite plans (shift by 3 steps as in config)
-        shift_steps = 3  # Match config: shift_previous: 3
+        shift_steps = 2  # Match config: shift_previous: 3
         shifted_elite = jnp.roll(self.elite_plans, shift=-shift_steps, axis=1)
         # Fill the last shift_steps with the last control value + small noise
         key1, key2 = jax.random.split(key)
