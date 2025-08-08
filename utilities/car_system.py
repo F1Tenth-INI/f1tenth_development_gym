@@ -585,6 +585,9 @@ def initialize_planner(controller: str):
     elif controller == 'mppi-lite-jax':
         from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_jax_planner import MPPILitePlanner
         planner = MPPILitePlanner()
+    elif controller == 'rpgd-lite-jax':
+        from Control_Toolkit_ASF.Controllers.MPPILite.rpgd_jax_planner import RPGDPlanner
+        planner = RPGDPlanner()
     elif controller == 'ftg':
         from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
         importlib.reload(ftg_planner)
