@@ -123,7 +123,7 @@ class CarSystem:
         self.initialize_controller(self.controller_name)
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
-
+        
             
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
@@ -471,7 +471,11 @@ class CarSystem:
         listener.start()
 
     def start_recorder(self):
-        self.recorder.start_csv_recording()
+        if self.recorder is not None:
+            print(f"Starting recorder for {self.controller_name}")
+            self.recorder.start_csv_recording()
+        else:
+            print("No recorder to start - recorder is None")
     
 
 
