@@ -66,6 +66,8 @@ class WaypointUtils:
         self.waypoint_file_name = waypoint_file_name
         self.speed_scaling_file_name = speed_scaling_file_name
         
+        print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
+        
         self.interpolation_steps = Settings.INTERPOLATION_STEPS
         self.decrease_resolution_factor = Settings.DECREASE_RESOLUTION_FACTOR
 
@@ -208,7 +210,6 @@ class WaypointUtils:
         self.preprocess_waypoints()
         
     def load_waypoints(self, waypoint_file_name=None):
-
         if waypoint_file_name is None:
             waypoint_file_name = self.waypoint_file_name
 
@@ -580,6 +581,7 @@ def get_path_suffix(reverse_direction):
 
 def create_default_speed_scaling_file(speed_scaling_pth):
     print("No Speed scaling file defined. Creating new speed_scaling.csv with default values")
+    os.makedirs(os.path.dirname(speed_scaling_pth), exist_ok=True)
     with open(speed_scaling_pth, 'w') as f:
         f.write('#Start,Scaling\n')
         f.write('0,0.5\n')

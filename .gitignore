@@ -79,3 +79,6 @@ scripts/EulerCluster/out/*
 
 RaceTuner/CopiedSettings/*
 ppo_models/*
+
+
+*.egg-info

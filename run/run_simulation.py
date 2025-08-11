@@ -168,6 +168,10 @@ class RacingSimulation:
         
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
+        
+        # Explicitly start recorder since ROS_BRIDGE might be True by default
+        if driver.recorder is not None:
+            driver.start_recorder()
 
         if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             driver.launch_tuner_connector()

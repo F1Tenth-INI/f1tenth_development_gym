@@ -32,9 +32,11 @@ def motor_pid_with_speed_difference(translational_control, v_x, a_max, v_max, v_
     """
     # Speed difference
     speed_difference = translational_control - v_x
+    
+    k_p = 4.0  # Proportional gain, can be adjusted
 
     if v_x > 0:  # Forward
-        v_x_dot = 10.0 * (a_max / v_max * speed_difference) if speed_difference > 0 else 10.0 * (a_max / (-v_min) * speed_difference)
+        v_x_dot = k_p * (a_max / v_max * speed_difference) if speed_difference > 0 else k_p * (a_max / (-v_min) * speed_difference)
     else:  # Backward
         v_x_dot = 2.0 * (a_max / v_max * speed_difference) if speed_difference > 0 else 2.0 * (a_max / (-v_min) * speed_difference)
 

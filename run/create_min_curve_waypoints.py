@@ -84,6 +84,8 @@ class GlobalPlanner:
         img_path = os.path.join(self.map_dir, self.map_name + '_wp_min_curve.png')
         img_path_original = os.path.join(self.map_dir, self.map_name + '.png')
         
+        print(f"loading map from {img_path}...")
+        
         if(not os.path.isdir(os.path.join(self.map_dir,'data'))):
             os.makedirs(os.path.join(self.map_dir,'data' ))
         # check if file exists

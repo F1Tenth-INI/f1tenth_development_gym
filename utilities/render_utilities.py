@@ -7,8 +7,7 @@ import numbers
 
 # Imports depending on ROS/Gym
 if(Settings.ROS_BRIDGE):
-    import rospy
-    from visualization_msgs.msg import Marker, MarkerArray
+    pass
 else:
     if(Settings.RENDER_MODE is not None):
         try:
@@ -133,12 +132,7 @@ class RenderUtils:
         self.emergency_slowdown_sprites = None
 
         if(Settings.ROS_BRIDGE):
-            print("initialising render utilities for ROS")
-
-            # rospy.init_node('gym_bridge_driver', anonymous=True)
-            self.pub_rollout = rospy.Publisher('mppi/rollout', MarkerArray, queue_size=1)
-            self.pub_target_point = rospy.Publisher('/pp/lookahead', Marker, queue_size=1)
-        
+           pass
 
     # Pass all data that is updated during simulation
     def update(self, 
