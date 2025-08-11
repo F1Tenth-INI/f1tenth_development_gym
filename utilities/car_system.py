@@ -637,10 +637,16 @@ def initialize_planner(controller: str):
 
 
 def if_mpc_define_cs_variables(planner):
-    if hasattr(planner, 'mpc'):
-        horizon = planner.mpc.predictor.horizon
+    # if hasattr(planner, 'mpc'):
+    #     horizon = planner.mpc.predictor.horizon
+    #     angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+    #     translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+    #     return angular_control_dict, translational_control_dict
+    
+    if hasattr(planner, 'optimal_control_sequence'):
+        horizon = len(planner.optimal_control_sequence)
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
         translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-        return angular_control_dict, translational_control_dict
+        return angular_control_dict, translational_control_dict 
     else:
         return {}, {}

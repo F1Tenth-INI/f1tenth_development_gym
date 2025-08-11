@@ -103,9 +103,15 @@ class RPGDPlanner(template_planner):
         self.last_executed_angular = 0.0
         self.last_executed_translational = 0.0
 
+
+        self.optimal_trajectory = np.zeros((self.horizon, NUMBER_OF_STATES), dtype=np.float32)
+        self.optimal_control_sequence = np.zeros((self.horizon, 2), dtype=np.float32)
+        self.config_optimizer = dict()
+        self.config_optimizer["mpc_timestep"] = self.dt  # Fixed timestep for RPGD optimization
+            
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
-        self.car_params_array = VehicleParameters().to_np_array().astype(np.float32)
-        
+        self.car_params_array = VehicleParameters('mpc_car_parameters.yml').to_np_array().astype(np.float32)
+
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
         self.elite_costs = None
@@ -220,6 +226,7 @@ class RPGDPlanner(template_planner):
             self.trajectory_costs = np.array(total_cost_batch)
             
             self.optimal_trajectory = np.array(optimal_traj)
+            self.optimal_control_sequence = np.array(Q_sequence)
             
             self.render_utils.update_mpc(
                 rollout_trajectory=self.rollout_trajectories,

@@ -48,7 +48,7 @@ class Settings():
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
     DATASET_NAME = "Recording1"
-    RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
+    RECORDING_MODE = 'offline'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
     CONNECT_RACETUNER_TO_MAIN_CAR = False
@@ -74,7 +74,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 2000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    EXPERIMENT_LENGTH = 3000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
     STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
     DISABLE_AUTOMATIC_TERMINATION = False
     DISABLE_AUTOMATIC_TIMEOUT = True
@@ -85,7 +85,7 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.1, 0.2] # noise level [angular, translational]
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
@@ -142,7 +142,7 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -160,7 +160,7 @@ class Settings():
 
     
     ### Other Settings ###
-    ROS_BRIDGE = True # Automatically determined on program start
+    ROS_BRIDGE = False # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
