@@ -162,9 +162,13 @@ class MPPILitePlanner(template_planner):
                 # Use the original Q_sequence if refinement fails
 
             # Move results back to CPU for rendering (if needed)
+            self.rollout_trajectories = np.array(state_batch_sequence)
+            self.trajectory_costs = np.array(total_cost_batch)
+            
+            self.optimal_trajectory = np.array(optimal_traj)
             self.render_utils.update_mpc(
-                rollout_trajectory=np.array(state_batch_sequence),
-                optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
+                rollout_trajectory=self.rollout_trajectories,
+                optimal_trajectory=np.expand_dims(self.optimal_trajectory, axis=0),
             )
 
             execute_control_index = int(Settings.CONTROL_DELAY / self.dt)

@@ -87,6 +87,8 @@ class RPGDPlanner(template_planner):
         self.gradient_steps = 4  # More: Better convergence, but slower
         self.resampling_freq = 5 
         
+        self.rollout_trajectories = None  # Store trajectories for rendering
+        
         # Interpolation
         self.use_interpolation = False  
         self.num_interpolation_points = 1
@@ -214,8 +216,13 @@ class RPGDPlanner(template_planner):
             state_batch_sequence = car_batch_sequence_jax(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence, self.car_params_jax, dt_variable, model_type='pacejka')
 
             # Move results back to CPU for rendering (if needed)
+            self.rollout_trajectories = np.array(state_batch_sequence)
+            self.trajectory_costs = np.array(total_cost_batch)
+            
+            self.optimal_trajectory = np.array(optimal_traj)
+            
             self.render_utils.update_mpc(
-                rollout_trajectory=np.array(state_batch_sequence),
+                rollout_trajectory=self.rollout_trajectories,
                 optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
             )
 
