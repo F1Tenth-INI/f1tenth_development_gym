@@ -10,6 +10,14 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
 
+
+from sim.f110_sim.envs.dynamic_model_pacejka_jax import (
+    car_steps_sequential_with_dt_array_jax,
+    car_batch_sequence_jax,
+)
+
+
+
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
 # jax.config.update('jax_default_device', jax.devices('gpu')[0] if jax.devices('gpu') else jax.devices('cpu')[0])
@@ -255,22 +263,31 @@ def exponential_weighting_jax(Q_batch_sequence, total_cost_batch, temperature=5.
     return Q_mean
 
 
+@jax.jit
 def car_step_jax(state, control, car_params, dt):
+    """JAX implementation of 'ODE:ks_pacejka' model with kinematic blending - improved version"""
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
     servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
 
     psi_dot, v_x, v_y, psi, _, _, s_x, s_y, _, delta = state
     desired_steering_angle, translational_control = control
 
+    # Apply Servo PID Control with proper threshold
     steering_angle_difference = desired_steering_angle - delta
-    delta_dot = jnp.where(jnp.abs(steering_angle_difference) > 0.0001,
+    steering_diff_low = 0.001  # Match improved threshold
+    delta_dot = jnp.where(jnp.abs(steering_angle_difference) > steering_diff_low,
                           steering_angle_difference * servo_p,
                           0.0)
     delta_dot = jnp.clip(delta_dot, sv_min, sv_max)
 
+    # Improved acceleration constraints
     v_x_dot = translational_control
+    
+    # Motor power limits
     pos_limit = jnp.where(v_x > v_switch, a_max * v_switch / v_x, a_max)
-    v_x_dot = jnp.minimum(v_x_dot, pos_limit)
+    v_x_dot = jnp.clip(v_x_dot, a_min, pos_limit)
+    
+    # Friction limits
     max_a_friction = mu * g_
     v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
@@ -291,32 +308,43 @@ def car_step_jax(state, control, car_params, dt):
     d_v_y = (Fy_r + Fy_f) / m - v_x * psi_dot
     d_psi_dot = (-lr * Fy_r + lf * Fy_f) / I_z
 
-    s_x += dt * d_s_x
-    s_y += dt * d_s_y
+    # Integrate using Euler's method
+    s_x = s_x + dt * d_s_x
+    s_y = s_y + dt * d_s_y
     delta = jnp.clip(delta + dt * delta_dot, s_min, s_max)
-    v_x += dt * d_v_x
-    v_y += dt * d_v_y
-    psi += dt * d_psi
-    psi_dot += dt * d_psi_dot
+    v_x = v_x + dt * d_v_x
+    v_y = v_y + dt * d_v_y
+    psi = psi + dt * d_psi
+    psi_dot = psi_dot + dt * d_psi_dot
 
+    # Kinematic blending for low speeds
     low_speed_threshold, high_speed_threshold = 0.5, 3.0
     weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
     weight = jnp.clip(weight, 0.0, 1.0)
 
+    # Simple kinematic model for low speeds - use correct wheelbase
+    l_wb = lf + lr  # Use total wheelbase instead of just lf
     s_x_ks = s_x + dt * (v_x * jnp.cos(psi))
     s_y_ks = s_y + dt * (v_x * jnp.sin(psi))
-    psi_ks = psi + dt * (v_x / lf * jnp.tan(delta))
+    psi_ks = psi + dt * (v_x / l_wb * jnp.tan(delta))  # Use l_wb instead of lf
     v_y_ks = 0.0
 
-    s_x = (1.0 - weight) * s_x_ks + weight * s_x
-    s_y = (1.0 - weight) * s_y_ks + weight * s_y
-    psi = (1.0 - weight) * psi_ks + weight * psi
-    v_y = (1.0 - weight) * v_y_ks + weight * v_y
+    # Weighted interpolation
+    s_x_final = (1.0 - weight) * s_x_ks + weight * s_x
+    s_y_final = (1.0 - weight) * s_y_ks + weight * s_y
+    psi_final = (1.0 - weight) * psi_ks + weight * psi
+    v_y_final = (1.0 - weight) * v_y_ks + weight * v_y
 
-    psi_sin = jnp.sin(psi)
-    psi_cos = jnp.cos(psi)
+    # Recalculate derived values
+    psi_sin = jnp.sin(psi_final)
+    psi_cos = jnp.cos(psi_final)
+    
+    # Calculate slip angle properly
+    v_x_safe_slip = jnp.where(v_x < 1e-3, 1e-3, v_x)
+    slip_angle = jnp.arctan(v_y_final / v_x_safe_slip)
 
-    return jnp.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, 0.0, delta], dtype=jnp.float32)
+    return jnp.array([psi_dot, v_x, v_y_final, psi_final, psi_cos, psi_sin, 
+                      s_x_final, s_y_final, slip_angle, delta], dtype=jnp.float32)
 
 
 @partial(jax.jit, static_argnames=["dt", "horizon"])

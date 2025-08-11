@@ -34,6 +34,7 @@ Author: Hongrui Zheng
 import numpy as np
 
 from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
+from f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
 
 from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_sim.envs.collision_models import get_vertices, collision_multiple
@@ -106,7 +107,7 @@ class RaceCar(object):
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
         self.state = np.zeros((StateIndices.number_of_states, ))
@@ -135,6 +136,21 @@ class RaceCar(object):
             self.car_params_array = car_params.to_np_array()
             
             self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
+
+        if self.ode_implementation == 'jax_pacejka':
+            import jax.numpy as jnp
+            self.step_dynamics = car_dynamics_pacejka_jax
+            u = np.array([0,0])
+            
+            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            self.car_params_array = car_params.to_np_array()
+            
+            # Initialize with JAX conversion
+            jax_state = jnp.array(self.state)
+            jax_u = jnp.array(u)
+            jax_params = jnp.array(self.car_params_array)
+            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
+            self.state = np.array(new_state)   
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -339,6 +355,16 @@ class RaceCar(object):
         elif self.ode_implementation == 'jit_Pacejka':
             u = np.array([desired_steering_angle, desired_speed])
             self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
+            
+        elif self.ode_implementation == 'jax_pacejka':
+            import jax.numpy as jnp
+            u = np.array([desired_steering_angle, desired_speed])
+            # Convert to JAX arrays and back to numpy
+            jax_state = jnp.array(self.state)
+            jax_u = jnp.array(u)
+            jax_params = jnp.array(self.car_params_array)
+            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
+            self.state = np.array(new_state)   
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")

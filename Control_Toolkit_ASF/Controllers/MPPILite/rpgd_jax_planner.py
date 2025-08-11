@@ -9,6 +9,10 @@ from utilities.render_utilities import RenderUtils
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
+from sim.f110_sim.envs.dynamic_model_pacejka_jax import (
+    car_steps_sequential_with_dt_array_jax,
+    car_batch_sequence_jax,
+)
 
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
@@ -206,8 +210,8 @@ class RPGDPlanner(template_planner):
             self._update_trajectory_ages()
             
             # Compute optimal trajectory for visualization (using same dt_variable)
-            optimal_traj = car_steps_sequential_with_dt_array_jax(s, Q_sequence, self.car_params_jax, dt_variable, self.horizon)
-            state_batch_sequence = car_batch_sequence_jax(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence, self.car_params_jax, dt_variable)
+            optimal_traj = car_steps_sequential_with_dt_array_jax(s, Q_sequence, self.car_params_jax, dt_variable, self.horizon, model_type='pacejka')
+            state_batch_sequence = car_batch_sequence_jax(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence, self.car_params_jax, dt_variable, model_type='pacejka')
 
             # Move results back to CPU for rendering (if needed)
             self.render_utils.update_mpc(
@@ -470,96 +474,6 @@ def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
     return Q_batch_sequence[best_idx], best_idx
 
 
-def car_step_jax(state, control, car_params, dt):
-    mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
-    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
-
-    psi_dot, v_x, v_y, psi, _, _, s_x, s_y, _, delta = state
-    desired_steering_angle, translational_control = control
-
-    steering_angle_difference = desired_steering_angle - delta
-    delta_dot = jnp.where(jnp.abs(steering_angle_difference) > 0.0001,
-                          steering_angle_difference * servo_p,
-                          0.0)
-    delta_dot = jnp.clip(delta_dot, sv_min, sv_max)
-
-    v_x_dot = translational_control
-    pos_limit = jnp.where(v_x > v_switch, a_max * v_switch / v_x, a_max)
-    v_x_dot = jnp.minimum(v_x_dot, pos_limit)
-    max_a_friction = mu * g_
-    v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
-
-    v_x_safe = jnp.where(v_x == 0.0, 1e-5, v_x)
-    alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
-    alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
-
-    F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
-    F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
-
-    Fy_f = mu * F_zf * D_f * jnp.sin(C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
-    Fy_r = mu * F_zr * D_r * jnp.sin(C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
-
-    d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
-    d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
-    d_psi = psi_dot
-    d_v_x = v_x_dot
-    d_v_y = (Fy_r + Fy_f) / m - v_x * psi_dot
-    d_psi_dot = (-lr * Fy_r + lf * Fy_f) / I_z
-
-    s_x += dt * d_s_x
-    s_y += dt * d_s_y
-    delta = jnp.clip(delta + dt * delta_dot, s_min, s_max)
-    v_x += dt * d_v_x
-    v_y += dt * d_v_y
-    psi += dt * d_psi
-    psi_dot += dt * d_psi_dot
-
-    low_speed_threshold, high_speed_threshold = 0.5, 3.0
-    weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
-    weight = jnp.clip(weight, 0.0, 1.0)
-
-    s_x_ks = s_x + dt * (v_x * jnp.cos(psi))
-    s_y_ks = s_y + dt * (v_x * jnp.sin(psi))
-    psi_ks = psi + dt * (v_x / lf * jnp.tan(delta))
-    v_y_ks = 0.0
-
-    s_x = (1.0 - weight) * s_x_ks + weight * s_x
-    s_y = (1.0 - weight) * s_y_ks + weight * s_y
-    psi = (1.0 - weight) * psi_ks + weight * psi
-    v_y = (1.0 - weight) * v_y_ks + weight * v_y
-
-    psi_sin = jnp.sin(psi)
-    psi_cos = jnp.cos(psi)
-
-    return jnp.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, 0.0, delta], dtype=jnp.float32)
-
-
-@partial(jax.jit, static_argnames=["dt", "horizon"])
-def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon):
-    def rollout_fn(state, control):
-        next_state = car_step_jax(state, control, car_params, dt)
-        return next_state, next_state
-    _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
-    return trajectory
-
-@partial(jax.jit, static_argnames=["horizon"])
-def car_steps_sequential_with_dt_array_jax(s0, Q_sequence, car_params, dt_array, horizon):
-    def rollout_fn(carry, step_idx):
-        state = carry
-        control = Q_sequence[step_idx]
-        dt = dt_array[step_idx]
-        next_state = car_step_jax(state, control, car_params, dt)
-        return next_state, next_state
-    
-    _, trajectory = jax.lax.scan(rollout_fn, s0, jnp.arange(horizon))
-    return trajectory
-
-@jax.jit
-def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array):
-    horizon = Q_batch_sequence.shape[1]
-    rollout_fn = lambda s, Q: car_steps_sequential_with_dt_array_jax(s, Q, car_params, dt_array, horizon=horizon)
-    return jax.vmap(rollout_fn)(s_batch, Q_batch_sequence)
-
 @partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index", "gradient_steps"])
 def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, car_params, waypoints, key, dt_variable,
                                execute_control_index=4,
@@ -587,7 +501,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with variable timestep
-        trajectory = car_steps_sequential_with_dt_array_jax(state, Q_full, car_params, dt_variable, horizon=horizon)
+        trajectory = car_steps_sequential_with_dt_array_jax(state, Q_full, car_params, dt_variable, horizon=horizon, model_type='pacejka')
         # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
                                          intra_horizon_smoothness_weight,
@@ -629,7 +543,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
-        trajectory = car_steps_sequential_with_dt_array_jax(state, Q_plan, car_params, dt_variable, horizon=horizon)
+        trajectory = car_steps_sequential_with_dt_array_jax(state, Q_plan, car_params, dt_variable, horizon=horizon, model_type='pacejka')
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
