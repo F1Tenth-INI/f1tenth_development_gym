@@ -15,6 +15,12 @@ if __name__ == "__main__":
     from utilities.Settings import Settings # Settings need to be imported first, so that they can be overwritten
     time.sleep(1)
     
+    # Test car models first to ensure they work correctly
+    from sim.f110_sim.envs.test_dynamic_models import test_car_models, test_jax_pacejka_integration
+    test_car_models()
+    test_jax_pacejka_integration()
+    print("All car model tests completed successfully.\n")
+    
 
     # Global Settings
     Settings.EXPERIMENT_LENGTH = 3000
@@ -69,7 +75,7 @@ if __name__ == "__main__":
     time.sleep(1)
      # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
     Settings.CONTROLLER = 'mppi-lite-jax'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.9 
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
     
     Settings.CONTROL_DELAY = 0.08
 
@@ -89,7 +95,7 @@ if __name__ == "__main__":
     time.sleep(1)
      # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
     Settings.CONTROLLER = 'rpgd-lite-jax'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.9 
+    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
     
     Settings.CONTROL_DELAY = 0.08
 

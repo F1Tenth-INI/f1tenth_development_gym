@@ -59,20 +59,35 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
 
     # Apply Servo PID Control for Steering (Matches Batch Model)
     steering_angle_difference = desired_steering_angle - delta
-    delta_dot = (steering_angle_difference * servo_p) if abs(steering_angle_difference) > 0.0001 else 0.0
+    steering_diff_low = 0.001  # From car parameters
+    
+    # Apply threshold-based servo control like original
+    if abs(steering_angle_difference) > steering_diff_low:
+        delta_dot = steering_angle_difference * servo_p
+    else:
+        delta_dot = 0.0
+    
+    # Apply steering constraints (prevent movement when at limits)
+    if (delta <= s_min and delta_dot <= 0.0) or (delta >= s_max and delta_dot >= 0.0):
+        delta_dot = 0.0
+    
     delta_dot = max(min(delta_dot, sv_max), sv_min)  # Apply steering velocity constraints
 
-    # Apply Motor PID Control for Acceleration (Matches Batch Model)
-  
+    # Apply Motor Control for Acceleration (Matches Batch Model exactly)
     v_x_dot = translational_control
-        
-    # v_x_dot = max(min(v_x_dot, a_max), a_min)  # Apply acceleration constraints
+    
+    # Velocity constraints (stop acceleration when at velocity limits)
+    if (v_x < v_min and v_x_dot < 0) or (v_x > v_max and v_x_dot > 0):
+        v_x_dot = 0.0
+    
     # Limit due to velocity (motor power)
     if v_x > v_switch:
         pos_limit = a_max * v_switch / v_x
     else:
         pos_limit = a_max
-    v_x_dot = min(v_x_dot, pos_limit)
+    
+    # Apply acceleration limits (motor power)
+    v_x_dot = max(min(v_x_dot, pos_limit), a_min)
 
     # Limit due to tire friction
     max_a_friction = mu * g_
@@ -114,28 +129,15 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
         psi_dot += t_step * d_psi_dot
 
 
-    # Kinematic-to-Pacejka Blending (Restored from Batch Model)
-    low_speed_threshold, high_speed_threshold = 0.5, 3.0
-    weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
-    weight = max(min(weight, 1), 0)  # Ensure within [0,1]
-
-    # Simple kinematic model for low speeds
-    s_x_ks = s_x + t_step * (v_x * np.cos(psi))
-    s_y_ks = s_y + t_step * (v_x * np.sin(psi))
-    psi_ks = psi + t_step * (v_x / lf * np.tan(delta))
-    v_y_ks = 0  # No lateral velocity in kinematic model
-
-    # Weighted interpolation
-    s_x = (1 - weight) * s_x_ks + weight * s_x
-    s_y = (1 - weight) * s_y_ks + weight * s_y
-    psi = (1 - weight) * psi_ks + weight * psi
-    v_y = (1 - weight) * v_y_ks + weight * v_y
-
     psi_sin = np.sin(psi)
     psi_cos = np.cos(psi)
     
-    # Return the updated state (8 elements)
-    return np.array([psi_dot, v_x, v_y,psi,psi_cos, psi_sin, s_x ,s_y ,  0, delta], dtype=np.float32)
+    # Calculate slip angle properly like original
+    v_x_safe = v_x if v_x >= 1e-3 else 1e-3
+    slip_angle = np.arctan(v_y / v_x_safe)
+    
+    # Return the updated state (10 elements) 
+    return np.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta], dtype=np.float32)
 
 
 
