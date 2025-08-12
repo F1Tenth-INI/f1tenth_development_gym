@@ -39,6 +39,7 @@ class Recorder:
 
         self.csv_filepath = None
         self.recording_path = None
+        self.recording_started = False  # Flag to prevent multiple start calls
     def step(self):
         self.csv_recording_step()
 
@@ -51,6 +52,10 @@ class Recorder:
         return self.data_manager.starting_recording
 
     def start_csv_recording(self, time_limited_recording=False):
+        if self.recording_started:
+            return
+        
+        self.recording_started = True
         self.recording_on_off(time_limited_recording)
         self.start_csv_recording_if_requested()
 
@@ -105,6 +110,7 @@ class Recorder:
         if self.recording_running:
             self.data_manager.finish_experiment(wait_till_complete=wait_till_complete)
         self.recording_length = np.inf
+        self.recording_started = False  # Reset flag to allow new recording
 
 
 

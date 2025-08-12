@@ -230,19 +230,18 @@ class CarSystem:
             self.angular_control = 0
             self.translational_control = 0
         
-        
-        self.process_data_post_control()
-        
-        
 
-        self.control_index += 1
-        self.time += self.time_increment
-        
         self.angular_control_calculated = self.angular_control
         self.translational_control_calculated = self.translational_control
         
         # Add noise to control
         self.angular_control, self.translational_control = self.add_control_noise(np.array([self.angular_control, self.translational_control]))
+        
+        self.process_data_post_control()
+        
+        self.control_index += 1
+        self.time += self.time_increment
+        
 
         return self.angular_control, self.translational_control
 
