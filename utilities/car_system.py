@@ -224,7 +224,7 @@ class CarSystem:
                 self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
                 
             # Extract from mpc control sequence
-            if hasattr(self.planner, 'optimal_control_sequence'):
+            if hasattr(self.planner, 'optimal_control_sequence') or hasattr(self.planner, 'mpc'):
                 self.angular_control, self.translational_control = self.extract_control_from_control_sequence()
         else: # planner = none
             self.angular_control = 0
@@ -636,13 +636,13 @@ def initialize_planner(controller: str):
 
 
 def if_mpc_define_cs_variables(planner):
-    # if hasattr(planner, 'mpc'):
-    #     horizon = planner.mpc.predictor.horizon
-    #     angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
-    #     translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
-    #     return angular_control_dict, translational_control_dict
+    if hasattr(planner, 'mpc'): # MPC planner from Control_Toolkit_ASF
+        horizon = planner.mpc.predictor.horizon
+        angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+        return angular_control_dict, translational_control_dict
     
-    if hasattr(planner, 'optimal_control_sequence'):
+    if hasattr(planner, 'optimal_control_sequence'): # MPC planner lite
         horizon = len(planner.optimal_control_sequence)
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
         translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
