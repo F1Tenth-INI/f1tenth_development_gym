@@ -91,6 +91,7 @@ class RacingSimulation:
                         print(f"Max number of crash repetitions ({Settings.MAX_CRASH_REPETITIONS}) reached. Exiting.")
                         raise Exception("Max number of crash repetitions reached.")
                 else:
+                    print(f"Controller {Settings.CONTROLLER} crashed the car.")
                     print("Crash repetition disabled. Exiting.")
                     raise Exception("Crash repetition disabled.")
             i += 1

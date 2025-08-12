@@ -4,7 +4,7 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2
@@ -12,7 +12,7 @@ class Settings():
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
     ## Friction ##
-    SURFACE_FRICTION = None # Surface friction coefficient
+    SURFACE_FRICTION = 0.75 # Surface friction coefficient
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
     # Controller Settings
@@ -85,7 +85,7 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    NOISE_LEVEL_CONTROL = [0.1, 0.2] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
