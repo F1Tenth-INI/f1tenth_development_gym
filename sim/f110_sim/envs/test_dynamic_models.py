@@ -82,7 +82,7 @@ def test_jax_pacejka_integration():
             'mu': car_params.mu,
             'lf': car_params.lf,
             'lr': car_params.lr,
-            'h_cg': car_params.h_cg,
+            'h_cg': car_params.h,
             'm': car_params.m,
             'I_z': car_params.I_z,
             'length': car_params.length,
@@ -104,8 +104,9 @@ def test_jax_pacejka_integration():
         
     except Exception as e:
         print(f"JAX Pacejka integration test: SKIPPED - {e}")
-        # Don't fail the test suite for integration issues
-    
+        # Fail the test
+        assert False, f"JAX Pacejka integration test failed: {e}"
+
     return True
 
 
