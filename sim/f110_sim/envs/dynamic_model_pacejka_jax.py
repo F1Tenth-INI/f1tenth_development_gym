@@ -3,6 +3,8 @@ import jax.numpy as jnp
 from functools import partial
 
 
+
+
 class StateIndices:
     yaw_rate = 0
     v_x = 1
@@ -25,7 +27,7 @@ class ControlIndices:
 
 @partial(jax.jit, static_argnames=['intermediate_steps'])
 def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1):
-    """Advance car dynamics using JAX-optimized Pacejka model, fully matching batch version.
+    """Advance car dynamics using JAX-optimized Pacejka model with kinematic blending.
     
     Args:
         state (jnp.ndarray): Car state as defined in state_utilities,
@@ -123,7 +125,25 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         psi = psi + dt_sub * d_psi
         psi_dot = psi_dot + dt_sub * d_psi_dot
 
-        # Pure Pacejka model (no kinematic blending for 'ODE:pacejka')
+        # Kinematic blending for low speeds
+        low_speed_threshold, high_speed_threshold = 0.5, 3.0
+        weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        weight = jnp.clip(weight, 0.0, 1.0)
+
+        # Simple kinematic model for low speeds
+        l_wb = lf + lr  # Use correct wheelbase
+        s_x_ks = s_x + dt_sub * (v_x * jnp.cos(psi))
+        s_y_ks = s_y + dt_sub * (v_x * jnp.sin(psi))
+        psi_ks = psi + dt_sub * (v_x / l_wb * jnp.tan(delta))
+        v_y_ks = 0.0
+
+        # Weighted interpolation between kinematic and dynamic models
+        s_x = (1.0 - weight) * s_x_ks + weight * s_x
+        s_y = (1.0 - weight) * s_y_ks + weight * s_y
+        psi = (1.0 - weight) * psi_ks + weight * psi
+        v_y = (1.0 - weight) * v_y_ks + weight * v_y
+
+        # Recalculate derived values
         psi_sin = jnp.sin(psi)
         psi_cos = jnp.cos(psi)
         
@@ -138,44 +158,6 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     final_state, _ = jax.lax.scan(single_step, state, None, length=intermediate_steps)
     
     return final_state
-
-
-@partial(jax.jit, static_argnames=['intermediate_steps'])
-def car_dynamics_ks_pacejka_jax(state, control, car_params, dt, intermediate_steps=1):
-    """JAX implementation of 'ODE:ks_pacejka' model with kinematic blending"""
-    # First compute pure Pacejka result
-    pacejka_result = car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps)
-    
-    # Extract parameters for kinematic model
-    mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
-    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
-    
-    psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta = pacejka_result
-    
-    # Kinematic blending for low speeds
-    low_speed_threshold, high_speed_threshold = 0.5, 3.0
-    weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
-    weight = jnp.clip(weight, 0.0, 1.0)
-
-    # Simple kinematic model for low speeds
-    l_wb = lf + lr  # Use correct wheelbase
-    s_x_ks = s_x + dt * (v_x * jnp.cos(psi))
-    s_y_ks = s_y + dt * (v_x * jnp.sin(psi))
-    psi_ks = psi + dt * (v_x / l_wb * jnp.tan(delta))
-    v_y_ks = 0.0
-
-    # Weighted interpolation
-    s_x_final = (1.0 - weight) * s_x_ks + weight * s_x
-    s_y_final = (1.0 - weight) * s_y_ks + weight * s_y
-    psi_final = (1.0 - weight) * psi_ks + weight * psi
-    v_y_final = (1.0 - weight) * v_y_ks + weight * v_y
-
-    # Recalculate derived values
-    psi_sin_final = jnp.sin(psi_final)
-    psi_cos_final = jnp.cos(psi_final)
-
-    return jnp.array([psi_dot, v_x, v_y_final, psi_final, psi_cos_final, psi_sin_final, 
-                      s_x_final, s_y_final, slip_angle, delta], dtype=jnp.float32)
 
 
 @partial(jax.jit, static_argnames=["dt", "horizon", "model_type", "intermediate_steps"])
@@ -195,10 +177,8 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     Returns:
         trajectory: (H, 10) trajectory of states during applying the H controls
     """
-    if model_type == 'ks_pacejka':
-        dynamics_fn = lambda s, c: car_dynamics_ks_pacejka_jax(s, c, car_params, dt, intermediate_steps)
-    else:
-        dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(s, c, car_params, dt, intermediate_steps)
+   
+    dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(s, c, car_params, dt, intermediate_steps)
     
     def rollout_fn(state, control):
         next_state = dynamics_fn(state, control)
@@ -225,10 +205,8 @@ def car_steps_sequential_with_dt_array_jax(s0, Q_sequence, car_params, dt_array,
     Returns:
         trajectory: (H, 10) trajectory of states
     """
-    if model_type == 'ks_pacejka':
-        dynamics_fn = car_dynamics_ks_pacejka_jax
-    else:
-        dynamics_fn = car_dynamics_pacejka_jax
+
+    dynamics_fn = car_dynamics_pacejka_jax
     
     def rollout_fn(carry, step_idx):
         state = carry
@@ -279,10 +257,9 @@ def car_step_parallel_jax(states, controls, car_params, dt, model_type='pacejka'
     Returns:
         new_states: (N, 10) updated states array
     """
-    if model_type == 'ks_pacejka':
-        dynamics_fn = car_dynamics_ks_pacejka_jax
-    else:
-        dynamics_fn = car_dynamics_pacejka_jax
+
+
+    dynamics_fn = car_dynamics_pacejka_jax
     
     # Use vmap to vectorize over the batch dimension
     return jax.vmap(lambda s, c: dynamics_fn(s, c, car_params, dt, intermediate_steps))(states, controls)
@@ -293,7 +270,3 @@ def car_step_jax(state, control, car_params, dt, intermediate_steps=1):
     """Legacy function name - use car_dynamics_pacejka_jax instead"""
     return car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps)
 
-
-def car_step_ks_pacejka_jax(state, control, car_params, dt, intermediate_steps=1):
-    """Legacy function name - use car_dynamics_ks_pacejka_jax instead"""
-    return car_dynamics_ks_pacejka_jax(state, control, car_params, dt, intermediate_steps)
