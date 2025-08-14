@@ -83,7 +83,7 @@ class RPGDPlanner(template_planner):
         
         # RPGD specific parameters 
         self.elite_size = 6  # opt_keep_k_ratio
-        self.gradient_steps = 4  # More: Better convergence, but slower
+        self.gradient_steps = 5  # More: Better convergence, but slower
         self.resampling_freq = 5 
         
         self.rollout_trajectories = None  # Store trajectories for rendering
@@ -93,7 +93,7 @@ class RPGDPlanner(template_planner):
         self.num_interpolation_points = 1
         
         # Control smoothness parameters
-        self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
+        self.intra_horizon_smoothness_weight = 5.0  # Weight for smoothness within horizon
         self.angular_smoothness_weight = 1.0  # Relative weight for angular control smoothness
         self.translational_smoothness_weight = 0.1  # Relative weight for translational control smoothness
         
@@ -512,7 +512,7 @@ def cost_function_jax(state, control, waypoints):
     speed_cost = 0.25 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
     
     # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 1.0  # Heavy penalty for large steering angles
+    angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
     
     return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty
 
@@ -542,26 +542,6 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints,
     total_costs = total_costs.at[0].add(total_smoothness_penalty)
     
     return total_costs
-
-@jax.jit
-def cost_function_batch_sequence_jax(state_batch_sequence, Q_batch_sequence, waypoints, 
-                                   discount_factor=0.99, 
-                                   intra_horizon_smoothness_weight=2.0,
-                                   angular_smoothness_weight=1.0, 
-                                   translational_smoothness_weight=0.1):
-    horizon = Q_batch_sequence.shape[1]
-    discount = discount_factor ** jnp.arange(horizon - 1, -1, -1)
-    
-    def compute_total_cost(states, controls):
-        # Standard sequence cost with intra-horizon smoothness only
-        sequence_costs = cost_function_sequence_jax(states, controls, waypoints, 
-                                                  intra_horizon_smoothness_weight,
-                                                  angular_smoothness_weight, 
-                                                  translational_smoothness_weight)
-        return sequence_costs * discount
-    
-    cost_batch = jax.vmap(compute_total_cost)(state_batch_sequence, Q_batch_sequence)
-    return cost_batch
 
 @jax.jit
 def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
