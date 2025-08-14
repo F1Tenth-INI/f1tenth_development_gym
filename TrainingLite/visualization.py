@@ -35,7 +35,7 @@ sys.path.append(os.path.join(parent_dir, 'sim/f110_sim/envs'))
 sys.path.append(os.path.join(parent_dir, 'utilities'))
 
 
-from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_steps_sequential_jax
+from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
 # Import residual dynamics dynamically when needed
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES
@@ -69,7 +69,7 @@ class StateComparisonVisualizer:
         # Available car models
         self.available_models = {
             'pacejka': 'Pure Pacejka Model',
-            # 'pacejka_residual': 'Pacejka Model with Residuals',
+            'pacejka_custom': 'Pacejka Model with Customization',
         }
         
         # Available car parameter files
@@ -180,7 +180,7 @@ class StateComparisonVisualizer:
         horizon_entry.bind('<KeyRelease>', self.on_horizon_changed)
         
         ttk.Label(comparison_frame, text="Control Delay Steps:").pack()
-        self.control_delay_var = tk.StringVar(value="0")
+        self.control_delay_var = tk.StringVar(value="4")
         control_delay_entry = ttk.Entry(comparison_frame, textvariable=self.control_delay_var, width=10)
         control_delay_entry.pack()
         control_delay_entry.bind('<KeyRelease>', self.on_control_delay_changed)
@@ -301,35 +301,6 @@ class StateComparisonVisualizer:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load CSV file: {str(e)}")
                 
-    def load_residual_dynamics(self):
-        """Load residual dynamics module and create ResidualDynamics instance."""
-        if self.residual_functions_loaded:
-            return True
-            
-        try:
-            # Import residual dynamics functions
-            from sim.f110_sim.envs.dynamic_model_pacejka_jax_residual_simple import (
-                ResidualDynamics,
-                car_steps_sequential_jax_residual,
-            )
-            
-            # Store the functions as instance attributes so we can use them later
-            self.car_steps_sequential_jax_residual = car_steps_sequential_jax_residual
-            
-            # Create ResidualDynamics instance (this will load the model)
-            print("Loading residual dynamics model...")
-            self.residual_dynamics = ResidualDynamics()
-            
-            self.residual_functions_loaded = True
-            print("✅ Residual dynamics loaded successfully")
-            return True
-            
-        except Exception as e:
-            print(f"⚠️  Failed to load residual dynamics: {e}")
-            messagebox.showwarning("Warning", 
-                                 f"Failed to load residual dynamics: {e}\n"
-                                 "The 'Pacejka Model with Residuals' option will not work correctly.")
-            return False
     
     def on_state_changed(self, event=None):
         """Handle state selection change."""
@@ -399,13 +370,7 @@ class StateComparisonVisualizer:
         """Handle model selection change."""
         selected_model_key = self.get_model_key(self.model_var.get())
         
-        # If residual model is selected, load residual dynamics
-        if selected_model_key == 'pacejka_residual' and not self.residual_functions_loaded:
-            if not self.load_residual_dynamics():
-                # If loading failed, switch back to regular model
-                self.model_var.set(self.available_models['pacejka'])
-                return
-        
+    
         if self.enable_comparison.get():
             self.plot_state()
             
@@ -616,9 +581,9 @@ class StateComparisonVisualizer:
             # Calculate alpha that decreases over horizon
             alpha = alpha_base * (1.0 - 0.3 * color_position)  # Fade from full alpha to 70% alpha
             
-            # Plot segment
+            # Plot segment as dots
             self.ax.plot(time_data[i:i+2], prediction_data[i:i+2], 
-                       color=color, linewidth=2, alpha=alpha,
+                       'o', color=color, markersize=3, alpha=alpha,
                        label=label if i == 0 else None)
         
     def plot_controls(self, start_idx, end_idx, time_data):
@@ -952,7 +917,13 @@ class StateComparisonVisualizer:
                 return car_steps_sequential_jax(
                     initial_state, control_sequence, car_params, dt, horizon, 
                     model_type='pacejka',
-                    intermediate_steps=1
+                    intermediate_steps=2
+                )
+            elif model_name == 'pacejka_custom':
+                return car_steps_sequential_jax(
+                    initial_state, control_sequence, car_params, dt, horizon,
+                    model_type='pacejka_custom',
+                    intermediate_steps=2
                 )
             else:
                 print(f"Unknown model: {model_name}")

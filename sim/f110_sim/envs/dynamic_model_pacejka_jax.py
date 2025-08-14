@@ -4,27 +4,6 @@ from functools import partial
 
 
 
-
-class StateIndices:
-    yaw_rate = 0
-    v_x = 1
-    v_y = 2
-    yaw_angle = 3
-    yaw_angle_cos = 4
-    yaw_angle_sin = 5
-    pose_x = 6
-    pose_y = 7
-    slip_angle = 8
-    steering_angle = 9
-
-    number_of_states = 10
-    
-    
-class ControlIndices:
-    desired_steering_angle = 0
-    acceleration = 1
-
-
 @partial(jax.jit, static_argnames=['intermediate_steps'])
 def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1):
     """Advance car dynamics using JAX-optimized Pacejka model with kinematic blending.
@@ -143,15 +122,17 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         psi = (1.0 - weight) * psi_ks + weight * psi
         v_y = (1.0 - weight) * v_y_ks + weight * v_y
 
-        # Recalculate derived values
+        # Recalculate derived values (wrap angle)
         psi_sin = jnp.sin(psi)
         psi_cos = jnp.cos(psi)
+        psi = jnp.arctan2(psi_sin, psi_cos)
         
         # Calculate slip angle properly like original
         v_x_safe = jnp.where(v_x < 1e-3, 1e-3, v_x)
         slip_angle = jnp.arctan(v_y / v_x_safe)
 
         next_state = jnp.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta], dtype=jnp.float32)
+        
         return next_state, None
     
     # Apply intermediate steps using lax.scan for differentiability
@@ -159,60 +140,4 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     
     return final_state
 
-
-@partial(jax.jit, static_argnames=["dt", "horizon", "model_type", "intermediate_steps"])
-def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type='pacejka', intermediate_steps=1):
-    """
-    Run car dynamics for a single car sequentially.
-
-    Args:
-        s0: (10,) initial state
-        Q_sequence: (H, 2) sequence of H controls applied to the car
-        car_params: array of car parameters
-        dt: time step (float)
-        horizon: number of steps to run
-        model_type: 'pacejka' or 'ks_pacejka'
-        intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
-
-    Returns:
-        trajectory: (H, 10) trajectory of states during applying the H controls
-    """
-   
-    dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(s, c, car_params, dt, intermediate_steps)
-    
-    def rollout_fn(state, control):
-        next_state = dynamics_fn(state, control)
-        return next_state, next_state
-    
-    _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
-    return trajectory
-
-@partial(jax.jit, static_argnames=["model_type", "intermediate_steps"])
-def car_step_parallel_jax(states, controls, car_params, dt, model_type='pacejka', intermediate_steps=1):
-    """
-    Run car dynamics for multiple cars in parallel for a single time step.
-    
-    Args:
-        states: (N, 10) array where N is number of cars
-        controls: (N, 2) array where N is number of cars
-        car_params: array of car parameters
-        dt: time step (float)
-        model_type: 'pacejka' or 'ks_pacejka'
-        intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
-
-    Returns:
-        new_states: (N, 10) updated states array
-    """
-
-
-    dynamics_fn = car_dynamics_pacejka_jax
-    
-    # Use vmap to vectorize over the batch dimension
-    return jax.vmap(lambda s, c: dynamics_fn(s, c, car_params, dt, intermediate_steps))(states, controls)
-
-
-# Legacy function names for backward compatibility
-def car_step_jax(state, control, car_params, dt, intermediate_steps=1):
-    """Legacy function name - use car_dynamics_pacejka_jax instead"""
-    return car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps)
 

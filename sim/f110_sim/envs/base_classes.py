@@ -34,7 +34,8 @@ Author: Hongrui Zheng
 import numpy as np
 
 from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
-from f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
+from sim.f110_sim.envs.car_model_jax import car_dynamics_pacejka_jax
+
 
 from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_sim.envs.collision_models import get_vertices, collision_multiple

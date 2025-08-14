@@ -9,9 +9,7 @@ from utilities.render_utilities import RenderUtils
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
-from sim.f110_sim.envs.dynamic_model_pacejka_jax import (
-    car_steps_sequential_jax,
-)
+from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
