@@ -187,60 +187,6 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
     return trajectory
 
-
-@partial(jax.jit, static_argnames=["horizon", "model_type", "intermediate_steps"])
-def car_steps_sequential_with_dt_array_jax(s0, Q_sequence, car_params, dt_array, horizon, model_type='pacejka', intermediate_steps=1):
-    """
-    Run car dynamics with variable time steps.
-
-    Args:
-        s0: (10,) initial state  
-        Q_sequence: (H, 2) sequence of H controls
-        car_params: array of car parameters
-        dt_array: (H,) array of time steps
-        horizon: number of steps
-        model_type: 'pacejka' or 'ks_pacejka'
-        intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
-
-    Returns:
-        trajectory: (H, 10) trajectory of states
-    """
-
-    dynamics_fn = car_dynamics_pacejka_jax
-    
-    def rollout_fn(carry, step_idx):
-        state = carry
-        control = Q_sequence[step_idx]
-        dt = dt_array[step_idx]
-        next_state = dynamics_fn(state, control, car_params, dt, intermediate_steps)
-        return next_state, next_state
-    
-    _, trajectory = jax.lax.scan(rollout_fn, s0, jnp.arange(horizon))
-    return trajectory
-
-
-@partial(jax.jit, static_argnames=["model_type", "intermediate_steps"])
-def car_batch_sequence_jax(s_batch, Q_batch_sequence, car_params, dt_array, model_type='pacejka', intermediate_steps=1):
-    """
-    Run car dynamics for multiple cars in parallel.
-
-    Args:
-        s_batch: (N, 10) batch of initial states
-        Q_batch_sequence: (N, H, 2) batch of control sequences 
-        car_params: array of car parameters
-        dt_array: (H,) array of time steps
-        model_type: 'pacejka' or 'ks_pacejka'
-        intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
-
-    Returns:
-        trajectories: (N, H, 10) batch of trajectories
-    """
-    horizon = Q_batch_sequence.shape[1]
-    rollout_fn = lambda s, Q: car_steps_sequential_with_dt_array_jax(
-        s, Q, car_params, dt_array, horizon=horizon, model_type=model_type, intermediate_steps=intermediate_steps)
-    return jax.vmap(rollout_fn)(s_batch, Q_batch_sequence)
-
-
 @partial(jax.jit, static_argnames=["model_type", "intermediate_steps"])
 def car_step_parallel_jax(states, controls, car_params, dt, model_type='pacejka', intermediate_steps=1):
     """
