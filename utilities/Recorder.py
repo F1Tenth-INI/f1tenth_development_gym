@@ -41,6 +41,7 @@ class Recorder:
         self.recording_path = None
         self.recording_started = False  # Flag to prevent multiple start calls
     def step(self):
+        self.start_csv_recording_if_requested()
         self.csv_recording_step()
 
     @property
@@ -59,11 +60,15 @@ class Recorder:
         self.recording_on_off(time_limited_recording)
         self.start_csv_recording_if_requested()
 
-    def recording_on_off(self, time_limited_recording=False):
+    def toggle_recording(self, time_limited_recording=False):
+        """
+        Toggle recording on/off. If not recording, start recording. If recording, stop recording.
+        Returns True if recording was started, False if recording was stopped.
+        """
         # (Exclude situation when recording is just being initialized, it may take more than one control iteration)
         if not self.starting_recording:
             if not self.recording_running:
-
+                # Start recording
                 self.controller_info = self.driver.controller_name                
                 self.csv_name = create_csv_file_name(Settings)
 
@@ -73,9 +78,20 @@ class Recorder:
                     self.recording_length = np.inf
 
                 self.start_recording_flag = True
-
+                return True  # Recording started
             else:
+                # Stop recording
                 self.finish_csv_recording(wait_till_complete=True)
+                return False  # Recording stopped
+        
+        return None  # No action taken (recording is starting up)
+
+    def recording_on_off(self, time_limited_recording=False):
+        """
+        Deprecated: Use toggle_recording() instead.
+        Kept for backward compatibility.
+        """
+        return self.toggle_recording(time_limited_recording)
 
 
     def start_csv_recording_if_requested(self):

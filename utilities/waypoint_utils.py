@@ -284,9 +284,14 @@ class WaypointUtils:
                 self.sector_index = len(self.sectors) - 1
         self.save_sector_file()
 
-    def change_sector(self, sector_index, new_scaling):
+    def set_sector_speed(self, sector_index, new_scaling):
         self.sectors[sector_index][SECTOR_SCALING_IDX] = new_scaling
         self.save_sector_file()
+
+    def change_current_sector_speed(self, delta):
+        current_speed = self.sectors[self.sector_index][SECTOR_SCALING_IDX]
+        new_speed = current_speed + delta
+        self.set_sector_speed(self.sector_index, new_speed)
 
     def save_sector_file(self):
         path = os.path.join(self.map_path, self.map_name)

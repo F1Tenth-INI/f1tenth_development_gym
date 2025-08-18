@@ -455,9 +455,17 @@ class CarSystem:
 
     def on_press(self,key):
         try:
-            if key.char == 'r':  # Press 'r' to start recording
-                print("Start recording...")
-                self.start_recorder()  # Replace 'car' with your object instance
+            if key.char == 'r':  # Press 'r' to toggle recording
+                if self.recorder is not None:
+                    recording_started = self.recorder.toggle_recording()
+                    if recording_started is True:
+                        print("Recording STARTED (r key pressed)")
+                    elif recording_started is False:
+                        print("Recording STOPPED (r key pressed)")
+                    else:
+                        print("Recording toggle requested but recorder is starting up...")
+                else:
+                    print("No recorder available to toggle")
         except AttributeError:
             pass  # For special keys like shift, ctrl, etc.
 
