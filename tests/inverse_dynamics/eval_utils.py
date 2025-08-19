@@ -1,4 +1,3 @@
-# tests/inverse_dynamics/eval_utils.py
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -8,10 +7,10 @@ import pandas as pd
 
 from tests.inverse_dynamics import config as CFG
 from utilities.InverseDynamics import (
-    CarInverseDynamicsFast,
-    CarInverseDynamics,
-    CarInverseDynamicsHybrid,
+    TrajectoryRefiner,
+    ProgressiveWindowRefiner,
     HARD_CODED_STATE_STD,
+    build_kinematic_seed,
 )
 
 # ------- Data loading / synthesis -------
@@ -219,19 +218,20 @@ def enumerate_end_indices(n_states: int, T: int) -> List[int]:
             ends.append(e)
     else:  # tail
         e = max_end
-        # back off by stride until we have MAX_WINDOWS_PER_T (and respect T)
         while e >= T and len(ends) < int(CFG.MAX_WINDOWS_PER_T):
             ends.append(e)
             e -= stride
         ends.sort()
     return ends
 
-# ------- Evaluation harness -------
+# ------- Assertions / helpers -------
 
 def _assert_pinned(x_T: np.ndarray, states_pred: np.ndarray):
     # Pinned newest state must match exactly (within numeric tolerance)
     if not np.allclose(states_pred[0], x_T[0], atol=1e-6):
         raise AssertionError("Pinned newest state changed by solver.")
+
+# ------- Evaluation harness (new architecture) -------
 
 def eval_fast(x_T: np.ndarray,
               Q_old_to_new: np.ndarray,
@@ -241,20 +241,20 @@ def eval_fast(x_T: np.ndarray,
               dt: float,
               mu: Optional[float],
               return_states: bool=False):
-    # Build initializer
-    if init_type == "none":
-        x_init_seq = None
-    elif init_type == "noisy":
-        x_init_seq = gt_newest_first[1:].copy()
+    """
+    'fast' now = TrajectoryRefiner with a kinematic seed (no LM).
+    """
+    T = Q_old_to_new.shape[0]
+    seed = build_kinematic_seed(x_T[0], Q_old_to_new, dt)
+    if init_type == "noisy":
         rng = np.random.default_rng(1234)
-        noise = rng.normal(0.0, 1.0, size=x_init_seq.shape).astype(np.float32)
-        x_init_seq = x_init_seq + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
-    else:
+        seed = seed + noise_scale * HARD_CODED_STATE_STD[None, :] * rng.normal(0.0, 1.0, size=seed.shape).astype(np.float32)
+    elif init_type != "none":
         raise ValueError("init_type must be one of: none, noisy")
 
-    solver = CarInverseDynamicsFast(mu=mu, controls_are_pid=True, dt=dt, controls_time_order="old_to_new")
+    solver = TrajectoryRefiner(mu=mu, controls_are_pid=True, dt=dt)
     t0 = time.perf_counter()
-    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, x_init_sequence=x_init_seq)
+    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, X_init=seed)
     dt_sec = time.perf_counter() - t0
     _assert_pinned(x_T, states_pred)
 
@@ -283,21 +283,19 @@ def eval_refine(x_T: np.ndarray,
                 dt: float,
                 mu: Optional[float],
                 return_states: bool=False):
-    T = Q_old_to_new.shape[0]
-    # Build initializer (X_init newest-first without pinned)
-    if init_type == "none":
-        X_init = np.repeat(x_T, repeats=T, axis=0)
-    elif init_type == "noisy":
-        X_init = gt_newest_first[1:].copy()
+    """
+    Refine with either kinematic seed ('none') or kinematic+noise ('noisy').
+    """
+    seed = build_kinematic_seed(x_T[0], Q_old_to_new, dt)
+    if init_type == "noisy":
         rng = np.random.default_rng(1234)
-        noise = rng.normal(0.0, 1.0, size=X_init.shape).astype(np.float32)
-        X_init = X_init + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
-    else:
+        seed = seed + noise_scale * HARD_CODED_STATE_STD[None, :] * rng.normal(0.0, 1.0, size=seed.shape).astype(np.float32)
+    elif init_type != "none":
         raise ValueError("init_type must be one of: none, noisy")
 
-    solver = CarInverseDynamics(mu=mu, controls_are_pid=True, dt=dt)
+    solver = TrajectoryRefiner(mu=mu, controls_are_pid=True, dt=dt)
     t0 = time.perf_counter()
-    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, X_init=X_init)
+    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, X_init=seed)
     dt_sec = time.perf_counter() - t0
     _assert_pinned(x_T, states_pred)
 
@@ -324,10 +322,13 @@ def eval_hybrid(x_T: np.ndarray,
                 dt: float,
                 mu: Optional[float],
                 return_states: bool=False):
-    solver = CarInverseDynamicsHybrid(mu=mu, controls_are_pid=True, dt=dt, controls_time_order="old_to_new",
+    """
+    Progressive overlapping windows (refine-only).
+    """
+    solver = ProgressiveWindowRefiner(mu=mu, controls_are_pid=True, dt=dt,
                                       window_size=CFG.HYB_WINDOW, overlap=CFG.HYB_OVERLAP)
     t0 = time.perf_counter()
-    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new)
+    states_pred, conv_flags = solver.refine(x_T, Q_old_to_new)
     dt_sec = time.perf_counter() - t0
     _assert_pinned(x_T, states_pred)
 
