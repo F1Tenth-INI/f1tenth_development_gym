@@ -212,6 +212,12 @@ class TrajectoryRefiner:
         self.x_next_var = tf.Variable(tf.zeros([self.state_dim], tf.float32), trainable=False)
         self.T_var      = tf.Variable(0, dtype=tf.int32, trainable=False)
 
+        # ---- PATH PRIOR (optional; filled by ProgressiveWindowRefiner) ----
+        # Prior targets (kinematic reference) and per-step weights for current horizon
+        self.KP_var = tf.Variable(tf.zeros([self.MAX_T, self.state_dim], tf.float32), trainable=False, name="prior_targets")
+        self.KW_var = tf.Variable(tf.zeros([self.MAX_T], tf.float32),                    trainable=False, name="prior_weights")
+
+
         # Optimizer
         try:
             opt = tf.keras.optimizers.legacy.Adam
@@ -301,7 +307,7 @@ class TrajectoryRefiner:
         T = self.T_var
 
         def cost():
-            c = tf.constant(0.0, tf.float32)
+            cost_val = tf.constant(0.0, tf.float32)
             for i in tf.range(T):
                 x_i  = self.x_next_var if tf.equal(i, 0) else self.X_var[i-1, :]
                 x_i  = _fix_sin_cos(x_i)
@@ -309,15 +315,38 @@ class TrajectoryRefiner:
                 qi   = self.Q_var[i, :]
                 x_pred = self._f(xim1[tf.newaxis, :], qi[tf.newaxis, :])[0]
                 x_pred = _fix_sin_cos(x_pred)
-                c += _partial_state_huber(x_pred, x_i, delta=self.RES_DELTA,
+                c_dyn = _partial_state_huber(x_pred, x_i, delta=self.RES_DELTA,
                                           state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR)
+
+                cost_val += c_dyn
+
+                # ---- PATH PRIOR (if enabled for this step) -----------------
+                # Prior targets (kinematic reference) newest→older in KP_var
+                # Prior weights (per step) in KW_var; 0.0 disables the term.
+                w_i = self.KW_var[i]
+
+                def _add_prior_term():
+                    x_state = _fix_sin_cos(self.X_var[i, :])  # current var state
+                    kp_i = _fix_sin_cos(self.KP_var[i, :])  # prior target
+                    # Use TEMP_DELTA for prior's Huber; no slip prior here
+                    c_pr = _partial_state_huber(
+                        x_state, kp_i,
+                        delta=self.TEMP_DELTA,
+                        state_scale=self.state_scale,
+                        slip_lambda=0.0
+                    )
+                    return cost_val + w_i * c_pr
+
+                cost_val = tf.cond(w_i > 0.0, _add_prior_term, lambda: cost_val)
+
+            # --- Robust temporal smoothness (mild) ---
             for i in tf.range(1, T):
                 x_cur  = _fix_sin_cos(self.X_var[i, :])
                 x_prev = _fix_sin_cos(self.X_var[i-1, :])
-                c += self.REG_TEMPORAL * _partial_state_huber(
+                cost_val += self.REG_TEMPORAL * _partial_state_huber(
                     x_cur, x_prev, delta=self.TEMP_DELTA, state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR
                 )
-            return c
+            return cost_val
 
         try:
             self.base_optimizer.learning_rate.assign(self.LR1)
@@ -339,6 +368,29 @@ class TrajectoryRefiner:
             g = tape.gradient(c, [self.X_var])
             self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
 
+    # --- prior API (called by ProgressiveWindowRefiner) ---
+    def set_path_prior(self, prior_targets: np.ndarray, prior_weights: np.ndarray):
+        """prior_targets: [T,10] newest→older; prior_weights: [T] per-step weights (0 means off)."""
+        T = prior_targets.shape[0]
+        self.KP_var[:T].assign(prior_targets.astype(np.float32))
+        self.KW_var[:T].assign(prior_weights.astype(np.float32))
+        # Zero out remaining (optional)
+        if T < int(self.MAX_T):
+            self.KP_var[T:].assign(tf.zeros_like(self.KP_var[T:]))
+            self.KW_var[T:].assign(tf.zeros_like(self.KW_var[T:]))
+
+    def clear_path_prior(self):
+        T = int(self.T_var.numpy())
+        self.KW_var[:T].assign(tf.zeros_like(self.KW_var[:T]))
+
+    # --- trace counter (to verify retracing isn’t happening repeatedly) ---
+    def tracing_count(self) -> Optional[int]:
+        try:
+            return self._optimize_compiled.experimental_get_tracing_count()
+        except Exception:
+            return None
+
+
 # ======================================================================================
 # Progressive overlapping windows (refine-only)
 # ======================================================================================
@@ -350,8 +402,19 @@ class ProgressiveWindowRefiner:
     - For k_end = W, W+(W-O), ...: refine the prefix pinned at the measured newest state.
     """
 
-    def __init__(self, mu: Optional[float]=None, controls_are_pid: bool=True, dt: Optional[float]=None,
-                 window_size: int = 30, overlap: int = 10,
+    def __init__(self,
+                 mu: Optional[float]=None,
+                 controls_are_pid: bool=True,
+                 dt: Optional[float]=None,
+                 window_size: int = 30,
+                 overlap: int = 10,
+                 # --- NEW: smoothing pass controls ---
+                 smoothing_window: Optional[int] = None,
+                 smoothing_overlap: Optional[int] = None,
+                 # --- NEW: path-prior schedule ---
+                 prior_weight0: float = 1e-3,
+                 prior_decay: float = 0.5,
+                 prior_min: float = 1e-5,
                  state_scale_std_map: Optional[Dict[str,float]]=None):
         if overlap < 0 or window_size <= 0 or overlap >= window_size:
             raise ValueError("window_size>0 and 0 <= overlap < window_size required.")
@@ -363,6 +426,16 @@ class ProgressiveWindowRefiner:
         self.overlap     = int(overlap)
         self.dt = self.refiner.dt
 
+        # smoothing pass
+        self.smooth_W = int(smoothing_window) if smoothing_window else None
+        self.smooth_O = int(smoothing_overlap) if smoothing_overlap else None
+
+        # path-prior schedule
+        self.prior_w0   = float(prior_weight0)
+        self.prior_decay= float(prior_decay)
+        self.prior_min  = float(prior_min)
+
+
     def refine(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         x_T = np.asarray(x_T, np.float32); Q = np.asarray(Q, np.float32)
         T = int(Q.shape[0]); W = self.window_size; O = self.overlap
@@ -372,14 +445,52 @@ class ProgressiveWindowRefiner:
         refined = np.vstack([x_T[0], seed_full]).astype(np.float32)  # [T+1,10]
 
         k_end = min(W, T)
+        prev_k_end = 0
+        lam = self.prior_w0  # start prior weight
+
         while True:
-            Q_seg  = Q[T - k_end : T]            # old→new
-            X_init = refined[1 : k_end + 1]      # newest→older current prefix
+            # old->new subset of controls for this prefix
+            Q_seg  = Q[T - k_end : T]            # [k_end,2]
+            # newest->older current prefix as warm start
+            X_init = refined[1 : k_end + 1]          # [k_end,10]
+
+            # ---- PATH-PRIOR: only on newly added chunk -------------------
+            grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
+            prior_targets = seed_full[:k_end]        # newest->older kinematic reference for this window
+            prior_weights = np.zeros((k_end,), dtype=np.float32)
+            if grow_sz > 0:
+                prior_weights[-grow_sz:] = lam       # only the newly added tail gets a small prior
+
+            self.refiner.set_path_prior(prior_targets, prior_weights)
+
             states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+            self.refiner.clear_path_prior()          # clear prior for next call
+
             refined[:k_end+1] = states_w
+            prev_k_end = k_end
+
             if k_end == T:
                 break
+
+            # decay prior weight for next grow
+            lam = max(self.prior_min, lam * self.prior_decay)
             k_end = min(k_end + (W - O), T)
+
+        # ---- OPTIONAL SMOOTHING PASS (bigger window) ----------------------
+        if self.smooth_W:
+            W2 = int(self.smooth_W)
+            O2 = int(self.smooth_O if self.smooth_O is not None else max(1, W2 // 2))
+            k2 = min(W2, T)
+            while True:
+                Q_seg  = Q[T - k2 : T]              # [k2,2]
+                X_init = refined[1 : k2 + 1]        # current trajectory as warm start
+                # no path prior for smoothing pass
+                self.refiner.clear_path_prior()
+                states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+                refined[:k2+1] = states_w
+                if k2 == T:
+                    break
+                k2 = min(k2 + (W2 - O2), T)
 
         # Consistency flags (eager)
         flags = np.zeros((T,), dtype=bool)

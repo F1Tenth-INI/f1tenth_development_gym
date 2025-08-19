@@ -34,6 +34,12 @@ COLLECT_SERIES: bool = True
 PLOT_SERIES: bool = False          # set True to save plots
 PLOTS_DIR: str = "tests/inverse_dynamics/_out/plots"
 MAX_SERIES_PLOTS: int = 600          # limit number of plots written
+# Aggregate per-step RMSE plots (mean ± std) per {file, solver, T, init} bundle
+PLOT_AGG_SERIES: bool = True
+PLOTS_AGG_DIR: str = "tests/inverse_dynamics/_out/agg_plots"
+# Also save the aggregated curve data (mean/std) next to the PNG
+SAVE_AGG_SERIES_CSV: bool = True
+
 
 # Optional CSV to save results ("" to disable). If directory, an auto filename is created.
 SAVE_CSV: str = "tests/inverse_dynamics/_out"

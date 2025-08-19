@@ -14,6 +14,8 @@ from tests.inverse_dynamics.eval_utils import (
 )
 from utilities.InverseDynamics import HARD_CODED_STATE_STD
 
+from collections import defaultdict
+
 def _p(msg: str):
     print(msg, flush=True)
 
@@ -65,6 +67,40 @@ def _maybe_plot_series(rmse_curve: np.ndarray, title: str, out_file: Path):
     plt.savefig(out_file)
     plt.close()
 
+
+# bundle_key = (file, solver, T, init)
+_AGG_CURVES: dict[tuple, list[np.ndarray]] = defaultdict(list)
+
+def _add_curve_to_bundle(file_name: str, solver: str, T: int, init: str, rmse_step: np.ndarray):
+    _AGG_CURVES[(file_name, solver, int(T), init)].append(rmse_step.astype(np.float32))
+
+def _plot_agg_series(curves: list[np.ndarray], title: str, out_png: Path, out_csv: Path | None):
+    import matplotlib.pyplot as plt
+    # ensure same length (should be, because same T; guard anyway)
+    L = min(int(c.shape[0]) for c in curves)
+    if L == 0: return
+    A = np.stack([c[:L] for c in curves], axis=0)  # [N,L]
+    mean = A.mean(axis=0)
+    std = A.std(axis=0)
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    plt.figure()
+    x = np.arange(L)
+    plt.plot(x, mean, label="mean")
+    plt.fill_between(x, mean - std, mean + std, alpha=0.25, label="±1σ")
+    plt.xlabel("steps into past (older → right)")
+    plt.ylabel("scaled RMSE")
+    plt.title(title)
+    plt.legend(loc="best")
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=150)
+    plt.close()
+
+    if out_csv is not None:
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame({"step": x, "rmse_mean": mean, "rmse_std": std}).to_csv(out_csv, index=False)
+
+
 def test_inverse_dynamics_recover_and_bench():
     files = gather_csv_files(CFG.DATA_DIR, max_files=CFG.MAX_FILES, all_files=CFG.PROCESS_ALL_FILES)
     assert len(files) >= 1, "No CSV files found or synthesized"
@@ -106,6 +142,7 @@ def test_inverse_dynamics_recover_and_bench():
                         if CFG.COLLECT_SERIES:
                             res, states_pred = out
                             ser = per_step_scaled_errors(states_pred, gt, HARD_CODED_STATE_STD)
+                            _add_curve_to_bundle(Path(file).name, solver, T, init, ser["rmse_step"])
                             res.update({
                                 "file": Path(file).name, "solver": solver, "T": T, "init": init, "end_idx": end_idx
                             })
@@ -133,6 +170,7 @@ def test_inverse_dynamics_recover_and_bench():
                         if CFG.COLLECT_SERIES:
                             res, states_pred = out
                             ser = per_step_scaled_errors(states_pred, gt, HARD_CODED_STATE_STD)
+                            _add_curve_to_bundle(Path(file).name, solver, T, init, ser["rmse_step"])
                             res.update({
                                 "file": Path(file).name, "solver": solver, "T": T, "init": init, "end_idx": end_idx
                             })
@@ -157,6 +195,7 @@ def test_inverse_dynamics_recover_and_bench():
                     if CFG.COLLECT_SERIES:
                         res, states_pred = out
                         ser = per_step_scaled_errors(states_pred, gt, HARD_CODED_STATE_STD)
+                        _add_curve_to_bundle(Path(file).name, solver, T, init, ser["rmse_step"])
                         res.update({
                             "file": Path(file).name, "solver": solver, "T": T, "init": "n/a", "end_idx": end_idx
                         })
@@ -185,6 +224,70 @@ def test_inverse_dynamics_recover_and_bench():
     if CFG.SAVE_CSV:
         _results_to_csv(results, Path(file), suffix=CFG.WINDOW_MODE)
 
+    # ---- Aggregated bundles: mean/std per (file, solver, T, init) ----
+    df_all = pd.DataFrame(results)
+    group_cols = ["file", "solver", "T", "init"]
+
+    agg = df_all.groupby(group_cols).agg(
+        conv_rate_mean=("conv_rate", "mean"),
+        conv_rate_std=("conv_rate", "std"),
+        time_s_mean=("time_s", "mean"),
+        time_s_std=("time_s", "std"),
+        mae_mean_mean=("mae_mean", "mean"),
+        mae_mean_std=("mae_mean", "std"),
+        rmse_mean_mean=("rmse_mean", "mean"),
+        rmse_mean_std=("rmse_mean", "std"),
+        rmse_auc_mean=("rmse_auc", "mean"),
+        rmse_auc_std=("rmse_auc", "std"),
+        rmse_head_mean=("rmse_head", "mean"),
+        rmse_head_std=("rmse_head", "std"),
+        rmse_tail_mean=("rmse_tail", "mean"),
+        rmse_tail_std=("rmse_tail", "std"),
+        growth_ratio_mean=("growth_ratio", "mean"),
+        growth_ratio_std=("growth_ratio", "std"),
+        trace_count_max=("trace_count", "max"),
+    ).reset_index()
+
+    # Save aggregated CSV side-by-side
+    if CFG.SAVE_CSV:
+        out_path = Path(CFG.SAVE_CSV)
+        out_dir = out_path if out_path.is_dir() or out_path.suffix == "" else out_path.parent
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        stem = Path(file).stem
+        agg_path = out_dir / f"inverse_dynamics_results_{stem}_{CFG.WINDOW_MODE}_agg_{ts}.csv"
+        agg_path.parent.mkdir(parents=True, exist_ok=True)
+        agg.to_csv(agg_path, index=False)
+        _p(f"[ID] Saved aggregated results to: {agg_path}")
+
+    # Optional: print a short summary
+    _p("[ID] Bundle summary (mean±std):")
+    for _, r in agg.iterrows():
+        _p(f"  {r['solver']:7s} T={int(r['T']):3d} init={r['init']:>5s}  "
+           f"rmse={r['rmse_mean_mean']:.4f}±{(0.0 if np.isnan(r['rmse_mean_std']) else r['rmse_mean_std']):.4f}  "
+           f"time={r['time_s_mean']:.3f}±{(0.0 if np.isnan(r['time_s_std']) else r['time_s_std']):.3f}s  "
+           f"trace_count_max={int(r['trace_count_max'])}")
+
+    # ---- Bundle mean±std per-step RMSE plots ----
+    if getattr(CFG, "PLOT_AGG_SERIES", False):
+        plot_dir = Path(CFG.PLOTS_AGG_DIR)
+        for (f_name, solver, T, init), curves in _AGG_CURVES.items():
+            if not curves:
+                continue
+            stem = Path(f_name).stem
+            title = f"{solver} | T={T} | init={init} | {stem}"
+            png_path = plot_dir / f"{stem}_{solver}_T{T}_{init}_agg.png"
+            csv_path = (plot_dir / f"{stem}_{solver}_T{T}_{init}_agg_curve.csv") if getattr(CFG, "SAVE_AGG_SERIES_CSV",
+                                                                                            False) else None
+            _plot_agg_series(curves, title, png_path, csv_path)
+
+    # Optional: print a short summary
+    _p("[ID] Bundle summary (mean±std):")
+    for _, r in agg.iterrows():
+        _p(f"  {r['solver']:7s} T={int(r['T']):3d} init={r['init']:>5s}  "
+           f"rmse={r['rmse_mean_mean']:.4f}±{(0.0 if np.isnan(r['rmse_mean_std']) else r['rmse_mean_std']):.4f}  "
+           f"time={r['time_s_mean']:.3f}±{(0.0 if np.isnan(r['time_s_std']) else r['time_s_std']):.3f}s  "
+           f"trace_count_max={int(r['trace_count_max'])}")
+
     # Sanity: at least one experiment ran
     assert len(results) > 0
     # Basic quality gate: refine should have a strictly better median rmse than fast (when both ran)
@@ -195,3 +298,4 @@ def test_inverse_dynamics_recover_and_bench():
             med_fast = np.median([r["rmse_mean"] for r in r_fast])
             med_ref  = np.median([r["rmse_mean"] for r in r_ref])
             assert med_ref <= med_fast * 1.05  # within 5%
+
