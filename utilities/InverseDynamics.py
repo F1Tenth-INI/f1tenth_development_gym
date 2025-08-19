@@ -1,10 +1,10 @@
-# utilities/InverseDynamics.py
 # Plausible past-trajectory reconstruction from current state and past controls.
-# Warm-start with per-step LM; refine in short overlapping windows with robust losses.
-# Scaling is hard-coded from your dataset's std row so you don't need to import any table.
+# Fast per-step LM (robust, O(T)) + short whole-window refinement (robust Huber).
+# Scaling is hard-coded so you don't need to import any external stats tables.
 
 from __future__ import annotations
 
+import os
 import numpy as np
 import tensorflow as tf
 from typing import Dict, Optional, Tuple
@@ -12,7 +12,7 @@ from typing import Dict, Optional, Tuple
 ###############################################################################
 # Assumes these exist in your environment (same as before):
 #  - TensorFlowLibrary
-#  - car_model (your forward simulator; see ks/pacejka implementations)
+#  - car_model (your forward simulator)
 #  - Settings
 #  - POSE_THETA_IDX, SLIP_ANGLE_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX
 ###############################################################################
@@ -26,6 +26,15 @@ from utilities.state_utilities import (
     POSE_THETA_COS_IDX,
 )
 
+# -----------------------------------------------------------------------------
+# XLA toggles (env-driven):
+#   ID_USE_XLA      -> used by the refine kernel (compiled optimization loop)
+#   ID_USE_XLA_LM   -> used by the per-step LM kernel (default 0; XLA is fragile
+#                      here on Apple CPU due to jacobian+while interactions)
+# -----------------------------------------------------------------------------
+USE_XLA = bool(int(os.getenv("ID_USE_XLA", "0")))
+USE_XLA_LM = bool(int(os.getenv("ID_USE_XLA_LM", "0")))
+
 # ======================================================================================
 # Utilities
 # ======================================================================================
@@ -36,11 +45,10 @@ def _angle_wrap_diff(thA: tf.Tensor, thB: tf.Tensor) -> tf.Tensor:
     thB = tf.cast(thB, tf.float32)
     return tf.atan2(tf.sin(thA - thB), tf.cos(thA - thB))
 
-
 def _fix_sin_cos(x: tf.Tensor) -> tf.Tensor:
     """
     Project sin/cos channels to match the heading angle in x.
-    This eliminates redundant degrees of freedom during optimization.
+    Eliminates redundant DOFs during optimization.
     x: shape [state_dim]
     """
     x = tf.cast(x, tf.float32)
@@ -53,7 +61,6 @@ def _fix_sin_cos(x: tf.Tensor) -> tf.Tensor:
         updates=tf.stack([sin_val, cos_val], axis=0),
     )
 
-
 def _huber(z: tf.Tensor, delta: tf.Tensor) -> tf.Tensor:
     """
     Elementwise Huber penalty for robustness to occasional large mismatches.
@@ -63,7 +70,6 @@ def _huber(z: tf.Tensor, delta: tf.Tensor) -> tf.Tensor:
     delta = tf.cast(delta, tf.float32)
     a = tf.abs(z)
     return tf.where(a <= delta, 0.5 * a * a, delta * (a - 0.5 * delta))
-
 
 # ======================================================================================
 # Dataset-aware scaling (hard-coded default)
@@ -107,12 +113,10 @@ _SCALE_FLOORS = np.array([
     0.05,   # δ
 ], dtype=np.float32)
 
-
 def _build_state_scale_from_std(std_map: Dict[str, float]) -> np.ndarray:
     """
     Optional override: build per-channel scaling from a dict of dataset std values.
-    Expected keys in std_map: 'angular_vel_z','linear_vel_x','linear_vel_y',
-                              'pose_theta','pose_x','pose_y','slip_angle','steering_angle'.
+    Expected keys: angular_vel_z, linear_vel_x, linear_vel_y, pose_theta, pose_x, pose_y, slip_angle, steering_angle.
     Missing keys fall back to floors.
     """
     scale = np.array([
@@ -129,7 +133,6 @@ def _build_state_scale_from_std(std_map: Dict[str, float]) -> np.ndarray:
     ], dtype=np.float32)
     return np.maximum(scale, _SCALE_FLOORS)
 
-
 # ======================================================================================
 # Residual builders that are scale-aware
 # ======================================================================================
@@ -145,23 +148,17 @@ def _residual_vector_step(x_pred: tf.Tensor,
       - pre-whiten by 1/state_scale for the kept channels.
     Returns: vector r of shape [len(keep_idx)]
     """
-    # raw difference
     dif = x_pred - x_target
-    # replace heading component by wrapped difference
     th_diff = _angle_wrap_diff(x_pred[POSE_THETA_IDX], x_target[POSE_THETA_IDX])
     dif = tf.tensor_scatter_nd_update(
         dif, indices=tf.constant([[POSE_THETA_IDX]], dtype=tf.int32), updates=tf.reshape(th_diff, [1])
     )
-    # keep only selected indices
     r = tf.gather(dif, keep_idx)
     weights = 1.0 / tf.gather(state_scale, keep_idx)
     return r * weights
 
-
 def _state_diff_wrapped_drop_sincos(xA: tf.Tensor, xB: tf.Tensor) -> tf.Tensor:
-    """
-    Full-length diff vector (len=10) with heading wrapped and sin/cos zeroed (dropped).
-    """
+    """Full-length diff vector (len=10) with heading wrapped and sin/cos zeroed (dropped)."""
     xA = tf.cast(xA, tf.float32); xB = tf.cast(xB, tf.float32)
     dif = xA - xB
     th_diff = _angle_wrap_diff(xA[POSE_THETA_IDX], xB[POSE_THETA_IDX])
@@ -173,7 +170,6 @@ def _state_diff_wrapped_drop_sincos(xA: tf.Tensor, xB: tf.Tensor) -> tf.Tensor:
         dif, indices=tf.constant([[POSE_THETA_SIN_IDX],[POSE_THETA_COS_IDX]], dtype=tf.int32), updates=zeros2
     )
     return dif
-
 
 def _partial_state_huber(xA: tf.Tensor,
                          xB: tf.Tensor,
@@ -197,7 +193,6 @@ def _partial_state_huber(xA: tf.Tensor,
         cost += tf.convert_to_tensor(slip_lambda, tf.float32) * _huber(slip_diff, delta)
     return cost
 
-
 # ======================================================================================
 # Fast sequential LM: robust, O(T), no horizon-wide backprop.
 # ======================================================================================
@@ -209,16 +204,6 @@ class CarInverseDynamicsFast:
         x_{k} (older) = argmin_x ||φ(f(x, u_k), x_{k+1})||^2
     Where φ wraps heading and drops [slip, sin, cos] in the residual.
     Uses residual pre-whitening and a trust-region measured in **scaled** units.
-
-    controls_are_pid:
-        True  → your controls are *pre-servo* (“desired angle, translational control”).
-                 The forward map f includes servo+constraints (car_model.step_dynamics).
-        False → your controls are already (delta_dot, v_x_dot).
-                 The forward map is the *core* dynamics (car_model.step_dynamics_core).
-
-    controls_time_order:
-        'old_to_new' (default): Q[0] is oldest, Q[T-1] is newest. We'll invert using Q in reverse.
-        'new_to_old': Q[0] is newest. We'll use it as-is.
     """
 
     def __init__(self, mu: Optional[float]=None, controls_are_pid: bool=True, dt: Optional[float]=None,
@@ -246,19 +231,17 @@ class CarInverseDynamicsFast:
             scale_np = _build_state_scale_from_std(state_scale_std_map)
         self.state_scale = tf.Variable(scale_np, dtype=tf.float32, trainable=False, name='state_scale')
 
-        # Config
         self.controls_time_order = controls_time_order
 
         # LM hyperparameters (tuned to scaled units; robust defaults)
-        self.max_iters_per_step = 16
+        self.max_iters_per_step = 12
         self.init_damping       = tf.constant(1e-2,  dtype=tf.float32)
         self.min_damping        = tf.constant(1e-6,  dtype=tf.float32)
         self.max_damping        = tf.constant(1e+6,  dtype=tf.float32)
-        self.backtrack_steps    = 6
+        self.backtrack_steps    = 5
         self.trust_clip         = tf.constant(0.5,   dtype=tf.float32)  # in scaled-norm
         self.stop_tol_cost      = tf.constant(1e-6,  dtype=tf.float32)
         self.stop_tol_step      = tf.constant(1e-5,  dtype=tf.float32)
-        self._I = tf.eye(self.state_dim, dtype=tf.float32)
 
     # ----- API -----
 
@@ -286,8 +269,8 @@ class CarInverseDynamicsFast:
         """
         x_T = np.asarray(x_T, dtype=np.float32)
         Q = np.asarray(Q, dtype=np.float32)
-        if x_T.shape != (1, self.state_dim):
-            raise ValueError(f"x_T must be [1,{self.state_dim}]. Got {x_T.shape}")
+        if x_T.shape != (1, STATE_DIM):
+            raise ValueError(f"x_T must be [1,{STATE_DIM}]. Got {x_T.shape}")
         if Q.ndim != 2 or Q.shape[1] != self.control_dim:
             raise ValueError(f"Q must be [T,{self.control_dim}]. Got {Q.shape}")
 
@@ -299,37 +282,45 @@ class CarInverseDynamicsFast:
             raise ValueError("controls_time_order must be 'old_to_new' or 'new_to_old'")
 
         T = Q_use.shape[0]
-        states = tf.TensorArray(tf.float32, size=T+1, clear_after_read=False)
-        conv   = tf.TensorArray(tf.bool,    size=T,   clear_after_read=False)
 
-        xk = _fix_sin_cos(tf.convert_to_tensor(x_T[0], dtype=tf.float32))  # pinned newest
-        states = states.write(0, xk)
+        # Eager Python lists → avoid TensorArray warnings; negligible overhead.
+        states_list: list[tf.Tensor] = [None] * (T + 1)  # type: ignore
+        conv_list:   list[tf.Tensor] = [None] * T        # type: ignore
+
+        # Keep the pinned newest state EXACTLY as given (don’t rewrite sin/cos)
+        xk = tf.convert_to_tensor(x_T[0], dtype=tf.float32)
+        states_list[0] = tf.convert_to_tensor(x_T[0], dtype=tf.float32)
 
         x_inits = None
         if x_init_sequence is not None:
             x_init_sequence = np.asarray(x_init_sequence, dtype=np.float32)
-            if x_init_sequence.shape != (T, self.state_dim):
-                raise ValueError(f"x_init_sequence must be [T,{self.state_dim}]")
+            if x_init_sequence.shape != (T, STATE_DIM):
+                raise ValueError(f"x_init_sequence must be [T,{STATE_DIM}]")
             x_inits = tf.convert_to_tensor(x_init_sequence, dtype=tf.float32)
 
         for k in range(T):
             uk = tf.convert_to_tensor(Q_use[k], dtype=tf.float32)
             x0 = x_inits[k] if x_inits is not None else xk
             x_prev, ok = self._invert_one_step_LM(xk, uk, x0)
-            states = states.write(k+1, x_prev)
-            conv   = conv.write(k, ok)
+            states_list[k + 1] = x_prev
+            conv_list[k] = ok
             xk = x_prev
 
-        return states.stack().numpy(), conv.stack().numpy()
+        states = tf.stack(states_list).numpy()
+        conv   = tf.stack(conv_list).numpy()
+        return states, conv
 
-    # ----- core LM (no early return; TF-while with done flag) -----
+    # ----- core LM (TF-while; no early Python return) -----
 
-    @tf.function(experimental_relax_shapes=True)
+    @tf.function(experimental_relax_shapes=True, jit_compile=USE_XLA_LM)
     def _invert_one_step_LM(self, x_target: tf.Tensor, u: tf.Tensor, x_start: tf.Tensor):
         """
         Core LM step with scale-aware residuals and trust-region measured in scaled units.
         Implemented with tf.while_loop to avoid 'return inside TF loop' issues.
+        NOTE: kept separate XLA toggle; on Apple CPU XLA often fails when using jacobian.
         """
+        # Use sin/cos projection internally on the *variables* we optimize,
+        # but do not rewrite the pinned target outside this function.
         x0 = _fix_sin_cos(tf.identity(x_start))
         lam0 = tf.identity(self.init_damping)
         best_x0 = x0
@@ -346,10 +337,10 @@ class CarInverseDynamicsFast:
                 tape.watch(x)
                 x_pred = self._f(x[tf.newaxis, :], u[tf.newaxis, :])[0]
                 x_pred = _fix_sin_cos(x_pred)
+                # IMPORTANT: residual vs pinned target; residual drops sin/cos.
                 r = _residual_vector_step(x_pred, x_target, KEEP_IDX, self.state_scale)
                 cost = tf.reduce_sum(r * r)
 
-            # Defaults for this iteration
             x_candidate = x
             new_cost = cost
             applied_alpha = tf.constant(0.0, tf.float32)
@@ -357,18 +348,16 @@ class CarInverseDynamicsFast:
             small_enough = cost < self.stop_tol_cost
 
             def after_small():
-                # Mark done; keep x, record as best
                 return (i + 1, x, lam, x, cost, tf.constant(True, tf.bool))
 
             def do_rest():
-                # Build normal equations
+                # Gauss-Newton LM: J, H=J^T J, g=J^T r
                 J = tape.jacobian(r, x)  # [m,10]
                 JT = tf.transpose(J)
                 H = tf.matmul(JT, J)  # [10,10]
                 g = tf.matmul(JT, r[:, tf.newaxis])[:, 0]  # [10]
 
-                # Symmetrize & dampen
-                I = tf.eye(self.state_dim, dtype=tf.float32)
+                I = tf.eye(STATE_DIM, dtype=tf.float32)
                 A = 0.5 * (H + tf.transpose(H)) + lam * I + 1e-9 * I
                 delta = tf.linalg.solve(A, -g[:, tf.newaxis])[:, 0]  # [10]
 
@@ -380,7 +369,7 @@ class CarInverseDynamicsFast:
                     lambda: delta
                 )
 
-                # Backtracking — evaluate all alphas; keep best improvement
+                # Backtracking — evaluate alphas; keep best improvement
                 def bt_cond(t, x_c, nc, aalpha):
                     return tf.less(t, tf.convert_to_tensor(self.backtrack_steps, tf.int32))
 
@@ -492,8 +481,9 @@ class CarInverseDynamics:
         self._TOL_MULT  = 3.0
         self.TOL_HUBER  = tf.constant(self._TOL_MULT * (self.RES_DELTA ** 2) * self._M_PARTIAL, tf.float32)
 
-        self.PHASE1_STEPS = 8
-        self.PHASE2_STEPS = 8
+        # Default schedule (can be adapted per T)
+        self.PHASE1_STEPS = 4
+        self.PHASE2_STEPS = 4
         self.LR1          = 5e-3
         self.LR2          = 1e-3
 
@@ -505,6 +495,15 @@ class CarInverseDynamics:
     def set_state_scale_from_std_map(self, std_map: Dict[str,float]):
         new_scale = _build_state_scale_from_std(std_map)
         self.state_scale.assign(new_scale)
+
+    def set_schedule_for_T(self, T: int):
+        """Tiny adaptive schedule to keep runs fast."""
+        if T <= 30:
+            self.PHASE1_STEPS, self.PHASE2_STEPS = 4, 4
+        elif T <= 120:
+            self.PHASE1_STEPS, self.PHASE2_STEPS = 3, 3
+        else:
+            self.PHASE1_STEPS, self.PHASE2_STEPS = 2, 2
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray,
                                   X_init: Optional[np.ndarray]=None) -> Tuple[np.ndarray, np.ndarray]:
@@ -520,11 +519,15 @@ class CarInverseDynamics:
         if T > self.MAX_T:
             raise ValueError(f"T={T} exceeds MAX_T={self.MAX_T}")
 
-        self.x_next_var.assign(x_T[0])
-        self.Q_var[:T].assign(Q[::-1])     # newest first for our compiled kernel
+        # Adaptive schedule
+        self.set_schedule_for_T(T)
+
+        self.x_next_var.assign(x_T[0])    # store as given (no sin/cos rewrite)
+        self.Q_var[:T].assign(Q[::-1])    # newest first for internal compiled kernel
         self.T_var.assign(T)
 
         if X_init is None:
+            # default warm start: repeat x_T
             self.X_var[:T].assign(tf.repeat(self.x_next_var[tf.newaxis, :], repeats=T, axis=0))
         else:
             X_init = np.asarray(X_init, dtype=np.float32)
@@ -532,13 +535,44 @@ class CarInverseDynamics:
                 raise ValueError(f"X_init must be [T,{self.state_dim}]")
             self.X_var[:T].assign(X_init)
 
-        states_tf, conv_tf = self._run_inverse_trajectory_compiled()
-        return states_tf.numpy(), conv_tf.numpy()
+        # 1) Run the compiled optimization (no TensorArray; just updates variables)
+        self._optimize_horizon_compiled()
 
-    # ----- compiled inner loop -----
+        # 2) Assemble output states in eager mode (no TensorArray involved)
+        X_np = self.X_var[:T].numpy()
+        # project sin/cos for the *older* states only (not the pinned row)
+        for i in range(T):
+            xi = tf.convert_to_tensor(X_np[i], tf.float32)
+            xi = _fix_sin_cos(xi).numpy()
+            X_np[i] = xi
 
-    @tf.function(experimental_relax_shapes=True)
-    def _run_inverse_trajectory_compiled(self) -> Tuple[tf.Tensor, tf.Tensor]:
+        states = np.vstack([x_T[0], X_np])
+
+        # 3) Build consistency flags in eager mode (cheap)
+        Q_newest_first = self.Q_var[:T].numpy()
+        conv = np.zeros((T,), dtype=bool)
+        for i in range(T):
+            x_i   = states[0] if i == 0 else states[i]     # x_{k+1}
+            x_im1 = states[i+1]                            # x_k
+            qi    = Q_newest_first[i]
+            x_pred = self._f(x_im1[tf.newaxis, :], qi[tf.newaxis, :])[0]
+            x_pred = _fix_sin_cos(x_pred)
+            err_scalar = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
+                                              delta=self.RES_DELTA,
+                                              state_scale=self.state_scale,
+                                              slip_lambda=self.SLIP_PRIOR)
+            conv[i] = bool(err_scalar.numpy() < float(self.TOL_HUBER.numpy()))
+
+        return states, conv
+
+    # ----- compiled inner optimization (no TensorArray returns) -----
+
+    @tf.function(experimental_relax_shapes=True, jit_compile=USE_XLA)
+    def _optimize_horizon_compiled(self) -> None:
+        """
+        Compiled optimization only. No TensorArray creation; no graph outputs.
+        This avoids XLA TensorList/TensorArray issues on some CPU backends.
+        """
         T = self.T_var
 
         def cost_fn():
@@ -546,7 +580,8 @@ class CarInverseDynamics:
 
             # Dynamics consistency with robust Huber; sin/cos projected each use.
             for i in tf.range(T):
-                x_i  = _fix_sin_cos(self.x_next_var) if tf.equal(i, 0) else _fix_sin_cos(self.X_var[i-1, :])
+                x_i  = self.x_next_var if tf.equal(i, 0) else self.X_var[i-1, :]
+                x_i  = _fix_sin_cos(x_i)
                 xim1 = _fix_sin_cos(self.X_var[i, :])
                 qi   = self.Q_var[i, :]
 
@@ -586,40 +621,21 @@ class CarInverseDynamics:
             grads = tape.gradient(c, [self.X_var])
             self.base_optimizer.apply_gradients(zip(grads, [self.X_var]))
 
-        # Build output states and per-step consistency flags.
-        states_ta = tf.TensorArray(dtype=tf.float32, size=T+1)
-        states_ta = states_ta.write(0, _fix_sin_cos(self.x_next_var))
-        for i in tf.range(T):
-            x_i = _fix_sin_cos(self.X_var[i, :])
-            self.X_var[i, :].assign(x_i)
-            states_ta = states_ta.write(i+1, x_i)
-
-        conv_ta = tf.TensorArray(dtype=tf.bool, size=T)
-        for i in tf.range(T):
-            x_i   = states_ta.read(0) if tf.equal(i, 0) else states_ta.read(i)
-            x_im1 = states_ta.read(i+1)
-            qi    = self.Q_var[i, :]
-            x_pred = self._f(x_im1[tf.newaxis, :], qi[tf.newaxis, :])[0]
-            x_pred = _fix_sin_cos(x_pred)
-            err_scalar = _partial_state_huber(x_pred, x_i, delta=self.RES_DELTA,
-                                              state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR)
-            conv_ta = conv_ta.write(i, err_scalar < self.TOL_HUBER)
-
-        return states_ta.stack(), conv_ta.stack()
-
-
 # ======================================================================================
-# Hybrid orchestrator: warm start (LM) + windowed whole-horizon refinement.
+# Hybrid orchestrator: progressive-grow refine with a single measured pin.
 # ======================================================================================
 
 class CarInverseDynamicsHybrid:
     """
-    1) Fast per-step LM warm start (multiple shooting) → robust local consistency.
-    2) Windowed short bundle-adjustment refinements with Huber loss over each window.
-       Overlaps are **linearly blended** to avoid seams and reduce compounding error.
+    1) Warm start with per-step LM (optional but helps).
+    2) Progressively grow the refined horizon from the measured x_T:
+       - Start with W steps, refine
+       - Extend by (W - overlap), refine
+       - Repeat until full T
+    No sliding pins, no seams; earlier portion gets re-optimized as the window grows.
     """
 
-    def __init__(self, mu: Optional[float]=None, window_size: int=200, overlap: int=50,
+    def __init__(self, mu: Optional[float]=None, window_size: int=30, overlap: int=10,
                  controls_are_pid: bool=True, dt: Optional[float]=None,
                  controls_time_order: str='old_to_new',
                  state_scale_std_map: Optional[Dict[str,float]]=None):
@@ -645,91 +661,78 @@ class CarInverseDynamicsHybrid:
         self.refine.set_state_scale_from_std_map(std_map)
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        # 1) Warm start with per-step LM (O(T), robust).
+        # 1) Warm start with per-step LM
         states0, _ = self.fast.inverse_entire_trajectory(x_T, Q)   # [T+1,10], newest first
         refined = tf.Variable(tf.convert_to_tensor(states0, dtype=tf.float32))  # mutable [T+1,10]
 
-        # 2) Windowed refinement (short, robust) with overlap blending.
         T = int(Q.shape[0])
         W = self.window_size
         O = self.overlap
 
-        start = 0
-        while start < T:
-            end = min(start + W, T)
-            Tw  = end - start  # steps in this window
+        # 2) Progressive growing refinement, always pinned at measured x_T
+        k_end = min(W, T)
+        while True:
+            # Controls for last k_end steps in old->new order
+            Q_seg = Q[T - k_end : T]  # old->new
+            # Warm start from current refined prefix (newest-first states 1..k_end)
+            X_init = refined[1 : k_end + 1].numpy()
 
-            # Prepare inputs for this window:
-            x_pin = refined[start]                                         # [10]
-            Q_w   = tf.convert_to_tensor(Q[::-1][start:end], tf.float32)   # newest first
-            X_w0  = refined[start+1:start+1+Tw]                            # [Tw,10]
+            states_w, _ = self.refine.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+            states_w_tf = tf.convert_to_tensor(states_w, tf.float32)  # [k_end+1,10], newest first
 
-            # Seed refinement buffers and run short global pass.
-            self.refine.x_next_var.assign(x_pin)
-            self.refine.Q_var[:Tw].assign(Q_w)
-            self.refine.T_var.assign(Tw)
-            self.refine.X_var[:Tw].assign(X_w0)
+            # Overwrite refined prefix (no seams)
+            refined[:k_end+1].assign(states_w_tf)
 
-            states_w_tf, _ = self.refine._run_inverse_trajectory_compiled()  # [Tw+1,10]; states_w[0]==x_pin
-
-            # Write back with overlap blending.
-            w_start_idx_full = start + 1
-            w_end_idx_full   = start + Tw   # inclusive
-
-            if start > 0 and O > 0:
-                ov_start_full = start + 1
-                ov_end_full   = min(start + O, w_end_idx_full)  # inclusive
-                ov_len        = ov_end_full - ov_start_full + 1
-
-                if ov_len > 0:
-                    alpha = tf.linspace(0.0, 1.0, ov_len)[:, None]               # [L,1]
-                    old   = refined[ov_start_full:ov_end_full+1]                 # [L,10]
-                    neww  = states_w_tf[(ov_start_full - start):(ov_end_full - start + 1)]  # [L,10]
-                    blend = (1.0 - alpha) * old + alpha * neww
-                    refined[ov_start_full:ov_end_full+1].assign(blend)
-
-                    tail_begin = ov_end_full + 1
-                    if tail_begin <= w_end_idx_full:
-                        refined[tail_begin:w_end_idx_full+1].assign(
-                            states_w_tf[(tail_begin - start):(w_end_idx_full - start + 1)]
-                        )
-                else:
-                    refined[w_start_idx_full:w_end_idx_full+1].assign(states_w_tf[1:Tw+1])
-            else:
-                refined[w_start_idx_full:w_end_idx_full+1].assign(states_w_tf[1:Tw+1])
-
-            if end == T:
+            if k_end == T:
                 break
-            start = end - O
+            k_end = min(k_end + (W - O), T)
 
-        # 3) Final consistency flags computed against the refined trajectory.
-        conv = self._compute_consistency(refined, tf.convert_to_tensor(Q[::-1], tf.float32)).numpy()
+        # 3) Final consistency flags against the refined trajectory.
+        conv = self._compute_consistency_eager(refined.numpy(), Q[::-1]).numpy()
         return refined.numpy(), conv
 
-    @tf.function(experimental_relax_shapes=True)
-    def _compute_consistency(self, refined_states: tf.Tensor, Q_newest_first: tf.Tensor) -> tf.Tensor:
+    def _compute_consistency_eager(self, refined_states: np.ndarray, Q_newest_first: np.ndarray) -> tf.Tensor:
         """
-        Compute per-step dynamic-consistency flags across the whole horizon.
-        Uses the same robust metric threshold as the refinement pass.
+        Eager consistency computation (cheap and robust). No TensorArray/XLA constraints.
         Q_newest_first: controls ordered newest→older with shape [T,2].
         """
-        T = tf.shape(Q_newest_first)[0]
-        conv_ta = tf.TensorArray(dtype=tf.bool, size=T)
-
-        for i in tf.range(T):
-            x_i   = refined_states[i]     # this is x_{k+1}
-            x_im1 = refined_states[i+1]   # this is x_{k}
+        T = Q_newest_first.shape[0]
+        flags = []
+        for i in range(T):
+            x_i   = refined_states[i]     # x_{k+1}
+            x_im1 = refined_states[i+1]   # x_{k}
             qi    = Q_newest_first[i]
-            x_pred = self.refine._f(x_im1[tf.newaxis, :], qi[tf.newaxis, :])[0]
+            x_pred = self.refine._f(
+                tf.convert_to_tensor(x_im1, tf.float32)[tf.newaxis, :],
+                tf.convert_to_tensor(qi, tf.float32)[tf.newaxis, :]
+            )[0]
             x_pred = _fix_sin_cos(x_pred)
-            err = _partial_state_huber(x_pred, _fix_sin_cos(x_i),
+            err = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
                                        delta=self.refine.RES_DELTA,
                                        state_scale=self.refine.state_scale,
                                        slip_lambda=self.refine.SLIP_PRIOR)
-            conv_ta = conv_ta.write(i, err < self.refine.TOL_HUBER)
+            flags.append(err < self.refine.TOL_HUBER)
+        return tf.stack(flags)
 
-        return conv_ta.stack()
+# ======================================================================================
+# (Optional) Warm-start cache (for deployment reuse across calls)
+# ======================================================================================
 
+class WarmStartCache:
+    """Keep the last solved trajectory to seed the next call when compatible."""
+    def __init__(self):
+        self.last = None  # (x_T, Q, states_newest_first)
+
+    def update(self, x_T: np.ndarray, Q: np.ndarray, states: np.ndarray):
+        self.last = (x_T.copy(), Q.copy(), states.copy())
+
+    def get_seed(self, x_T: np.ndarray, Q: np.ndarray) -> Optional[np.ndarray]:
+        if self.last is None:
+            return None
+        xT_prev, Q_prev, X_prev = self.last
+        if Q.shape[0] <= X_prev.shape[0]-1 and np.allclose(x_T, xT_prev, atol=1e-6):
+            return X_prev[1:Q.shape[0]+1].copy()
+        return None
 
 # ======================================================================================
 # Run tests when executed as a script (no CLI parser; defaults live in tests/inverse_dynamics/config.py)
@@ -740,6 +743,7 @@ if __name__ == "__main__":
     try:
         import pytest
         print(">> Running inverse dynamics tests (hard-coded settings in tests/inverse_dynamics/config.py)...")
-        raise SystemExit(pytest.main(["-q", "tests/inverse_dynamics/test_inverse_dynamics_eval.py"]))
+        # -s to show prints / tqdm; -q to keep pytest header minimal.
+        raise SystemExit(pytest.main(["-s", "-q", "tests/inverse_dynamics/test_inverse_dynamics_eval.py"]))
     except Exception as e:
         print("Failed to run tests:", e)

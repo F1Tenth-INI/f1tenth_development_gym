@@ -3,25 +3,40 @@
 # Adjust paths and lists below to taste.
 
 # If empty, the tests synthesize a small CSV so they always run.
-DATA_DIR: str = "/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/SI_Toolkit_ASF/Experiments/04_08_RCA1_noise_tiny/Recordings/Test"                  # e.g., "/abs/path/to/FOLDER_WITH_DATA"
-PROCESS_ALL_FILES: bool = False     # True → ignore MAX_FILES and process all CSVs in DATA_DIR
-MAX_FILES: int = 1                  # quick smoke: first file only
+DATA_DIR: str = "/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/SI_Toolkit_ASF/Experiments/04_08_RCA1_noise_tiny/Recordings/Test"
+PROCESS_ALL_FILES: bool = False   # True → ignore MAX_FILES and process all CSVs in DATA_DIR
+MAX_FILES: int = 1                # quick smoke: first file only
 
 # Trajectory lengths to test (number of control steps).
-# Keep these short by default so the automatic run is fast.
-TRAJECTORY_LENGTHS = [10, 30, 60, 120]
+# Keep these *short* by default so the automatic run is snappy; extend when benchmarking.
+TRAJECTORY_LENGTHS = [10, 30, 60, 120,]     # you can add 60, 120 for deeper sweeps
 
 # Which solvers to run
 SOLVERS = ["fast", "refine", "hybrid"]
 
-# Inits to sweep for fast/refine (hybrid does its own warm start)
-INITS = ["none", "gt", "noisy"]
+# Inits to sweep for fast/refine (we keep 'none' and 'noisy' only; 'gt' is trivial)
+INITS = ["none", "noisy"]
 
 # Noise scale for 'noisy' init (× state std)
 NOISE_SCALE: float = 0.2
 
-# Optional CSV to save results ("" to disable)
-SAVE_CSV: str = "/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/tests/inverse_dynamics/"  # e.g., "tests/_out/inverse_eval_results.csv"
+# Window enumeration over the file for each T
+WINDOW_MODE: str = "tail"          # "tail" or "full"
+WINDOW_STRIDE: int = 100             # step between end indices
+MAX_WINDOWS_PER_T: int = 4         # only used in "tail" mode
+
+# Hybrid windowing parameters (progressive grow)
+HYB_WINDOW: int = 30
+HYB_OVERLAP: int = 10
+
+# Collect per-step series (enables rmse curves and optional plots)
+COLLECT_SERIES: bool = True
+PLOT_SERIES: bool = False          # set True to save plots
+PLOTS_DIR: str = "tests/inverse_dynamics/_out/plots"
+MAX_SERIES_PLOTS: int = 600          # limit number of plots written
+
+# Optional CSV to save results ("" to disable). If directory, an auto filename is created.
+SAVE_CSV: str = "tests/inverse_dynamics/_out"
 
 # Synthesis parameters (used when DATA_DIR is empty or missing)
 SYNTH_N: int = 128

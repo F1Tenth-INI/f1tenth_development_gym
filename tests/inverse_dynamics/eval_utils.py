@@ -21,8 +21,12 @@ REQUIRED_STATE_COLS = [
 ]
 REQUIRED_CONTROL_COLS = ["angular_control_calculated","translational_control_calculated"]
 
+def _p(msg: str):
+    print(msg, flush=True)
+
 def synthesize_one_csv(path: Path, N: int, dt: float, mu: float) -> Path:
     """Create a small, consistent CSV with the required columns so tests always run."""
+    _p(f"[ID] Synthesizing CSV: {path} (N={N}, dt={dt}, mu={mu})")
     t = np.arange(N, dtype=np.float64) * dt
     # Simple constant-accel, constant-yaw-rate motion
     psi0 = 3.0
@@ -71,6 +75,7 @@ def gather_csv_files(folder: Optional[str], max_files: Optional[int]=None, all_f
         if files:
             if not all_files and max_files is not None and len(files) > max_files:
                 files = files[:max_files]
+            _p(f"[ID] Using {len(files)} CSV file(s) from {p}")
             return files
     # Fallback: synthesize one file
     synth_path = Path("tests/_synth_data/synth.csv")
@@ -150,14 +155,11 @@ def scaled_state_errors(pred_states_newest_first: np.ndarray,
                         drop_sincos: bool=True) -> Dict[str, np.ndarray]:
     """Return per-channel MAE and RMSE in *scaled* units. Excludes the pinned newest state (index 0)."""
     assert pred_states_newest_first.shape == gt_states_newest_first.shape
-    # Exclude pinned newest state
     P = _fix_sin_cos_np(pred_states_newest_first[1:].copy())
     G = _fix_sin_cos_np(gt_states_newest_first[1:].copy())
 
     diff = P - G
-    # Wrap heading
     diff[:, POSE_THETA_IDX] = _wrap_angle_diff(P[:, POSE_THETA_IDX], G[:, POSE_THETA_IDX])
-    # Optionally drop sin/cos residuals
     if drop_sincos:
         diff[:, [POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX]] = 0.0
 
@@ -166,7 +168,70 @@ def scaled_state_errors(pred_states_newest_first: np.ndarray,
     rmse = np.sqrt(np.mean(z**2, axis=0))
     return {"mae": mae, "rmse": rmse}
 
+def per_step_scaled_errors(pred_states_newest_first: np.ndarray,
+                           gt_states_newest_first: np.ndarray,
+                           scale: np.ndarray) -> Dict[str, np.ndarray]:
+    """
+    Per-step RMSE across *all kept channels* (in scaled units).
+    Returns: dict with 'rmse_step' of length T (excludes pinned newest).
+    """
+    P = _fix_sin_cos_np(pred_states_newest_first.copy())
+    G = _fix_sin_cos_np(gt_states_newest_first.copy())
+    T = P.shape[0] - 1
+    rmse_step = np.zeros((T,), dtype=np.float32)
+
+    kept = [i for i in range(P.shape[1]) if i not in (POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX)]
+    s = scale[kept][None, :]
+
+    for k in range(T):  # step k compares state index k+1 (older) vs GT
+        d = P[k+1] - G[k+1]
+        d[POSE_THETA_IDX] = _wrap_angle_diff(P[k+1, POSE_THETA_IDX], G[k+1, POSE_THETA_IDX])
+        z = d[kept] / s[0]
+        rmse_step[k] = float(np.sqrt(np.mean(z**2)))
+    return {"rmse_step": rmse_step}
+
+# ------- Window helpers -------
+
+def build_window_by_end(states: np.ndarray, Q: np.ndarray, T: int, end_idx: int):
+    """
+    Build a window of length T ending at global state index `end_idx` (inclusive).
+    Assumes Q[t] maps state[t] -> state[t+1].
+    """
+    assert 0 <= end_idx < len(states)
+    assert end_idx - T >= 0, "Not enough rows for chosen T and end_idx"
+    x_T = states[end_idx:end_idx+1]                     # [1,10]
+    Q_w = Q[end_idx - T + 1 : end_idx + 1]              # [T,2], old->new
+    gt_newest_first = states[end_idx - T : end_idx + 1][::-1].copy()  # [T+1,10]
+    return x_T.astype(np.float32), Q_w.astype(np.float32), gt_newest_first.astype(np.float32)
+
+def enumerate_end_indices(n_states: int, T: int) -> List[int]:
+    """
+    Choose which end indices to evaluate for a given T.
+    Modes:
+      - "tail": last MAX_WINDOWS_PER_T windows, stride WINDOW_STRIDE
+      - "full": sweep across the whole file with stride
+    """
+    max_end = n_states - 1
+    ends: List[int] = []
+    stride = max(1, int(CFG.WINDOW_STRIDE))
+    if CFG.WINDOW_MODE == "full":
+        for e in range(T, max_end + 1, stride):
+            ends.append(e)
+    else:  # tail
+        e = max_end
+        # back off by stride until we have MAX_WINDOWS_PER_T (and respect T)
+        while e >= T and len(ends) < int(CFG.MAX_WINDOWS_PER_T):
+            ends.append(e)
+            e -= stride
+        ends.sort()
+    return ends
+
 # ------- Evaluation harness -------
+
+def _assert_pinned(x_T: np.ndarray, states_pred: np.ndarray):
+    # Pinned newest state must match exactly (within numeric tolerance)
+    if not np.allclose(states_pred[0], x_T[0], atol=1e-6):
+        raise AssertionError("Pinned newest state changed by solver.")
 
 def eval_fast(x_T: np.ndarray,
               Q_old_to_new: np.ndarray,
@@ -174,33 +239,41 @@ def eval_fast(x_T: np.ndarray,
               init_type: str,
               noise_scale: float,
               dt: float,
-              mu: Optional[float]) -> Dict[str, float]:
+              mu: Optional[float],
+              return_states: bool=False):
     # Build initializer
     if init_type == "none":
         x_init_seq = None
-    else:
+    elif init_type == "noisy":
         x_init_seq = gt_newest_first[1:].copy()
-        if init_type == "noisy":
-            rng = np.random.default_rng(1234)
-            noise = rng.normal(0.0, 1.0, size=x_init_seq.shape).astype(np.float32)
-            x_init_seq = x_init_seq + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
-        elif init_type == "gt":
-            pass
-        else:
-            raise ValueError("init_type must be one of: none, gt, noisy")
+        rng = np.random.default_rng(1234)
+        noise = rng.normal(0.0, 1.0, size=x_init_seq.shape).astype(np.float32)
+        x_init_seq = x_init_seq + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
+    else:
+        raise ValueError("init_type must be one of: none, noisy")
 
     solver = CarInverseDynamicsFast(mu=mu, controls_are_pid=True, dt=dt, controls_time_order="old_to_new")
     t0 = time.perf_counter()
     states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, x_init_sequence=x_init_seq)
     dt_sec = time.perf_counter() - t0
+    _assert_pinned(x_T, states_pred)
+
     metrics = scaled_state_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    ser = per_step_scaled_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    rmse_step = ser["rmse_step"]
+    head = rmse_step[: max(1, len(rmse_step)//3)]
+    tail = rmse_step[-max(1, len(rmse_step)//3):]
     out = {
         "conv_rate": float(np.mean(conv_flags.astype(np.float32))),
         "time_s": float(dt_sec),
         "mae_mean": float(np.mean(metrics["mae"])),
         "rmse_mean": float(np.mean(metrics["rmse"])),
+        "rmse_auc": float(np.sum(rmse_step)),
+        "rmse_head": float(np.mean(head)),
+        "rmse_tail": float(np.mean(tail)),
+        "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
     }
-    return out
+    return (out, states_pred) if return_states else out
 
 def eval_refine(x_T: np.ndarray,
                 Q_old_to_new: np.ndarray,
@@ -208,49 +281,69 @@ def eval_refine(x_T: np.ndarray,
                 init_type: str,
                 noise_scale: float,
                 dt: float,
-                mu: Optional[float]) -> Dict[str, float]:
+                mu: Optional[float],
+                return_states: bool=False):
     T = Q_old_to_new.shape[0]
-    # Build initializer (X_init for refine is newest-first without pinned latest)
+    # Build initializer (X_init newest-first without pinned)
     if init_type == "none":
         X_init = np.repeat(x_T, repeats=T, axis=0)
-    else:
+    elif init_type == "noisy":
         X_init = gt_newest_first[1:].copy()
-        if init_type == "noisy":
-            rng = np.random.default_rng(1234)
-            noise = rng.normal(0.0, 1.0, size=X_init.shape).astype(np.float32)
-            X_init = X_init + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
-        elif init_type == "gt":
-            pass
-        else:
-            raise ValueError("init_type must be one of: none, gt, noisy")
+        rng = np.random.default_rng(1234)
+        noise = rng.normal(0.0, 1.0, size=X_init.shape).astype(np.float32)
+        X_init = X_init + noise_scale * HARD_CODED_STATE_STD[None, :] * noise
+    else:
+        raise ValueError("init_type must be one of: none, noisy")
 
     solver = CarInverseDynamics(mu=mu, controls_are_pid=True, dt=dt)
     t0 = time.perf_counter()
     states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, X_init=X_init)
     dt_sec = time.perf_counter() - t0
+    _assert_pinned(x_T, states_pred)
+
     metrics = scaled_state_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    ser = per_step_scaled_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    rmse_step = ser["rmse_step"]
+    head = rmse_step[: max(1, len(rmse_step)//3)]
+    tail = rmse_step[-max(1, len(rmse_step)//3):]
     out = {
         "conv_rate": float(np.mean(conv_flags.astype(np.float32))),
         "time_s": float(dt_sec),
         "mae_mean": float(np.mean(metrics["mae"])),
         "rmse_mean": float(np.mean(metrics["rmse"])),
+        "rmse_auc": float(np.sum(rmse_step)),
+        "rmse_head": float(np.mean(head)),
+        "rmse_tail": float(np.mean(tail)),
+        "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
     }
-    return out
+    return (out, states_pred) if return_states else out
 
 def eval_hybrid(x_T: np.ndarray,
                 Q_old_to_new: np.ndarray,
                 gt_newest_first: np.ndarray,
                 dt: float,
-                mu: Optional[float]) -> Dict[str, float]:
-    solver = CarInverseDynamicsHybrid(mu=mu, controls_are_pid=True, dt=dt, controls_time_order="old_to_new")
+                mu: Optional[float],
+                return_states: bool=False):
+    solver = CarInverseDynamicsHybrid(mu=mu, controls_are_pid=True, dt=dt, controls_time_order="old_to_new",
+                                      window_size=CFG.HYB_WINDOW, overlap=CFG.HYB_OVERLAP)
     t0 = time.perf_counter()
     states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new)
     dt_sec = time.perf_counter() - t0
+    _assert_pinned(x_T, states_pred)
+
     metrics = scaled_state_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    ser = per_step_scaled_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
+    rmse_step = ser["rmse_step"]
+    head = rmse_step[: max(1, len(rmse_step)//3)]
+    tail = rmse_step[-max(1, len(rmse_step)//3):]
     out = {
         "conv_rate": float(np.mean(conv_flags.astype(np.float32))),
         "time_s": float(dt_sec),
         "mae_mean": float(np.mean(metrics["mae"])),
         "rmse_mean": float(np.mean(metrics["rmse"])),
+        "rmse_auc": float(np.sum(rmse_step)),
+        "rmse_head": float(np.mean(head)),
+        "rmse_tail": float(np.mean(tail)),
+        "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
     }
-    return out
+    return (out, states_pred) if return_states else out
