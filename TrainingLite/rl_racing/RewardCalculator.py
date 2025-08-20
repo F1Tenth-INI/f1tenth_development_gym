@@ -13,7 +13,7 @@ class RewardCalculator:
         self.print_info = False
         self.reset()
         
-        self.checkpoint_fraction = 1/20 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
+        self.checkpoint_fraction = 1/400 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
         
         
     def reset(self):
@@ -28,74 +28,64 @@ class RewardCalculator:
         
         self.reward_components_history = []
         self.reward = 0
-        
+        self.last_position = None
         self.reward_history = []
         
     def _calculate_reward(self, driver: 'CarSystem') -> float:
-
         waypoint_utils: WaypointUtils = driver.waypoint_utils
         car_state = driver.car_state
         reward = 0
 
-        # Reward Track Progress (Encourage Fast Forward Movement)
-        progress = waypoint_utils.get_cumulative_lap_progress() # 1 per complete lap in small steps (1/number of waypoints)
-        delta_progress = progress - self.last_progress
-    
-        # Reward for Moving Forward (Scaled to Time)
-        progress_reward = 0.0
-        
-        # Filter unrealistic progress jumps 
-        if abs(delta_progress) > 1.5 * self.checkpoint_fraction + 0.02: 
-            print("Unrealistic progress jump detected", delta_progress)
-            delta_progress = 0
-            self.last_progress_time = self.time
-            self.last_progress = progress
-            
-        # Progresss reward
-        if abs(delta_progress) > self.checkpoint_fraction:
-            time_since_last_progress = self.time - self.last_progress_time
-            if time_since_last_progress > 0.03:
-                progress_reward += (delta_progress / time_since_last_progress)
-                progress_reward *= self.checkpoint_fraction # Normalize by checkpoint size so the progress_reward is consistent
-                progress_reward *= 20000 
-            
-            # print("Checkpoint reached, progress_reward: ", reward, "delta_progress: ", delta_progress, "time_since_last_progress: ", time_since_last_progress)
-            self.last_progress_time = self.time
-            self.last_progress = progress
-            
-            reward += progress_reward
-            
+        # Get current progress
+        if self.last_position is None:
+            self.last_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
 
+        current_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+        delta_position = np.array(current_position) - np.array(self.last_position)
 
-        # if(reward != 0):
-            # print(f"Progress: {progress}, Reward: {reward}")
+        wpts = waypoint_utils.next_waypoints
+        closest_wp_pos = [wpts[0][WP_X_IDX], wpts[0][WP_Y_IDX]]
+        next_wp_pos = [wpts[1][WP_X_IDX], wpts[1][WP_Y_IDX]]
+        wp_vector = np.array(next_wp_pos) - np.array(closest_wp_pos)
+
+        distance = np.linalg.norm(delta_position)
+        projection = np.dot(delta_position, wp_vector) / np.linalg.norm(wp_vector)
+
+        reward += projection * 10
+
+        # Debug prints for diagnosing reward calculation
+        if self.print_info:
+            print(f"[Reward Debug] delta_position: {delta_position}")
+            print(f"[Reward Debug] wp_vector: {wp_vector}")
+            print(f"[Reward Debug] projection: {projection}")
+            print(f"[Reward Debug] reward after projection: {reward}")
+
+        self.last_position = current_position
+        # print(f"distance: {distance}, projection: {projection}")
 
         # Speed Reward (Encourage Fast Movement)
         speed = car_state[LINEAR_VEL_X_IDX]
         speed_reward = 0.0
-        if speed > 2:  # Reward only when the car is moving at a decent pace
-            speed_reward = speed * 0.005  # Scale the reward
-        reward += speed_reward  # Encourages the car to move fast
-
+        if speed > 2:
+            speed_reward = speed * 0.005
+        # reward += speed_reward
 
         # delta Steering reward: Penalize Sudden Steering (Encourage Stability)
         steering_diff = abs(car_state[STEERING_ANGLE_IDX] - self.last_steering)
-        steering_diff_reward = steering_diff * - 0.1  # Scale the penalty
-        reward += steering_diff_reward  # Stronger penalty to discourage aggressive corrections
-        
+        steering_diff_reward = steering_diff * -0.1
+        # reward += steering_diff_reward
 
         # Steering reward: Penalize Large Steering Angle (Encourage Smooth Driving)
-        steering_penalty = - abs(car_state[STEERING_ANGLE_IDX]) * 0.02  # Scale penalty
-        reward += steering_penalty
+        steering_penalty = -abs(car_state[STEERING_ANGLE_IDX]) * 0.02
+        # reward += steering_penalty
 
-        # Lidar reward: Penalize beeing close to walls (Encourage Safe Driving)
+        # Lidar reward: Penalize being close to walls (Encourage Safe Driving)
         lidar_penalty = -sum(
             min(100, np.cos(driver.LIDAR.processed_angles_rad[i]) * 1 / range)
             for i, range in enumerate(driver.LIDAR.processed_ranges)
             if range < 0.5 and range != 0
         )
-        reward += lidar_penalty * 0.1
-
+        # reward += lidar_penalty * 0.1
 
         # Spinning reward Penalize Spinning (Fixing Instability)
         spin_reward = 0.0
@@ -107,34 +97,32 @@ class RewardCalculator:
                 spin_reward = -100
         else:
             self.spin_counter = 0
-        reward += spin_reward
+        # reward += spin_reward
 
-        # ✅ Penalize Being Stuck
+        # Penalize Being Stuck
         stuck_reward = 0.0
         if speed < 1.0:
             self.stuck_counter += 1
             if self.stuck_counter >= 20:
-                stuck_reward = -10  # Stronger penalty for being stuck
+                stuck_reward = -1
             if self.stuck_counter >= 200:
-                stuck_reward = -100  # Even stronger penalty if it's really stuck
+                stuck_reward = -10
         else:
-            self.stuck_counter = 0  # Reset if the car starts moving again
+            self.stuck_counter = 0
         reward += stuck_reward
 
-        # ✅ Update State
+        # Update State
         self.last_steering = car_state[STEERING_ANGLE_IDX]
 
-        # ✅ Debug Info (Optional)
+        # Debug Info (Optional)
         if self.print_info and reward != 0:
             print(f"Reward: {reward}")
 
         self.reward = reward
-        
-        
-        
-        if(Settings.SAVE_REWARDS):
+
+        if Settings.SAVE_REWARDS:
             reward_components = {
-                "progress": progress_reward,
+                "progress": projection,
                 "speed": speed_reward,
                 "steering_diff": steering_diff_reward,
                 "steering_penalty": steering_penalty,
@@ -143,11 +131,8 @@ class RewardCalculator:
                 "spin_reward": spin_reward,
                 "total_reward": reward,
             }
-            
             self.reward_components_history.append(reward_components)
 
-        
-        # ✅ Save to History
         self.reward_history.append(reward)
         self.time += 0.01
         return reward

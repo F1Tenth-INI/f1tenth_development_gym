@@ -5,6 +5,7 @@ from stable_baselines3 import PPO
 from stable_baselines3 import SAC
 from stable_baselines3.common.evaluation import evaluate_policy
 import argparse
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNormalize, VecFrameStack
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from utilities.Settings import Settings
@@ -28,6 +29,8 @@ def evaluate_model(recording_name_extension=""):
     time.sleep(0.1)
 
     from run.run_simulation import RacingSimulation  # Import inside function to avoid issues
+    from TrainingLite.rl_racing.train_model import RacingEnv
+    from utilities.car_system import CarSystem
 
     model_path = os.path.join(model_dir, model_name)
     if not os.path.exists(model_path + ".zip"):
@@ -38,29 +41,35 @@ def evaluate_model(recording_name_extension=""):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = SAC.load(model_path, map_location=device)  # Use map_location to handle CPU fallback
 
-    env = make_env()()
-    env.max_episode_steps = 8000
+    from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+    def eval_make_env():
+        env = RacingEnv()
+        return env
+    # Use DummyVecEnv for evaluation (single env)
 
-    obs, _ = env.reset()
+    env = DummyVecEnv([eval_make_env])
+    # env = VecFrameStack(env, n_stack=4, channels_order="last")
+    # env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+    env.max_episode_steps = 10000
+
+    obs = env.reset()
     total_reward = 0
     rewards = []
     
     for _ in range(env.max_episode_steps):  # Run for fixed steps
         action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, truncated, _ = env.step(action)
-        rewards.append(reward)
-        total_reward += reward
+        obs, reward, done, truncated  = env.step(action)
+        reward_scalar = float(reward[0]) if isinstance(reward, (np.ndarray, list)) else float(reward)
+        rewards.append(reward_scalar)
+        total_reward += reward_scalar
 
-        if done or truncated:
+        if done:
             break  # Stop if episode ends
         
-    env.simulation.on_simulation_end()
-    env.close()
-    print(f"Total reward: {total_reward}")
-    print(f"Mean reward: {np.mean(rewards)}")
+  
     
     # ✅ Extract driver data AFTER evaluation
-    driver: CarSystem = env.simulation.drivers[0]
+    driver: CarSystem = env.envs[0].simulation.drivers[0]
 
     mean_lap_time = np.mean(driver.laptimes) if driver.laptimes else float('nan')
     min_lap_time = np.min(driver.laptimes) if driver.laptimes else float('nan')
@@ -87,6 +96,11 @@ def evaluate_model(recording_name_extension=""):
     print(f"Mean reward: {mean_reward}")
     print(f"Mean lap time: {mean_lap_time}")
     
+    
+    env.envs[0].simulation.on_simulation_end()
+    env.close()
+    print(f"Total reward: {total_reward}")
+    print(f"Mean reward: {np.mean(rewards)}")
 
 
     # Save the results to a CSV file (add at the end of the file or create the file if it doesn't exist)

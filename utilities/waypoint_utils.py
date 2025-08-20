@@ -66,7 +66,7 @@ class WaypointUtils:
         self.waypoint_file_name = waypoint_file_name
         self.speed_scaling_file_name = speed_scaling_file_name
         
-        print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
+        # print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
         
         self.interpolation_steps = Settings.INTERPOLATION_STEPS
         self.decrease_resolution_factor = Settings.DECREASE_RESOLUTION_FACTOR

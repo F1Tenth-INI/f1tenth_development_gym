@@ -1,6 +1,6 @@
 import gymnasium as gym
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     import torch # Important: only import torch in the main thread
@@ -35,7 +35,6 @@ import os
 import sys
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
-from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, AdjustCheckpointsCallback, EpisodeCSVLogger
@@ -45,8 +44,9 @@ from stable_baselines3.common.vec_env import VecMonitor
 from TopKReplayBuffer import TopKTrajectoryBuffer, TopKTrajectoryCallback
 
 
-model_load_name = "SAC_RCA1_residual_6"
-model_name = "SAC_RCA1_residual_6"
+model_load_name = "SAC_RCA1_wpts_lidar_4"
+# model_load_name = "SAC_RCA1_wpts_lidar_2"
+model_name = "SAC_RCA1_wpts_lidar_4"
 
 
 
@@ -69,7 +69,7 @@ class RacingEnv(gym.Env):
                 
         lidar_size = 40
         car_state_size = 4
-        waypoint_size = 0
+        waypoint_size = 30 
         total_obs_size = car_state_size + lidar_size + waypoint_size
         
         # Define realistic bounds for the observation space
@@ -79,19 +79,19 @@ class RacingEnv(gym.Env):
         car_state_low = np.array([-1, -1, -1, -1], dtype=np.float32)  # Example bounds for car state
         car_state_high = np.array([1, 1, 1, 1], dtype=np.float32)
         
-        control_obs_low = np.array([-0.4, -10], dtype=np.float32)
-        control_obs_high= np.array([0.4, 10], dtype=np.float32)
+        # control_obs_low = np.array([-0.4, -10], dtype=np.float32)
+        # control_obs_high= np.array([0.4, 10], dtype=np.float32)
         
         
-        # waypoint_low = np.zeros(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
-        # waypoint_high = np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
+        waypoint_low = - 1.0 * np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
+        waypoint_high = 1.0 * np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
         
         # low = np.concatenate([lidar_low, car_state_low, waypoint_low])
         # high = np.concatenate([lidar_high, car_state_high, waypoint_high])
         
-        low = np.concatenate([lidar_low, car_state_low, control_obs_low])
-        high = np.concatenate([lidar_high, car_state_high, control_obs_high])
-        
+        low = np.concatenate([car_state_low, waypoint_low, lidar_low])
+        high = np.concatenate([car_state_high, waypoint_high, lidar_high])
+
         self.observation_space = gym.spaces.Box(
             low=low, high=high, dtype=np.float32
         )
@@ -111,7 +111,7 @@ class RacingEnv(gym.Env):
         
         self.checkpoints_per_lap = 20
         
-        self.max_episode_steps = 3000
+        self.max_episode_steps = 10000
         self.episode_count = 0
         self.episode_crash_history = []  # Store the last N crashes
         self._adjust_checkpoint = False
@@ -166,8 +166,8 @@ class RacingEnv(gym.Env):
             
         driver: CarSystem = simulation.drivers[0]
         simulation.update_driver_state(driver, 0)
-        steering_controller, throttle_controller = driver.process_observation()
-
+        driver.process_observation()
+        steering_controller, throttle_controller = None, None
         # If there is no controller
         if(steering_controller is None or throttle_controller is None):
             steering_controller = 0
@@ -179,9 +179,12 @@ class RacingEnv(gym.Env):
         throttle = np.clip(throttle_controller + throttle_correction, -10, 10)
 
         agent_controls = np.array([[steering, throttle]])
-        simulation.simulation_step(agent_controls=agent_controls)
-        
-        
+
+
+        # Run multiple steps of simulation
+        for _ in range(5):
+            simulation.simulation_step(agent_controls=agent_controls)
+
         obs = self.get_observation()
         reward = self._calculate_reward()
         terminated = self.check_termination()
@@ -217,20 +220,6 @@ class RacingEnv(gym.Env):
         }
 
 
-        # Store the last N steps
-        # self.reward_history.append(reward)
-        # self.step_history.append(obs)
-        # if len(self.reward_history) > self.N:
-        #     self.reward_history.pop(0)
-        #     self.step_history.pop(0)
-
-        # # Penalize past N steps if a crash happens
-        # if terminated and simulation.obs["collisions"][0] == 1:
-        #     penalty = -20  # Adjust penalty amount
-        #     for i in range(len(self.reward_history)):
-        #         self.reward_history[i] += penalty * (i / len(self.reward_history))  # Scale penalty over time
-
-
         return obs, reward, terminated, truncated, info
 
     
@@ -245,6 +234,14 @@ class RacingEnv(gym.Env):
         
         lidar_scan = np.clip(driver.LIDAR.processed_ranges, 0.001, 10.0)  # Lidar scan values
         # lidar_scan = np.clip(1.0 / (driver.LIDAR.processed_ranges + 1e-3), 0, 10.0) 
+
+        wpts_x = driver.waypoint_utils.next_waypoint_positions_relative[:, 0]
+        wpts_y = driver.waypoint_utils.next_waypoint_positions_relative[:, 1]   
+        # Concatenate to 1d array
+        wpts = np.concatenate([wpts_x, wpts_y])
+        wpts = wpts[::2]
+
+    
 
         state_features = np.array([
             # car_state[POSE_X_IDX],
@@ -262,10 +259,10 @@ class RacingEnv(gym.Env):
             driver.translational_control,
         ], dtype=np.float32)
         
-        observation_array = np.concatenate([lidar_scan, state_features, control_features]).astype(np.float32)
-        
-        normalization_array = [0.1] * len(lidar_scan) + [0.1, 1.0, 0.5, 1 / 0.4] + [1.0, 1.0]  # Adjust normalization factors for each feature
-        
+        observation_array = np.concatenate([state_features, wpts, lidar_scan]).astype(np.float32)
+
+        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(wpts)+ [0.1] * len(lidar_scan) # Adjust normalization factors for each feature
+
         observation_array_normalized = observation_array *  normalization_array
         # print(f"Observation: {observation_array_normalized}")
 
@@ -274,11 +271,10 @@ class RacingEnv(gym.Env):
     def _calculate_reward(self):
         
         driver : CarSystem = self.simulation.drivers[0]
-        reward = driver.reward_calculator._calculate_reward(driver)
-        
+        reward = driver.reward 
         # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
-            reward = -500
+            reward = -300
         
         if(print_info):
             print(f"Reward: {reward}")
@@ -295,9 +291,9 @@ class RacingEnv(gym.Env):
             print("Car is spinning!")
             return True
         
-        if driver.reward_calculator.stuck_counter > 200:
-            # print("Car is stuck!")
-            return True
+        # if driver.reward_calculator.stuck_counter > 200:
+        #     # print("Car is stuck!")
+        #     return True
             
         # Terminate if the car is spinning
         if car_state[ANGULAR_VEL_Z_IDX] > 20.0:
@@ -325,10 +321,13 @@ def lr_schedule(progress_remaining: float) -> float:
     
     return max(min_lr, base_lr * progress_remaining)
 
-def make_env():
-    """Factory function to create a new RacingEnv instance."""
+
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNormalize, VecFrameStack
+
+def make_env(repeat=4):
     def _init():
-        return RacingEnv()
+        env = RacingEnv()
+        return env
     return _init
 
 
@@ -337,13 +336,12 @@ if __name__ == "__main__":
 
     model_path = os.path.join(model_dir, model_name)
 
-    
     from utilities.car_system import CarSystem
     from run.run_simulation import RacingSimulation
 
     debug = False
     print_info = False
-    num_envs = 128
+    num_envs = 16
  
     if(debug): # Single environment
         num_envs = 1
@@ -352,6 +350,8 @@ if __name__ == "__main__":
         env = SubprocVecEnv([make_env() for _ in range(num_envs)])
 
     
+    # env = VecFrameStack(env, n_stack=4, channels_order="last")
+    # env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
     env = VecMonitor(env, log_dir)  # Keeps track of episode rewards
     env.reset()
 
@@ -367,30 +367,26 @@ if __name__ == "__main__":
         print("No existing model found. Creating a new one.")
         
         # os.makedirs(model_path)
-        policy_kwargs = dict(net_arch=[256, 256])
+        import torch.nn as nn
+
+        policy_kwargs = dict(net_arch=[256, 256], activation_fn=nn.ReLU)
         model = SAC(
             "MlpPolicy", env, verbose=1,
-            train_freq=5,
-            gradient_steps=5,  # Number of gradient steps to perform after each rollout
+            train_freq=1,
+            gamma=0.98, # discount factor
+            learning_rate=1e-3,
+            # learning_rate=lr_schedule,  # Use the dynamic learning rate function
+            gradient_steps=40,  # Number of gradient steps to perform after each rollout
             policy_kwargs=policy_kwargs,
+            buffer_size=100_000,
+            learning_starts=10_000,
             # tensorboard_log=os.path.join(log_dir),  # Enable TensorBoard logging
-            learning_rate=lr_schedule,  # Use the dynamic learning rate function
             device=device,  # Ensure the model is trained on GPU
-            batch_size=2048,  # Adjust batch size for parallel environments
+            batch_size=256 
         )
         
+        # UTD ≈ gradient_steps / (train_freq * n_envs)
 
-    # model = PPO(
-    #     "MlpPolicy", env,
-    #     verbose=1,
-    #     n_steps=2048 // num_envs,
-    #     batch_size=64,
-    #     tensorboard_log=log_dir,
-    #     policy_kwargs=dict(net_arch=[256, 256]),
-    #     learning_rate=lr_schedule,
-    # )
-
-        
 
 
     # Save the current Python file under the model name
@@ -401,30 +397,31 @@ if __name__ == "__main__":
     zip_path = f"{model_path}_training.zip"
     with zipfile.ZipFile(zip_path, 'w') as zipf:
         zipf.write(__file__, os.path.basename(__file__))
-        
-    starting_time = time.time()
-    
 
-    model.learn(total_timesteps=5_000_000, 
+    starting_time = time.time()
+
+    model.learn(total_timesteps=100_000,
                 callback=[
                     # topk_callback,
                     TrainingStatusCallback(check_freq=12_500, save_path=model_path),
                     EpisodeCSVLogger(csv_path=os.path.join(model_dir, 'training_log.csv')),
                     # AdjustCheckpointsCallback()
-                    ],
-                )
-    
+                ],
+    )
+
     model.save(model_path)
     print(f"Model saved to {model_path}.")
     # Save the top-K trajectories
     topk.save("top_k_trajectories.pkl")
     print("Top-K trajectories saved.")
-    
-    
-    # env.save(norm_path)  # ✅ Save normalization stats for inference
-    
+
+    # Save VecNormalize statistics for later evaluation
+    norm_path = os.path.join(model_dir, "vecnormalize.pkl")
+    # env.save(norm_path)
+    # print(f"VecNormalize statistics saved to {norm_path}.")
+
     env.close()  # Close TensorBoard writer after training
-    
+
     print(f"Training took {time.time() - starting_time} seconds.")
     
     
