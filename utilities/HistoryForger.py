@@ -1,29 +1,73 @@
 # HistoryForger.py
 
+import os
 import numpy as np
 
 from utilities.waypoint_utils import get_nearest_waypoint
-from utilities.InverseDynamics import CarInverseDynamics
+from utilities.InverseDynamics import ProgressiveWindowRefiner
 from utilities.Settings import Settings
 
 HISTORY_LENGTH = 20  # in 'controller updates'
 TIMESTEP_CONTROL = 0.02
-TIMESTEP_ENVIRONMENT = 0.01
+TIMESTEP_ENVIRONMENT = 0.02
 timesteps_per_controller_update = int(TIMESTEP_CONTROL / TIMESTEP_ENVIRONMENT)
 START_AFTER_X_STEPS = 100
+
+# ---- Online ID Diagnostics --------------------------------------------------
+
+def _angle_wrap_diff_np(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return np.arctan2(np.sin(a - b), np.cos(a - b))
+
+def _scaled_rmse_curve(pred: np.ndarray, gt: np.ndarray, state_std: np.ndarray) -> np.ndarray:
+    """
+    pred, gt: [L,10] chronological (older->newer)
+    Returns per-step RMSE over kept dims, scaled by HARD_CODED_STATE_STD.
+    """
+    from utilities.InverseDynamics import KEEP_IDX, POSE_THETA_IDX
+    dif = pred.copy() - gt.copy()
+    dif[:, POSE_THETA_IDX] = _angle_wrap_diff_np(pred[:, POSE_THETA_IDX], gt[:, POSE_THETA_IDX])
+    keep = KEEP_IDX.numpy() if hasattr(KEEP_IDX, "numpy") else KEEP_IDX
+    Z = dif[:, keep] / state_std[keep][None, :]
+    rmse = np.sqrt(np.mean(Z * Z, axis=1))
+    return rmse
+
+def _curve_head_tail_stats(curve: np.ndarray) -> tuple[float,float,float]:
+    """
+    Returns (mean, head_mean, tail_mean) with head/tail = first/last 25%.
+    """
+    L = int(curve.shape[0])
+    if L == 0: return 0.0, 0.0, 0.0
+    k = max(1, L // 4)
+    return float(np.mean(curve)), float(np.mean(curve[:k])), float(np.mean(curve[-k:]))
+
 
 class HistoryForger:
     def __init__(self):
         self.previous_control_inputs = []
         self.previous_measured_states = []  # Only for debugging if needed
 
-        self.car_inverse_dynamics = CarInverseDynamics()
+        # Progressive, overlapped refiner with smoothing (reused instance → no retracing)
+        self.refiner = ProgressiveWindowRefiner(
+            mu=Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None,
+            controls_are_pid=True,
+            dt=TIMESTEP_ENVIRONMENT,
+            window_size=30,
+            overlap=12,
+            smoothing_window=60,
+            smoothing_overlap=30,
+        )
 
-        if Settings.FRICTION_FOR_CONTROLLER is not None:
-            self.car_inverse_dynamics.change_friction_coefficient(Settings.FRICTION_FOR_CONTROLLER)
-
+        self._warmed_once = False
         self.forged_history_applied = False
         self.counter = 0
+
+        # --- Diagnostics / logging (env-controlled) ---
+        self.diag_every_n = int(os.getenv("ID_DIAG_EVERY_N", "25"))  # print every N calls
+        self.diag_csv = os.getenv("ID_DIAG_CSV", "")                  # optional CSV path
+        self._diag_counter = 0
+        self._diag_csv_header_written = False
+        self._diag_last = {}  # last stats snapshot
+
 
     def update_control_history(self, u):
         self.counter += 1
@@ -37,6 +81,16 @@ class HistoryForger:
         max_len = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_measured_states) > max_len:
             self.previous_measured_states.pop(0)
+
+    def _warm_once(self, x_T, Q):
+        if self._warmed_once:
+            return
+        # Tiny subset to force tracing quickly
+        T_small = min(5, Q.shape[0])
+        if T_small >= 1:
+            Qs = Q[-T_small:]  # old->new last few controls
+            _ = self.refiner.refine(x_T, Qs)  # warm the internal optimizer
+        self._warmed_once = True
 
     def get_forged_history(self, car_state, waypoint_utils):
         """
@@ -52,14 +106,68 @@ class HistoryForger:
             self.forged_history_applied = False
             return None
 
-        # Reverse the stored controls in time
-        Q_np = np.array(self.previous_control_inputs)[::-1, :, :]  # shape [time_steps, 1, control_dim]
-        Q_np = Q_np[:, 0, :]  # shape => [time_steps, control_dim]
+        controls = np.array(self.previous_control_inputs, dtype=np.float32)[-required_length:]
 
-        x_next = car_state[np.newaxis, :]  # shape => [1, state_dim]
+        # Flatten [T,1,2] → [T,2] or accept [T,2] as-is
+        if controls.ndim == 3 and controls.shape[1] == 1:
+            controls = controls[:, 0, :]
+        elif controls.ndim == 1:
+            controls = controls[None, :]
 
-        # Do the entire backward pass
-        states_all, converged_flags = self.car_inverse_dynamics.inverse_entire_trajectory(x_next, Q_np)
+        Q_np = controls.astype(np.float32)              # [T, 2], old→new
+        x_next = np.asarray(car_state, np.float32)[None]  # [1, 10]
+
+        # Warm once to exclude tracing from timings
+        self._warm_once(x_next, Q_np)
+
+        # ---- Refine with stats ----
+        states_all, converged_flags, stats = self.refiner.refine_stats(x_next, Q_np)
+
+        # ---- Compare to true measured past (online quality) ----
+        try:
+            from utilities.InverseDynamics import HARD_CODED_STATE_STD
+            # Take last 'required_length' measured states; exclude current (last)
+            if len(self.previous_measured_states) >= (required_length + 1):
+                gt_past = np.array(self.previous_measured_states[-(required_length+1):-1], dtype=np.float32)
+                # predicted 'past_states' chronological (older->newer)
+                states_at_control_times = states_all[::timesteps_per_controller_update, :]
+                past_states_backwards = states_at_control_times[1:, :]
+                pred_past = past_states_backwards[::-1, :]
+                rmse_curve = _scaled_rmse_curve(pred_past, gt_past, HARD_CODED_STATE_STD)
+                rmse_mean, rmse_head, rmse_tail = _curve_head_tail_stats(rmse_curve)
+                stats.update({
+                    "rmse_mean": rmse_mean, "rmse_head": rmse_head, "rmse_tail": rmse_tail,
+                    "rmse_auc": float(np.trapz(rmse_curve, dx=1.0))
+                })
+        except Exception as _:
+            pass
+
+        stats["conv_rate"] = float(np.mean(converged_flags.astype(np.float32)))
+        stats["applied"] = float(1.0 if np.all(converged_flags) else 0.0)
+        self._diag_last = stats
+
+        # optional periodic print
+        self._diag_counter += 1
+        if self.diag_every_n > 0 and (self._diag_counter % self.diag_every_n == 0):
+            print(
+                f"[ID] T={int(stats.get('T', -1))} | total={stats.get('total_ms',0):6.1f} ms "
+                f"(prep={stats.get('last_prep_ms',0):5.1f}, opt={stats.get('last_opt_ms',0):5.1f}, "
+                f"smooth={stats.get('smooth_ms',0):5.1f}) | rmse={stats.get('rmse_mean',float('nan')):.4f} "
+                f"(head={stats.get('rmse_head',float('nan')):.4f}, tail={stats.get('rmse_tail',float('nan')):.4f}) "
+                f"| conv={stats['conv_rate']:.2f} | traces={int(stats.get('last_traces',-1))}"
+            )
+
+        # optional CSV
+        if self.diag_csv:
+            import csv, os
+            os.makedirs(os.path.dirname(self.diag_csv), exist_ok=True) if os.path.dirname(self.diag_csv) else None
+            write_header = (not self._diag_csv_header_written) or (not os.path.exists(self.diag_csv))
+            with open(self.diag_csv, "a", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=sorted(stats.keys()))
+                if write_header:
+                    w.writeheader()
+                    self._diag_csv_header_written = True
+                w.writerow({k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in stats.items()})
 
         if not np.all(converged_flags):
             self.forged_history_applied = False

@@ -22,11 +22,18 @@ from utilities.state_utilities import (
     POSE_THETA_COS_IDX,
 )
 
-# ---------------------------------------------------------------------------
-# XLA toggle for the refine optimizer (safe default OFF on CPU)
-# Set ID_USE_XLA=1 to enable on supported platforms (e.g., Linux+CUDA).
-# ---------------------------------------------------------------------------
-XLA_REFINE = bool(int(os.getenv("ID_USE_XLA", "0")))
+import contextlib  # ← add if missing
+
+# --- Portable device heuristics & defaults ---
+_LOGICAL_GPUS = tf.config.list_logical_devices('GPU')
+_HAS_GPU = len(_LOGICAL_GPUS) > 0
+_IS_METAL = any('METAL' in d.name.upper() for d in _LOGICAL_GPUS)
+
+PIN_REFINER_TO_CPU = bool(int(os.getenv('ID_PIN_REFINER_CPU', '1')))
+CPU_DEVICE = "/device:CPU:0"
+
+XLA_REFINE = bool(int(os.getenv('ID_USE_XLA', '0')))
+
 
 # ======================================================================================
 # Utilities
@@ -204,19 +211,24 @@ class TrajectoryRefiner:
             scale_np = HARD_CODED_STATE_STD.copy()
         else:
             scale_np = _build_state_scale_from_std(state_scale_std_map)
-        self.state_scale = tf.Variable(scale_np, dtype=tf.float32, trainable=False)
 
-        # Persistent buffers
-        self.X_var      = tf.Variable(tf.zeros([self.MAX_T, self.state_dim], tf.float32), trainable=True)
-        self.Q_var      = tf.Variable(tf.zeros([self.MAX_T, self.control_dim], tf.float32), trainable=False)
-        self.x_next_var = tf.Variable(tf.zeros([self.state_dim], tf.float32), trainable=False)
-        self.T_var      = tf.Variable(0, dtype=tf.int32, trainable=False)
+        dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
+        with dev_ctx:
+            self.state_scale = tf.Variable(scale_np, dtype=tf.float32, trainable=False)
 
-        # ---- PATH PRIOR (optional; filled by ProgressiveWindowRefiner) ----
-        # Prior targets (kinematic reference) and per-step weights for current horizon
-        self.KP_var = tf.Variable(tf.zeros([self.MAX_T, self.state_dim], tf.float32), trainable=False, name="prior_targets")
-        self.KW_var = tf.Variable(tf.zeros([self.MAX_T], tf.float32),                    trainable=False, name="prior_weights")
+            # Persistent buffers
+            self.X_var      = tf.Variable(tf.zeros([self.MAX_T, self.state_dim], tf.float32), trainable=True)
+            self.Q_var      = tf.Variable(tf.zeros([self.MAX_T, self.control_dim], tf.float32), trainable=False)
+            self.x_next_var = tf.Variable(tf.zeros([self.state_dim], tf.float32), trainable=False)
+            self.T_var      = tf.Variable(0, dtype=tf.int32, trainable=False)
 
+            # ---- PATH PRIOR (optional; filled by ProgressiveWindowRefiner) ----
+            # Prior targets (kinematic reference) and per-step weights for current horizon
+            self.KP_var = tf.Variable(tf.zeros([self.MAX_T, self.state_dim], tf.float32), trainable=False, name="prior_targets")
+            self.KW_var = tf.Variable(tf.zeros([self.MAX_T], tf.float32),                    trainable=False, name="prior_weights")
+
+        if int(os.getenv("ID_LOG_REFINER_DEV", "1")):
+            print(f"[ID] Refiner pinned_to_cpu={PIN_REFINER_TO_CPU} | XLA_REFINE={XLA_REFINE} | device={CPU_DEVICE}")
 
         # Optimizer
         try:
@@ -224,6 +236,11 @@ class TrajectoryRefiner:
         except AttributeError:
             opt = tf.keras.optimizers.Adam
         self.base_optimizer = opt(learning_rate=1e-3)
+
+        # ---- Diagnostics (filled per call) ----
+        self.debug_last_timings: Dict[str, float] = {}
+        self.debug_last_dyn_costs: Tuple[float, float] | None = None  # (mean, max)
+
 
         # Loss settings
         self.REG_TEMPORAL   = 1e-3
@@ -252,6 +269,9 @@ class TrajectoryRefiner:
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray,
                                   X_init: Optional[np.ndarray]=None) -> Tuple[np.ndarray, np.ndarray]:
+        import time
+        t_start = time.time()
+
         x_T = np.asarray(x_T, dtype=np.float32); Q = np.asarray(Q, dtype=np.float32)
         if x_T.shape != (1, self.state_dim):
             raise ValueError(f"x_T must be [1,{self.state_dim}]")
@@ -267,14 +287,26 @@ class TrajectoryRefiner:
         if X_init is None:
             X_init = build_kinematic_seed(x_T[0], Q, self.dt)
 
-        # Load buffers
-        self.x_next_var.assign(x_T[0])      # pinned as given
-        self.Q_var[:T].assign(Q[::-1])      # newest→older for internal loop
+        # Load buffers (SLICE assignments only; avoid O(MAX_T) host->device copies)
+        self.x_next_var.assign(x_T[0])  # pinned as given
         self.T_var.assign(T)
-        self.X_var[:T].assign(X_init)       # newest→older seed
+
+        dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
+        # Build full buffers to avoid ResourceStridedSliceAssign (GPU-unsafe)
+        q_full = np.zeros((self.MAX_T, self.control_dim), dtype=np.float32)
+        x_full = np.zeros((self.MAX_T, self.state_dim), dtype=np.float32)
+        q_full[:T, :] = Q[::-1].astype(np.float32)  # newest→older internal order
+        x_full[:T, :] = X_init.astype(np.float32)  # newest→older seed
+
+        with dev_ctx:
+            self.Q_var.assign(q_full)
+            self.X_var.assign(x_full)
+
+        t_prep = time.time()
 
         # Optimize (compiled; no outputs)
         self._optimize_compiled()
+        t_opt = time.time()
 
         # Assemble outputs (eager)
         X_np = self.X_var[:T].numpy()
@@ -285,6 +317,7 @@ class TrajectoryRefiner:
         # Consistency flags (eager)
         Q_newest_first = self.Q_var[:T].numpy()
         flags = np.zeros((T,), dtype=bool)
+        dyn_costs = []
         for i in range(T):
             x_i   = states[0] if i == 0 else states[i]
             x_im1 = states[i+1]
@@ -298,90 +331,123 @@ class TrajectoryRefiner:
                                        delta=self.RES_DELTA,
                                        state_scale=self.state_scale,
                                        slip_lambda=self.SLIP_PRIOR)
-            flags[i] = bool(err.numpy() < float(self.TOL_HUBER.numpy()))
+            v = float(err.numpy())
+            dyn_costs.append(v)
+            flags[i] = bool(v < float(self.TOL_HUBER.numpy()))
+
+        t_assemble = time.time()
+
+        # Save diagnostics
+        self.debug_last_timings = {
+            "T": float(T),
+            "prep_ms": 1000.0*(t_prep - t_start),
+            "opt_ms":  1000.0*(t_opt - t_prep),
+            "assemble_ms": 1000.0*(t_assemble - t_opt),
+            "total_ms": 1000.0*(t_assemble - t_start),
+            "traces": float(self.tracing_count() or -1),
+            "pinned_cpu": float(1 if PIN_REFINER_TO_CPU else 0),
+            "xla": float(1 if XLA_REFINE else 0),
+            "phase1": float(self.PHASE1_STEPS),
+            "phase2": float(self.PHASE2_STEPS),
+        }
+        if len(dyn_costs):
+            self.debug_last_dyn_costs = (float(np.mean(dyn_costs)), float(np.max(dyn_costs)))
+            self.debug_last_timings["dyn_cost_mean"] = self.debug_last_dyn_costs[0]
+            self.debug_last_timings["dyn_cost_max"] = self.debug_last_dyn_costs[1]
 
         return states, flags
 
-    @tf.function(experimental_relax_shapes=True, jit_compile=XLA_REFINE)
+    @tf.function(experimental_relax_shapes=True, reduce_retracing=True, jit_compile=XLA_REFINE)
     def _optimize_compiled(self) -> None:
-        T = self.T_var
+        """
+        Compiled optimization only.
+        - No TensorArray creation; no graph outputs (updates self.X_var in place).
+        - Robust dynamics + robust temporal smoothness.
+        - Optional PATH PRIOR (small Huber penalty towards kinematic seed) applied
+          ONLY where self.KW_var[i] > 0.0 (set/cleared by ProgressiveWindowRefiner).
+        """
+        dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
+        with dev_ctx:
+            T = self.T_var
 
-        def cost():
-            cost_val = tf.constant(0.0, tf.float32)
-            for i in tf.range(T):
-                x_i  = self.x_next_var if tf.equal(i, 0) else self.X_var[i-1, :]
-                x_i  = _fix_sin_cos(x_i)
-                xim1 = _fix_sin_cos(self.X_var[i, :])
-                qi   = self.Q_var[i, :]
-                x_pred = self._f(xim1[tf.newaxis, :], qi[tf.newaxis, :])[0]
-                x_pred = _fix_sin_cos(x_pred)
-                c_dyn = _partial_state_huber(x_pred, x_i, delta=self.RES_DELTA,
-                                          state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR)
+            def cost():
+                cost_val = tf.constant(0.0, tf.float32)
+                for i in tf.range(T):
+                    x_i  = self.x_next_var if tf.equal(i, 0) else self.X_var[i-1, :]
+                    x_i  = _fix_sin_cos(x_i)
+                    xim1 = _fix_sin_cos(self.X_var[i, :])
+                    qi   = self.Q_var[i, :]
+                    x_pred = self._f(xim1[tf.newaxis, :], qi[tf.newaxis, :])[0]
+                    x_pred = _fix_sin_cos(x_pred)
+                    c_dyn = _partial_state_huber(x_pred, x_i, delta=self.RES_DELTA,
+                                              state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR)
 
-                cost_val += c_dyn
+                    cost_val += c_dyn
 
-                # ---- PATH PRIOR (if enabled for this step) -----------------
-                # Prior targets (kinematic reference) newest→older in KP_var
-                # Prior weights (per step) in KW_var; 0.0 disables the term.
-                w_i = self.KW_var[i]
+                    # ---- PATH PRIOR (if enabled for this step) -----------------
+                    # Prior targets (kinematic reference) newest→older in KP_var
+                    # Prior weights (per step) in KW_var; 0.0 disables the term.
+                    w_i = self.KW_var[i]
 
-                def _add_prior_term():
-                    x_state = _fix_sin_cos(self.X_var[i, :])  # current var state
-                    kp_i = _fix_sin_cos(self.KP_var[i, :])  # prior target
-                    # Use TEMP_DELTA for prior's Huber; no slip prior here
-                    c_pr = _partial_state_huber(
-                        x_state, kp_i,
-                        delta=self.TEMP_DELTA,
-                        state_scale=self.state_scale,
-                        slip_lambda=0.0
+                    def _add_prior_term():
+                        x_state = _fix_sin_cos(self.X_var[i, :])  # current var state
+                        kp_i = _fix_sin_cos(self.KP_var[i, :])  # prior target
+                        # Use TEMP_DELTA for prior's Huber; no slip prior here
+                        c_pr = _partial_state_huber(
+                            x_state, kp_i,
+                            delta=self.TEMP_DELTA,
+                            state_scale=self.state_scale,
+                            slip_lambda=0.0
+                        )
+                        return cost_val + w_i * c_pr
+
+                    cost_val = tf.cond(w_i > 0.0, _add_prior_term, lambda: cost_val)
+
+                # --- Robust temporal smoothness (mild) ---
+                for i in tf.range(1, T):
+                    x_cur  = _fix_sin_cos(self.X_var[i, :])
+                    x_prev = _fix_sin_cos(self.X_var[i-1, :])
+                    cost_val += self.REG_TEMPORAL * _partial_state_huber(
+                        x_cur, x_prev, delta=self.TEMP_DELTA, state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR
                     )
-                    return cost_val + w_i * c_pr
+                return cost_val
 
-                cost_val = tf.cond(w_i > 0.0, _add_prior_term, lambda: cost_val)
+            try:
+                self.base_optimizer.learning_rate.assign(self.LR1)
+            except Exception:
+                pass
+            for _ in tf.range(self.PHASE1_STEPS):
+                with tf.GradientTape() as tape:
+                    c = cost()
+                g = tape.gradient(c, [self.X_var])
+                self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
 
-            # --- Robust temporal smoothness (mild) ---
-            for i in tf.range(1, T):
-                x_cur  = _fix_sin_cos(self.X_var[i, :])
-                x_prev = _fix_sin_cos(self.X_var[i-1, :])
-                cost_val += self.REG_TEMPORAL * _partial_state_huber(
-                    x_cur, x_prev, delta=self.TEMP_DELTA, state_scale=self.state_scale, slip_lambda=self.SLIP_PRIOR
-                )
-            return cost_val
-
-        try:
-            self.base_optimizer.learning_rate.assign(self.LR1)
-        except Exception:
-            pass
-        for _ in tf.range(self.PHASE1_STEPS):
-            with tf.GradientTape() as tape:
-                c = cost()
-            g = tape.gradient(c, [self.X_var])
-            self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
-
-        try:
-            self.base_optimizer.learning_rate.assign(self.LR2)
-        except Exception:
-            pass
-        for _ in tf.range(self.PHASE2_STEPS):
-            with tf.GradientTape() as tape:
-                c = cost()
-            g = tape.gradient(c, [self.X_var])
-            self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
+            try:
+                self.base_optimizer.learning_rate.assign(self.LR2)
+            except Exception:
+                pass
+            for _ in tf.range(self.PHASE2_STEPS):
+                with tf.GradientTape() as tape:
+                    c = cost()
+                g = tape.gradient(c, [self.X_var])
+                self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
 
     # --- prior API (called by ProgressiveWindowRefiner) ---
     def set_path_prior(self, prior_targets: np.ndarray, prior_weights: np.ndarray):
-        """prior_targets: [T,10] newest→older; prior_weights: [T] per-step weights (0 means off)."""
-        T = prior_targets.shape[0]
-        self.KP_var[:T].assign(prior_targets.astype(np.float32))
-        self.KW_var[:T].assign(prior_weights.astype(np.float32))
-        # Zero out remaining (optional)
-        if T < int(self.MAX_T):
-            self.KP_var[T:].assign(tf.zeros_like(self.KP_var[T:]))
-            self.KW_var[T:].assign(tf.zeros_like(self.KW_var[T:]))
+        T = int(prior_targets.shape[0])
+        dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
+        with dev_ctx:
+            kp_full = np.zeros((self.MAX_T, self.state_dim), dtype=np.float32)
+            kw_full = np.zeros((self.MAX_T,), dtype=np.float32)
+            kp_full[:T, :] = prior_targets.astype(np.float32)
+            kw_full[:T] = prior_weights.astype(np.float32)
+            self.KP_var.assign(kp_full)
+            self.KW_var.assign(kw_full)
 
     def clear_path_prior(self):
-        T = int(self.T_var.numpy())
-        self.KW_var[:T].assign(tf.zeros_like(self.KW_var[:T]))
+        dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
+        with dev_ctx:
+            self.KW_var.assign(tf.zeros_like(self.KW_var))
 
     # --- trace counter (to verify retracing isn’t happening repeatedly) ---
     def tracing_count(self) -> Optional[int]:
@@ -416,6 +482,9 @@ class ProgressiveWindowRefiner:
                  prior_decay: float = 0.5,
                  prior_min: float = 1e-5,
                  state_scale_std_map: Optional[Dict[str,float]]=None):
+
+        if smoothing_window is not None:
+            smoothing_window = min(smoothing_window, window_size)
         if overlap < 0 or window_size <= 0 or overlap >= window_size:
             raise ValueError("window_size>0 and 0 <= overlap < window_size required.")
         self.refiner = TrajectoryRefiner(mu=mu, controls_are_pid=controls_are_pid, dt=dt,
@@ -511,6 +580,103 @@ class ProgressiveWindowRefiner:
             flags[i] = bool(err.numpy() < float(self.refiner.TOL_HUBER.numpy()))
 
         return refined, flags
+
+    def refine_stats(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+        import time
+        t0 = time.time()
+
+        x_T = np.asarray(x_T, np.float32); Q = np.asarray(Q, np.float32)
+        T = int(Q.shape[0]); W = self.window_size; O = self.overlap
+
+        stats: Dict[str, float] = {}
+        stats["T"] = float(T); stats["W"] = float(W); stats["O"] = float(O)
+        stats["smooth_W"] = float(self.smooth_W or 0); stats["smooth_O"] = float(self.smooth_O or 0)
+
+        # Full kinematic seed
+        seed_full = build_kinematic_seed(x_T[0], Q, self.dt)  # [T,10] newest→older
+        refined = np.vstack([x_T[0], seed_full]).astype(np.float32)  # [T+1,10]
+
+        k_end = min(W, T)
+        prev_k_end = 0
+        lam = self.prior_w0  # start prior weight
+
+        # grow once or multiple times depending on T
+        t_inv_sum = 0.0
+        while True:
+            Q_seg  = Q[T - k_end : T]
+            X_init = refined[1 : k_end + 1]
+
+            grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
+            prior_targets = seed_full[:k_end]
+            prior_weights = np.zeros((k_end,), dtype=np.float32)
+            if grow_sz > 0:
+                prior_weights[-grow_sz:] = lam
+
+            self.refiner.set_path_prior(prior_targets, prior_weights)
+
+            t_inv0 = time.time()
+            states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+            t_inv1 = time.time()
+            t_inv_sum += (t_inv1 - t_inv0) * 1000.0
+            self.refiner.clear_path_prior()
+
+            refined[:k_end+1] = states_w
+            prev_k_end = k_end
+            if k_end == T:
+                break
+
+            lam = max(self.prior_min, lam * self.prior_decay)
+            k_end = min(k_end + (W - O), T)
+
+        stats["inv_ms"] = t_inv_sum
+
+        # smoothing pass (optional)
+        t_smooth_ms = 0.0
+        if self.smooth_W:
+            W2 = int(self.smooth_W)
+            O2 = int(self.smooth_O if self.smooth_O is not None else max(1, W2 // 2))
+            k2 = min(W2, T)
+            while True:
+                Q_seg  = Q[T - k2 : T]
+                X_init = refined[1 : k2 + 1]
+                self.refiner.clear_path_prior()
+                t0s = time.time()
+                states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+                t1s = time.time()
+                t_smooth_ms += (t1s - t0s) * 1000.0
+                refined[:k2+1] = states_w
+                if k2 == T:
+                    break
+                k2 = min(k2 + (W2 - O2), T)
+        stats["smooth_ms"] = t_smooth_ms
+
+        # Consistency flags (same as original refine)
+        flags = np.zeros((T,), dtype=bool)
+        Q_newest_first = Q[::-1]
+        for i in range(T):
+            x_i   = refined[0] if i == 0 else refined[i]
+            x_im1 = refined[i+1]
+            qi    = Q_newest_first[i]
+            x_pred = self.refiner._f(
+                tf.convert_to_tensor(x_im1, tf.float32)[tf.newaxis, :],
+                tf.convert_to_tensor(qi, tf.float32)[tf.newaxis, :]
+            )[0]
+            x_pred = _fix_sin_cos(x_pred)
+            err = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
+                                       delta=self.refiner.RES_DELTA,
+                                       state_scale=self.refiner.state_scale,
+                                       slip_lambda=self.refiner.SLIP_PRIOR)
+            flags[i] = bool(err.numpy() < float(self.refiner.TOL_HUBER.numpy()))
+
+        # collect low-level timings
+        # last call timings from inner refiner
+        low = getattr(self.refiner, "debug_last_timings", {})
+        for k, v in low.items():
+            stats[f"last_{k}"] = float(v)
+        stats["total_ms"] = (time.time() - t0) * 1000.0
+
+        return refined, flags, stats
+
 
 # ======================================================================================
 # (Optional) warm start cache (deployment reuse)
