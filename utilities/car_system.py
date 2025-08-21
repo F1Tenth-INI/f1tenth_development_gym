@@ -73,6 +73,7 @@ class CarSystem:
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
         self.car_state_history = []
+        self.control_history = []
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -474,53 +475,23 @@ class CarSystem:
             # print("Keyboard listener not started, starting recording automatically")
             self.start_recorder()
             return
-        listener = keyboard.Listener(on_press=self.on_press)
-        listener.start()
+        # If keyboard exists
+        try:
+            from pynput import keyboard
+            listener = keyboard.Listener(on_press=self.on_press)
+            listener.start()
+        except ImportError:
+            self.start_recorder()
+        
+           
 
     def start_recorder(self):
         if self.recorder is not None:
-            print(f"Starting recorder for {self.controller_name}")
+            # print(f"Starting recorder for {self.controller_name}")
             self.recorder.start_csv_recording()
         else:
             pass
             # print("No recorder to start - recorder is None")
-    
-
-
-    # def init_recorder_and_start(self, recorder_dict={}):
-    #     self.recorder: Optional[Recorder] = None
-        
-    #     if Settings.SAVE_RECORDINGS and self.save_recordings:
-    #         self.recorder = Recorder(driver=self)
-            
-    #         # Add more internal data to recording dict:
-    #         self.recorder.dict_data_to_save_basic.update(
-    #             {   
-    #                 'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
-    #                 'reward': lambda: self.reward,
-    #             }
-    #         )
-    #         # Add data from outside the car stysem
-    #         self.recorder.dict_data_to_save_basic.update(recorder_dict)
-       
-    #         if Settings.FORGE_HISTORY:
-    #             self.recorder.dict_data_to_save_basic.update(
-    #                 {
-    #                     'forged_history_applied': lambda: self.history_forger.forged_history_applied,
-    #                 }
-    #             )
-    #         if Settings.SAVE_STATE_METRICS:
-    #             from utilities.StateMetricCalculator import StateMetricCalculator
-    #             self.state_metric_calculator = StateMetricCalculator(
-    #                 environment_name="Car",
-    #                 initial_environment_attributes={
-    #                     "next_waypoints": self.waypoint_utils.next_waypoints,
-    #                 },
-    #                 recorder_base_dict=self.recorder.dict_data_to_save_basic
-    #             )
-            
-            # # Start Recording
-            # self.recorder.start_csv_recording()
 
     
     def add_control_noise(self, control):
@@ -538,27 +509,16 @@ class CarSystem:
     Plotting and saving data
     '''   
     def on_simulation_end(self, collision=False):
-        
-        # import matplotlib.pyplot as plt
-        # plt.clf()
-        # plt.plot(self.reward_calculator.reward_history)
-        # plt.savefig('rewards.png')
-        
-        # # Also plot the accumulated rewards:
-        # accumulated_rewards = np.cumsum(self.reward_calculator.reward_history)
-        # plt.clf()
-        # plt.plot(accumulated_rewards)
-        # plt.savefig('accumulated_rewards.png')
-        # plt.clf()
-        
-       
-        
+        # Prevent further recording after simulation end
+        if hasattr(self, '_simulation_ended') and self._simulation_ended:
+            print("Simulation already ended, skipping recorder finalization.")
+            return
+        self._simulation_ended = True
+
         if self.recorder is not None:    
-            
             if Settings.SAVE_REWARDS:
                 self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
-            
-            
+
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -569,17 +529,14 @@ class CarSystem:
 
             if collision:
                 index = min(len(self.car_state_history), 200)
-                
                 # Save or append self.control_index to csv file
-                # if a csv file called survival.csv already exists, just add a new line, otherwise cfreate the file
                 with open('survival.csv', 'a') as f:
                     f.write(f"{self.control_index}\n")
-          
-                
+
                 print('Collision detected, moving csv to crash folder')
                 print('Car State at crtash:', self.car_state)
                 print('Car State at -index steps:', self.car_state_history[-index])
-                
+
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)

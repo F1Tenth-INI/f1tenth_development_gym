@@ -26,6 +26,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
+
 import time
 from typing import Optional
 
@@ -42,11 +43,12 @@ from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, Adju
 from stable_baselines3.common.vec_env import VecMonitor
 
 from TopKReplayBuffer import TopKTrajectoryBuffer, TopKTrajectoryCallback
+from collections import deque
 
 
-model_load_name = "SAC_RCA1_wpts_lidar_4"
+model_load_name = "SAC_RCA1_wpts_lidar_8"
 # model_load_name = "SAC_RCA1_wpts_lidar_2"
-model_name = "SAC_RCA1_wpts_lidar_4"
+model_name = "SAC_RCA1_wpts_lidar_8"
 
 
 
@@ -82,15 +84,17 @@ class RacingEnv(gym.Env):
         # control_obs_low = np.array([-0.4, -10], dtype=np.float32)
         # control_obs_high= np.array([0.4, 10], dtype=np.float32)
         
-        
         waypoint_low = - 1.0 * np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
         waypoint_high = 1.0 * np.ones(waypoint_size, dtype=np.float32)  # Adjust based on actual waypoint data
-        
+
+        action_low = np.array(3 * 2 * [-1], dtype=np.float32)
+        action_high = np.array(3 * 2 * [1], dtype=np.float32)
+
         # low = np.concatenate([lidar_low, car_state_low, waypoint_low])
         # high = np.concatenate([lidar_high, car_state_high, waypoint_high])
-        
-        low = np.concatenate([car_state_low, waypoint_low, lidar_low])
-        high = np.concatenate([car_state_high, waypoint_high, lidar_high])
+
+        low = np.concatenate([car_state_low, waypoint_low, lidar_low, action_low])
+        high = np.concatenate([car_state_high, waypoint_high, lidar_high, action_high])
 
         self.observation_space = gym.spaces.Box(
             low=low, high=high, dtype=np.float32
@@ -108,7 +112,10 @@ class RacingEnv(gym.Env):
         self.last_steering = 0.0
         self.stuck_counter = 0
         self.spin_counter = 0
-        
+
+        self.last_action = np.zeros(2)
+        self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
+
         self.checkpoints_per_lap = 20
         
         self.max_episode_steps = 10000
@@ -156,40 +163,32 @@ class RacingEnv(gym.Env):
         self.eposode_step_counter += 1  # Steps within an episode
         self.global_step_counter += 1   # Training-wide step counter
 
-        steering_correction = np.clip(action[0], -1, 1) * 0.4
-        throttle_correction = np.clip(action[1], -1, 1) * 5
 
-        # steering_correction = 0
-        # throttle_correction = 0
-        # Get original PP controls
-        # for index, driver in enumerate(simulation.drivers):
-            
+        steering = np.clip(action[0], -1, 1) * 0.4
+        throttle = np.clip(action[1], -1, 1) * 10
+
+
         driver: CarSystem = simulation.drivers[0]
         simulation.update_driver_state(driver, 0)
         driver.process_observation()
-        steering_controller, throttle_controller = None, None
-        # If there is no controller
-        if(steering_controller is None or throttle_controller is None):
-            steering_controller = 0
-            throttle_controller = 0
 
-
-        # Apply the action to the driver
-        steering = np.clip(steering_controller + steering_correction, -0.4, 0.4)
-        throttle = np.clip(throttle_controller + throttle_correction, -10, 10)
 
         agent_controls = np.array([[steering, throttle]])
 
 
         # Run multiple steps of simulation
-        for _ in range(5):
+        simulation_steps = int(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)
+        for _ in range(simulation_steps):
             simulation.simulation_step(agent_controls=agent_controls)
 
         obs = self.get_observation()
-        reward = self._calculate_reward()
+        reward = self._calculate_reward(action)
         terminated = self.check_termination()
         truncated = False
 
+        self.action_history_queue.append(action)  # Store the last action in the buffer
+
+        # Statistics
         laptime_min = None
         laptime_max = None
         laptime_mean = None
@@ -241,7 +240,8 @@ class RacingEnv(gym.Env):
         wpts = np.concatenate([wpts_x, wpts_y])
         wpts = wpts[::2]
 
-    
+        last_actions = list(self.action_history_queue)[-3:]
+        last_actions = np.array(last_actions).reshape(-1)
 
         state_features = np.array([
             # car_state[POSE_X_IDX],
@@ -259,22 +259,39 @@ class RacingEnv(gym.Env):
             driver.translational_control,
         ], dtype=np.float32)
         
-        observation_array = np.concatenate([state_features, wpts, lidar_scan]).astype(np.float32)
+        observation_array = np.concatenate([state_features, wpts, lidar_scan, last_actions]).astype(np.float32)
 
-        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(wpts)+ [0.1] * len(lidar_scan) # Adjust normalization factors for each feature
+        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(wpts)+ [0.1] * len(lidar_scan) + [1.0] * len(last_actions) # Adjust normalization factors for each feature
 
         observation_array_normalized = observation_array *  normalization_array
         # print(f"Observation: {observation_array_normalized}")
 
         return observation_array_normalized
 
-    def _calculate_reward(self):
+    def _calculate_reward(self, action):
         
         driver : CarSystem = self.simulation.drivers[0]
+
+        # This reward rewards progress along the raceline and penalizes distance to race line
         reward = driver.reward 
+        
+        # Penalize action
+        action_angular = action[0]
+        action_translational = action[1]    
+        action_penality = np.linalg.norm(0.1 * action_angular) + np.linalg.norm(0.02 * action_translational)
+        reward -= action_penality
+
+        # Penalize d_control for smooth control
+        last_action = self.action_history_queue[-1] 
+        d_control = last_action - action
+        d_angular_control = d_control[0]
+        d_translational_control = d_control[1]
+
+        d_control_penality = np.linalg.norm(d_angular_control) * 0.15 + np.linalg.norm(d_translational_control) * 0.03
+        reward -= d_control_penality
         # Penalize crash
         if self.simulation.obs["collisions"][0] == 1:
-            reward = -300
+            reward = -30
         
         if(print_info):
             print(f"Reward: {reward}")
@@ -373,10 +390,10 @@ if __name__ == "__main__":
         model = SAC(
             "MlpPolicy", env, verbose=1,
             train_freq=1,
-            gamma=0.98, # discount factor
-            learning_rate=1e-3,
+            gamma=0.99, # discount factor
+            learning_rate=3e-4,
             # learning_rate=lr_schedule,  # Use the dynamic learning rate function
-            gradient_steps=40,  # Number of gradient steps to perform after each rollout
+            gradient_steps=40, 
             policy_kwargs=policy_kwargs,
             buffer_size=100_000,
             learning_starts=10_000,
@@ -400,11 +417,11 @@ if __name__ == "__main__":
 
     starting_time = time.time()
 
-    model.learn(total_timesteps=100_000,
+    model.learn(total_timesteps=2_500_000,
                 callback=[
                     # topk_callback,
-                    TrainingStatusCallback(check_freq=12_500, save_path=model_path),
-                    EpisodeCSVLogger(csv_path=os.path.join(model_dir, 'training_log.csv')),
+                    TrainingStatusCallback(check_freq=6_250, save_path=model_path),
+                    EpisodeCSVLogger(model_name, csv_path=os.path.join(model_name, model_dir, 'training_log.csv')),
                     # AdjustCheckpointsCallback()
                 ],
     )

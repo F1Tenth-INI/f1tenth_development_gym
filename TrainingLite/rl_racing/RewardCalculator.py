@@ -51,13 +51,24 @@ class RewardCalculator:
         distance = np.linalg.norm(delta_position)
         projection = np.dot(delta_position, wp_vector) / np.linalg.norm(wp_vector)
 
-        reward += projection * 10
+        reward += projection * 1.0
+
+
+
+        #distance to waypoints
+        next_wp_pos_relative = driver.waypoint_utils.next_waypoint_positions_relative[0]
+        distance_to_next_wp = np.linalg.norm(next_wp_pos_relative)
+        
+        if(distance_to_next_wp < 0.2): distance = 0
+        reward -= distance_to_next_wp * 0.01
 
         # Debug prints for diagnosing reward calculation
         if self.print_info:
             print(f"[Reward Debug] delta_position: {delta_position}")
             print(f"[Reward Debug] wp_vector: {wp_vector}")
             print(f"[Reward Debug] projection: {projection}")
+            print(f"[Reward Debug] distance: {distance}")
+            print(f"[Reward Debug] v_x: {car_state[LINEAR_VEL_X_IDX]}")
             print(f"[Reward Debug] reward after projection: {reward}")
 
         self.last_position = current_position
@@ -94,19 +105,19 @@ class RewardCalculator:
             if self.spin_counter >= 50:
                 spin_reward = -self.spin_counter * 0.5
             if self.spin_counter >= 200:
-                spin_reward = -100
+                spin_reward = -10
         else:
             self.spin_counter = 0
-        # reward += spin_reward
+        reward += spin_reward
 
         # Penalize Being Stuck
         stuck_reward = 0.0
         if speed < 1.0:
             self.stuck_counter += 1
             if self.stuck_counter >= 20:
-                stuck_reward = -1
+                stuck_reward = -0.1
             if self.stuck_counter >= 200:
-                stuck_reward = -10
+                stuck_reward = -1
         else:
             self.stuck_counter = 0
         reward += stuck_reward
@@ -134,7 +145,7 @@ class RewardCalculator:
             self.reward_components_history.append(reward_components)
 
         self.reward_history.append(reward)
-        self.time += 0.01
+        self.time += Settings.TIMESTEP_CONTROL
         return reward
 
 

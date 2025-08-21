@@ -6,6 +6,8 @@ import subprocess
 import os
 import csv
 
+from .plot_training import plot_training_csv
+
 
 
 class TrainingStatusCallback(BaseCallback):
@@ -81,19 +83,24 @@ class AdjustCheckpointsCallback(BaseCallback):
 
 
 class EpisodeCSVLogger(BaseCallback):
-    def __init__(self, csv_path: str, verbose=0):
+    def __init__(self, model_name, csv_path: str, verbose=0):
         super().__init__(verbose)
+        self.model_name = model_name
         self.csv_path = csv_path
         self.csv_file = None
         self.writer = None
         self.episode_rewards = []
         self.episode_lengths = []
+        self.counter = 0
 
         # Add any custom fields you want here
         self.fields = [
             'episode', 'reward', 'length', 'lap_time', 'crashed',
             'laptimes', 'laptime_min', 'laptime_max', 'laptime_mean',
-            'step', 'global_step', 'checkpoints_per_lap'
+            'step', 'global_step', 'checkpoints_per_lap',
+            'exploration_rate', 'policy_loss', 'value_loss', 'entropy',
+            'learning_rate', 'success', 'buffer_size', 'gradient_norm',
+            'episode_time', 'action_mean', 'action_std'
         ]
     def _on_training_start(self):
         # Check if the file already exists and create a new one with an incremented suffix
@@ -101,6 +108,8 @@ class EpisodeCSVLogger(BaseCallback):
         counter = 1
         while os.path.exists(self.csv_path):
             self.csv_path = f"{base_path}_{counter}{ext}"
+            self.counter = counter
+
             counter += 1
 
         # Create the directory if it doesn't exist
@@ -126,7 +135,7 @@ class EpisodeCSVLogger(BaseCallback):
                     'length': info.get('episode', {}).get('l', float('nan')),
                     'lap_time': info.get('lap_time', float('nan')),
                     'crashed': info.get('crashed', False),
-                    'laptimes': info.get('laptimes', []),  # Assuming list of lap times
+                    'laptimes': info.get('laptimes', []),
                     'laptime_min': info.get('laptime_min', float('nan')),
                     'laptime_max': info.get('laptime_max', float('nan')),
                     'laptime_mean': info.get('laptime_mean', float('nan')),
@@ -138,6 +147,9 @@ class EpisodeCSVLogger(BaseCallback):
                 self.writer.writerow(log_data)
                 self.csv_file.flush()
 
+        # Only plot every 10 environment steps
+        if self.n_calls % 1000 == 0 and self.n_calls > 100:
+            plot_training_csv(self.model_name, self.counter)
         return True
 
     def _on_training_end(self):
