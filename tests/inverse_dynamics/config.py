@@ -11,8 +11,8 @@ MAX_FILES: int = 1                # quick smoke: first file only
 # Keep these *short* by default so the automatic run is snappy; extend when benchmarking.
 TRAJECTORY_LENGTHS = [10, 30, 60, 120,]     # you can add 60, 120 for deeper sweeps
 
-# Which solvers to run
-SOLVERS = ["fast", "refine", "hybrid"]
+# === Clear, non-legacy solver names ===
+SOLVERS = ["single_pass", "progressive_window"]
 
 # Inits to sweep for fast/refine (we keep 'none' and 'noisy' only; 'gt' is trivial)
 INITS = ["none", "noisy"]

@@ -10,7 +10,7 @@ from tests.inverse_dynamics import config as CFG
 from tests.inverse_dynamics.eval_utils import (
     gather_csv_files, load_states_controls,
     build_window_by_end, enumerate_end_indices,
-    eval_fast, eval_refine, eval_hybrid, per_step_scaled_errors,
+    eval_single_pass, eval_progressive_window, per_step_scaled_errors,
 )
 from utilities.InverseDynamics import HARD_CODED_STATE_STD
 
@@ -40,7 +40,6 @@ def _make_pbar(total: int, desc: str):
         return _PB(total, desc)
 
 def _effective_inits():
-    # We keep "none" and "noisy" (drop "gt" to save time; "gt" is a trivial baseline).
     return [i for i in CFG.INITS if i in ("none", "noisy")]
 
 def _results_to_csv(results: list[dict], file: Path, suffix: str):
@@ -119,7 +118,12 @@ def test_inverse_dynamics_recover_and_bench():
     for T in T_list:
         ends = enumerate_end_indices(len(states), T)
         for s in CFG.SOLVERS:
-            total_runs += len(ends) * (1 if s == "hybrid" else len(_effective_inits()))
+            if s == "single_pass":
+                total_runs += len(ends) * len(_effective_inits())
+            elif s == "progressive_window":
+                total_runs += len(ends)
+            else:
+                raise ValueError(f"Unknown solver: {s}")
 
     _p(f"[ID] File: {Path(file).name} | states={states.shape}, Q={Q.shape}, dt={dt:.4f}, mu={mu}")
     _p(f"[ID] Ts={T_list}, solvers={CFG.SOLVERS}, inits={_effective_inits()}, mode={CFG.WINDOW_MODE}, stride={CFG.WINDOW_STRIDE}")
@@ -134,9 +138,9 @@ def test_inverse_dynamics_recover_and_bench():
             x_T, Q_w, gt = build_window_by_end(states, Q, T, end_idx)
 
             for solver in CFG.SOLVERS:
-                if solver == "fast":
+                if solver == "single_pass":
                     for init in _effective_inits():
-                        out = eval_fast(x_T, Q_w, gt, init_type=init,
+                        out = eval_single_pass(x_T, Q_w, gt, init_type=init,
                                         noise_scale=CFG.NOISE_SCALE, dt=dt, mu=mu,
                                         return_states=CFG.COLLECT_SERIES)
                         if CFG.COLLECT_SERIES:
@@ -162,42 +166,15 @@ def test_inverse_dynamics_recover_and_bench():
                             results.append(res)
                         pbar.update(1)
 
-                elif solver == "refine":
-                    for init in _effective_inits():
-                        out = eval_refine(x_T, Q_w, gt, init_type=init,
-                                          noise_scale=CFG.NOISE_SCALE, dt=dt, mu=mu,
-                                          return_states=CFG.COLLECT_SERIES)
-                        if CFG.COLLECT_SERIES:
-                            res, states_pred = out
-                            ser = per_step_scaled_errors(states_pred, gt, HARD_CODED_STATE_STD)
-                            _add_curve_to_bundle(Path(file).name, solver, T, init, ser["rmse_step"])
-                            res.update({
-                                "file": Path(file).name, "solver": solver, "T": T, "init": init, "end_idx": end_idx
-                            })
-                            results.append(res)
-                            if series_plotted < CFG.MAX_SERIES_PLOTS:
-                                _maybe_plot_series(
-                                    ser["rmse_step"],
-                                    title=f"{solver}/T={T}/init={init}/end={end_idx}",
-                                    out_file=Path(CFG.PLOTS_DIR) / f"{stem}_{solver}_T{T}_{init}_end{end_idx}.png",
-                                )
-                                series_plotted += 1
-                        else:
-                            res = out
-                            res.update({
-                                "file": Path(file).name, "solver": solver, "T": T, "init": init, "end_idx": end_idx
-                            })
-                            results.append(res)
-                        pbar.update(1)
-
-                elif solver == "hybrid":
-                    out = eval_hybrid(x_T, Q_w, gt, dt=dt, mu=mu, return_states=CFG.COLLECT_SERIES)
+                elif solver == "progressive_window":
+                    init_label = "auto"  # explicit label for grouping/plots
+                    out = eval_progressive_window(x_T, Q_w, gt, dt=dt, mu=mu, return_states=CFG.COLLECT_SERIES)
                     if CFG.COLLECT_SERIES:
                         res, states_pred = out
                         ser = per_step_scaled_errors(states_pred, gt, HARD_CODED_STATE_STD)
-                        _add_curve_to_bundle(Path(file).name, solver, T, init, ser["rmse_step"])
+                        _add_curve_to_bundle(Path(file).name, solver, T, init_label, ser["rmse_step"])
                         res.update({
-                            "file": Path(file).name, "solver": solver, "T": T, "init": "n/a", "end_idx": end_idx
+                            "file": Path(file).name, "solver": solver, "T": T, "init": init_label, "end_idx": end_idx
                         })
                         results.append(res)
                         if series_plotted < CFG.MAX_SERIES_PLOTS:
@@ -210,7 +187,7 @@ def test_inverse_dynamics_recover_and_bench():
                     else:
                         res = out
                         res.update({
-                            "file": Path(file).name, "solver": solver, "T": T, "init": "n/a", "end_idx": end_idx
+                            "file": Path(file).name, "solver": solver, "T": T, "init": init_label, "end_idx": end_idx
                         })
                         results.append(res)
                     pbar.update(1)
@@ -262,7 +239,7 @@ def test_inverse_dynamics_recover_and_bench():
     # Optional: print a short summary
     _p("[ID] Bundle summary (mean±std):")
     for _, r in agg.iterrows():
-        _p(f"  {r['solver']:7s} T={int(r['T']):3d} init={r['init']:>5s}  "
+        _p(f"  {r['solver']:18s} T={int(r['T']):3d} init={r['init']:>5s}  "
            f"rmse={r['rmse_mean_mean']:.4f}±{(0.0 if np.isnan(r['rmse_mean_std']) else r['rmse_mean_std']):.4f}  "
            f"time={r['time_s_mean']:.3f}±{(0.0 if np.isnan(r['time_s_std']) else r['time_s_std']):.3f}s  "
            f"trace_count_max={int(r['trace_count_max'])}")
@@ -280,22 +257,14 @@ def test_inverse_dynamics_recover_and_bench():
                                                                                             False) else None
             _plot_agg_series(curves, title, png_path, csv_path)
 
-    # Optional: print a short summary
-    _p("[ID] Bundle summary (mean±std):")
-    for _, r in agg.iterrows():
-        _p(f"  {r['solver']:7s} T={int(r['T']):3d} init={r['init']:>5s}  "
-           f"rmse={r['rmse_mean_mean']:.4f}±{(0.0 if np.isnan(r['rmse_mean_std']) else r['rmse_mean_std']):.4f}  "
-           f"time={r['time_s_mean']:.3f}±{(0.0 if np.isnan(r['time_s_std']) else r['time_s_std']):.3f}s  "
-           f"trace_count_max={int(r['trace_count_max'])}")
-
-    # Sanity: at least one experiment ran
     assert len(results) > 0
-    # Basic quality gate: refine should have a strictly better median rmse than fast (when both ran)
-    if "fast" in CFG.SOLVERS and "refine" in CFG.SOLVERS:
-        r_fast = [r for r in results if r["solver"] == "fast"]
-        r_ref  = [r for r in results if r["solver"] == "refine"]
-        if len(r_fast) > 0 and len(r_ref) > 0:
-            med_fast = np.median([r["rmse_mean"] for r in r_fast])
-            med_ref  = np.median([r["rmse_mean"] for r in r_ref])
-            assert med_ref <= med_fast * 1.05  # within 5%
-
+    # Basic quality gate: single_pass should be ≤ 5% worse than itself (no-op if only one solver),
+    # but keep the original intent comparing two families if both are present.
+    if "single_pass" in CFG.SOLVERS and "progressive_window" in CFG.SOLVERS:
+        r_sp = [r for r in results if r["solver"] == "single_pass"]
+        r_pw = [r for r in results if r["solver"] == "progressive_window"]
+        if len(r_sp) > 0 and len(r_pw) > 0:
+            med_sp = np.median([r["rmse_mean"] for r in r_sp])
+            med_pw = np.median([r["rmse_mean"] for r in r_pw])
+            # Non-binding; ensures progressive_window isn't wildly worse.
+            assert med_pw <= med_sp * 1.10

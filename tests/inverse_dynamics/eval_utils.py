@@ -33,11 +33,11 @@ _WARMED_HYB: set = set()
 
 
 def _ref_key(dt: float, mu: Optional[float]):
-    return ("ref", float(dt), None if mu is None else float(mu))
+    return ("single", float(dt), None if mu is None else float(mu))
 
 
 def _hyb_key(dt: float, mu: Optional[float], W: int, O: int):
-    return ("hyb", float(dt), None if mu is None else float(mu), int(W), int(O))
+    return ("prog", float(dt), None if mu is None else float(mu), int(W), int(O))
 
 
 def _get_refiner(dt: float, mu: Optional[float]) -> TrajectoryRefiner:
@@ -297,19 +297,20 @@ def _assert_pinned(x_T: np.ndarray, states_pred: np.ndarray):
     if not np.allclose(states_pred[0], x_T[0], atol=1e-6):
         raise AssertionError("Pinned newest state changed by solver.")
 
-# ------- Evaluation harness (new architecture) -------
 
-def eval_fast(x_T: np.ndarray,
-              Q_old_to_new: np.ndarray,
-              gt_newest_first: np.ndarray,
-              init_type: str,
-              noise_scale: float,
-              dt: float,
-              mu: Optional[float],
-              return_states: bool=False):
+# ------- Evaluation harness (clear names) -------
+
+def eval_single_pass(x_T: np.ndarray,
+                     Q_old_to_new: np.ndarray,
+                     gt_newest_first: np.ndarray,
+                     init_type: str,
+                     noise_scale: float,
+                     dt: float,
+                     mu: Optional[float],
+                     return_states: bool=False):
     """
-    'fast' = TrajectoryRefiner with a kinematic seed (no LM).
-    Timing EXCLUDES tracing/compile by warming the solver instance once.
+    Single global refinement over the whole horizon.
+    Warm start: kinematic seed (optionally perturbed with scaled Gaussian noise).
     """
     seed = build_kinematic_seed(x_T[0], Q_old_to_new, dt)
     if init_type == "noisy":
@@ -356,64 +357,16 @@ def eval_fast(x_T: np.ndarray,
     return (out, states_pred) if return_states else out
 
 
-def eval_refine(x_T: np.ndarray,
-                Q_old_to_new: np.ndarray,
-                gt_newest_first: np.ndarray,
-                init_type: str,
-                noise_scale: float,
-                dt: float,
-                mu: Optional[float],
-                return_states: bool=False):
-    seed = build_kinematic_seed(x_T[0], Q_old_to_new, dt)
-    if init_type == "noisy":
-        rng = np.random.default_rng(1234)
-        seed = seed + noise_scale * HARD_CODED_STATE_STD[None, :] * rng.normal(0.0, 1.0, size=seed.shape).astype(np.float32)
-    elif init_type != "none":
-        raise ValueError("init_type must be one of: none, noisy")
-
-    solver = _get_refiner(dt, mu)
-
-    # Warm-up
-    _warm_refiner(solver, dt, mu, x_T, Q_old_to_new, seed)
-
-    # Timed
-    t0 = time.perf_counter()
-    states_pred, conv_flags = solver.inverse_entire_trajectory(x_T, Q_old_to_new, X_init=seed)
-    dt_sec = time.perf_counter() - t0
-
-    _assert_pinned(x_T, states_pred)
-    metrics = scaled_state_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
-    ser = per_step_scaled_errors(states_pred, gt_newest_first, HARD_CODED_STATE_STD)
-    rmse_step = ser["rmse_step"]
-    head = rmse_step[: max(1, len(rmse_step)//3)]
-    tail = rmse_step[-max(1, len(rmse_step)//3):]
-
-    trace_count = None
-    try:
-        trace_count = solver.tracing_count()
-    except Exception:
-        pass
-
-    out = {
-        "conv_rate": float(np.mean(conv_flags.astype(np.float32))),
-        "time_s": float(dt_sec),
-        "mae_mean": float(np.mean(metrics["mae"])),
-        "rmse_mean": float(np.mean(metrics["rmse"])),
-        "rmse_auc": float(np.sum(rmse_step)),
-        "rmse_head": float(np.mean(head)),
-        "rmse_tail": float(np.mean(tail)),
-        "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
-        "trace_count": (int(trace_count) if trace_count is not None else -1),
-    }
-    return (out, states_pred) if return_states else out
-
-
-def eval_hybrid(x_T: np.ndarray,
-                Q_old_to_new: np.ndarray,
-                gt_newest_first: np.ndarray,
-                dt: float,
-                mu: Optional[float],
-                return_states: bool=False):
+def eval_progressive_window(x_T: np.ndarray,
+                            Q_old_to_new: np.ndarray,
+                            gt_newest_first: np.ndarray,
+                            dt: float,
+                            mu: Optional[float],
+                            return_states: bool=False):
+    """
+    Progressive horizon growth with overlap and an optional smoothing pass.
+    Non-obvious benefit: better numerical behavior for long horizons and poor seeds.
+    """
     solver = _get_hybrid(dt, mu, CFG.HYB_WINDOW, CFG.HYB_OVERLAP)
 
     # Warm the internal refiner once (small T) to exclude tracing from timings
