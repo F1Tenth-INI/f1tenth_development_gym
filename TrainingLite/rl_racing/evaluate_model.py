@@ -48,6 +48,8 @@ def evaluate_model(recording_name_extension=""):
     # Use DummyVecEnv for evaluation (single env)
 
     env = DummyVecEnv([eval_make_env])
+    norm_path = os.path.join(model_dir, "vecnormalize.pkl")
+    env = VecNormalize.load(norm_path, env)
     # env = VecFrameStack(env, n_stack=4, channels_order="last")
     # env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
     env.max_episode_steps = 10000

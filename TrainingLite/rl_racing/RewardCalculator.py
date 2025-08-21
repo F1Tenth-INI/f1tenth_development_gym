@@ -25,6 +25,7 @@ class RewardCalculator:
         self.spin_counter = 0
         self.stuck_counter = 0
         self.last_wp_index = 0
+        self.left_track = False
         
         self.reward_components_history = []
         self.reward = 0
@@ -51,16 +52,23 @@ class RewardCalculator:
         distance = np.linalg.norm(delta_position)
         projection = np.dot(delta_position, wp_vector) / np.linalg.norm(wp_vector)
 
-        reward += projection * 1.0
+        reward += projection * 2.0
 
-
+           
 
         #distance to waypoints
         next_wp_pos_relative = driver.waypoint_utils.next_waypoint_positions_relative[0]
         distance_to_next_wp = np.linalg.norm(next_wp_pos_relative)
         
-        if(distance_to_next_wp < 0.2): distance = 0
-        reward -= distance_to_next_wp * 0.01
+        if(distance_to_next_wp < 0.15): 
+            distance_to_next_wp = 0
+
+        reward -= distance_to_next_wp * 0.1
+
+        # Terminate if too far
+        if(distance_to_next_wp > 5): 
+            reward = -30
+            self.left_track = True
 
         # Debug prints for diagnosing reward calculation
         if self.print_info:

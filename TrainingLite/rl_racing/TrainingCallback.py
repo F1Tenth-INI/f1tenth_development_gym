@@ -11,12 +11,13 @@ from .plot_training import plot_training_csv
 
 
 class TrainingStatusCallback(BaseCallback):
-    def __init__(self, check_freq=5000, save_path='./models', verbose=1):
+    def __init__(self, check_freq=5000, save_path='./models', verbose=1, save_norm_data_cb=None):
         super(TrainingStatusCallback, self).__init__(verbose)
         self.check_freq = check_freq
         self.save_path = save_path
         self.start_time = time.time()
         self.save_freq = 12500
+        self.save_norm_data_cb = save_norm_data_cb
         
     # Add another callback: Save environment:
     # Reset, do a rollout, reset again
@@ -37,6 +38,9 @@ class TrainingStatusCallback(BaseCallback):
             model_filename = f"{self.save_path}_running.zip"
             self.model.save(model_filename)
             
+            if self.save_norm_data_cb:
+                self.save_norm_data_cb()
+                
             if self.verbose > 0:
                 print(f"💾 Model saved to {model_filename}")
 
