@@ -72,13 +72,13 @@ class HistoryForger:
     def update_control_history(self, u):
         self.counter += 1
         self.previous_control_inputs.append(u)
-        max_len = HISTORY_LENGTH * timesteps_per_controller_update
+        max_len = HISTORY_LENGTH * timesteps_per_controller_update + 1
         if len(self.previous_control_inputs) > max_len:
             self.previous_control_inputs.pop(0)
 
     def update_state_history(self, s):
         self.previous_measured_states.append(s)
-        max_len = HISTORY_LENGTH * timesteps_per_controller_update
+        max_len = HISTORY_LENGTH * timesteps_per_controller_update + 1
         if len(self.previous_measured_states) > max_len:
             self.previous_measured_states.pop(0)
 
@@ -139,6 +139,24 @@ class HistoryForger:
                     "rmse_mean": rmse_mean, "rmse_head": rmse_head, "rmse_tail": rmse_tail,
                     "rmse_auc": float(np.trapz(rmse_curve, dx=1.0))
                 })
+
+                from utilities.InverseDynamics import KEEP_IDX, HARD_CODED_STATE_STD, POSE_THETA_IDX
+
+                def _scaled(A, B):
+                    D = A.copy() - B.copy()
+                    D[:, POSE_THETA_IDX] = _angle_wrap_diff_np(A[:, POSE_THETA_IDX], B[:, POSE_THETA_IDX])
+                    kept = KEEP_IDX.numpy() if hasattr(KEEP_IDX, "numpy") else KEEP_IDX
+                    return D[:, kept] / HARD_CODED_STATE_STD[kept][None, :]
+
+                def _rmse(Z): return float(np.sqrt(np.mean(Z * Z)))
+
+                rmse0 = _rmse(_scaled(pred_past, gt_past))
+                rmse_m = _rmse(_scaled(pred_past[:-1], gt_past[1:]))  # pred shifted one step older
+                rmse_p = _rmse(_scaled(pred_past[1:], gt_past[:-1]))  # pred shifted one step newer
+
+                stats.update(
+                    {"rmse_unshifted": rmse0, "rmse_shift_pred_back_1": rmse_m, "rmse_shift_pred_fwd_1": rmse_p})
+
         except Exception as _:
             pass
 
@@ -150,11 +168,11 @@ class HistoryForger:
         self._diag_counter += 1
         if self.diag_every_n > 0 and (self._diag_counter % self.diag_every_n == 0):
             print(
-                f"[ID] T={int(stats.get('T', -1))} | total={stats.get('total_ms',0):6.1f} ms "
-                f"(prep={stats.get('last_prep_ms',0):5.1f}, opt={stats.get('last_opt_ms',0):5.1f}, "
-                f"smooth={stats.get('smooth_ms',0):5.1f}) | rmse={stats.get('rmse_mean',float('nan')):.4f} "
-                f"(head={stats.get('rmse_head',float('nan')):.4f}, tail={stats.get('rmse_tail',float('nan')):.4f}) "
-                f"| conv={stats['conv_rate']:.2f} | traces={int(stats.get('last_traces',-1))}"
+                f"[ID] T={int(stats.get('T', -1))} | total={stats['total_ms']:6.1f} ms "
+                f"(inv={stats['inv_ms']:5.1f}, smooth={stats['smooth_ms']:5.1f}, "
+                f"prep={stats.get('last_prep_ms', 0):5.1f}, opt={stats.get('last_opt_ms', 0):5.1f}) | "
+                f"rmse={stats.get('rmse_mean', float('nan')):.4f} (head={stats.get('rmse_head', float('nan')):.4f}, tail={stats.get('rmse_tail', float('nan')):.4f}) "
+                f"| conv={stats['conv_rate']:.2f} | traces={int(stats.get('last_traces', -1))}"
             )
 
         # optional CSV
