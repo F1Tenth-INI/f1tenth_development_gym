@@ -17,10 +17,7 @@ else:
             from pyglet import shapes
             import pyglet
         except ImportError as e:
-
-            # Handle the import error gracefully
             print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
-            # Optionally, you can print the error message
             print(f"ImportError: {e}")
    
             Settings.RENDER_MODE = None
@@ -208,8 +205,6 @@ class RenderUtils:
             label_text = "\n".join([f"{key}: {value}" for key, value in sorted(self.label_dict.items())])
             e.info_label.text = label_text
         
-        # Waypoints
-        gl.glPointSize(1)
         if self.draw_waypoints:        
 
             waypoints = self.waypoints

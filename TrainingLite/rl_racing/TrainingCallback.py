@@ -11,12 +11,12 @@ from .plot_training import plot_training_csv
 
 
 class TrainingStatusCallback(BaseCallback):
-    def __init__(self, check_freq=5000, save_path='./models', verbose=1, save_norm_data_cb=None):
+    def __init__(self, check_freq=5000, model_dir=None, save_path='./models', verbose=1, save_norm_data_cb=None):
         super(TrainingStatusCallback, self).__init__(verbose)
         self.check_freq = check_freq
         self.save_path = save_path
         self.start_time = time.time()
-        self.save_freq = 12500
+        self.model_dir = model_dir
         self.save_norm_data_cb = save_norm_data_cb
         
     # Add another callback: Save environment:
@@ -31,11 +31,12 @@ class TrainingStatusCallback(BaseCallback):
 
             print(f"🔄 Iteration {self.n_calls}, Timesteps: {self.num_timesteps}, Mean Reward: {mean_reward:.2f}, FPS: {fps:.2f}")
             
-        if self.n_calls % self.save_freq == 0:
+        if self.n_calls % self.check_freq == 0:
             # Save the model periodically
             # model_filename = f"{self.save_path}_{self.num_timesteps}.zip"
             # self.model.save(model_filename)
             model_filename = f"{self.save_path}_running.zip"
+            self.model.save_replay_buffer(os.path.join(self.model_dir, "replay_buffer.pkl"))
             self.model.save(model_filename)
             
             if self.save_norm_data_cb:

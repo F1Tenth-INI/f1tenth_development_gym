@@ -11,6 +11,11 @@ def plot_training_csv(model_name, training_index):
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
     csv_path=os.path.join(model_dir, f'training_log_{training_index}.csv')
+
+    if not os.path.exists(csv_path):
+        print(f"CSV file not found: {csv_path}")
+        return
+
     # Load the CSV
     df = pd.read_csv(csv_path)
 
@@ -25,7 +30,7 @@ def plot_training_csv(model_name, training_index):
     df = df.dropna(subset=[X_AXIS])
 
     # Automatically find numeric columns to plot
-    plot_columns = ["episode", "reward", "length", "lap_time", "crashed", "laptime_min"]
+    plot_columns = ["episode", "reward", "length","laptime_min"]
 
     # Set up subplots
     n = len(plot_columns)

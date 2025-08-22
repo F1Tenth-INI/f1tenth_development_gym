@@ -28,6 +28,8 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.vec_env.dummy_vec_env import DummyVecEnv
 
+import torch.nn as nn
+
 import time
 from typing import Optional
 
@@ -47,15 +49,15 @@ from TopKReplayBuffer import TopKTrajectoryBuffer, TopKTrajectoryCallback
 from collections import deque
 
 
-model_load_name = "SAC_RCA1_wpts_lidar_13"
-# model_load_name = "SAC_RCA1_wpts_lidar_2"
-model_name = "SAC_RCA1_wpts_lidar_13"
+model_load_name = "SAC_RCA1_wpts_lidar_16"
+model_name = "SAC_RCA1_wpts_lidar_18"
 
 
 
 experiment_index = 0
 tensorboad_log_name = f"{model_name}_{experiment_index}"
 
+model_load_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_load_name)
 model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
 log_dir = os.path.join(root_dir,"TrainingLite","rl_racing","models", model_name, "logs") + '/'
 
@@ -153,8 +155,9 @@ class RacingEnv(gym.Env):
         self.simulation.reset(poses=np.array(self.simulation.starting_positions))
         
         driver : CarSystem = self.simulation.drivers[0]
-        driver.reward_calculator.checkpoint_fraction = 1 / self.checkpoints_per_lap
         # Make sure env and self.simulation resets propperly
+        driver.reward_calculator.checkpoint_fraction = 1 / self.checkpoints_per_lap
+        driver.waypoint_utils.update_next_waypoints(driver.car_state)
     
         # Check for open source race environment        
         return self.get_observation(), {}
@@ -363,9 +366,8 @@ if __name__ == "__main__":
     # Load existing model or create new
 
     model_path = os.path.join(model_dir, model_name)
+    model_load_path = os.path.join(model_load_dir, model_load_name)
 
-    from utilities.car_system import CarSystem
-    from run.run_simulation import RacingSimulation
 
     debug = False
     print_info = False
@@ -379,23 +381,46 @@ if __name__ == "__main__":
 
     
     # env = VecFrameStack(env, n_stack=4, channels_order="last")
-    env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+
+    try:
+        norm_path = os.path.join(model_load_dir, "vecnormalize.pkl")
+        env = VecNormalize.load(norm_path, env)
+        print("Loaded VecNormalize stats successfully.")
+
+    except FileNotFoundError:
+        print(f"No existing normalization data found at: {norm_path}")
+        env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+
     env = VecMonitor(env, log_dir)  # Keeps track of episode rewards
     env.reset()
 
 
 
-    # Load existing model or create new
-    model_load_path = os.path.join(model_dir, model_load_name)
+
     try:
         model = SAC.load(model_load_path, env=env)
-        # model.lr_schedule = lr_schedule  # Set the learning rate schedule
         print("Model loaded successfully.")
-    except FileNotFoundError:
-        print("No existing model found. Creating a new one.")
+
+        replay_path = os.path.join(model_load_dir, "replay_buffer.pkl")
+        model.load_replay_buffer(replay_path)
+        print("Replay buffer loaded successfully!")
+
+        model.learning_starts = 0   # don’t do random warmup again
+
+
+        # # Short deterministic check
+        # if( debug):
+        #     obs = env.reset()
+        #     for _ in range(2000):
+        #         action, _ = model.predict(obs, deterministic=True)
+        #         obs, reward, done, info = env.step(action)
+        #         if done: obs = env.reset()
+
         
-        # os.makedirs(model_path)
-        import torch.nn as nn
+        # model.lr_schedule = lr_schedule  # Set the learning rate schedule
+     
+    except FileNotFoundError:
+        print(f"No existing model found at: {model_load_path}. Creating a new one.")
 
         policy_kwargs = dict(net_arch=[256, 256], activation_fn=nn.ReLU)
         model = SAC(
@@ -433,16 +458,21 @@ if __name__ == "__main__":
         env.save(norm_path)
         print(f"VecNormalize statistics saved to {norm_path}.")
 
-    model.learn(total_timesteps=250_000,
+
+
+
+    model.learn(total_timesteps=150_000,
                 callback=[
-                    topk_callback,
-                    TrainingStatusCallback(check_freq=6_250, save_path=model_path, save_norm_data_cb = save_normalization_data),
+                    # topk_callback,
+                    TrainingStatusCallback(check_freq=int(50000/num_envs), model_dir=model_dir, save_path=model_path, save_norm_data_cb=save_normalization_data),
                     EpisodeCSVLogger(model_name, csv_path=os.path.join(model_name, model_dir, 'training_log.csv')),
                     # AdjustCheckpointsCallback()
                 ],
     )
 
     model.save(model_path)
+    model.save_replay_buffer(os.path.join(model_dir, "replay_buffer.pkl"))
+
     print(f"Model saved to {model_path}.")
     # Save the top-K trajectories
     topk.save("top_k_trajectories.pkl")

@@ -13,6 +13,9 @@ from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name, 
 
 import numpy as np
 import torch
+
+# model_dir = 'TrainingLite/rl_racing/models/SAC_RCA1_wpts_lidar_14'
+# model_name = 'SAC_RCA1_wpts_lidar_14'
 model_name = model_name + '_running'
 
 device = 'cpu'
@@ -50,8 +53,9 @@ def evaluate_model(recording_name_extension=""):
     env = DummyVecEnv([eval_make_env])
     norm_path = os.path.join(model_dir, "vecnormalize.pkl")
     env = VecNormalize.load(norm_path, env)
-    # env = VecFrameStack(env, n_stack=4, channels_order="last")
-    # env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+    env.training = False          # <-- freeze running stats
+    env.norm_reward = False       # <-- don't normalize rewards for eval
+    
     env.max_episode_steps = 10000
 
     obs = env.reset()
