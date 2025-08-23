@@ -7,19 +7,22 @@ from utilities.waypoint_utils import get_nearest_waypoint
 from utilities.InverseDynamics import ProgressiveWindowRefiner
 from utilities.Settings import Settings
 
-HISTORY_LENGTH = 20  # in 'controller updates'
+HISTORY_LENGTH = 50  # in 'controller updates'
 TIMESTEP_CONTROL = float(Settings.TIMESTEP_CONTROL)
 TIMESTEP_ENVIRONMENT = float(Settings.TIMESTEP_SIM)
 timesteps_per_controller_update = max(
     1, int(round(TIMESTEP_CONTROL / TIMESTEP_ENVIRONMENT))
 )
+FORGE_AT_CONTROLLER_RATE = True
 
-START_AFTER_X_STEPS = 100
+START_AFTER_X_STEPS = 50
 
-WINDOW_SIZE = 20
-OVERLAP = WINDOW_SIZE//3
-SMOOTHING_WINDOW = 40
-SMOOTHING_OVERLAP = SMOOTHING_WINDOW//3
+# HistoryForger.py (top-level constants)
+WINDOW_SIZE         = 31          # was 20
+OVERLAP             = 20          # was 6
+SMOOTHING_WINDOW    = 51          # was 40, but class clamps to min(..., WINDOW_SIZE)
+SMOOTHING_OVERLAP   = 15        # ≈ half of smoothing window
+
 
 # ---- Online ID Diagnostics --------------------------------------------------
 
@@ -54,11 +57,25 @@ class HistoryForger:
         self.previous_control_inputs = []
         self.previous_measured_states = []  # Only for debugging if needed
 
+        # --- Cadence selection (env-rate forge vs ctrl-rate forge) -----------
+        # If ID_FORGE_AT_CONTROLLER_RATE is True, the internal inverse solver runs
+        # at controller dt (fewer steps); otherwise it runs at env dt (finer grid).
+        # Regardless of this, we will ALWAYS output (and compute RMSE) at the
+        # controller cadence for comparability and planner feeding.
+        self.dt_env = TIMESTEP_ENVIRONMENT
+        self.dt_ctrl = TIMESTEP_CONTROL
+        self.ts = timesteps_per_controller_update
+        self.forge_ctrl_rate = FORGE_AT_CONTROLLER_RATE
+        # How many solver steps correspond to one controller decision in the current forge mode:
+        #  - env-rate forge → stride = ts (collapse each control-hold)
+        #  - ctrl-rate forge → stride = 1 (each step is a control boundary already)
+        self.out_stride_ctrl = 1 if self.forge_ctrl_rate else self.ts
+
         # Progressive, overlapped refiner with smoothing (reused instance → no retracing)
         self.refiner = ProgressiveWindowRefiner(
             mu=Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None,
             controls_are_pid=True,
-            dt=TIMESTEP_ENVIRONMENT,
+            dt=(self.dt_ctrl if self.forge_ctrl_rate else self.dt_env),  # CHANGED: forge cadence dt
             window_size=WINDOW_SIZE,
             overlap=OVERLAP,
             smoothing_window=SMOOTHING_WINDOW,
@@ -100,6 +117,20 @@ class HistoryForger:
             _ = self.refiner.refine(x_T, Qs)  # warm the internal optimizer
         self._warmed_once = True
 
+    def _compress_env_controls_to_ctrl_rate(self, env_controls: np.ndarray) -> np.ndarray:
+        """
+        Convert env-rate control log (old->new, length = H*ts+1) into controller-rate
+        sequence (old->new, length = H+1) by taking the LAST env sample of each hold.
+        This aligns with sampling the predicted states at control boundaries.
+        """
+        H = HISTORY_LENGTH
+        ts = self.ts
+        assert env_controls.shape[0] == H * ts + 1, "Control span must be H*ts+1 at env rate."
+        blocks = env_controls[:-1].reshape(H, ts, 2)   # drop newest anchor for clean reshape
+        per_decision = blocks[:, -1, :]                # last env tick in each control-hold
+        newest_anchor = env_controls[-1:, :]           # keep newest as the +1 anchor
+        return np.vstack([per_decision, newest_anchor])
+
     def get_forged_history(self, car_state, waypoint_utils):
         """
         Computes a forged history behind the current `car_state`
@@ -122,7 +153,12 @@ class HistoryForger:
         elif controls.ndim == 1:
             controls = controls[None, :]
 
-        Q_np = controls.astype(np.float32)              # [T, 2], old→new
+        # CHANGED: choose forge cadence for controls fed to the solver
+        if self.forge_ctrl_rate:
+            Q_np = self._compress_env_controls_to_ctrl_rate(controls.astype(np.float32))  # [H+1,2]
+        else:
+            Q_np = controls.astype(np.float32)  # [H*ts+1,2] (fine-grain)
+
         x_next = np.asarray(car_state, np.float32)[None]  # [1, 10]
 
         # Warm once to exclude tracing from timings
@@ -140,7 +176,8 @@ class HistoryForger:
             if len(self.previous_measured_states) >= (need_env + 1):
                 idxs = [-(k * ts + 1) for k in range(H, 0, -1)]
                 gt_past = np.array([self.previous_measured_states[i] for i in idxs], dtype=np.float32)
-                states_at_ctrl = states_all[::ts, :]  # [~H+1, 10], newest→older sampled
+
+                states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at control boundaries
                 pred_past = states_at_ctrl[1:1 + H][::-1, :]  # drop current, keep H, flip to oldest→newest
 
                 # Sanity check (helps catch future refactors)
@@ -212,8 +249,7 @@ class HistoryForger:
             return None
 
         # states_all[0] is current state, states_all[1:] older states
-        # Keep only states at multiples of timesteps_per_controller_update
-        states_at_control_times = states_all[::timesteps_per_controller_update, :]
+        states_at_control_times = states_all[::self.out_stride_ctrl, :]
         # Discard the current state (index 0)
         past_states_backwards = states_at_control_times[1:, :]
         # Reverse them to get chronological order

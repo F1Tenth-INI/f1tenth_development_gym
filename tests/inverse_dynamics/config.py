@@ -3,27 +3,27 @@
 # Adjust paths and lists below to taste.
 
 # If empty, the tests synthesize a small CSV so they always run.
-DATA_DIR: str = "/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/SI_Toolkit_ASF/Experiments/04_08_RCA1_noise_tiny/Recordings/Test"
+DATA_DIR: str = "/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/SI_Toolkit_ASF/test_inverse_dynamics"
 PROCESS_ALL_FILES: bool = False   # True → ignore MAX_FILES and process all CSVs in DATA_DIR
 MAX_FILES: int = 1                # quick smoke: first file only
 
 # Trajectory lengths to test (number of control steps).
 # Keep these *short* by default so the automatic run is snappy; extend when benchmarking.
-TRAJECTORY_LENGTHS = [10, 30, 60, 120,]     # you can add 60, 120 for deeper sweeps
+TRAJECTORY_LENGTHS = [20]     # you can add 60, 120 for deeper sweeps
 
 # === Clear, non-legacy solver names ===
 SOLVERS = ["single_pass", "progressive_window"]
 
 # Inits to sweep for fast/refine (we keep 'none' and 'noisy' only; 'gt' is trivial)
-INITS = ["none", "noisy"]
+INITS = ["none"]
 
 # Noise scale for 'noisy' init (× state std)
 NOISE_SCALE: float = 0.2
 
 # Window enumeration over the file for each T
 WINDOW_MODE: str = "tail"          # "tail" or "full"
-WINDOW_STRIDE: int = 100             # step between end indices
-MAX_WINDOWS_PER_T: int = 4         # only used in "tail" mode
+WINDOW_STRIDE: int = 1             # step between end indices
+MAX_WINDOWS_PER_T: int = 40         # only used in "tail" mode
 
 # Hybrid windowing parameters (progressive grow)
 HYB_WINDOW: int = 30
