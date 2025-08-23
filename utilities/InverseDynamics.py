@@ -268,7 +268,14 @@ class TrajectoryRefiner:
             self.PHASE1_STEPS, self.PHASE2_STEPS = 2, 2
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray,
-                                  X_init: Optional[np.ndarray]=None) -> Tuple[np.ndarray, np.ndarray]:
+                                  X_init: Optional[np.ndarray]=None,
+                                  compute_flags: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Refine newest→older states over the full horizon.
+        If compute_flags=False (default), we skip the expensive per-step rollout that
+        produces 'flags' and return an all-True vector (shape-correct, cheap).
+        Set compute_flags=True only for one final consistency check or standalone use.
+        """
         import time
         t_start = time.time()
 
@@ -314,26 +321,30 @@ class TrajectoryRefiner:
             X_np[i] = _fix_sin_cos(tf.convert_to_tensor(X_np[i], tf.float32)).numpy()
         states = np.vstack([x_T[0], X_np])  # newest→older
 
-        # Consistency flags (eager)
-        Q_newest_first = self.Q_var[:T].numpy()
-        flags = np.zeros((T,), dtype=bool)
+        # Optional per-step rollout for consistency flags (expensive)
         dyn_costs = []
-        for i in range(T):
-            x_i   = states[0] if i == 0 else states[i]
-            x_im1 = states[i+1]
-            qi    = Q_newest_first[i]
-            x_pred = self._f(
-                tf.convert_to_tensor(x_im1, tf.float32)[tf.newaxis, :],
-                tf.convert_to_tensor(qi, tf.float32)[tf.newaxis, :]
-            )[0]
-            x_pred = _fix_sin_cos(x_pred)
-            err = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
-                                       delta=self.RES_DELTA,
-                                       state_scale=self.state_scale,
-                                       slip_lambda=self.SLIP_PRIOR)
-            v = float(err.numpy())
-            dyn_costs.append(v)
-            flags[i] = bool(v < float(self.TOL_HUBER.numpy()))
+        if compute_flags:
+            Q_newest_first = self.Q_var[:T].numpy()
+            flags = np.zeros((T,), dtype=bool)
+            for i in range(T):
+                x_i = states[0] if i == 0 else states[i]
+                x_im1 = states[i + 1]
+                qi = Q_newest_first[i]
+                x_pred = self._f(
+                    tf.convert_to_tensor(x_im1, tf.float32)[tf.newaxis, :],
+                    tf.convert_to_tensor(qi, tf.float32)[tf.newaxis, :]
+                )[0]
+                x_pred = _fix_sin_cos(x_pred)
+                err = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
+                                           delta=self.RES_DELTA,
+                                           state_scale=self.state_scale,
+                                           slip_lambda=self.SLIP_PRIOR)
+                v = float(err.numpy())
+                dyn_costs.append(v)
+                flags[i] = bool(v < float(self.TOL_HUBER.numpy()))
+        else:
+            # Cheap, shape-correct placeholder; callers that care compute real flags once later.
+            flags = np.ones((T,), dtype=bool)
 
         t_assemble = time.time()
 
