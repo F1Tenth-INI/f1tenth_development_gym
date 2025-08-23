@@ -107,11 +107,11 @@ class predictor_output_augmentation:
         self.augmentation_len = len(self.indices_augmentation)
 
         if 'pose_theta' in outputs_after_integration:
-            self.index_pose_theta = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta'])
+            self.index_pose_theta = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta'], self.lib.int32)
         if 'pose_theta_sin' in outputs_after_integration:
-            self.index_pose_theta_sin = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_sin'])
+            self.index_pose_theta_sin = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_sin'], self.lib.int32)
         if 'pose_theta_cos' in outputs_after_integration:
-            self.index_pose_theta_cos = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_cos'])
+            self.index_pose_theta_cos = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_cos'], self.lib.int32)
 
         if disable_individual_compilation:
             self.augment = self._augment
