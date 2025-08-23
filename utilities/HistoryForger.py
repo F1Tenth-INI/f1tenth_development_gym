@@ -133,22 +133,31 @@ class HistoryForger:
 
         # ---- Compare to true measured past (online quality) ----
         try:
-            from utilities.InverseDynamics import HARD_CODED_STATE_STD
-            # Take last 'required_length' measured states; exclude current (last)
-            if len(self.previous_measured_states) >= (required_length + 1):
-                gt_past = np.array(self.previous_measured_states[-(required_length+1):-1], dtype=np.float32)
-                # predicted 'past_states' chronological (older->newer)
-                states_at_control_times = states_all[::timesteps_per_controller_update, :]
-                past_states_backwards = states_at_control_times[1:, :]
-                pred_past = past_states_backwards[::-1, :]
+            ts = timesteps_per_controller_update
+            H = HISTORY_LENGTH
+            need_env = H * ts
+
+            if len(self.previous_measured_states) >= (need_env + 1):
+                idxs = [-(k * ts + 1) for k in range(H, 0, -1)]
+                gt_past = np.array([self.previous_measured_states[i] for i in idxs], dtype=np.float32)
+                states_at_ctrl = states_all[::ts, :]  # [~H+1, 10], newest→older sampled
+                pred_past = states_at_ctrl[1:1 + H][::-1, :]  # drop current, keep H, flip to oldest→newest
+
+                # Sanity check (helps catch future refactors)
+                assert pred_past.shape == gt_past.shape == (H, states_all.shape[1]), \
+                    f"Shape mismatch: pred {pred_past.shape}, gt {gt_past.shape}"
+
+                # Per-step scaled RMSE curve and summary stats
+                from utilities.InverseDynamics import HARD_CODED_STATE_STD, KEEP_IDX, POSE_THETA_IDX
+
                 rmse_curve = _scaled_rmse_curve(pred_past, gt_past, HARD_CODED_STATE_STD)
                 rmse_mean, rmse_head, rmse_tail = _curve_head_tail_stats(rmse_curve)
                 stats.update({
-                    "rmse_mean": rmse_mean, "rmse_head": rmse_head, "rmse_tail": rmse_tail,
-                    "rmse_auc": float(np.trapz(rmse_curve, dx=1.0))
+                    "rmse_mean": rmse_mean,
+                    "rmse_head": rmse_head,
+                    "rmse_tail": rmse_tail,
+                    "rmse_auc": float(np.trapz(rmse_curve, dx=1.0)),
                 })
-
-                from utilities.InverseDynamics import KEEP_IDX, HARD_CODED_STATE_STD, POSE_THETA_IDX
 
                 def _scaled(A, B):
                     D = A.copy() - B.copy()
@@ -159,11 +168,14 @@ class HistoryForger:
                 def _rmse(Z): return float(np.sqrt(np.mean(Z * Z)))
 
                 rmse0 = _rmse(_scaled(pred_past, gt_past))
-                rmse_m = _rmse(_scaled(pred_past[:-1], gt_past[1:]))  # pred shifted one step older
-                rmse_p = _rmse(_scaled(pred_past[1:], gt_past[:-1]))  # pred shifted one step newer
+                rmse_m = _rmse(_scaled(pred_past[:-1], gt_past[1:]))  # pred shifted older by 1 ctrl step
+                rmse_p = _rmse(_scaled(pred_past[1:], gt_past[:-1]))  # pred shifted newer by 1 ctrl step
 
-                stats.update(
-                    {"rmse_unshifted": rmse0, "rmse_shift_pred_back_1": rmse_m, "rmse_shift_pred_fwd_1": rmse_p})
+                stats.update({
+                    "rmse_unshifted": rmse0,
+                    "rmse_shift_pred_back_1": rmse_m,
+                    "rmse_shift_pred_fwd_1": rmse_p,
+                })
 
         except Exception as _:
             pass
