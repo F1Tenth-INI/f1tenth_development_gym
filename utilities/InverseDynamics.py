@@ -495,19 +495,42 @@ class ProgressiveWindowRefiner:
         self.overlap     = int(overlap)
         self.dt = self.refiner.dt
 
-        # smoothing pass
-        self.smooth_W = int(smoothing_window) if smoothing_window else None
-        self.smooth_O = int(smoothing_overlap) if smoothing_overlap else None
+        self.prior_w0 = max(0.0, float(prior_weight0))
+        self.prior_decay = float(prior_decay)  # allow 0..1 (or >1 if you want)
+        self.prior_min = max(0.0, float(prior_min))
 
-        # path-prior schedule
-        self.prior_w0   = float(prior_weight0)
-        self.prior_decay= float(prior_decay)
-        self.prior_min  = float(prior_min)
-
+        # --- Smoothing normalization ---
+        if smoothing_window is None or int(smoothing_window) <= 0:
+            self.smooth_W = None
+            self.smooth_O = None
+        else:
+            w = int(min(int(smoothing_window), self.window_size))  # 1..window_size
+            # default overlap = half-window
+            o = int(smoothing_overlap) if smoothing_overlap is not None else (w // 2)
+            # clamp to 0 <= o < w
+            o = max(0, min(o, w - 1))
+            self.smooth_W, self.smooth_O = w, o
 
     def refine(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        x_T = np.asarray(x_T, np.float32); Q = np.asarray(Q, np.float32)
-        T = int(Q.shape[0]); W = self.window_size; O = self.overlap
+        x_T = np.asarray(x_T, np.float32)
+        if x_T.ndim == 1:
+            x_T = x_T[None, :]
+        if x_T.shape[0] != 1:
+            raise ValueError(f"x_T must be [1, {self.refiner.state_dim}], got {x_T.shape}")
+        if x_T.shape[1] != self.refiner.state_dim:
+            raise ValueError(f"x_T must have state_dim={self.refiner.state_dim}, got {x_T.shape[1]}")
+
+        Q = np.asarray(Q, np.float32)
+        if Q.ndim != 2 or Q.shape[1] != self.refiner.control_dim:
+            raise ValueError(f"Q must be [T, {self.refiner.control_dim}], got {Q.shape}")
+
+        T = int(Q.shape[0])
+        if T == 0:
+            # Nothing to reconstruct; return the anchor and empty flags
+            return x_T.copy(), np.zeros((0,), dtype=bool)
+
+        W = self.window_size
+        O = self.overlap
 
         # Full kinematic seed
         seed_full = build_kinematic_seed(x_T[0], Q, self.dt)  # [T,10] newest→older
@@ -546,20 +569,21 @@ class ProgressiveWindowRefiner:
             k_end = min(k_end + (W - O), T)
 
         # ---- OPTIONAL SMOOTHING PASS (bigger window) ----------------------
-        if self.smooth_W:
-            W2 = int(self.smooth_W)
-            O2 = int(self.smooth_O if self.smooth_O is not None else max(1, W2 // 2))
+        if self.smooth_W is not None:
+            W2 = self.smooth_W  # ≥1
+            O2 = self.smooth_O  # 0..W2-1
+            step2 = max(1, W2 - O2)  # ≥1
+
             k2 = min(W2, T)
             while True:
-                Q_seg  = Q[T - k2 : T]              # [k2,2]
-                X_init = refined[1 : k2 + 1]        # current trajectory as warm start
-                # no path prior for smoothing pass
+                Q_seg  = Q[T - k2 : T]
+                X_init = refined[1 : k2 + 1]
                 self.refiner.clear_path_prior()
                 states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
                 refined[:k2+1] = states_w
                 if k2 == T:
                     break
-                k2 = min(k2 + (W2 - O2), T)
+                k2 = min(k2 + step2, T)
 
         # Consistency flags (eager)
         flags = np.zeros((T,), dtype=bool)
@@ -635,6 +659,10 @@ class ProgressiveWindowRefiner:
         if self.smooth_W:
             W2 = int(self.smooth_W)
             O2 = int(self.smooth_O if self.smooth_O is not None else max(1, W2 // 2))
+            if O2 >= W2:
+                O2 = max(0, W2 - 1)
+            step2 = max(1, W2 - O2)
+
             k2 = min(W2, T)
             while True:
                 Q_seg  = Q[T - k2 : T]
@@ -647,7 +675,10 @@ class ProgressiveWindowRefiner:
                 refined[:k2+1] = states_w
                 if k2 == T:
                     break
-                k2 = min(k2 + (W2 - O2), T)
+                k2_next = min(k2 + step2, T)
+                if k2_next == k2:  # safety guard
+                    break
+                k2 = k2_next
         stats["smooth_ms"] = t_smooth_ms
 
         # Consistency flags (same as original refine)

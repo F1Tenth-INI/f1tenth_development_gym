@@ -8,10 +8,18 @@ from utilities.InverseDynamics import ProgressiveWindowRefiner
 from utilities.Settings import Settings
 
 HISTORY_LENGTH = 20  # in 'controller updates'
-TIMESTEP_CONTROL = 0.02
-TIMESTEP_ENVIRONMENT = 0.02
-timesteps_per_controller_update = int(TIMESTEP_CONTROL / TIMESTEP_ENVIRONMENT)
+TIMESTEP_CONTROL = float(Settings.TIMESTEP_CONTROL)
+TIMESTEP_ENVIRONMENT = float(Settings.TIMESTEP_SIM)
+timesteps_per_controller_update = max(
+    1, int(round(TIMESTEP_CONTROL / TIMESTEP_ENVIRONMENT))
+)
+
 START_AFTER_X_STEPS = 100
+
+WINDOW_SIZE = 20
+OVERLAP = WINDOW_SIZE//3
+SMOOTHING_WINDOW = 40
+SMOOTHING_OVERLAP = SMOOTHING_WINDOW//3
 
 # ---- Online ID Diagnostics --------------------------------------------------
 
@@ -51,10 +59,10 @@ class HistoryForger:
             mu=Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None,
             controls_are_pid=True,
             dt=TIMESTEP_ENVIRONMENT,
-            window_size=30,
-            overlap=12,
-            smoothing_window=60,
-            smoothing_overlap=30,
+            window_size=WINDOW_SIZE,
+            overlap=OVERLAP,
+            smoothing_window=SMOOTHING_WINDOW,
+            smoothing_overlap=SMOOTHING_OVERLAP,
         )
 
         self._warmed_once = False
@@ -101,7 +109,7 @@ class HistoryForger:
         if self.counter < START_AFTER_X_STEPS:
             return None
 
-        required_length = HISTORY_LENGTH * timesteps_per_controller_update
+        required_length = HISTORY_LENGTH * timesteps_per_controller_update + 1
         if len(self.previous_control_inputs) < required_length:
             self.forged_history_applied = False
             return None

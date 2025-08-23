@@ -186,7 +186,7 @@ class RacingSimulation:
 
 
         # Populate control delay buffer
-        control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+        control_delay_steps = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM))
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
   
     def reset(self, poses = None):
@@ -398,13 +398,16 @@ class RacingSimulation:
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
             driver.set_car_state(self.state_recording[self.sim_index])
-            self.env.sim.agents[agent_index].state = driver.car_state
+            self.sim.agents[agent_index].state = driver.car_state  # was self.env.sim...
+            driver.car_state_noiseless = driver.car_state
         else:
-            car_state = self.sim.agents[agent_index].state 
-            car_state_with_noise = self.add_state_noise(car_state)
+            car_state_clean = self.sim.agents[agent_index].state
+            car_state_with_noise = self.add_state_noise(car_state_clean)
+
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
 
+            driver.car_state_noiseless = car_state_clean
 
     # Noise Level can now be set in Settings.py
     def add_state_noise(self, state):

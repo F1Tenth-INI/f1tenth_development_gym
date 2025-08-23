@@ -73,6 +73,7 @@ class CarSystem:
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
         self.car_state_history = []
+        self.car_state_noiseless = np.ones(len(STATE_VARIABLES))
         car_index = 1
         self.scans = None
         self.control_index = 0
