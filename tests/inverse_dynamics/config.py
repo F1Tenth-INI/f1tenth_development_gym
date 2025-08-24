@@ -40,6 +40,12 @@ PLOTS_AGG_DIR: str = "tests/inverse_dynamics/_out/agg_plots"
 # Also save the aggregated curve data (mean/std) next to the PNG
 SAVE_AGG_SERIES_CSV: bool = True
 
+# Overlay GT vs. predicted segments on per-feature time-series and XY path plots
+PLOT_OVERLAY: bool = True
+PLOT_OVERLAY_FEATURES: list[str] = ["pose_theta", "linear_vel_x", "pose_x", "pose_y"]
+PLOTS_OVERLAY_DIR: str = "tests/inverse_dynamics/_out/overlay_plots"
+
+
 
 # Optional CSV to save results ("" to disable). If directory, an auto filename is created.
 SAVE_CSV: str = "tests/inverse_dynamics/_out"
