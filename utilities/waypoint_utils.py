@@ -47,6 +47,8 @@ WP_KAPPA_IDX = 4 # Relative angle
 WP_VX_IDX = 5 # Suggested velocity 
 WP_A_X_IDX = 6 # Suggested acceleration
 WP_GLOBID_IDX = 7
+WP_D_RIGHT_IDX = 8 # Distance to right bound
+WP_D_LEFT_IDX = 9 # Distance to left bound
 
 
 # Indices for sectors
@@ -104,7 +106,7 @@ class WaypointUtils:
         self.initial_distance = None
 
          # next waypoints considering ignored waypoints index offset
-        self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 10), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
         self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
@@ -226,9 +228,27 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, comment='#')
-        waypoints.loc[:, "idx_global"] = np.arange(waypoints.shape[0])
-        waypoints = waypoints.to_numpy()
+        waypoints_df = pd.read_csv(file_path, comment='#')
+        waypoints_df.loc[:, "idx_global"] = np.arange(waypoints_df.shape[0])
+
+        # Assign waypoints array to custom indices, only first 8 columns
+        try:
+            waypoints = np.zeros((waypoints_df.shape[0], 10), dtype=np.float32)
+            waypoints[:, WP_S_IDX] = waypoints_df.loc[:, "s_m"].to_numpy()
+            waypoints[:, WP_X_IDX] = waypoints_df.loc[:, "x_m"].to_numpy()
+            waypoints[:, WP_Y_IDX] = waypoints_df.loc[:, "y_m"].to_numpy()
+            waypoints[:, WP_PSI_IDX] = waypoints_df.loc[:, "psi_rad"].to_numpy()
+            waypoints[:, WP_KAPPA_IDX] = waypoints_df.loc[:, "kappa_radpm"].to_numpy()
+            waypoints[:, WP_VX_IDX] = waypoints_df.loc[:, "vx_mps"].to_numpy()
+            waypoints[:, WP_A_X_IDX] = waypoints_df.loc[:, "ax_mps2"].to_numpy()
+            waypoints[:, WP_GLOBID_IDX] = waypoints_df.loc[:, "idx_global"].to_numpy()
+            waypoints[:, WP_D_RIGHT_IDX] = waypoints_df.loc[:, "d_right_iqp"].to_numpy()
+            waypoints[:, WP_D_LEFT_IDX] = waypoints_df.loc[:, "d_left_iqp"].to_numpy()
+        except KeyError as e:
+            print("KeyError:", e)
+            print("This Wp file is deprecated. Make sure the waypoint file has the correct columns: s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2, idx_global, d_right_m, d_left_m")
+            exit()
+
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
