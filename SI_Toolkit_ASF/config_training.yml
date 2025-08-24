@@ -139,6 +139,7 @@ training_nn_physical_model:
     PATIENCE: 1
     MINIMAL: 1.0e-5
     MIN_DELTA: 0.00
+  LOSS_MODE: 'squared'  # 'squared', 'squared_with_clipping', 'absolute', 'absolute_with_clipping'
   VALIDATE_ALSO_ON_TRAINING_SET: False
 
   WASH_OUT_LEN: 20
@@ -161,6 +162,11 @@ training_nn_physical_model:
   #ToDo instead of listing all Lidar Points, one just writes how many and the state input vector is generated automatically
   upper_bound: 880
   lower_bound: 200
+
+CONFIG_SERIES_MODIFICATION:
+  MODE: 'None' # 'None' 'train_for_random_vertical_angle_shift'
+  NOISE_LEVEL:
+    FEATURES: 0
 
 REGULARIZATION:
   ACTIVATED: False
@@ -199,5 +205,3 @@ PRUNING: # TF only for the moment
       frequency_per_epoch: 1000 # fraction of epoch allowed
 
 FILTERS: False
-
-CONFIG_SERIES_MODIFICATION: False
