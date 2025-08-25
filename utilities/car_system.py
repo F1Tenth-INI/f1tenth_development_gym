@@ -469,8 +469,9 @@ class CarSystem:
             print("Keyboard listener not started, starting recording automatically")
             self.start_recorder()
             return
-        listener = keyboard.Listener(on_press=self.on_press)
-        listener.start()
+        if Settings.KEYBOARD_LISTENER_ON:
+            listener = keyboard.Listener(on_press=self.on_press)
+            listener.start()
 
     def start_recorder(self):
         self.recorder.start_csv_recording()
