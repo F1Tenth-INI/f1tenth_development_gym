@@ -20,7 +20,7 @@ def plot_training_csv(model_name, training_index):
     df = pd.read_csv(csv_path)
 
     X_AXIS = "global_step"  # or "episode" or "step"
-    SAVE_PATH = "training_summary.png"
+    SAVE_PATH = os.path.join(model_dir, f'training_plot.png')
     # Drop rows with missing reward
 
     # Load CSV
@@ -45,7 +45,7 @@ def plot_training_csv(model_name, training_index):
         ax.grid(True)
 
     axs[-1].set_xlabel(X_AXIS.replace("_", " ").title())
-    fig.suptitle("Training Progress", fontsize=16)
+    fig.suptitle(f"Training Progress - {model_name}", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.savefig(SAVE_PATH)
     print(f"Plot saved to: {SAVE_PATH}")

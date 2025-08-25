@@ -49,8 +49,8 @@ from TopKReplayBuffer import TopKTrajectoryBuffer, TopKTrajectoryCallback
 from collections import deque
 
 
-model_load_name = "SAC_RCA1_wpts_lidar_16"
-model_name = "SAC_RCA1_wpts_lidar_18"
+model_load_name = "SAC_RCA1_wpts_lidar_22"
+model_name = "SAC_RCA1_wpts_lidar_22"
 
 
 
@@ -205,20 +205,22 @@ class RacingEnv(gym.Env):
         laptime_mean = None
         laptimes = None
 
-        if hasattr(self.simulation, "drivers") and self.simulation.drivers and hasattr(self.simulation.drivers[0], "laptimes"):
-            laptimes = self.simulation.drivers[0].laptimes
+        driver = self.simulation.drivers[0]
+        if hasattr(driver, "laptimes"):
+            laptimes = driver.laptimes
             if laptimes:
                 laptime_min = np.min(laptimes)
                 laptime_max = np.max(laptimes)
                 laptime_mean = np.mean(laptimes)
 
-            
+        left_track = driver.reward_calculator.left_track
+
         info = {
             "laptimes": laptimes,
             "laptime_min": laptime_min,
             "laptime_max": laptime_max,
             "laptime_mean": laptime_mean,
-            "crashed": self.simulation.obs["collisions"][0] == 1,
+            "crashed": self.simulation.obs["collisions"][0] == 1 or left_track,
             "episode": {
                 "r": reward,
                 "l": self.eposode_step_counter,
@@ -396,7 +398,6 @@ if __name__ == "__main__":
 
 
 
-
     try:
         model = SAC.load(model_load_path, env=env)
         print("Model loaded successfully.")
@@ -406,17 +407,6 @@ if __name__ == "__main__":
         print("Replay buffer loaded successfully!")
 
         model.learning_starts = 0   # don’t do random warmup again
-
-
-        # # Short deterministic check
-        # if( debug):
-        #     obs = env.reset()
-        #     for _ in range(2000):
-        #         action, _ = model.predict(obs, deterministic=True)
-        #         obs, reward, done, info = env.step(action)
-        #         if done: obs = env.reset()
-
-        
         # model.lr_schedule = lr_schedule  # Set the learning rate schedule
      
     except FileNotFoundError:
@@ -459,11 +449,9 @@ if __name__ == "__main__":
         print(f"VecNormalize statistics saved to {norm_path}.")
 
 
-
-
-    model.learn(total_timesteps=150_000,
+    model.learn(total_timesteps=250_000,
                 callback=[
-                    # topk_callback,
+                    topk_callback,
                     TrainingStatusCallback(check_freq=int(50000/num_envs), model_dir=model_dir, save_path=model_path, save_norm_data_cb=save_normalization_data),
                     EpisodeCSVLogger(model_name, csv_path=os.path.join(model_name, model_dir, 'training_log.csv')),
                     # AdjustCheckpointsCallback()
