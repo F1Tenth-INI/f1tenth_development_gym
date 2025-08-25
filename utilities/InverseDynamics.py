@@ -24,6 +24,8 @@ from utilities.state_utilities import (
 
 import contextlib  # ← add if missing
 
+from utilities.prior_trajectories import make_prior
+
 # --- Portable device heuristics & defaults ---
 _LOGICAL_GPUS = tf.config.list_logical_devices('GPU')
 _HAS_GPU = len(_LOGICAL_GPUS) > 0
@@ -33,6 +35,9 @@ PIN_REFINER_TO_CPU = bool(int(os.getenv('ID_PIN_REFINER_CPU', '1')))
 CPU_DEVICE = "/device:CPU:0"
 
 XLA_REFINE = bool(int(os.getenv('ID_USE_XLA', '0')))
+
+ID_PRIOR_KIND = os.getenv("ID_PRIOR_KIND", "kinematic")  # NEW
+
 
 
 # ======================================================================================
@@ -138,42 +143,6 @@ def _partial_state_huber(xA: tf.Tensor, xB: tf.Tensor, delta: float,
         cost += tf.convert_to_tensor(slip_lambda, tf.float32) * _huber(slip_diff, delta)
     return cost
 
-# ======================================================================================
-# Kinematic back-prop seed (cheap O(T) initializer)
-# ======================================================================================
-
-def build_kinematic_seed(x_T_vec: np.ndarray, Q_old_to_new: np.ndarray, dt: float) -> np.ndarray:
-    """
-    newest→older seed via simple backward kinematics
-      ψ_{k-1} = ψ_k - dt*ωz_k
-      v_x_{k-1} = v_x_k - dt*a_k
-      x,y back-integrated in world frame, v_y, ωz, β, δ carried over.
-    """
-    T = int(Q_old_to_new.shape[0])
-    out = np.zeros((T, STATE_DIM), dtype=np.float32)
-    x_cur = x_T_vec.astype(np.float32).copy()
-    for j in range(T):
-        a   = float(Q_old_to_new[T - 1 - j, 1])
-        wz  = float(x_cur[0]);  vx = float(x_cur[1]); vy = float(x_cur[2])
-        psi = float(x_cur[3]);  xw = float(x_cur[6]); yw = float(x_cur[7])
-        beta = float(x_cur[8]); delta = float(x_cur[9])
-
-        psi_prev = psi - dt*wz
-        vx_prev  = vx - dt*a
-        vy_prev  = vy
-        x_prev   = xw - dt*(vx*np.cos(psi) - vy*np.sin(psi))
-        y_prev   = yw - dt*(vx*np.sin(psi) + vy*np.cos(psi))
-        wz_prev  = wz
-        delta_prev = delta
-        beta_prev  = beta
-
-        out[j] = np.array([
-            wz_prev, vx_prev, vy_prev, psi_prev,
-            np.sin(psi_prev), np.cos(psi_prev),
-            x_prev, y_prev, beta_prev, delta_prev
-        ], dtype=np.float32)
-        x_cur  = out[j]
-    return out  # newest→older
 
 # ======================================================================================
 # Refine-only solver
@@ -281,7 +250,7 @@ class TrajectoryRefiner:
             raise ValueError(f"T={T} exceeds MAX_T={self.MAX_T}")
 
         if X_init is None:
-            X_init = build_kinematic_seed(x_T[0], Q, self.dt)
+            raise ValueError("X_init must be provided by caller (seed from prior).")
 
         # Load buffers (SLICE assignments only; avoid O(MAX_T) host->device copies)
         self.x_next_var.assign(x_T[0])  # pinned as given
@@ -515,6 +484,7 @@ class ProgressiveWindowRefiner:
                  prior_weight0: float = 1e-3,
                  prior_decay: float = 0.5,
                  prior_min: float = 1e-5,
+                 prior_kind: Optional[str] = None,
                  state_scale_std_map: Optional[Dict[str,float]]=None):
 
         if smoothing_window is not None:
@@ -529,6 +499,8 @@ class ProgressiveWindowRefiner:
         self.overlap     = int(overlap)
         self.dt = self.refiner.dt
 
+        self.prior_kind = (prior_kind or ID_PRIOR_KIND)
+        self.prior = make_prior(self.prior_kind)
         self.prior_w0 = max(0.0, float(prior_weight0))
         self.prior_decay = float(prior_decay)  # allow 0..1 (or >1 if you want)
         self.prior_min = max(0.0, float(prior_min))
@@ -571,11 +543,13 @@ class ProgressiveWindowRefiner:
         W = self.window_size
         O = self.overlap
 
-        # Full kinematic seed
-        seed_full = build_kinematic_seed(x_T[0], Q, self.dt)  # [T,10] newest→older
-        refined = np.vstack([x_T[0], seed_full]).astype(np.float32)  # [T+1,10]
-
+        # Initial prior seed (first window only)
         k_end = min(W, T)
+        refined = np.zeros((T + 1, x_T.shape[1]), dtype=np.float32)
+        refined[0] = x_T[0]
+        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt)  # old→new slice
+        refined[1: k_end + 1] = seed_prefix
+
         prev_k_end = 0
         lam = self.prior_w0  # start prior weight
 
@@ -595,9 +569,8 @@ class ProgressiveWindowRefiner:
                 # Controls for the tail in old→new order: last grow_sz of this window’s controls
                 Q_tail = Q_seg[-grow_sz:].astype(np.float32)  # shape [grow_sz, 2]
                 # Local kinematic seed from the boundary for exactly the tail length (returns newest→older)
-                seed_tail = build_kinematic_seed(x_boundary, Q_tail, self.dt)  # shape [grow_sz, state_dim]
-                # Write the tail seed to the end of prior_targets (the tail region in newest→older)
-                prior_targets[-grow_sz:, :] = seed_tail
+                seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt)
+                prior_targets[-grow_sz:, :] = seed_tail  # target for new tail
                 prior_weights[-grow_sz:] = lam  # softly tether tail only
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
@@ -660,19 +633,23 @@ class ProgressiveWindowRefiner:
         T = int(Q.shape[0]); W = self.window_size; O = self.overlap
 
         stats: Dict[str, float] = {}
-        stats["T"] = float(T); stats["W"] = float(W); stats["O"] = float(O)
-        stats["smooth_W"] = float(self.smooth_W or 0); stats["smooth_O"] = float(self.smooth_O or 0)
+        stats["T"] = float(T);
+        stats["W"] = float(W);
+        stats["O"] = float(O)
+        stats["smooth_W"] = float(self.smooth_W or 0);
+        stats["smooth_O"] = float(self.smooth_O or 0)
 
-        # Full kinematic seed
-        seed_full = build_kinematic_seed(x_T[0], Q, self.dt)  # [T,10] newest→older
-        refined = np.vstack([x_T[0], seed_full]).astype(np.float32)  # [T+1,10]
+        # Initial prior seed (first window only)
+        k_end = min(W, T)
+        refined = np.zeros((T + 1, x_T.shape[1]), dtype=np.float32)
+        refined[0] = x_T[0]
+        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt)
+        refined[1: k_end + 1] = seed_prefix
 
         # Collect the *used* prior targets as windows grow (exactly once per step)
         prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)  # newest→older (no anchor row)
         filled = np.zeros((T,), dtype=bool)
 
-
-        k_end = min(W, T)
         prev_k_end = 0
         lam = self.prior_w0  # start prior weight
 
@@ -689,8 +666,9 @@ class ProgressiveWindowRefiner:
             if grow_sz > 0:
                 x_boundary = refined[prev_k_end].astype(np.float32)
                 Q_tail = Q_seg[-grow_sz:].astype(np.float32)
-                seed_tail = build_kinematic_seed(x_boundary, Q_tail, self.dt)
-                prior_targets[-grow_sz:, :] = seed_tail
+                # Prior only for the newly added tail (newest→older)
+                seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt)
+                prior_targets[-grow_sz:, :] = seed_tail  # target for new tail
                 prior_weights[-grow_sz:] = lam
 
                 # Mark the newly added tail region (newest→older indexing for this prefix)
