@@ -15,13 +15,13 @@ timesteps_per_controller_update = max(
 )
 FORGE_AT_CONTROLLER_RATE = True
 
-START_AFTER_X_STEPS = HISTORY_LENGTH + 1
+START_AFTER_X_STEPS = HISTORY_LENGTH
 
 # HistoryForger.py (top-level constants)
-WINDOW_SIZE         = 31          # was 20
-OVERLAP             = 20          # was 6
-SMOOTHING_WINDOW    = 51          # was 40, but class clamps to min(..., WINDOW_SIZE)
-SMOOTHING_OVERLAP   = 15        # ≈ half of smoothing window
+WINDOW_SIZE         = 30
+OVERLAP             = 20
+SMOOTHING_WINDOW    = None
+SMOOTHING_OVERLAP   = 15
 
 
 # ---- Online ID Diagnostics --------------------------------------------------
@@ -35,11 +35,31 @@ def _scaled_rmse_curve(pred: np.ndarray, gt: np.ndarray, state_std: np.ndarray) 
     Returns per-step RMSE over kept dims, scaled by HARD_CODED_STATE_STD.
     """
     from utilities.InverseDynamics import KEEP_IDX, POSE_THETA_IDX
-    dif = pred.copy() - gt.copy()
-    dif[:, POSE_THETA_IDX] = _angle_wrap_diff_np(pred[:, POSE_THETA_IDX], gt[:, POSE_THETA_IDX])
+
+    pred = pred.copy()
+    gt   = gt.copy()
+
+    # Wrapped heading error; sin/cos excluded by KEEP_IDX anyway
+    pred[:, POSE_THETA_IDX] = np.unwrap(pred[:, POSE_THETA_IDX])
+    gt[:,   POSE_THETA_IDX] = np.unwrap(gt[:,   POSE_THETA_IDX])
+    ang_err = _angle_wrap_diff_np(pred[:, POSE_THETA_IDX], gt[:, POSE_THETA_IDX])
+
+    dif = pred - gt
+    dif[:, POSE_THETA_IDX] = ang_err
+
     keep = KEEP_IDX.numpy() if hasattr(KEEP_IDX, "numpy") else KEEP_IDX
-    Z = dif[:, keep] / state_std[keep][None, :]
-    rmse = np.sqrt(np.mean(Z * Z, axis=1))
+    # Guard against zero/denorm stds
+    eps = 1e-12
+    scale = np.maximum(np.asarray(state_std, dtype=np.float32), eps)[keep]
+
+    Z = dif[:, keep] / scale[None, :]  # [L, |keep|]
+
+    # NaN-safe per-step RMSE: return NaN for rows with any non-finite entry
+    finite_rows = np.isfinite(Z).all(axis=1)
+    rmse = np.full((Z.shape[0],), np.nan, dtype=np.float32)
+    if np.any(finite_rows):
+        Zf = Z[finite_rows]
+        rmse[finite_rows] = np.sqrt(np.mean(Zf * Zf, axis=1)).astype(np.float32)
     return rmse
 
 def _curve_head_tail_stats(curve: np.ndarray) -> tuple[float,float,float]:
@@ -47,9 +67,13 @@ def _curve_head_tail_stats(curve: np.ndarray) -> tuple[float,float,float]:
     Returns (mean, head_mean, tail_mean) with head/tail = first/last 25%.
     """
     L = int(curve.shape[0])
-    if L == 0: return 0.0, 0.0, 0.0
+    if L == 0: return float('nan'), float('nan'), float('nan')
     k = max(1, L // 4)
-    return float(np.mean(curve)), float(np.mean(curve[:k])), float(np.mean(curve[-k:]))
+    mean_all  = float(np.nanmean(curve)) if np.any(np.isfinite(curve))          else float('nan')
+    mean_head = float(np.nanmean(curve[:k])) if np.any(np.isfinite(curve[:k]))  else float('nan')
+    mean_tail = float(np.nanmean(curve[-k:])) if np.any(np.isfinite(curve[-k:])) else float('nan')
+    return mean_all, mean_head, mean_tail
+
 
 
 class HistoryForger:
@@ -97,13 +121,13 @@ class HistoryForger:
     def update_control_history(self, u):
         self.counter += 1
         self.previous_control_inputs.append(u)
-        max_len = HISTORY_LENGTH * timesteps_per_controller_update + 1
+        max_len = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_control_inputs) > max_len:
             self.previous_control_inputs.pop(0)
 
     def update_state_history(self, s):
         self.previous_measured_states.append(s)
-        max_len = HISTORY_LENGTH * timesteps_per_controller_update + 1
+        max_len = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_measured_states) > max_len:
             self.previous_measured_states.pop(0)
 
@@ -125,11 +149,13 @@ class HistoryForger:
         """
         H = HISTORY_LENGTH
         ts = self.ts
-        assert env_controls.shape[0] == H * ts + 1, "Control span must be H*ts+1 at env rate."
-        blocks = env_controls[:-1].reshape(H, ts, 2)   # drop newest anchor for clean reshape
-        per_decision = blocks[:, -1, :]                # last env tick in each control-hold
-        newest_anchor = env_controls[-1:, :]           # keep newest as the +1 anchor
-        return np.vstack([per_decision, newest_anchor])
+        L = int(env_controls.shape[0])
+
+        assert L == H * ts, f"Control span must be H*ts (= {H * ts}); got {L}."
+
+        blocks = env_controls.reshape(H, ts, 2)  # old->new blocks
+        per_decision = blocks[:, -1, :]  # last env tick in each control-hold -> [H,2]
+        return per_decision
 
     def get_forged_history(self, car_state, waypoint_utils):
         """
@@ -140,7 +166,7 @@ class HistoryForger:
         if self.counter < START_AFTER_X_STEPS:
             return None
 
-        required_length = HISTORY_LENGTH * timesteps_per_controller_update + 1
+        required_length = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_control_inputs) < required_length:
             self.forged_history_applied = False
             return None
@@ -155,9 +181,9 @@ class HistoryForger:
 
         # CHANGED: choose forge cadence for controls fed to the solver
         if self.forge_ctrl_rate:
-            Q_np = self._compress_env_controls_to_ctrl_rate(controls.astype(np.float32))  # [H+1,2]
+            Q_np = self._compress_env_controls_to_ctrl_rate(controls.astype(np.float32))  # [H,2]
         else:
-            Q_np = controls.astype(np.float32)  # [H*ts+1,2] (fine-grain)
+            Q_np = controls.astype(np.float32)  # [H*ts,2] (fine-grain)
 
         x_next = np.asarray(car_state, np.float32)[None]  # [1, 10]
 
@@ -173,8 +199,8 @@ class HistoryForger:
             H = HISTORY_LENGTH
             need_env = H * ts
 
-            if len(self.previous_measured_states) >= (need_env + 1):
-                idxs = [-(k * ts + 1) for k in range(H, 0, -1)]
+            if len(self.previous_measured_states) >= need_env:
+                idxs = [-(k * ts) for k in range(H, 0, -1)]
                 gt_past = np.array([self.previous_measured_states[i] for i in idxs], dtype=np.float32)
 
                 states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at control boundaries
@@ -193,16 +219,26 @@ class HistoryForger:
                     "rmse_mean": rmse_mean,
                     "rmse_head": rmse_head,
                     "rmse_tail": rmse_tail,
-                    "rmse_auc": float(np.trapz(rmse_curve, dx=1.0)),
+                    "rmse_auc": float(np.trapz(np.nan_to_num(rmse_curve, nan=0.0), dx=1.0)),
+
                 })
 
                 def _scaled(A, B):
                     D = A.copy() - B.copy()
                     D[:, POSE_THETA_IDX] = _angle_wrap_diff_np(A[:, POSE_THETA_IDX], B[:, POSE_THETA_IDX])
                     kept = KEEP_IDX.numpy() if hasattr(KEEP_IDX, "numpy") else KEEP_IDX
-                    return D[:, kept] / HARD_CODED_STATE_STD[kept][None, :]
+                    eps = 1e-12
+                    scale = np.maximum(HARD_CODED_STATE_STD.astype(np.float32), eps)
+                    return D[:, kept] / scale[kept][None, :]
 
-                def _rmse(Z): return float(np.sqrt(np.mean(Z * Z)))
+                def _rmse(Z: np.ndarray) -> float:
+                    if Z.size == 0:
+                        return float('nan')
+                    mask = np.isfinite(Z).all(axis=1)
+                    if not np.any(mask):
+                        return float('nan')
+                    Zf = Z[mask]
+                    return float(np.sqrt(np.nanmean(Zf * Zf)))
 
                 rmse0 = _rmse(_scaled(pred_past, gt_past))
                 rmse_m = _rmse(_scaled(pred_past[:-1], gt_past[1:]))  # pred shifted older by 1 ctrl step
