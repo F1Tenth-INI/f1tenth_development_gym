@@ -321,16 +321,32 @@ class RacingSimulation:
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
             top, bottom, left, right = max(y), min(y), min(x), max(x)
-            
-            e.score_label.x = left
-            e.score_label.y = top - 700
-            e.left = left - 800
-            e.right = right + 800
-            e.top = top + 800
-            e.bottom = bottom - 800
-            
-            e.info_label.x = left - 150 
-            e.info_label.y = top +750
+
+            # --- Critical change: preserve current zoom (field of view),
+            #     only re-center the camera on the car's center.
+            cx = 0.5 * (left + right)
+            cy = 0.5 * (top + bottom)
+
+            # Keep whatever zoom the user set via mouse scroll:
+            half_w = 0.5 * e.zoomed_width
+            half_h = 0.5 * e.zoomed_height
+
+            e.left   = cx - half_w
+            e.right  = cx + half_w
+            e.bottom = cy - half_h
+            e.top    = cy + half_h
+
+            # Place labels relative to the current view so they don't drift.
+            # Using margins tied to the current view height keeps positions sensible under zoom.
+            margin = 0.875 * e.zoomed_height  # ≈ previous 700 when default scaling
+            e.score_label.x = e.left
+            e.score_label.y = e.top - margin
+
+            e.info_label.x = e.left - 150
+            e.info_label.y = e.top + (0.9375 * e.zoomed_height)  # ≈ previous +750
+            # ------------------------------------------------------------------
+
+            # Let the main driver draw its overlays
             main_driver = self.drivers[0]
             if hasattr(main_driver, 'render'):
                 main_driver.render(env_renderer)

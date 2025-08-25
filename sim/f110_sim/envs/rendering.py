@@ -311,9 +311,9 @@ class EnvRenderer(pyglet.window.Window):
             yw = 50.0 * float(ego[1])
             f = ZOOM_IN_FACTOR if symbol == key.I else ZOOM_OUT_FACTOR
             if .01 < self.zoom_level * f < 10:
-                self.zoom_level *= f
-                self.zoomed_width *= f
-                self.zoomed_height *= f
+                self.zoom_level /= f
+                self.zoomed_width /= f
+                self.zoomed_height /= f
                 self.left = xw - self.zoomed_width / 2.0
                 self.right = xw + self.zoomed_width / 2.0
                 self.bottom = yw - self.zoomed_height / 2.0
