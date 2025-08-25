@@ -40,6 +40,9 @@ from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES
 
+# Control column names - change these if CSV column names change
+STEERING_CONTROL_COLUMN = 'angular_control_executed'
+ACCELERATION_CONTROL_COLUMN = 'translational_control_executed'
 
 
 class StateComparisonVisualizer:
@@ -54,13 +57,17 @@ class StateComparisonVisualizer:
         self.data = None
         self.time_column = 'time'
         self.state_columns = list(STATE_VARIABLES)
-        self.control_columns = ['angular_control', 'translational_control']
+        self.control_columns = [STEERING_CONTROL_COLUMN, ACCELERATION_CONTROL_COLUMN]
         
         # Visualization parameters
         self.start_index = 0
         self.end_index = None
         self.comparison_start_index = 0
         self.comparison_data_dict = {}  # Store predictions for all start indices
+        
+        # Slider optimization parameters
+        self.slider_update_timer = None
+        self.slider_update_delay = 300  # milliseconds to wait after slider stops moving
         
         # Residual dynamics (loaded dynamically)
         self.residual_dynamics = None
@@ -89,6 +96,18 @@ class StateComparisonVisualizer:
         self.root.bind('<Command-s>', lambda event: self.save_plot())
         self.root.bind('<Control-s>', lambda event: self.save_plot())  # For non-Mac systems
         self.root.focus_set()  # Make sure the window can receive key events
+        
+        # Set up cleanup on window close
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+    def _on_closing(self):
+        """Clean up resources when the window is closed."""
+        # Cancel any pending slider updates
+        if self.slider_update_timer is not None:
+            self.root.after_cancel(self.slider_update_timer)
+        
+        # Close the window
+        self.root.destroy()
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -146,7 +165,7 @@ class StateComparisonVisualizer:
                        variable=self.show_controls,
                        command=self.on_show_controls_toggled).pack(pady=2)
         
-        # Comparison options
+        # Model Comparison options
         comparison_frame = ttk.LabelFrame(parent, text="Model Comparison")
         comparison_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
@@ -171,35 +190,43 @@ class StateComparisonVisualizer:
         self.params_combo.pack(pady=2)
         self.params_combo.bind('<<ComboboxSelected>>', self.on_params_changed)
         
-        
-        
         ttk.Label(comparison_frame, text="Horizon Steps:").pack()
         self.horizon_var = tk.StringVar(value="50")
         horizon_entry = ttk.Entry(comparison_frame, textvariable=self.horizon_var, width=10)
         horizon_entry.pack()
         horizon_entry.bind('<KeyRelease>', self.on_horizon_changed)
         
-        ttk.Label(comparison_frame, text="Control Delay Steps:").pack()
-        self.control_delay_var = tk.StringVar(value="4")
-        control_delay_entry = ttk.Entry(comparison_frame, textvariable=self.control_delay_var, width=10)
-        control_delay_entry.pack()
-        control_delay_entry.bind('<KeyRelease>', self.on_control_delay_changed)
+        # Settings frame
+        settings_frame = ttk.LabelFrame(parent, text="Settings")
+        settings_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
-        # Add explanatory label for control delay
-        delay_help_label = ttk.Label(comparison_frame, 
+        ttk.Label(settings_frame, text="Steering Delay Steps:").pack()
+        self.steering_delay_var = tk.StringVar(value="1")
+        steering_delay_entry = ttk.Entry(settings_frame, textvariable=self.steering_delay_var, width=10)
+        steering_delay_entry.pack()
+        steering_delay_entry.bind('<KeyRelease>', self.on_steering_delay_changed)
+        
+        ttk.Label(settings_frame, text="Acceleration Delay Steps:").pack()
+        self.acceleration_delay_var = tk.StringVar(value="1")
+        acceleration_delay_entry = ttk.Entry(settings_frame, textvariable=self.acceleration_delay_var, width=10)
+        acceleration_delay_entry.pack()
+        acceleration_delay_entry.bind('<KeyRelease>', self.on_acceleration_delay_changed)
+        
+        # Add explanatory label for control delays
+        delay_help_label = ttk.Label(settings_frame, 
                                    text="(0 = no delay, 4 = use control\nfrom 4 timesteps ago)",
                                    font=('TkDefaultFont', 8), 
                                    foreground='gray')
         delay_help_label.pack(pady=(0, 5))
         
-        ttk.Button(comparison_frame, text="Run Full Comparison",
+        ttk.Button(settings_frame, text="Run Full Comparison",
                   command=self.run_full_comparison).pack(pady=5)
         
-        ttk.Button(comparison_frame, text="Save Plot",
+        ttk.Button(settings_frame, text="Save Plot",
                   command=self.save_plot).pack(pady=2)
         
         self.show_all_comparisons = tk.BooleanVar()
-        ttk.Checkbutton(comparison_frame, text="Show All Comparisons",
+        ttk.Checkbutton(settings_frame, text="Show All Comparisons",
                        variable=self.show_all_comparisons,
                        command=self.on_show_all_comparisons_toggled).pack(pady=2)
         
@@ -385,22 +412,40 @@ class StateComparisonVisualizer:
         # Update comparison slider range when horizon changes
         self.update_comparison_slider_range()
     
-    def on_control_delay_changed(self, event=None):
-        """Handle control delay value change."""
+    def on_steering_delay_changed(self, event=None):
+        """Handle steering delay value change."""
         try:
-            delay_str = self.control_delay_var.get()
+            delay_str = self.steering_delay_var.get()
             if delay_str.strip():  # Only validate if not empty
                 delay_val = int(delay_str)
                 if delay_val < 0:
-                    messagebox.showwarning("Warning", "Control delay should be non-negative (>= 0)")
-                    self.control_delay_var.set("0")
+                    messagebox.showwarning("Warning", "Steering delay should be non-negative (>= 0)")
+                    self.steering_delay_var.set("0")
                     return
                 elif delay_val > 100:  # Reasonable upper limit
-                    messagebox.showwarning("Warning", "Control delay seems very large. Are you sure?")
+                    messagebox.showwarning("Warning", "Steering delay seems very large. Are you sure?")
         except ValueError:
-            if self.control_delay_var.get().strip():  # Only show error for non-empty invalid input
-                messagebox.showerror("Error", "Control delay must be a non-negative integer")
-                self.control_delay_var.set("0")
+            if self.steering_delay_var.get().strip():  # Only show error for non-empty invalid input
+                messagebox.showerror("Error", "Steering delay must be a non-negative integer")
+                self.steering_delay_var.set("0")
+                return
+    
+    def on_acceleration_delay_changed(self, event=None):
+        """Handle acceleration delay value change."""
+        try:
+            delay_str = self.acceleration_delay_var.get()
+            if delay_str.strip():  # Only validate if not empty
+                delay_val = int(delay_str)
+                if delay_val < 0:
+                    messagebox.showwarning("Warning", "Acceleration delay should be non-negative (>= 0)")
+                    self.acceleration_delay_var.set("0")
+                    return
+                elif delay_val > 100:  # Reasonable upper limit
+                    messagebox.showwarning("Warning", "Acceleration delay seems very large. Are you sure?")
+        except ValueError:
+            if self.acceleration_delay_var.get().strip():  # Only show error for non-empty invalid input
+                messagebox.showerror("Error", "Acceleration delay must be a non-negative integer")
+                self.acceleration_delay_var.set("0")
                 return
         
         # Clear existing comparison data when control delay changes
@@ -408,6 +453,27 @@ class StateComparisonVisualizer:
             self.comparison_data_dict = {}
         # Update comparison slider range when control delay changes
         self.update_comparison_slider_range()
+    
+    def on_slider_delay_changed(self, event=None):
+        """Handle slider update delay value change."""
+        try:
+            delay_str = self.slider_delay_var.get()
+            if delay_str.strip():  # Only validate if not empty
+                delay_val = int(delay_str)
+                if delay_val < 50:
+                    messagebox.showwarning("Warning", "Slider delay should be at least 50ms for stability")
+                    self.slider_delay_var.set("50")
+                    return
+                elif delay_val > 2000:
+                    messagebox.showwarning("Warning", "Slider delay seems very large. Are you sure?")
+                
+                # Update the actual delay value
+                self.slider_update_delay = delay_val
+        except ValueError:
+            if self.slider_delay_var.get().strip():  # Only show error for non-empty invalid input
+                messagebox.showerror("Error", "Slider delay must be a positive integer (milliseconds)")
+                self.slider_delay_var.set("300")
+                return
     
     
     def plot_state(self):
@@ -621,21 +687,26 @@ class StateComparisonVisualizer:
         lines_legend = []
         labels_legend = []
         
-        if 'angular_control' in control_data:
-            line1 = self.ax_controls.plot(time_data, control_data['angular_control'], 
+        # Plot steering control
+        if STEERING_CONTROL_COLUMN in control_data:
+            line1 = self.ax_controls.plot(time_data, control_data[STEERING_CONTROL_COLUMN], 
                                         'r-', label='Steering Angle', linewidth=2)
             self.ax_controls.set_ylabel('Steering Angle (rad)', color='r')
             self.ax_controls.tick_params(axis='y', labelcolor='r')
+            # Add horizontal line at zero for steering angle
+            self.ax_controls.axhline(y=0, color='r', linestyle='--', alpha=0.7, linewidth=1)
             lines_legend.extend(line1)
             labels_legend.append('Steering Angle')
         
         # Create second y-axis for acceleration if available
-        if 'translational_control' in control_data:
+        if ACCELERATION_CONTROL_COLUMN in control_data:
             ax_controls2 = self.ax_controls.twinx()
-            line2 = ax_controls2.plot(time_data, control_data['translational_control'], 
+            line2 = ax_controls2.plot(time_data, control_data[ACCELERATION_CONTROL_COLUMN], 
                                     'b-', label='Acceleration', linewidth=2)
             ax_controls2.set_ylabel('Acceleration (m/s²)', color='b')
             ax_controls2.tick_params(axis='y', labelcolor='b')
+            # Add horizontal line at zero for acceleration
+            ax_controls2.axhline(y=0, color='b', linestyle='--', alpha=0.7, linewidth=1)
             lines_legend.extend(line2)
             labels_legend.append('Acceleration')
         
@@ -719,10 +790,25 @@ class StateComparisonVisualizer:
             self.comparison_start_var.set(self.start_index)
             
     def on_comparison_slider_changed(self, value):
-        """Handle comparison slider change."""
+        """Handle comparison slider change with delayed plotting for better performance."""
+        # Immediately update the index and label for responsive UI feedback
         self.comparison_start_index = int(float(value))
         if hasattr(self, 'comparison_index_label'):
             self.comparison_index_label.config(text=f"Index: {self.comparison_start_index}")
+        
+        # Cancel any pending update
+        if self.slider_update_timer is not None:
+            self.root.after_cancel(self.slider_update_timer)
+        
+        # Schedule a delayed update - only triggers if user stops moving slider
+        self.slider_update_timer = self.root.after(
+            self.slider_update_delay, 
+            self._delayed_slider_update
+        )
+    
+    def _delayed_slider_update(self):
+        """Perform the actual heavy update after slider stops moving."""
+        self.slider_update_timer = None  # Clear the timer reference
         
         # If comparison is enabled and we don't have prediction for this index, compute it
         if self.enable_comparison.get() and self.comparison_start_index not in self.comparison_data_dict:
@@ -841,8 +927,11 @@ class StateComparisonVisualizer:
     def load_car_parameters(self, param_file):
         """Load car parameters from YAML file."""
         try:
+            # Force fresh load from file
             vehicle_params = VehicleParameters(param_file)
-            return vehicle_params.to_np_array()
+            params_array = vehicle_params.to_np_array()
+            print(f"Reloaded car parameters from {param_file} - array length: {len(params_array)}")
+            return params_array
         except Exception as e:
             messagebox.showerror("Error", f"Error loading car parameters: {e}")
             return None
@@ -883,7 +972,7 @@ class StateComparisonVisualizer:
             model_name = self.get_model_key(self.model_var.get())
             param_file = self.get_car_parameters_filename(self.params_var.get())
             
-            # Load car parameters
+            # Force reload car parameters fresh from file (no caching)
             car_params = self.load_car_parameters(param_file)
             if car_params is None:
                 return False
@@ -941,6 +1030,15 @@ class StateComparisonVisualizer:
         horizon = self._validate_comparison_requirements()
         if not horizon:
             return
+        
+        # Force reload car parameters at the start to ensure we have the latest values
+        param_file = self.get_car_parameters_filename(self.params_var.get())
+        test_params = self.load_car_parameters(param_file)
+        if test_params is None:
+            messagebox.showerror("Error", "Failed to load car parameters.")
+            return
+            
+        print(f"Car parameters reloaded from {param_file}")
         
         # Clear previous comparison data
         self.comparison_data_dict = {}
@@ -1046,61 +1144,76 @@ class StateComparisonVisualizer:
         return self.extract_control_sequence_at_index(0, horizon)
         
     def extract_control_sequence_at_index(self, start_index, horizon):
-        """Extract control sequence from the data starting at a specific index with control delay."""
+        """Extract control sequence from the data starting at a specific index with separate control delays."""
         if self.data is None:
             return jnp.zeros((horizon, 2), dtype=jnp.float32)
         
-        # Get control delay from UI
+        # Get separate control delays from UI
         try:
-            control_delay = int(self.control_delay_var.get()) if hasattr(self, 'control_delay_var') and self.control_delay_var.get().isdigit() else 0
+            steering_delay = int(self.steering_delay_var.get()) if hasattr(self, 'steering_delay_var') and self.steering_delay_var.get().isdigit() else 0
         except:
-            control_delay = 0
+            steering_delay = 0
         
-        # Apply control delay: control at timestep t is actually the control from timestep (t - control_delay)
-        # For positive delay, we need to shift the control sequence backward in time
-        control_start_index = start_index - control_delay
-        
-        # Ensure we don't go beyond data bounds
-        control_end_index = min(control_start_index + horizon, len(self.data))
+        try:
+            acceleration_delay = int(self.acceleration_delay_var.get()) if hasattr(self, 'acceleration_delay_var') and self.acceleration_delay_var.get().isdigit() else 0
+        except:
+            acceleration_delay = 0
         
         # Control order: [desired_steering_angle, acceleration]
         control_sequence = np.zeros((horizon, 2), dtype=np.float32)
         
-        # Extract control data with delay consideration
-        if control_start_index >= 0 and control_start_index < len(self.data):
-            # Normal case: control data is available
-            actual_horizon = max(0, control_end_index - control_start_index)
-            
+        # Handle steering control with its own delay
+        steering_start_index = start_index - steering_delay
+        steering_end_index = min(steering_start_index + horizon, len(self.data))
+        
+        if steering_start_index >= 0 and steering_start_index < len(self.data):
+            # Normal case: steering control data is available
+            actual_horizon = max(0, steering_end_index - steering_start_index)
             if actual_horizon > 0:
-                # Use available control columns
-                if 'angular_control' in self.data.columns:
-                    control_data = self.data['angular_control'].iloc[control_start_index:control_end_index].values
+                # Use the defined steering control column
+                if STEERING_CONTROL_COLUMN in self.data.columns:
+                    control_data = self.data[STEERING_CONTROL_COLUMN].iloc[steering_start_index:steering_end_index].values
                     control_sequence[:actual_horizon, 0] = control_data
-                if 'translational_control' in self.data.columns:
-                    control_data = self.data['translational_control'].iloc[control_start_index:control_end_index].values
-                    control_sequence[:actual_horizon, 1] = control_data
         else:
-            # Edge case: control delay pushes us before the start of data
-            # For the initial timesteps where delayed control isn't available, use the first available control
-            available_start = max(0, control_start_index)
+            # Edge case: steering delay pushes us before the start of data
+            available_start = max(0, steering_start_index)
             available_end = min(available_start + horizon, len(self.data))
             
             if available_end > available_start:
-                # Fill with the first available control values
-                if 'angular_control' in self.data.columns:
-                    first_control = self.data['angular_control'].iloc[0]
-                    offset = max(0, -control_start_index)
+                # Use the defined steering control column
+                if STEERING_CONTROL_COLUMN in self.data.columns:
+                    first_control = self.data[STEERING_CONTROL_COLUMN].iloc[0]
+                    offset = max(0, -steering_start_index)
                     actual_length = min(horizon - offset, available_end - available_start)
-                    control_sequence[offset:offset + actual_length, 0] = self.data['angular_control'].iloc[available_start:available_end].values
+                    control_sequence[offset:offset + actual_length, 0] = self.data[STEERING_CONTROL_COLUMN].iloc[available_start:available_end].values
                     # Fill the initial delayed timesteps with the first control value
                     if offset > 0:
                         control_sequence[:offset, 0] = first_control
-                        
-                if 'translational_control' in self.data.columns:
-                    first_control = self.data['translational_control'].iloc[0]
-                    offset = max(0, -control_start_index)
+        
+        # Handle acceleration control with its own delay
+        acceleration_start_index = start_index - acceleration_delay
+        acceleration_end_index = min(acceleration_start_index + horizon, len(self.data))
+        
+        if acceleration_start_index >= 0 and acceleration_start_index < len(self.data):
+            # Normal case: acceleration control data is available
+            actual_horizon = max(0, acceleration_end_index - acceleration_start_index)
+            if actual_horizon > 0:
+                # Use the defined acceleration control column
+                if ACCELERATION_CONTROL_COLUMN in self.data.columns:
+                    control_data = self.data[ACCELERATION_CONTROL_COLUMN].iloc[acceleration_start_index:acceleration_end_index].values
+                    control_sequence[:actual_horizon, 1] = control_data
+        else:
+            # Edge case: acceleration delay pushes us before the start of data
+            available_start = max(0, acceleration_start_index)
+            available_end = min(available_start + horizon, len(self.data))
+            
+            if available_end > available_start:
+                # Use the defined acceleration control column
+                if ACCELERATION_CONTROL_COLUMN in self.data.columns:
+                    first_control = self.data[ACCELERATION_CONTROL_COLUMN].iloc[0]
+                    offset = max(0, -acceleration_start_index)
                     actual_length = min(horizon - offset, available_end - available_start)
-                    control_sequence[offset:offset + actual_length, 1] = self.data['translational_control'].iloc[available_start:available_end].values
+                    control_sequence[offset:offset + actual_length, 1] = self.data[ACCELERATION_CONTROL_COLUMN].iloc[available_start:available_end].values
                     # Fill the initial delayed timesteps with the first control value
                     if offset > 0:
                         control_sequence[:offset, 1] = first_control
