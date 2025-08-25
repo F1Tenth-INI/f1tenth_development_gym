@@ -254,18 +254,9 @@ class TrajectoryRefiner:
         self.TOL_HUBER  = tf.constant(self._TOL_MULT * (self.RES_DELTA ** 2) * self._M_PARTIAL, tf.float32)
 
         # Schedule
-        self.PHASE1_STEPS = 4
-        self.PHASE2_STEPS = 4
-        self.LR1          = 5e-3
-        self.LR2          = 1e-3
-
-    def set_schedule_for_T(self, T: int):
-        if T <= 30:
-            self.PHASE1_STEPS, self.PHASE2_STEPS = 4, 4
-        elif T <= 120:
-            self.PHASE1_STEPS, self.PHASE2_STEPS = 3, 3
-        else:
-            self.PHASE1_STEPS, self.PHASE2_STEPS = 2, 2
+        self.ADAM_ITERATIONS_LIMIT = 40
+        self.LR1          = 5e-2
+        self.LR2          = 1e-4
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray,
                                   X_init: Optional[np.ndarray]=None,
@@ -288,8 +279,6 @@ class TrajectoryRefiner:
         T = Q.shape[0]
         if T > self.MAX_T:
             raise ValueError(f"T={T} exceeds MAX_T={self.MAX_T}")
-
-        self.set_schedule_for_T(T)
 
         if X_init is None:
             X_init = build_kinematic_seed(x_T[0], Q, self.dt)
@@ -358,8 +347,7 @@ class TrajectoryRefiner:
             "traces": float(self.tracing_count() or -1),
             "pinned_cpu": float(1 if PIN_REFINER_TO_CPU else 0),
             "xla": float(1 if XLA_REFINE else 0),
-            "phase1": float(self.PHASE1_STEPS),
-            "phase2": float(self.PHASE2_STEPS),
+            "adam_iterations_limit": float(self.ADAM_ITERATIONS_LIMIT),
         }
         if len(dyn_costs):
             self.debug_last_dyn_costs = (float(np.mean(dyn_costs)), float(np.max(dyn_costs)))
@@ -376,6 +364,7 @@ class TrajectoryRefiner:
         - Robust dynamics + robust temporal smoothness.
         - Optional PATH PRIOR (small Huber penalty towards kinematic seed) applied
           ONLY where self.KW_var[i] > 0.0 (set/cleared by ProgressiveWindowRefiner).
+        - bounded adaptive loop (cosine LR, early-stop, gradient clipping).
         """
         dev_ctx = tf.device(CPU_DEVICE) if PIN_REFINER_TO_CPU else contextlib.nullcontext()
         with dev_ctx:
@@ -423,25 +412,59 @@ class TrajectoryRefiner:
                     )
                 return cost_val
 
-            try:
-                self.base_optimizer.learning_rate.assign(self.LR1)
-            except Exception:
-                pass
-            for _ in tf.range(self.PHASE1_STEPS):
-                with tf.GradientTape() as tape:
-                    c = cost()
-                g = tape.gradient(c, [self.X_var])
-                self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
+            # bounded adaptive loop (cosine LR, early-stop, grad-clip)
+            # allow early exit once relative improvement stalls (with a tiny patience).
+            max_iters = tf.constant(int(self.ADAM_ITERATIONS_LIMIT), tf.int32)
+            min_iters = tf.constant(2, tf.int32)  # always take a couple of steps to settle
+            patience = tf.constant(2, tf.int32)  # tolerate a couple of no-improve iterations
+            rel_tol = tf.constant(5e-4, tf.float32)  # ~0.05% relative improvement threshold
+            clip_norm = tf.constant(1.0, tf.float32)  # small global clip for stability
+            pi = tf.constant(np.pi, tf.float32)
 
-            try:
-                self.base_optimizer.learning_rate.assign(self.LR2)
-            except Exception:
-                pass
-            for _ in tf.range(self.PHASE2_STEPS):
+            def _cosine_lr(t, Tm):
+                # Anneal smoothly from LR1 → LR2 over the short schedule (0..Tm-1)
+                x = tf.cast(t, tf.float32) / tf.maximum(1.0, tf.cast(Tm - 1, tf.float32))
+                return tf.convert_to_tensor(self.LR2, tf.float32) + \
+                    0.5 * (tf.convert_to_tensor(self.LR1, tf.float32) - tf.convert_to_tensor(self.LR2, tf.float32)) * \
+                    (1.0 + tf.cos(pi * x))
+
+            i0 = tf.constant(0, tf.int32)
+            best0 = tf.constant(np.inf, tf.float32)
+            prev0 = tf.constant(np.inf, tf.float32)
+            noimp0 = tf.constant(0, tf.int32)
+
+            def _cond(i, best, prev, noimp):
+                # Bound runtime and permit early stop after min_iters if no progress.
+                base = i < max_iters
+                after_min = i >= min_iters
+                give_up = tf.logical_and(after_min, noimp >= patience)
+                return tf.logical_and(base, tf.logical_not(give_up))
+
+            def _body(i, best, prev, noimp):
+                lr = _cosine_lr(i, max_iters)
+                try:
+                    self.base_optimizer.learning_rate.assign(lr)
+                except Exception:
+                    pass
+
                 with tf.GradientTape() as tape:
                     c = cost()
-                g = tape.gradient(c, [self.X_var])
-                self.base_optimizer.apply_gradients(zip(g, [self.X_var]))
+                g = tape.gradient(c, [self.X_var])[0]
+                g = tf.clip_by_norm(g, clip_norm)  # cheap safety against spikes
+                self.base_optimizer.apply_gradients([(g, self.X_var)])
+
+                # Relative improvement vs previous iteration. On the very first step
+                # 'prev' is inf → rel becomes NaN → counts as "no improvement", which is fine
+                # because we enforce 'min_iters'.
+                rel = (prev - c) / (tf.abs(prev) + 1e-8)
+                improved = rel > rel_tol
+
+                prev_new = c
+                best_new = tf.minimum(best, c)
+                noimp_new = tf.where(improved, tf.constant(0, tf.int32), noimp + 1)
+                return i + 1, best_new, prev_new, noimp_new
+
+            _ = tf.while_loop(_cond, _body, (i0, best0, prev0, noimp0))
 
     # --- prior API (called by ProgressiveWindowRefiner) ---
     def set_path_prior(self, prior_targets: np.ndarray, prior_weights: np.ndarray):
