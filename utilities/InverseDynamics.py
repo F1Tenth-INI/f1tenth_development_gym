@@ -548,12 +548,12 @@ class ProgressiveWindowRefiner:
             stats["T"] = float(T); stats["W"] = float(W); stats["O"] = float(O)
             stats["smooth_W"] = float(self.smooth_W or 0); stats["smooth_O"] = float(self.smooth_O or 0)
 
-        # Initial seed for the first window only
+        # Initial seed for the first window only (no global seed)
         k_end = min(W, T)
         refined = np.zeros((T + 1, x_T.shape[1]), dtype=np.float32)
         refined[0] = x_T[0]
-        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt).astype(np.float32)
-        refined[1: k_end + 1] = seed_prefix
+        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt).astype(np.float32)  # old→new slice
+        refined[1: k_end + 1] = seed_prefix  # warm-start just the first window
 
         # Prior capture (for overlays) only if asked
         if collect_prior:
@@ -566,7 +566,7 @@ class ProgressiveWindowRefiner:
 
         while True:
             Q_seg  = Q[T - k_end : T]
-            X_init = refined[1 : k_end + 1]
+            X_init = refined[1 : k_end + 1].copy()
 
             grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
             prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)
@@ -581,6 +581,7 @@ class ProgressiveWindowRefiner:
                     start = k_end - grow_sz
                     prior_accum[start:k_end, :] = seed_tail
                     filled[start:k_end] = True
+                X_init[-grow_sz:, :] = seed_tail  # ← warm-start the newly added tail
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
             if collect_stats: import time as _t; t0i = _t.time()
