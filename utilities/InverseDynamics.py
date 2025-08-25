@@ -559,10 +559,18 @@ class ProgressiveWindowRefiner:
 
             # ---- PATH-PRIOR: only on newly added chunk -------------------
             grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
-            prior_targets = seed_full[:k_end]        # newest->older kinematic reference for this window
+            prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)  # fill only tail
             prior_weights = np.zeros((k_end,), dtype=np.float32)
             if grow_sz > 0:
-                prior_weights[-grow_sz:] = lam       # only the newly added tail gets a small prior
+                # Boundary in newest→older indexing: refined[prev_k_end] is the newest state of the new tail
+                x_boundary = refined[prev_k_end].astype(np.float32)  # shape [state_dim]
+                # Controls for the tail in old→new order: last grow_sz of this window’s controls
+                Q_tail = Q_seg[-grow_sz:].astype(np.float32)  # shape [grow_sz, 2]
+                # Local kinematic seed from the boundary for exactly the tail length (returns newest→older)
+                seed_tail = build_kinematic_seed(x_boundary, Q_tail, self.dt)  # shape [grow_sz, state_dim]
+                # Write the tail seed to the end of prior_targets (the tail region in newest→older)
+                prior_targets[-grow_sz:, :] = seed_tail
+                prior_weights[-grow_sz:] = lam  # softly tether tail only
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
 
@@ -641,10 +649,15 @@ class ProgressiveWindowRefiner:
             Q_seg  = Q[T - k_end : T]
             X_init = refined[1 : k_end + 1]
 
+            # ---- PATH-PRIOR: anchored at boundary, only for the new (non-overlapping) tail ----
             grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
-            prior_targets = seed_full[:k_end]
+            prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)
             prior_weights = np.zeros((k_end,), dtype=np.float32)
             if grow_sz > 0:
+                x_boundary = refined[prev_k_end].astype(np.float32)
+                Q_tail = Q_seg[-grow_sz:].astype(np.float32)
+                seed_tail = build_kinematic_seed(x_boundary, Q_tail, self.dt)
+                prior_targets[-grow_sz:, :] = seed_tail
                 prior_weights[-grow_sz:] = lam
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
