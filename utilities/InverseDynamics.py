@@ -533,6 +533,11 @@ class ProgressiveWindowRefiner:
         self.prior_decay = float(prior_decay)  # allow 0..1 (or >1 if you want)
         self.prior_min = max(0.0, float(prior_min))
 
+        # --- Debug/render hooks (new): last used prior over the full horizon ---
+        self._last_prior_newest_first = None  # np.ndarray [T+1,10], newest→older (row 0 is x_T)
+        self._last_prior_mask = None          # np.ndarray [T], True where prior existed for that step
+
+
         # --- Smoothing normalization ---
         if smoothing_window is None or int(smoothing_window) <= 0:
             self.smooth_W = None
@@ -662,6 +667,11 @@ class ProgressiveWindowRefiner:
         seed_full = build_kinematic_seed(x_T[0], Q, self.dt)  # [T,10] newest→older
         refined = np.vstack([x_T[0], seed_full]).astype(np.float32)  # [T+1,10]
 
+        # Collect the *used* prior targets as windows grow (exactly once per step)
+        prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)  # newest→older (no anchor row)
+        filled = np.zeros((T,), dtype=bool)
+
+
         k_end = min(W, T)
         prev_k_end = 0
         lam = self.prior_w0  # start prior weight
@@ -682,6 +692,13 @@ class ProgressiveWindowRefiner:
                 seed_tail = build_kinematic_seed(x_boundary, Q_tail, self.dt)
                 prior_targets[-grow_sz:, :] = seed_tail
                 prior_weights[-grow_sz:] = lam
+
+                # Mark the newly added tail region (newest→older indexing for this prefix)
+                start = k_end - grow_sz
+                sl = slice(start, k_end)
+                # Each step becomes "tail" exactly once over the progressive growth → write once.
+                prior_accum[sl, :] = seed_tail
+                filled[sl] = True
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
 
@@ -727,6 +744,10 @@ class ProgressiveWindowRefiner:
                     break
                 k2 = k2_next
         stats["smooth_ms"] = t_smooth_ms
+
+        # Publish the prior that *was actually used* during growth (newest→older, include anchor row)
+        self._last_prior_newest_first = np.vstack([x_T[0], prior_accum.astype(np.float32)])
+        self._last_prior_mask = filled
 
         # Consistency flags (same as original refine)
         flags = np.zeros((T,), dtype=bool)

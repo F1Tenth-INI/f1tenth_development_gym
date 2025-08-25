@@ -117,6 +117,11 @@ class HistoryForger:
         self._diag_csv_header_written = False
         self._diag_last = {}  # last stats snapshot
 
+        # --- For optional rendering overlays (controller cadence, oldest→newest) ---
+        self._last_gt_past = None      # np.ndarray [H,10]
+        self._last_prior_past = None   # np.ndarray [H,10]
+
+
 
     def update_control_history(self, u):
         self.counter += 1
@@ -164,11 +169,15 @@ class HistoryForger:
         or no convergence.
         """
         if self.counter < START_AFTER_X_STEPS:
+            self._last_gt_past = None
+            self._last_prior_past = None
             return None
 
         required_length = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_control_inputs) < required_length:
             self.forged_history_applied = False
+            self._last_gt_past = None
+            self._last_prior_past = None
             return None
 
         controls = np.array(self.previous_control_inputs, dtype=np.float32)[-required_length:]
@@ -205,6 +214,9 @@ class HistoryForger:
 
                 states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at control boundaries
                 pred_past = states_at_ctrl[1:1 + H][::-1, :]  # drop current, keep H, flip to oldest→newest
+
+                # Expose ground truth (controller cadence, oldest→newest)
+                self._last_gt_past = gt_past.copy()
 
                 # Sanity check (helps catch future refactors)
                 assert pred_past.shape == gt_past.shape == (H, states_all.shape[1]), \
@@ -251,6 +263,7 @@ class HistoryForger:
                 })
 
         except Exception as _:
+            self._last_gt_past = None
             pass
 
         stats["conv_rate"] = float(np.mean(converged_flags.astype(np.float32)))
@@ -283,6 +296,19 @@ class HistoryForger:
         if not np.all(converged_flags):
             self.forged_history_applied = False
             return None
+
+        # --- Prior used during optimization (already assembled newest→older inside refiner) ---
+        try:
+            prior_all = getattr(self.refiner, "_last_prior_newest_first", None)  # [T+1,10] newest→older
+            if prior_all is not None and isinstance(prior_all, np.ndarray):
+                prior_at_ctrl = prior_all[::self.out_stride_ctrl, :]   # sample at controller boundaries
+                prior_past_backwards = prior_at_ctrl[1:, :]            # drop current
+                self._last_prior_past = prior_past_backwards[::-1, :].astype(np.float32)  # oldest→newest
+            else:
+                self._last_prior_past = None
+        except Exception:
+            self._last_prior_past = None
+
 
         # states_all[0] is current state, states_all[1:] older states
         states_at_control_times = states_all[::self.out_stride_ctrl, :]
@@ -341,6 +367,9 @@ class HistoryForger:
             # Optionally update rendering or debugging
             render_utils.update(
                 past_car_states_alternative=past_car_states,
+                gt_past_car_states=self._last_gt_past,
+                prior_past_car_states=self._last_prior_past,
             )
+
         else:
             print("Not enough data for forging history.")

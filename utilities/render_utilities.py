@@ -84,9 +84,12 @@ class RenderUtils:
     def __init__(self):
 
         self.draw_lidar_data = True
-        self.draw_position_history = True
-        self.draw_waypoints = True
+        self.draw_position_history = False
+        self.draw_waypoints = False
         self.draw_next_waypoints = True
+
+        self.draw_gt_history = True
+        self.draw_prior_history = True
 
         self.waypoint_visualization_color = (180, 180, 180)
         self.next_waypoint_visualization_color = (0, 127, 0)
@@ -98,6 +101,8 @@ class RenderUtils:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
+        self.gt_history_color = (0, 128, 255)      # blue-ish
+        self.prior_history_color = (255, 255, 255) # white
         
         self.label_dict = {}
 
@@ -127,6 +132,10 @@ class RenderUtils:
 
         self.past_car_states_alternative = None
         self.past_car_states_alternative_vertices = None
+        self.past_car_states_gt = None
+        self.past_car_states_gt_vertices = None
+        self.past_car_states_prior = None
+        self.past_car_states_prior_vertices = None
         
         self.steering_direction = None
 
@@ -153,6 +162,8 @@ class RenderUtils:
                car_state = None,
                emergency_slowdown_sprites=None,
                past_car_states_alternative=None,
+               gt_past_car_states=None,
+               prior_past_car_states=None,
                ):
         if Settings.RENDER_MODE is None: return
         
@@ -167,8 +178,8 @@ class RenderUtils:
         if(car_state is not None): self.car_state = car_state
         if emergency_slowdown_sprites is not None: self.emergency_slowdown_sprites = emergency_slowdown_sprites
         if past_car_states_alternative is not None: self.past_car_states_alternative = past_car_states_alternative
-
-        
+        if gt_past_car_states is not None: self.past_car_states_gt = gt_past_car_states
+        if prior_past_car_states is not None: self.past_car_states_prior = prior_past_car_states
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
@@ -302,9 +313,36 @@ class RenderUtils:
             scaled_points = RenderUtils.get_scaled_points(points)
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
-            point_size_group = PointSizeGroup(10)
+            point_size_group = PointSizeGroup(4)
             self.past_car_states_alternative_vertices = e.batch.add(howmany, GL_POINTS, point_size_group, ('v2f/stream', scaled_points_flat),
                                            ('c3B', [255, 255, 0] * howmany))
+
+        # NEW: Ground-truth past overlay (if enabled)
+        if self.draw_gt_history and (self.past_car_states_gt is not None):
+            if self.past_car_states_gt_vertices is not None:
+                self.past_car_states_gt_vertices.delete()
+            gt_pts = self.past_car_states_gt[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_gt = RenderUtils.get_scaled_points(gt_pts)
+            n_gt = scaled_gt.shape[0]
+            self.past_car_states_gt_vertices = e.batch.add(
+                n_gt, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_gt.flatten()),
+                ('c3B', self.gt_history_color * n_gt)
+            )
+
+        # NEW: Kinematic prior past overlay (if enabled)
+        if self.draw_prior_history and (self.past_car_states_prior is not None):
+            if self.past_car_states_prior_vertices is not None:
+                self.past_car_states_prior_vertices.delete()
+            pr_pts = self.past_car_states_prior[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_pr = RenderUtils.get_scaled_points(pr_pts)
+            n_pr = scaled_pr.shape[0]
+            self.past_car_states_prior_vertices = e.batch.add(
+                n_pr, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_pr.flatten()),
+                ('c3B', self.prior_history_color * n_pr)
+            )
+
     
         if self.draw_lidar_data: 
             if self.lidar_border_points is not None:
