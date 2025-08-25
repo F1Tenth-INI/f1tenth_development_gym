@@ -228,7 +228,7 @@ class HistoryForger:
                 f"[ID] T={int(stats.get('T', -1))} | total={stats['total_ms']:6.1f} ms "
                 f"(inv={stats['inv_ms']:5.1f}, smooth={stats['smooth_ms']:5.1f}, "
                 f"prep={stats.get('last_prep_ms', 0):5.1f}, opt={stats.get('last_opt_ms', 0):5.1f}) | "
-                f"rmse={stats.get('rmse_mean', float('nan')):.4f} (head={stats.get('rmse_head', float('nan')):.4f}, tail={stats.get('rmse_tail', float('nan')):.4f}) "
+                f"rmse={stats.get('rmse_mean', float('nan')):.4f} (oldest_quartile={stats.get('rmse_head', float('nan')):.4f}, newest_quartile={stats.get('rmse_tail', float('nan')):.4f}) "
                 f"| conv={stats['conv_rate']:.2f} | traces={int(stats.get('last_traces', -1))}"
             )
 
