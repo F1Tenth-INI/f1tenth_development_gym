@@ -15,7 +15,7 @@ timesteps_per_controller_update = max(
 )
 FORGE_AT_CONTROLLER_RATE = True
 
-START_AFTER_X_STEPS = HISTORY_LENGTH
+START_AFTER_X_STEPS = HISTORY_LENGTH + 1
 
 # HistoryForger.py (top-level constants)
 WINDOW_SIZE         = 31          # was 20
