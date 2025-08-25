@@ -522,212 +522,98 @@ class ProgressiveWindowRefiner:
             o = max(0, min(o, w - 1))
             self.smooth_W, self.smooth_O = w, o
 
-    def refine(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        x_T = np.asarray(x_T, np.float32)
-        if x_T.ndim == 1:
-            x_T = x_T[None, :]
-        if x_T.shape[0] != 1:
-            raise ValueError(f"x_T must be [1, {self.refiner.state_dim}], got {x_T.shape}")
-        if x_T.shape[1] != self.refiner.state_dim:
-            raise ValueError(f"x_T must have state_dim={self.refiner.state_dim}, got {x_T.shape[1]}")
 
-        Q = np.asarray(Q, np.float32)
-        if Q.ndim != 2 or Q.shape[1] != self.refiner.control_dim:
-            raise ValueError(f"Q must be [T, {self.refiner.control_dim}], got {Q.shape}")
-
-        T = int(Q.shape[0])
-        if T == 0:
-            # Nothing to reconstruct; return the anchor and empty flags
-            return x_T.copy(), np.zeros((0,), dtype=bool)
-
-        W = self.window_size
-        O = self.overlap
-
-        # Initial prior seed (first window only)
-        k_end = min(W, T)
-        refined = np.zeros((T + 1, x_T.shape[1]), dtype=np.float32)
-        refined[0] = x_T[0]
-        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt)  # old→new slice
-        refined[1: k_end + 1] = seed_prefix
-
-        prev_k_end = 0
-        lam = self.prior_w0  # start prior weight
-
-        while True:
-            # old->new subset of controls for this prefix
-            Q_seg  = Q[T - k_end : T]            # [k_end,2]
-            # newest->older current prefix as warm start
-            X_init = refined[1 : k_end + 1]          # [k_end,10]
-
-            # ---- PATH-PRIOR: only on newly added chunk -------------------
-            grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
-            prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)  # fill only tail
-            prior_weights = np.zeros((k_end,), dtype=np.float32)
-            if grow_sz > 0:
-                # Boundary in newest→older indexing: refined[prev_k_end] is the newest state of the new tail
-                x_boundary = refined[prev_k_end].astype(np.float32)  # shape [state_dim]
-                # Controls for the tail in old→new order: last grow_sz of this window’s controls
-                Q_tail = Q_seg[-grow_sz:].astype(np.float32)  # shape [grow_sz, 2]
-                # Local kinematic seed from the boundary for exactly the tail length (returns newest→older)
-                seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt)
-                prior_targets[-grow_sz:, :] = seed_tail  # target for new tail
-                prior_weights[-grow_sz:] = lam  # softly tether tail only
-
-            self.refiner.set_path_prior(prior_targets, prior_weights)
-
-            states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
-            self.refiner.clear_path_prior()          # clear prior for next call
-
-            refined[:k_end+1] = states_w
-            prev_k_end = k_end
-
-            if k_end == T:
-                break
-
-            # decay prior weight for next grow
-            lam = max(self.prior_min, lam * self.prior_decay)
-            k_end = min(k_end + (W - O), T)
-
-        # ---- OPTIONAL SMOOTHING PASS (bigger window) ----------------------
-        if self.smooth_W is not None:
-            W2 = self.smooth_W  # ≥1
-            O2 = self.smooth_O  # 0..W2-1
-            step2 = max(1, W2 - O2)  # ≥1
-
-            k2 = min(W2, T)
-            while True:
-                Q_seg  = Q[T - k2 : T]
-                X_init = refined[1 : k2 + 1]
-                self.refiner.clear_path_prior()
-                states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
-                refined[:k2+1] = states_w
-                if k2 == T:
-                    break
-                k2 = min(k2 + step2, T)
-
-        # Consistency flags (eager)
-        flags = np.zeros((T,), dtype=bool)
-        Q_newest_first = Q[::-1]
-        for i in range(T):
-            x_i   = refined[0] if i == 0 else refined[i]
-            x_im1 = refined[i+1]
-            qi    = Q_newest_first[i]
-            x_pred = self.refiner._f(
-                tf.convert_to_tensor(x_im1, tf.float32)[tf.newaxis, :],
-                tf.convert_to_tensor(qi, tf.float32)[tf.newaxis, :]
-            )[0]
-            x_pred = _fix_sin_cos(x_pred)
-            err = _partial_state_huber(x_pred, tf.convert_to_tensor(x_i, tf.float32),
-                                       delta=self.refiner.RES_DELTA,
-                                       state_scale=self.refiner.state_scale,
-                                       slip_lambda=self.refiner.SLIP_PRIOR)
-            flags[i] = bool(err.numpy() < float(self.refiner.TOL_HUBER.numpy()))
-
-        return refined, flags
-
-    def refine_stats(self, x_T: np.ndarray, Q: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Dict[str, float]]:
+    def _progressive_refine_core(
+        self,
+        x_T: np.ndarray,
+        Q: np.ndarray,
+        *,
+        collect_stats: bool,
+        collect_prior: bool,
+    ):
         import time
-        t0 = time.time()
-
         x_T = np.asarray(x_T, np.float32); Q = np.asarray(Q, np.float32)
         T = int(Q.shape[0]); W = self.window_size; O = self.overlap
+        if x_T.ndim == 1: x_T = x_T[None, :]
+        if x_T.shape != (1, self.refiner.state_dim): raise ValueError("x_T bad shape")
+        if Q.ndim != 2 or Q.shape[1] != self.refiner.control_dim: raise ValueError("Q bad shape")
+        if T == 0:
+            empty = np.zeros((0,), dtype=bool)
+            return x_T.copy(), empty, ({} if collect_stats else None)
 
-        stats: Dict[str, float] = {}
-        stats["T"] = float(T);
-        stats["W"] = float(W);
-        stats["O"] = float(O)
-        stats["smooth_W"] = float(self.smooth_W or 0);
-        stats["smooth_O"] = float(self.smooth_O or 0)
+        # Optional stats bag
+        stats = {} if collect_stats else None
+        if collect_stats:
+            t0 = time.time()
+            stats["T"] = float(T); stats["W"] = float(W); stats["O"] = float(O)
+            stats["smooth_W"] = float(self.smooth_W or 0); stats["smooth_O"] = float(self.smooth_O or 0)
 
-        # Initial prior seed (first window only)
+        # Initial seed for the first window only
         k_end = min(W, T)
         refined = np.zeros((T + 1, x_T.shape[1]), dtype=np.float32)
         refined[0] = x_T[0]
-        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt)
+        seed_prefix = self.prior.generate(x_T[0], Q[T - k_end: T], self.dt).astype(np.float32)
         refined[1: k_end + 1] = seed_prefix
 
-        # Collect the *used* prior targets as windows grow (exactly once per step)
-        prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)  # newest→older (no anchor row)
-        filled = np.zeros((T,), dtype=bool)
+        # Prior capture (for overlays) only if asked
+        if collect_prior:
+            prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)
+            filled = np.zeros((T,), dtype=bool)
 
         prev_k_end = 0
-        lam = self.prior_w0  # start prior weight
-
-        # grow once or multiple times depending on T
+        lam = self.prior_w0
         t_inv_sum = 0.0
+
         while True:
             Q_seg  = Q[T - k_end : T]
             X_init = refined[1 : k_end + 1]
 
-            # ---- PATH-PRIOR: anchored at boundary, only for the new (non-overlapping) tail ----
             grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
             prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)
             prior_weights = np.zeros((k_end,), dtype=np.float32)
             if grow_sz > 0:
                 x_boundary = refined[prev_k_end].astype(np.float32)
                 Q_tail = Q_seg[-grow_sz:].astype(np.float32)
-                # Prior only for the newly added tail (newest→older)
-                seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt)
-                prior_targets[-grow_sz:, :] = seed_tail  # target for new tail
+                seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt).astype(np.float32)
+                prior_targets[-grow_sz:, :] = seed_tail
                 prior_weights[-grow_sz:] = lam
-
-                # Mark the newly added tail region (newest→older indexing for this prefix)
-                start = k_end - grow_sz
-                sl = slice(start, k_end)
-                # Each step becomes "tail" exactly once over the progressive growth → write once.
-                prior_accum[sl, :] = seed_tail
-                filled[sl] = True
+                if collect_prior:
+                    start = k_end - grow_sz
+                    prior_accum[start:k_end, :] = seed_tail
+                    filled[start:k_end] = True
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
-
-            t_inv0 = time.time()
+            if collect_stats: import time as _t; t0i = _t.time()
             states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
-            t_inv1 = time.time()
-            t_inv_sum += (t_inv1 - t_inv0) * 1000.0
+            if collect_stats: t_inv_sum += (_t.time() - t0i) * 1000.0
             self.refiner.clear_path_prior()
 
             refined[:k_end+1] = states_w
             prev_k_end = k_end
-            if k_end == T:
-                break
-
+            if k_end == T: break
             lam = max(self.prior_min, lam * self.prior_decay)
             k_end = min(k_end + (W - O), T)
 
-        stats["inv_ms"] = t_inv_sum
+        if collect_stats: stats["inv_ms"] = t_inv_sum
 
-        # smoothing pass (optional)
+        # Optional smoothing pass (same behavior as before)
         t_smooth_ms = 0.0
-        if self.smooth_W:
-            W2 = int(self.smooth_W)
-            O2 = int(self.smooth_O if self.smooth_O is not None else max(1, W2 // 2))
-            if O2 >= W2:
-                O2 = max(0, W2 - 1)
-            step2 = max(1, W2 - O2)
-
+        if self.smooth_W is not None:
+            W2 = self.smooth_W; O2 = self.smooth_O; step2 = max(1, W2 - O2)
             k2 = min(W2, T)
             while True:
                 Q_seg  = Q[T - k2 : T]
                 X_init = refined[1 : k2 + 1]
                 self.refiner.clear_path_prior()
-                t0s = time.time()
+                if collect_stats: import time as _t; s0 = _t.time()
                 states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
-                t1s = time.time()
-                t_smooth_ms += (t1s - t0s) * 1000.0
+                if collect_stats: t_smooth_ms += (_t.time() - s0) * 1000.0
                 refined[:k2+1] = states_w
-                if k2 == T:
-                    break
-                k2_next = min(k2 + step2, T)
-                if k2_next == k2:  # safety guard
-                    break
-                k2 = k2_next
-        stats["smooth_ms"] = t_smooth_ms
+                if k2 == T: break
+                k2 = min(k2 + step2, T)
+        if collect_stats: stats["smooth_ms"] = t_smooth_ms
 
-        # Publish the prior that *was actually used* during growth (newest→older, include anchor row)
-        self._last_prior_newest_first = np.vstack([x_T[0], prior_accum.astype(np.float32)])
-        self._last_prior_mask = filled
-
-        # Consistency flags (same as original refine)
+        # Flags (unchanged)
         flags = np.zeros((T,), dtype=bool)
         Q_newest_first = Q[::-1]
         for i in range(T):
@@ -745,15 +631,34 @@ class ProgressiveWindowRefiner:
                                        slip_lambda=self.refiner.SLIP_PRIOR)
             flags[i] = bool(err.numpy() < float(self.refiner.TOL_HUBER.numpy()))
 
-        # collect low-level timings
-        # last call timings from inner refiner
-        low = getattr(self.refiner, "debug_last_timings", {})
-        for k, v in low.items():
-            stats[f"last_{k}"] = float(v)
-        stats["total_ms"] = (time.time() - t0) * 1000.0
+        # Publish prior overlay only if requested
+        if collect_prior:
+            self._last_prior_newest_first = np.vstack([x_T[0], prior_accum.astype(np.float32)])
+            self._last_prior_mask = filled
 
-        return refined, flags, stats
+        # Finalize stats
+        if collect_stats:
+            low = getattr(self.refiner, "debug_last_timings", {})
+            for k, v in low.items():
+                stats[f"last_{k}"] = float(v)
+            import time as _t
+            stats["total_ms"] = (_t.time() - t0) * 1000.0
 
+        return refined, flags, (stats if collect_stats else None)
+
+
+    def refine(self, x_T: np.ndarray, Q: np.ndarray):
+        states, flags, _ = self._progressive_refine_core(
+            x_T, Q, collect_stats=False, collect_prior=False
+        )
+        return states, flags
+
+
+    def refine_stats(self, x_T: np.ndarray, Q: np.ndarray):
+        states, flags, stats = self._progressive_refine_core(
+            x_T, Q, collect_stats=True, collect_prior=True
+        )
+        return states, flags, stats
 
 # ======================================================================================
 # (Optional) warm start cache (deployment reuse)
