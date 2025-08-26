@@ -28,7 +28,7 @@ class ODEModel(tf.keras.Model):
 
         self.predictor = PredictorWrapper()
         self.predictor.update_predictor_config_from_specification(predictor_specification=predictor_specification)
-        self.predictor.configure_with_compilation(batch_size=self.batch_size, horizon=self.horizon, dt=dt)
+        self.predictor.configure_with_compilation(batch_size=self.batch_size, dt=dt)
 
         self.cartpole_params_tf = {}
         for name, param in self.predictor.predictor.params.__dict__.items():
