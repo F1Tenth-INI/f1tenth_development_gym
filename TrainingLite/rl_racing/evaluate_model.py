@@ -14,8 +14,9 @@ from TrainingLite.rl_racing.train_model import make_env, model_dir, model_name, 
 import numpy as np
 import torch
 
-# model_dir = 'TrainingLite/rl_racing/models/SAC_RCA1_wpts_lidar_14'
-# model_name = 'SAC_RCA1_wpts_lidar_14'
+
+# model_dir = 'TrainingLite/rl_racing/models/SAC_RCA1_wpts_lidar_32'
+# model_name = 'SAC_RCA1_wpts_lidar_32'
 model_name = model_name + '_running'
 
 device = 'cpu'
@@ -29,9 +30,15 @@ def evaluate_model(recording_name_extension=""):
     Settings.SAVE_RECORDINGS = True
     Settings.SAVE_PLOTS = True  
 
+
+
+
     time.sleep(0.1)
 
-    from run.run_simulation import RacingSimulation  # Import inside function to avoid issues
+    import importlib
+    import utilities.render_utilities   
+    importlib.reload(utilities.render_utilities)
+
     from TrainingLite.rl_racing.train_model import RacingEnv
     from utilities.car_system import CarSystem
 
@@ -51,8 +58,11 @@ def evaluate_model(recording_name_extension=""):
     # Use DummyVecEnv for evaluation (single env)
 
     env = DummyVecEnv([eval_make_env])
-    norm_path = os.path.join(model_dir, "vecnormalize.pkl")
-    env = VecNormalize.load(norm_path, env)
+    try:
+        norm_path = os.path.join(model_dir, "vecnormalize.pkl")
+        env = VecNormalize.load(norm_path, env)
+    except FileNotFoundError:
+        print(f"WARNING: Normalization file {norm_path} not found. This might be intended, so the evaluation continues without normalization")
     env.training = False          # <-- freeze running stats
     env.norm_reward = False       # <-- don't normalize rewards for eval
     
@@ -111,7 +121,9 @@ def evaluate_model(recording_name_extension=""):
 
     # Save the results to a CSV file (add at the end of the file or create the file if it doesn't exist)
     results_file = os.path.join(Settings.RECORDING_FOLDER, 'results.csv')
-
+    
+    # Create folder if not there
+    os.makedirs(Settings.RECORDING_FOLDER, exist_ok=True)
     file_exists = os.path.exists(results_file)
     with open(results_file, 'a') as f:
         if not file_exists:

@@ -204,7 +204,7 @@ class CarSystem:
         if Settings.RENDER_MODE is not None:
             self.render_utils.render(e)
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self, ranges=None, ego_odom=None, observation=None):
         
         #Car state and Lidar are updated by parent
         
@@ -246,6 +246,8 @@ class CarSystem:
 
         return self.angular_control, self.translational_control
 
+    def on_step_end(self, obs):
+        pass
 
     '''
     Update waypoints, check for obstacles and adjust waypoints / suggested speed
@@ -406,7 +408,6 @@ class CarSystem:
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         
-        self.reward = self.reward_calculator._calculate_reward(self)        
         # print('Reward:', self.reward)
     
     '''
@@ -515,10 +516,12 @@ class CarSystem:
             return
         self._simulation_ended = True
 
-        if self.recorder is not None:    
-            if Settings.SAVE_REWARDS:
-                self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
+        if Settings.SAVE_REWARDS:
+            if self.reward_calculator is not None:
+                self.reward_calculator.plot_history(save_path="./")
 
+        if self.recorder is not None:    
+       
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -581,6 +584,9 @@ def initialize_planner(controller: str):
         from Control_Toolkit_ASF.Controllers.SysId import sysid_planner
         importlib.reload(sysid_planner)
         planner = sysid_planner.SysIdPlanner()
+    elif controller == 'sac_agent':
+        from TrainingLite.rl_racing.sac_agent_planner import RLAgentPlanner
+        planner = RLAgentPlanner(host="127.0.0.1", port=5555, actor_id=0)
     elif controller == 'manual':
         from Control_Toolkit_ASF.Controllers.Manual import manual_planner
         importlib.reload(manual_planner)

@@ -1,3 +1,4 @@
+from operator import index
 import psutil
 import os
 import time
@@ -8,7 +9,7 @@ import numpy as np
 from tqdm import trange
 from argparse import Namespace
 
-from f110_sim.envs.base_classes import Simulator, wrap_angle_rad
+from sim.f110_sim.envs.base_classes import Simulator, wrap_angle_rad
 
 from typing import Optional
 from utilities.Settings import Settings
@@ -178,7 +179,7 @@ class RacingSimulation:
             driver.launch_tuner_connector()
         
         #Start looking for keyboard press
-        driver.start_keyboard_listener()
+        # driver.start_keyboard_listener()
 
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
@@ -215,7 +216,9 @@ class RacingSimulation:
                 
                 
         self.obs = self.sim.reset(initial_states=initial_states)
-
+        time.sleep(0.1) # wait a bit to let the sim initialize properly
+        self.drivers[0].waypoint_utils.update_next_waypoints(initial_states[0])
+        time.sleep(0.1) # wait a bit to let the sim initialize properly
 
     def run_simulation(self):
 
@@ -236,21 +239,36 @@ class RacingSimulation:
 
     def simulation_step(self, agent_controls=None):
 
-        # try:
+  
         if(agent_controls is None):
-            agent_controls_execute = self.get_agent_controls()
+            agent_controls = self.get_agent_controls()
         else:
-            agent_controls_execute = agent_controls
-        # except Exception as e:
-        #     print("Error in get_agent_controls", e) 
-        #     agent_controls_execute = [[0.0, 0.0]]
+            agent_controls = agent_controls
 
-        self.obs = self.sim.step(np.array(agent_controls_execute))
+
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+        for _ in range(intermediate_steps):
+
+            # Control delay buffer
+            self.control_delay_buffer.append(agent_controls)        
+            agent_controls_execute  = self.control_delay_buffer.pop(0)
+
+
+            self.obs = self.sim.step(np.array(agent_controls_execute))
+            self.laptime += self.step_reward
+            self.sim_time += Settings.TIMESTEP_SIM
+            self.sim_index += 1
+            if Settings.RENDER_MODE == "human":
+                time.sleep(0.001)
+
         # From here on, controls have to be in [steering angle, speed ]
+        for i in range(self.number_of_drivers):
+            driver : CarSystem = self.drivers[i]
+            observation = {key: value[i] if hasattr(value, '__getitem__') else value for key, value in self.obs.items()}
+            driver.on_step_end(observation)
 
-        self.laptime += self.step_reward
-        self.sim_time += Settings.TIMESTEP_SIM
-        self.sim_index += 1
+    
+
 
         
         self.render_env()
@@ -264,29 +282,21 @@ class RacingSimulation:
         ranges = self.obs['scans']
         self.get_control_for_history_forger()
 
-        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
-        if self.sim_index % intermediate_steps == 0:
+        self.agent_controls = []
 
-            self.agent_controls = []
-
-            #Process observations and get control actions
-            for index, driver in enumerate(self.drivers):
-                driver : CarSystem = driver
-                self.update_driver_state(driver, index)
-
-                # Get control actions from driver 
-                angular_control, translational_control = driver.process_observation(ranges[index], None)
-                self.agent_controls.append([angular_control, translational_control ])
-
-        # Control delay buffer
-        self.control_delay_buffer.append(self.agent_controls)        
-        agent_controls_execute  = self.control_delay_buffer.pop(0)
+        #Process observations and get control actions
+        for index, driver in enumerate(self.drivers):
+            driver : CarSystem = driver
+            self.update_driver_state(driver, index)
+            # observation = {key: value[index] for key, value in self.obs.items()}
+            # Get control actions from driver 
+            angular_control, translational_control = driver.process_observation(ranges[index], None)
+            self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
 
         # shape: [number_of_drivers, 2]
-        return agent_controls_execute
+        return self.agent_controls
 
     def get_control_for_history_forger(self):
         if not Settings.FORGE_HISTORY: return

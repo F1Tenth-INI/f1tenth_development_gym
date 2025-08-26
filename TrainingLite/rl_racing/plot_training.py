@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import matplotlib.pyplot as plt
 
-model_name = "SAC_RCA1_wpts_lidar_7"
+model_name = "SAC_RCA1_wpts_lidar_24"
 training_index = 19
 
 
@@ -11,6 +11,9 @@ def plot_training_csv(model_name, training_index):
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
     csv_path=os.path.join(model_dir, f'training_log_{training_index}.csv')
+
+    if not os.path.exists(csv_path):
+        csv_path = os.path.join(model_dir, 'training_log.csv')
 
     if not os.path.exists(csv_path):
         print(f"CSV file not found: {csv_path}")

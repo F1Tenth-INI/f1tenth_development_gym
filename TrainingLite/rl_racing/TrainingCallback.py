@@ -33,8 +33,8 @@ class TrainingStatusCallback(BaseCallback):
             
         if self.n_calls % self.check_freq == 0:
             # Save the model periodically
-            # model_filename = f"{self.save_path}_{self.num_timesteps}.zip"
-            # self.model.save(model_filename)
+            model_filename = f"{self.save_path}_{self.num_timesteps}.zip"
+            self.model.save(model_filename)
             model_filename = f"{self.save_path}_running.zip"
             self.model.save_replay_buffer(os.path.join(self.model_dir, "replay_buffer.pkl"))
             self.model.save(model_filename)
