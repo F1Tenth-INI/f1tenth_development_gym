@@ -15,8 +15,8 @@ import numpy as np
 import torch
 
 
-# model_dir = 'TrainingLite/rl_racing/models/SAC_RCA1_wpts_lidar_32'
-# model_name = 'SAC_RCA1_wpts_lidar_32'
+model_name = 'SAC_RCA1_wpts_lidar_46'
+model_dir = f'TrainingLite/rl_racing/models/{model_name}'
 model_name = model_name + '_running'
 
 device = 'cpu'
@@ -48,7 +48,7 @@ def evaluate_model(recording_name_extension=""):
         return
     
     # Dynamically set device and map model to CPU if CUDA is unavailable
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = "cpu"
     model = SAC.load(model_path, map_location=device)  # Use map_location to handle CPU fallback
 
     from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize

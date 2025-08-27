@@ -1,9 +1,10 @@
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
+import ast
 
-model_name = "SAC_RCA1_wpts_lidar_24"
-training_index = 19
+model_name = "SAC_RCA1_wpts_lidar_44"
+training_index = 4
 
 
 def plot_training_csv(model_name, training_index):
@@ -32,8 +33,21 @@ def plot_training_csv(model_name, training_index):
     # Drop any rows without global step
     df = df.dropna(subset=[X_AXIS])
 
+    # Extract min laptime from laptimes column
+    if "laptimes" in df.columns:
+        min_laptimes = []
+        for laptimes_str in df["laptimes"]:
+            try:
+                laptimes = ast.literal_eval(laptimes_str) if laptimes_str and laptimes_str != '[]' else []
+            except Exception:
+                laptimes = []
+            min_laptimes.append(min(laptimes) if laptimes else float('nan'))
+        df["laptimes_min"] = min_laptimes
+
     # Automatically find numeric columns to plot
-    plot_columns = ["episode", "reward", "length","laptime_min"]
+    plot_columns = ["episode", "reward", "length", "laptime_min"]
+    if "laptimes_min" in df.columns:
+        plot_columns.append("laptimes_min")
 
     # Set up subplots
     n = len(plot_columns)
