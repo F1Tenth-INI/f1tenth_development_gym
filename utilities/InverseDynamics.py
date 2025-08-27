@@ -36,7 +36,7 @@ CPU_DEVICE = "/device:CPU:0"
 
 XLA_REFINE = bool(int(os.getenv('ID_USE_XLA', '0')))
 
-ID_PRIOR_KIND = os.getenv("ID_PRIOR_KIND", "kinematic")  # NEW
+ID_PRIOR_KIND = os.getenv("ID_PRIOR_KIND", "nn")  # NEW
 
 
 
@@ -485,7 +485,10 @@ class ProgressiveWindowRefiner:
                  prior_decay: float = 0.5,
                  prior_min: float = 1e-5,
                  prior_kind: Optional[str] = None,
-                 state_scale_std_map: Optional[Dict[str,float]]=None):
+                 state_scale_std_map: Optional[Dict[str,float]]=None,
+                 pin_weight: float = 1e4,  # “prohibitively high” for i=0 inside each non-first window
+                 first_window_extra_passes: int = 2,  # run the first window more than once; keeps tf.function stable
+                 ):
 
         if smoothing_window is not None:
             smoothing_window = min(smoothing_window, window_size)
@@ -504,6 +507,8 @@ class ProgressiveWindowRefiner:
         self.prior_w0 = max(0.0, float(prior_weight0))
         self.prior_decay = float(prior_decay)  # allow 0..1 (or >1 if you want)
         self.prior_min = max(0.0, float(prior_min))
+        self.prior_pin = float(pin_weight)
+        self.first_window_extra_passes = max(0, int(first_window_extra_passes))
 
         # --- Debug/render hooks (new): last used prior over the full horizon ---
         self._last_prior_newest_first = None  # np.ndarray [T+1,10], newest→older (row 0 is x_T)
@@ -575,7 +580,6 @@ class ProgressiveWindowRefiner:
 
 
         prev_k_end = 0
-        lam = self.prior_w0
         t_inv_sum = 0.0
 
         while True:
@@ -583,30 +587,44 @@ class ProgressiveWindowRefiner:
             X_init = refined[1 : k_end + 1].copy()
 
             grow_sz = k_end - prev_k_end if prev_k_end > 0 else k_end
-            prior_targets = np.zeros((k_end, refined.shape[1]), dtype=np.float32)
-            prior_weights = np.zeros((k_end,), dtype=np.float32)
             if grow_sz > 0:
                 x_boundary = refined[prev_k_end].astype(np.float32)
                 Q_tail = Q_seg[-grow_sz:].astype(np.float32)
                 seed_tail = self.prior.generate(x_boundary, Q_tail, self.dt).astype(np.float32)
-                prior_targets[-grow_sz:, :] = seed_tail
-                prior_weights[-grow_sz:] = lam
+                X_init[-grow_sz:, :] = seed_tail
                 if collect_prior:
-                    start = k_end - grow_sz
-                    prior_accum[start:k_end, :] = seed_tail
-                    filled[start:k_end] = True
-                X_init[-grow_sz:, :] = seed_tail  # ← warm-start the newly added tail
+                    # We visualize the *enforced* prior below; tail seeds are for warm-start only.
+                    pass
+
+            # --- NEW: construct per-window prior that resets each shift ---
+            prior_targets, prior_weights = self._build_window_prior(refined=refined,
+                                                                    k_end=k_end,
+                                                                    prev_k_end=prev_k_end)
+
+            if collect_prior:
+                # Store only the actually *enforced* prior rows (kw>0) for overlays
+                if self._last_prior_newest_first is None:
+                    prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)
+                    filled = np.zeros((T,), dtype=bool)
+                nz = np.nonzero(prior_weights > 0.0)[0]
+                if nz.size > 0:
+                    end = int(nz.max()) + 1
+                    prior_accum[:end, :] = prior_targets[:end, :]
+                    filled[:end] = True
 
             self.refiner.set_path_prior(prior_targets, prior_weights)
+
+            passes = 1 + (self.first_window_extra_passes if prev_k_end == 0 else 0)
             if collect_stats: import time as _t; t0i = _t.time()
-            states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+            for _pass in range(passes):
+                states_w, _ = self.refiner.inverse_entire_trajectory(x_T=x_T, Q=Q_seg, X_init=X_init)
+                X_init = states_w[1 : k_end + 1].copy()
             if collect_stats: t_inv_sum += (_t.time() - t0i) * 1000.0
             self.refiner.clear_path_prior()
 
             refined[:k_end+1] = states_w
             prev_k_end = k_end
             if k_end == T: break
-            lam = max(self.prior_min, lam * self.prior_decay)
             k_end = min(k_end + (W - O), T)
 
         if collect_stats: stats["inv_ms"] = t_inv_sum
@@ -674,6 +692,41 @@ class ProgressiveWindowRefiner:
             x_T, Q, collect_stats=True, collect_prior=True
         )
         return states, flags, stats
+
+    def _build_window_prior(self,
+                            refined: np.ndarray,
+                            k_end: int,
+                            prev_k_end: int) -> Tuple[np.ndarray, np.ndarray]:
+
+        state_dim = refined.shape[1]
+        kp = np.zeros((k_end, state_dim), dtype=np.float32)
+        kw = np.zeros((k_end,), dtype=np.float32)
+
+        # First window: no prior at all (optimized longer elsewhere).
+        if prev_k_end <= 0 or k_end <= 0:
+            return kp, kw
+
+        # Decay extent: only the first half of the overlapping region.
+        half_overlap = max(0, self.overlap // 2)
+        # Number of *additional* positive-weight indices beyond the pinned one.
+        Ndecay = max(0, min(half_overlap, k_end - 1))
+
+        # --- i = 0: prohibitively large pin enforcing continuity at the window boundary.
+        kp[0, :] = refined[1, :]                # target is the previously refined state
+        kw[0]    = float(self.prior_pin)        # very strong weight (Huber keeps it numerically tame)
+
+        # --- i = 1..Ndecay: linear decay from the *same* magnitude (prior_pin) down to 0.
+        #     This smoothly nudges continuity but avoids constraining the fresh tail.
+        if Ndecay > 0:
+            denom = float(Ndecay)               # so that i=Ndecay → weight 0 exactly
+            for i in range(1, Ndecay + 1):
+                kp[i, :] = refined[i + 1, :]    # anchor to previously refined trajectory
+                alpha    = i / denom            # 0<alpha≤1
+                kw[i]    = self.prior_pin * (1.0 - alpha)
+
+        # All i >= Ndecay+1 remain at weight 0 (including the non-overlapping addition).
+        return kp, kw
+
 
 # ======================================================================================
 # (Optional) warm start cache (deployment reuse)

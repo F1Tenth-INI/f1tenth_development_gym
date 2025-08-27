@@ -391,7 +391,7 @@ class CarSystem:
         self.lap_analyzer.update(nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index, time_now = self.time, distance_to_raceline = self.waypoint_utils.current_distance_to_raceline)
 
         if Settings.FORGE_HISTORY:
-            self.history_forger.feed_planner_forged_history(self.car_state, self.LIDAR.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
+            self.history_forger.feed_planner_forged_history(self.car_state_noiseless, self.LIDAR.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
         if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
             self.state_metric_calculator.calculate_metrics(
                 current_state=self.car_state,
