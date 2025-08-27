@@ -23,9 +23,7 @@ This mirrors the actor→learner design we discussed.
 from __future__ import annotations
 import os
 import sys
-import threading
-import asyncio
-import queue
+
 from typing import Optional, Dict, Any, Deque
 from collections import deque
 import numpy as np
@@ -38,12 +36,6 @@ from stable_baselines3.common.vec_env import VecNormalize
 
 from Control_Toolkit_ASF.Controllers import template_planner
 
-# from .tcp_utilities import (
-#     pack_frame,
-#     read_frame,
-#     np_to_blob,
-#     bytes_to_state_dict,
-# )
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
@@ -52,6 +44,8 @@ sys.path.append(root_dir)
 from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 from utilities.waypoint_utils import WaypointUtils
 from utilities.lidar_utils import LidarHelper
+
+from TrainingLite.rl_racing.tcp_client import _TCPActorClient
 
 
 # ------------------------
@@ -105,98 +99,136 @@ class _DummyVecEnv:
 # ------------------------
 # RL Agent Planner (drop-in replacement for PurePursuitPlanner)
 # ------------------------
-
 class RLAgentPlanner(template_planner):
-    def __init__(self): 
+    def __init__(self):
         super().__init__()
         print("Initializing RLAgentPlanner (actor client)")
 
-        model_name = "SAC_RCA1_wpts_lidar_46"
+        # --- networking ---
+        self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+        self.client.start()
+
+        # --- local model (base) ---
+        model_name = "SAC_RCA1_wpts_lidar_38_unnormalized"
         model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
         model_path = os.path.join(model_dir, model_name)
 
-        # --- local SAC policy (inference only) ---
-        # Observation: 4 (state) + 30 (wpts) + 40 (lidar) + 6 (last actions) = 80
-        obs_low = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6, dtype=np.float32)
+        obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6, dtype=np.float32)
         obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6, dtype=np.float32)
         obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
         act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32),
                                high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
         dummy_env = _SpacesOnlyEnv(obs_space, act_space)
-        vec_dummy_env = _DummyVecEnv(dummy_env)  # Wrap for VecNormalize compatibility
+        vec_dummy_env = _DummyVecEnv(dummy_env)
 
-        # Load model with proper device mapping (CPU for deployment)
-         # Dynamically set device and map model to CPU if CUDA is unavailable
         device = "cpu"
-        self.model = SAC.load(model_path, map_location=device)  # Use map_location to handle CPU fallback
+        self.model = SAC.load(model_path, map_location=device)
 
-        # --- Load VecNormalize for consistent normalization ---
-        try:
-            norm_path = os.path.join(model_dir, "vecnormalize.pkl")
-            self.vec_normalize = VecNormalize.load(norm_path, vec_dummy_env)
-            self.vec_normalize.training = False  # Freeze running stats
-            self.vec_normalize.norm_reward = False  # Don't normalize rewards
-            print("Loaded VecNormalize stats successfully for consistent normalization.")
-        except FileNotFoundError:
-            print(f"WARNING: VecNormalize file {norm_path} not found. Using manual normalization only.")
-            self.vec_normalize = None
+        # VecNormalize (optional)
+        # try:
+        #     norm_path = os.path.join(model_dir, "vecnormalize.pkl")
+        #     self.vec_normalize = VecNormalize.load(norm_path, vec_dummy_env)
+        #     self.vec_normalize.training = False
+        #     self.vec_normalize.norm_reward = False
+        #     print("Loaded VecNormalize stats successfully for consistent normalization.")
+        # except FileNotFoundError:
+        #     print(f"WARNING: VecNormalize file {norm_path} not found. Using manual normalization only.")
+        self.vec_normalize = None
 
-        # --- planner/driver-facing state ---
-        self.angular_control: float = 0.0
-        self.translational_control: float = 0.0
-
-        # Initialize action history queue (same as training environment)
+        # planner state
+        self.angular_control = 0.0
+        self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
 
-        self.prev_obs: Optional[np.ndarray] = None
+        self.prev_obs_raw: Optional[np.ndarray] = None   # raw obs (pre-VecNormalize)
         self.prev_action: Optional[np.ndarray] = None
+
+        # episode accumulation
+        self._episode: list[dict] = []
 
         self.waypoint_utils: WaypointUtils = WaypointUtils()
         self.lidar_utilities: LidarHelper = LidarHelper()
         self.reset()
 
     def reset(self):
-        """Reset the planner state to match training environment reset behavior"""
-        # Reset action history to zeros (same as training environment initialization)
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(10)])
-        
-        # Reset other state variables
-        self.prev_obs = None
+        self.prev_obs_raw = None
         self.prev_action = None
         self.angular_control = 0.0
         self.translational_control = 0.0
-        
-        print("RLAgentPlanner reset - action history initialized to zeros")
+        # do not clear self._episode here; do it on episode end
 
-    # ---- public API expected by your driver ----
-    def process_observation(self, ranges=None, ego_odom=None, observation = None):
+    def process_observation(self, ranges=None, ego_odom=None, observation=None):
+        # pull latest weights if any
+        sd = self.client.pop_latest_state_dict()
+        if sd is not None:
+            try:
+                self.model.policy.actor.load_state_dict(sd)
+                self.model.policy.actor.eval()
+                print("[RLAgentPlanner] Actor weights updated.")
+            except Exception as e:
+                print(f"[RLAgentPlanner] Failed to load actor weights: {e}")
 
         self.lidar_utilities.update_ranges(ranges)
-        # Build current observation from driver state
-        obs = self._build_observation()
-        # Apply VecNormalize normalization if available
+
+        # --- build raw obs (this is what you trained on; VecNormalize applies later) ---
+        raw_obs = self._build_observation()
+
+        # normalize just for action selection (SB3 expects batch)
+        obs_for_policy = raw_obs
         if self.vec_normalize is not None:
-            obs = self.vec_normalize.normalize_obs(obs)
-        # 4) Query policy for action (stochastic)
-        action, _ = self.model.predict(obs, deterministic=True)
+            obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
+
+        action, _ = self.model.predict(obs_for_policy, deterministic=False)
         action = np.asarray(action, dtype=np.float32).reshape(-1)
-        # scale to simulator control units (match your env scaling)
+
+        # scale to simulator units
         steering = float(np.clip(action[0], -1, 1) * 0.4)
-        accel = float(np.clip(action[1], -1, 1) * 10.0)
-        # 5) remember for next transition
-        self.prev_obs = obs
-        self.prev_action = action
-        # 6) export to driver
+        accel    = float(np.clip(action[1], -1, 1) * 10.0)
+
+        # remember pre-normalized obs & raw action for transition building
+        self.prev_obs_raw = raw_obs
+        self.prev_action  = action
+
         self.angular_control = steering
         self.translational_control = accel
-        # 7) update action history (for observation building of next step)
         self.action_history_queue.append(action)
 
         return self.angular_control, self.translational_control
 
-    def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None) -> None:
-        pass
+    def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
+        """Called by env AFTER stepping. Must be passed the `obs` returned by env.step as `next_obs`."""
+        if self.prev_obs_raw is None or self.prev_action is None:
+            return  # first step guard
+
+        if next_obs is None:
+            # As per integration instructions, we expect next_obs from env.step
+            # If it's missing, we can build it here as a fallback:
+            next_obs = self._build_observation()
+
+        transition = {
+            "obs":      self.prev_obs_raw.astype(np.float32),
+            "action":   self.prev_action.astype(np.float32),
+            "next_obs": next_obs.astype(np.float32),
+            "reward":   float(reward),
+            "done":     bool(done),
+            "info":     info or {},
+        }
+        self._episode.append(transition)
+
+        if done:
+            # send the whole episode in one batch
+            try:
+                self.client.send_transition_batch(self._episode)
+                print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions.")
+            except Exception as e:
+                print(f"[RLAgentPlanner] Failed to send episode: {e}")
+            finally:
+                self._episode = []  # clear for next episode
+                # also reset step-wise memory
+                self.prev_obs_raw = None
+                self.prev_action = None
 
     def close(self):
         pass

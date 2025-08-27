@@ -31,8 +31,8 @@ class RewardCalculator:
         self.spin_counter = 0
         self.stuck_counter = 0
         self.last_wp_index = 0
-        self.left_track = False
-        
+        self.truncated = False
+
         self.reward_components_history = []
         self.reward = 0
         self.last_position = None
@@ -80,12 +80,12 @@ class RewardCalculator:
         # Terminate if too far
         if(distance_to_next_wp > 5): 
             reward = -30
-            self.left_track = True
+            self.truncated = True
 
 
         # Penalize action  
-        steering_reward = - np.linalg.norm(0.03 * driver.angular_control)
-        acceleration_reward = - np.linalg.norm(0.01 * driver.translational_control)
+        steering_reward = - np.linalg.norm(0.003 * driver.angular_control)
+        acceleration_reward = - np.linalg.norm(0.001 * driver.translational_control)
         reward += steering_reward + acceleration_reward
 
         # Penalize d_control for smooth control
@@ -127,6 +127,7 @@ class RewardCalculator:
                 spin_reward = -self.spin_counter * 0.5
             if self.spin_counter >= 200:
                 spin_reward = -10
+                self.truncated = True
         else:
             self.spin_counter = 0
         reward += spin_reward
@@ -138,7 +139,8 @@ class RewardCalculator:
             if self.stuck_counter >= 20:
                 stuck_reward = -0.1
             if self.stuck_counter >= 200:
-                stuck_reward = -1
+                stuck_reward = -10
+                self.truncated = True
         else:
             self.stuck_counter = 0
         reward += stuck_reward
