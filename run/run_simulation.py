@@ -201,6 +201,10 @@ class RacingSimulation:
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
   
     def reset(self, poses = None):
+
+        self.get_starting_positions()
+
+        self.sim_index = 0
         if self.initial_states is not None:
             initial_states = np.array(self.initial_states)
         else:
@@ -217,8 +221,12 @@ class RacingSimulation:
                 
         self.obs = self.sim.reset(initial_states=initial_states)
         time.sleep(0.05) # wait a bit to let the sim initialize properly
-        self.drivers[0].waypoint_utils.update_next_waypoints(initial_states[0])
-        
+    
+        for i in range(self.number_of_drivers):
+            driver = self.drivers[i]
+            driver.reset()
+            driver.waypoint_utils.update_next_waypoints(initial_states[i])
+
         # Reset the planner if it has a reset method (for RL agents)
         if hasattr(self.drivers[0].planner, 'reset'):
             self.drivers[0].planner.reset()
@@ -242,7 +250,8 @@ class RacingSimulation:
         # End of similation
 
     def simulation_step(self, agent_controls=None):
-
+        
+        self.update_driver_state(self.drivers[0], 0)
         if(agent_controls is None):
             agent_controls = self.get_agent_controls()
         else:
@@ -267,12 +276,25 @@ class RacingSimulation:
         # From here on, controls have to be in [steering angle, speed ]
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
-            observation = {key: value[i] if hasattr(value, '__getitem__') else value for key, value in self.obs.items()}
             car_state = self.sim.agents[i].state
-            driver.set_car_state(car_state)
-            driver.on_step_end(observation)
+            driver_obs = {}
+            driver_obs['car_state'] = car_state
+            driver_obs['scans'] = self.obs['scans'][i]
+            driver_obs['truncated'] = self.sim_index >= Settings.EXPERIMENT_LENGTH
+            driver_obs['collision'] = True if self.obs['collisions'][i] else False
+            driver_obs['done'] = driver_obs['collision'] or driver_obs['truncated']
+            driver_obs['info'] = {}
 
-    
+            
+            driver.set_car_state(car_state)
+            driver.on_step_end(next_obs=driver_obs)
+
+            if(driver_obs['done']):
+                self.reset()
+
+
+        self.update_driver_state(self.drivers[0], 0)
+
         self.render_env()
         self.check_and_handle_collisions()
 

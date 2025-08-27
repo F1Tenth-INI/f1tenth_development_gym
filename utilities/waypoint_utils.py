@@ -128,6 +128,25 @@ class WaypointUtils:
         # Start the thread that reloads waypoints every 5 seconds
         self.start_reload_waypoints_thread()
 
+    def reset(self):
+        self.car_state = None
+        self.waypoints = None
+        self.sectors = None
+        self.current_distance_to_raceline = 0
+        self.nearest_waypoint_index = None
+        self.lap_count = 0
+        self.cumulative_progress = 0
+        self.initial_position = None
+        self.previous_distance = 0
+        self.initial_distance = None
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 10), dtype=np.float32)
+        self.next_waypoint_positions = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+        self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+        self.obstacle_on_raceline = False
+        self.obstacle_position = None
+
+        self.reload_waypoints()
+
     def start_reload_waypoints_thread(self):
         if Settings.OPTIMIZE_FOR_RL: # If we are optimizing for RL, we don't need to reload waypoints
             self.reload_waypoints()

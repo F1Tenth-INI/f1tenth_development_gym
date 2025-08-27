@@ -175,7 +175,17 @@ class CarSystem:
         if(not Settings.ROS_BRIDGE):
             self.start_recorder()
 
-           
+    def reset(self):
+        self.car_state = None
+        self.control_history = []
+        self.car_state_history = []
+        self.LIDAR.reset()
+        self.waypoint_utils.reset()
+        self.reward_calculator.reset()
+        self.planner.reset()
+        self.lap_analyzer.reset()
+        self.render_utils.reset()
+
     def initialize_controller(self, controller_name):
         
         self.planner = initialize_planner(controller_name)
@@ -196,6 +206,9 @@ class CarSystem:
         self.car_state = car_state
         self.car_state_history.append(car_state)
 
+        if(hasattr(self.planner, 'car_state')):
+            self.planner.car_state = car_state
+
     def set_scans(self, ranges):
         ranges = np.array(ranges)
         self.LIDAR.update_ranges(ranges, self.car_state)
@@ -207,7 +220,7 @@ class CarSystem:
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
         
         #Car state and Lidar are updated by parent
-        
+        ranges = self.LIDAR.all_lidar_ranges
         car_state = self.car_state
         
         self.update_waypoints()
@@ -221,8 +234,7 @@ class CarSystem:
 
         # Control step
         if self.planner is not None:
-            if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0):
-                self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
+            self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
                 
             # Extract from mpc control sequence
             if hasattr(self.planner, 'optimal_control_sequence') or hasattr(self.planner, 'mpc'):
@@ -246,8 +258,24 @@ class CarSystem:
 
         return self.angular_control, self.translational_control
 
-    def on_step_end(self, obs):
-        pass
+    def on_step_end(self, next_obs):
+
+        self.car_state = next_obs['car_state']
+        self.LIDAR.update_ranges(next_obs['scans'], self.car_state)
+
+        # TODO: Recording
+
+        done = next_obs['done']
+        info = {}
+
+        self.reward = self.reward_calculator._calculate_reward(self, next_obs)
+        
+        if(self.reward_calculator.truncated):
+            next_obs['truncated'] = True
+            next_obs['done'] = True
+
+        if self.planner is not None and hasattr(self.planner, 'on_step_end'):
+            self.planner.on_step_end(self.reward, done, info, None)
 
     '''
     Update waypoints, check for obstacles and adjust waypoints / suggested speed
@@ -586,7 +614,7 @@ def initialize_planner(controller: str):
         planner = sysid_planner.SysIdPlanner()
     elif controller == 'sac_agent':
         from TrainingLite.rl_racing.sac_agent_planner import RLAgentPlanner
-        planner = RLAgentPlanner(host="127.0.0.1", port=5555, actor_id=0)
+        planner = RLAgentPlanner()
     elif controller == 'manual':
         from Control_Toolkit_ASF.Controllers.Manual import manual_planner
         importlib.reload(manual_planner)
