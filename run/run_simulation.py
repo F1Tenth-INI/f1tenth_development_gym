@@ -197,7 +197,7 @@ class RacingSimulation:
 
 
         # Populate control delay buffer
-        control_delay_steps = int(Settings.CONTROL_DELAY / 0.01)
+        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
         self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
   
     def reset(self, poses = None):
@@ -216,9 +216,13 @@ class RacingSimulation:
                 
                 
         self.obs = self.sim.reset(initial_states=initial_states)
-        time.sleep(0.1) # wait a bit to let the sim initialize properly
+        time.sleep(0.05) # wait a bit to let the sim initialize properly
         self.drivers[0].waypoint_utils.update_next_waypoints(initial_states[0])
-        time.sleep(0.1) # wait a bit to let the sim initialize properly
+        
+        # Reset the planner if it has a reset method (for RL agents)
+        if hasattr(self.drivers[0].planner, 'reset'):
+            self.drivers[0].planner.reset()
+        
 
     def run_simulation(self):
 
@@ -239,7 +243,6 @@ class RacingSimulation:
 
     def simulation_step(self, agent_controls=None):
 
-  
         if(agent_controls is None):
             agent_controls = self.get_agent_controls()
         else:
@@ -265,15 +268,13 @@ class RacingSimulation:
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
             observation = {key: value[i] if hasattr(value, '__getitem__') else value for key, value in self.obs.items()}
+            car_state = self.sim.agents[i].state
+            driver.set_car_state(car_state)
             driver.on_step_end(observation)
 
     
-
-
-        
         self.render_env()
         self.check_and_handle_collisions()
-        
 
         # End of controller time step
 
