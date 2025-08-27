@@ -44,7 +44,7 @@ class RewardCalculator:
         reward = 0
 
         # Crash penalty
-        crash = obs.get('collisions', False)
+        crash = obs.get('collision', False)
         crash_reward = -30 if crash else 0
         reward += crash_reward
 

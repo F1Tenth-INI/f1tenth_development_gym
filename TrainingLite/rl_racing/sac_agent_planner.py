@@ -35,7 +35,7 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecNormalize
 
 from Control_Toolkit_ASF.Controllers import template_planner
-
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
@@ -105,34 +105,48 @@ class RLAgentPlanner(template_planner):
         print("Initializing RLAgentPlanner (actor client)")
 
         # --- networking ---
-        self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+        self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=2)
         self.client.start()
 
-        # --- local model (base) ---
-        model_name = "SAC_RCA1_wpts_lidar_38_unnormalized"
-        model_dir = os.path.join(root_dir, "TrainingLite","rl_racing","models", model_name)
-        model_path = os.path.join(model_dir, model_name)
-
+        # --- define spaces (must match server) ---
         obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6, dtype=np.float32)
         obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6, dtype=np.float32)
         obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
         act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32),
-                               high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
-        dummy_env = _SpacesOnlyEnv(obs_space, act_space)
-        vec_dummy_env = _DummyVecEnv(dummy_env)
+                            high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
+
+        # SB3’s real VecEnv (NOT the hand-rolled one)
+        from stable_baselines3.common.vec_env import DummyVecEnv
+        def make_env():
+            return _SpacesOnlyEnv(obs_space, act_space)
+        vec_env = DummyVecEnv([make_env])
 
         device = "cpu"
-        self.model = SAC.load(model_path, map_location=device)
+        # Fresh SAC just for shapes/settings; weights will be pushed from server
+        self.model = SAC(
+            "MlpPolicy",
+            vec_env,
+            device=device,
+            verbose=0,
+            gamma=0.99,
+            learning_rate=1e-3,
+            policy_kwargs=dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh),
+            buffer_size=1,   # irrelevant on the actor
+            batch_size=256,
+            train_freq=1,
+        )
 
-        # VecNormalize (optional)
-        # try:
-        #     norm_path = os.path.join(model_dir, "vecnormalize.pkl")
-        #     self.vec_normalize = VecNormalize.load(norm_path, vec_dummy_env)
-        #     self.vec_normalize.training = False
-        #     self.vec_normalize.norm_reward = False
-        #     print("Loaded VecNormalize stats successfully for consistent normalization.")
-        # except FileNotFoundError:
-        #     print(f"WARNING: VecNormalize file {norm_path} not found. Using manual normalization only.")
+        # weight + warmup state
+        self._received_weights = False
+        self._warned_no_weights = False
+        # choose your warmup: "constant", "random", or "policy"
+        self.warmup_strategy = "constant"
+        # constant warmup action in policy space [-1, 1]: [steer, accel]
+        self.warmup_action = np.array([0.0, 0.30], dtype=np.float32)  # slight forward
+        # scale from policy space to sim units
+        self.accel_scale = 3.0   # bump to e.g. 5.0 or 10.0 if you need more oomph
+
+        # no VecNormalize in this setup
         self.vec_normalize = None
 
         # planner state
@@ -140,7 +154,7 @@ class RLAgentPlanner(template_planner):
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
 
-        self.prev_obs_raw: Optional[np.ndarray] = None   # raw obs (pre-VecNormalize)
+        self.prev_obs_raw: Optional[np.ndarray] = None
         self.prev_action: Optional[np.ndarray] = None
 
         # episode accumulation
@@ -149,6 +163,7 @@ class RLAgentPlanner(template_planner):
         self.waypoint_utils: WaypointUtils = WaypointUtils()
         self.lidar_utilities: LidarHelper = LidarHelper()
         self.reset()
+
 
     def reset(self):
         self.action_history_queue.clear()
@@ -164,28 +179,35 @@ class RLAgentPlanner(template_planner):
         sd = self.client.pop_latest_state_dict()
         if sd is not None:
             try:
-                self.model.policy.actor.load_state_dict(sd)
+                self.model.policy.actor.load_state_dict(sd, strict=True)
                 self.model.policy.actor.eval()
-                print("[RLAgentPlanner] Actor weights updated.")
+                self._received_weights = True
+                print("[RLAgentPlanner] ✅ Actor weights updated.")
             except Exception as e:
-                print(f"[RLAgentPlanner] Failed to load actor weights: {e}")
+                print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
 
         self.lidar_utilities.update_ranges(ranges)
 
-        # --- build raw obs (this is what you trained on; VecNormalize applies later) ---
+        # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation()
-
-        # normalize just for action selection (SB3 expects batch)
         obs_for_policy = raw_obs
         if self.vec_normalize is not None:
             obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
 
-        action, _ = self.model.predict(obs_for_policy, deterministic=False)
-        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        # choose action
+        if self._received_weights:
+            action, _ = self.model.predict(obs_for_policy, deterministic=False)
+            action = np.asarray(action, dtype=np.float32).reshape(-1)
+        else:
+            if not self._warned_no_weights:
+                print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy "
+                    f"'{self.warmup_strategy}'. You can adjust accel_scale={self.accel_scale}.")
+                self._warned_no_weights = True
+            action = self._fallback_action(obs_for_policy)
 
         # scale to simulator units
         steering = float(np.clip(action[0], -1, 1) * 0.4)
-        accel    = float(np.clip(action[1], -1, 1) * 10.0)
+        accel    = float(np.clip(action[1], -1, 1) * self.accel_scale)
 
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
@@ -197,14 +219,14 @@ class RLAgentPlanner(template_planner):
 
         return self.angular_control, self.translational_control
 
+
     def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
-        """Called by env AFTER stepping. Must be passed the `obs` returned by env.step as `next_obs`."""
+        """Called by env AFTER stepping. Pass the obs returned by env.step after translating with compute_observation()."""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
         if next_obs is None:
-            # As per integration instructions, we expect next_obs from env.step
-            # If it's missing, we can build it here as a fallback:
+            # Prefer passing next_obs from env using the same builder; fallback remains
             next_obs = self._build_observation()
 
         transition = {
@@ -218,20 +240,38 @@ class RLAgentPlanner(template_planner):
         self._episode.append(transition)
 
         if done:
-            # send the whole episode in one batch
             try:
                 self.client.send_transition_batch(self._episode)
-                print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions.")
+                total_reward = sum(t["reward"] for t in self._episode)
+                print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
             except Exception as e:
                 print(f"[RLAgentPlanner] Failed to send episode: {e}")
             finally:
-                self._episode = []  # clear for next episode
-                # also reset step-wise memory
+                self._episode = []
                 self.prev_obs_raw = None
                 self.prev_action = None
 
     def close(self):
         pass
+    
+    def _fallback_action(self, obs_for_policy: np.ndarray) -> np.ndarray:
+        """Action to use before first weights arrive."""
+        if self.warmup_strategy == "constant":
+            return self.warmup_action.copy()
+        elif self.warmup_strategy == "random":
+            a = np.random.uniform(low=-0.1, high=0.1, size=(2,)).astype(np.float32)
+            a[1] = abs(a[1]) + 0.2  # bias forward
+            return np.clip(a, -1.0, 1.0)
+        elif self.warmup_strategy == "policy":
+            # use the untrained policy (stochastic); mild but moving
+            a, _ = self.model.predict(obs_for_policy, deterministic=False)
+            return np.asarray(a, dtype=np.float32).reshape(-1)
+        else:
+            return np.array([0.0, 0.3], dtype=np.float32)
+        
+    def compute_observation(self) -> np.ndarray:
+        """Public helper so the env can build the obs using the same translator."""
+        return self._build_observation()
 
     # ---- helpers ----
     def _build_observation(self) -> np.ndarray:

@@ -1,3 +1,4 @@
+# Deprecated: use learner_server.py
 import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,6 +55,8 @@ from utilities.car_system import CarSystem
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 from TrainingLite.rl_racing.TrainingCallback import TrainingStatusCallback, EpisodeCSVLogger
+from TrainingLite.rl_racing.elite_mix_replay_buffer import EliteMixReplayBuffer
+
 
 from stable_baselines3.common.vec_env import VecMonitor
 
@@ -61,8 +64,8 @@ from TopKReplayBuffer import TopKTrajectoryBuffer, TopKTrajectoryCallback
 from collections import deque
 
 
-model_load_name = "SAC_RCA1_wpts_lidar_42"
-model_name = "SAC_RCA1_wpts_lidar_42"
+model_load_name = "SAC_RCA1_wpts_lidar_46"
+model_name = "SAC_RCA1_wpts_lidar_46_retrain"
 
 
 experiment_index = 0
@@ -146,7 +149,7 @@ class RacingEnv(gym.Env):
         # Make sure env and self.simulation resets propperly
         driver.waypoint_utils.update_next_waypoints(driver.car_state)
         
-        print(f"Reset took {time.time() - then} seconds.")
+        # print(f"Reset took {time.time() - then} seconds.")
         # Check for open source race environment        
         return self.get_observation(), {}
 
@@ -195,7 +198,6 @@ class RacingEnv(gym.Env):
             "step": self.eposode_step_counter,
             "global_step": self.global_step_counter,
         }
-        info = {}
 
         return obs, reward, terminated, truncated, info
 
@@ -233,10 +235,10 @@ class RacingEnv(gym.Env):
         
         observation_array = np.concatenate([state_features, wpts, lidar_scan, last_actions]).astype(np.float32)
         normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(wpts)+ [0.1] * len(lidar_scan) + [1.0] * len(last_actions) # Adjust normalization factors for each feature
-        observation_array_normalized = observation_array *  normalization_array
+        observation_array = observation_array *  normalization_array
         # print(f"Observation: {observation_array_normalized}")
 
-        return observation_array_normalized
+        return observation_array
 
     def _calculate_reward(self):
         
@@ -291,13 +293,13 @@ if __name__ == "__main__":
 
     debug = False
     print_info = False
-    num_envs = 4
+    num_envs = 1
  
     if(debug): # Single environment
-        # Settings.RENDER_MODE = 'human'
-        # import utilities.render_utilities   
-        # importlib.reload(utilities.render_utilities)
-        # from utilities.render_utilities import *
+        Settings.RENDER_MODE = 'human'
+        import utilities.render_utilities   
+        importlib.reload(utilities.render_utilities)
+        from utilities.render_utilities import *
 
         num_envs = 1
         env = DummyVecEnv([make_env() for _ in range(num_envs)])
@@ -347,6 +349,8 @@ if __name__ == "__main__":
             # tensorboard_log=os.path.join(log_dir),  # Enable TensorBoard logging
             device=device,  # Ensure the model is trained on GPU
             batch_size=256,
+            # replay_buffer_class=EliteMixReplayBuffer,
+            # replay_buffer_kwargs=dict(buffer_size=100_000, elite_frac=0.5),
             # replay_buffer_class=HDRAReplayBuffer,
             # replay_buffer_kwargs=dict(
             #     K_back=10,
@@ -380,9 +384,9 @@ if __name__ == "__main__":
             print(f"Error saving VecNormalize statistics: {e}")
 
 
-    model.learn(total_timesteps=250_000,
+    model.learn(total_timesteps=100_000,
                 callback=[
-                    topk_callback,
+                    # topk_callback,
                     TrainingStatusCallback(check_freq=int(50000/num_envs), model_dir=model_dir, save_path=model_path, save_norm_data_cb=save_normalization_data),
                     EpisodeCSVLogger(model_name, csv_path=os.path.join(model_name, model_dir, 'training_log.csv')),
                 ],
