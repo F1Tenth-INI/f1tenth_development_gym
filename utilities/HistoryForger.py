@@ -120,6 +120,7 @@ class HistoryForger:
         # --- For optional rendering overlays (controller cadence, oldest→newest) ---
         self._last_gt_past = None      # np.ndarray [H,10]
         self._last_prior_past = None   # np.ndarray [H,10]
+        self._last_prior_full_newest_first = None  # [T+1,10], whole horizon, 0 == x_T, newest→older
 
 
 
@@ -309,6 +310,20 @@ class HistoryForger:
         except Exception:
             self._last_prior_past = None
 
+        # Whole-horizon anchored prior produced by refiner (render-only baseline)
+        try:
+            prior_full_all = getattr(self.refiner, "_last_prior_full_newest_first", None)  # [T+1,10], newest→older
+            if prior_full_all is not None and isinstance(prior_full_all, np.ndarray):
+                # Sample at controller boundaries to stay comparable with GT/progressive overlays.
+                prior_full_at_ctrl = prior_full_all[::self.out_stride_ctrl, :]  # [H+1,10] newest→older
+                prior_full_past_backwards = prior_full_at_ctrl[1:, :]           # drop current, keep H, newest→older (older as index grows)
+                self._last_prior_full_past = prior_full_past_backwards[::-1, :].astype(np.float32)  # oldest→newest
+            else:
+                self._last_prior_full_past = None
+        except Exception:
+            self._last_prior_full_past = None
+
+
 
         # states_all[0] is current state, states_all[1:] older states
         states_at_control_times = states_all[::self.out_stride_ctrl, :]
@@ -369,6 +384,7 @@ class HistoryForger:
                 past_car_states_alternative=past_car_states,
                 gt_past_car_states=self._last_gt_past,
                 prior_past_car_states=self._last_prior_past,
+                prior_full_past_car_states=self._last_prior_full_past,
             )
 
         else:

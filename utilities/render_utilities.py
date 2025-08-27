@@ -90,6 +90,7 @@ class RenderUtils:
 
         self.draw_gt_history = True
         self.draw_prior_history = True
+        self.draw_prior_full_history = True
 
         self.waypoint_visualization_color = (180, 180, 180)
         self.next_waypoint_visualization_color = (0, 127, 0)
@@ -102,7 +103,8 @@ class RenderUtils:
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
         self.gt_history_color = (0, 128, 255)      # blue-ish
-        self.prior_history_color = (255, 255, 255) # white
+        self.prior_history_color = (255, 255, 255)  # white
+        self.prior_full_history_color = (0, 255, 255)  # cyan
         
         self.label_dict = {}
 
@@ -136,6 +138,8 @@ class RenderUtils:
         self.past_car_states_gt_vertices = None
         self.past_car_states_prior = None
         self.past_car_states_prior_vertices = None
+        self.past_car_states_prior_full = None
+        self.past_car_states_prior_full_vertices = None
         
         self.steering_direction = None
 
@@ -164,6 +168,7 @@ class RenderUtils:
                past_car_states_alternative=None,
                gt_past_car_states=None,
                prior_past_car_states=None,
+               prior_full_past_car_states=None,
                ):
         if Settings.RENDER_MODE is None: return
         
@@ -180,6 +185,7 @@ class RenderUtils:
         if past_car_states_alternative is not None: self.past_car_states_alternative = past_car_states_alternative
         if gt_past_car_states is not None: self.past_car_states_gt = gt_past_car_states
         if prior_past_car_states is not None: self.past_car_states_prior = prior_past_car_states
+        if prior_full_past_car_states is not None: self.past_car_states_prior_full = prior_full_past_car_states
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
@@ -341,6 +347,19 @@ class RenderUtils:
                 n_pr, GL_POINTS, PointSizeGroup(4),
                 ('v2f/stream', scaled_pr.flatten()),
                 ('c3B', self.prior_history_color * n_pr)
+            )
+
+        # NEW: Whole-horizon anchored prior (cyan), controller cadence, oldest→newest
+        if self.draw_prior_full_history and (self.past_car_states_prior_full is not None):
+            if self.past_car_states_prior_full_vertices is not None:
+                self.past_car_states_prior_full_vertices.delete()
+            prf_pts = self.past_car_states_prior_full[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_prf = RenderUtils.get_scaled_points(prf_pts)
+            n_prf = scaled_prf.shape[0]
+            self.past_car_states_prior_full_vertices = e.batch.add(
+                n_prf, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_prf.flatten()),
+                ('c3B', self.prior_full_history_color * n_prf)
             )
 
     

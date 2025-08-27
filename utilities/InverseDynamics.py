@@ -560,6 +560,20 @@ class ProgressiveWindowRefiner:
             prior_accum = np.full((T, refined.shape[1]), np.nan, dtype=np.float32)
             filled = np.zeros((T,), dtype=bool)
 
+        # whole-horizon prior anchored at x_T ---
+        # Direction conventions:
+        #  - Q is old→new.
+        #  - prior.generate(x_boundary, Q_seg, dt) returns the sequence of states
+        #    stepping one frame older at a time, in newest→older order w.r.t. x_boundary.
+        # We want newest→older for the whole horizon, and we also include x_T as row 0.
+        if collect_stats:
+            try:
+                full_seq = self.prior.generate(x_T[0], Q, self.dt).astype(np.float32)  # [T,10], newest→older
+                self._last_prior_full_newest_first = np.vstack([x_T[0], full_seq])     # [T+1,10]
+            except Exception:
+                self._last_prior_full_newest_first = None
+
+
         prev_k_end = 0
         lam = self.prior_w0
         t_inv_sum = 0.0
