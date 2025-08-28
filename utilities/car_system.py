@@ -177,6 +177,8 @@ class CarSystem:
 
     def reset(self):
         self.car_state = None
+        self.laptimes = []
+        
         self.control_history = []
         self.car_state_history = []
         self.lidar_utils.reset()
@@ -258,7 +260,11 @@ class CarSystem:
 
         # TODO: Recording
         done = next_obs['done']
-        info = {}
+        info = {
+            "lap_times": self.laptimes,
+            "min_laptime": min(self.laptimes) if self.laptimes else None,
+            "avg_laptime": sum(self.laptimes) / len(self.laptimes) if self.laptimes else None
+        }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)
         

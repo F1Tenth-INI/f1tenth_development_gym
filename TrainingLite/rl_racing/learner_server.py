@@ -13,6 +13,7 @@ from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
 import time
+import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer  
@@ -180,6 +181,8 @@ class LearnerServer:
 
                 print(f"[server] Training SAC... steps={grad_steps} | buffer size={self.replay_buffer.size()}")
                 time_start_training = time.time()
+
+                
                 self.model.train(
                     gradient_steps=grad_steps, 
                     batch_size=self.model.batch_size
@@ -204,6 +207,40 @@ class LearnerServer:
 
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 print(f"[server] Metrics: actor_loss={actor_loss}, critic_loss={critic_loss}, ent_coef={ent_coef}, ent_coef_loss={ent_coef_loss}, total_updates={total_updates}, episodes={num_episodes}")
+                # Save metrics to CSV
+                
+                metrics_path = os.path.join(self.model_dir, f"learning_metrics.csv")
+                file_exists = os.path.isfile(metrics_path)
+                # Gather all available metrics from logger
+                metric_dict = {}
+                if hasattr(logger, 'name_to_value') and logger.name_to_value:
+                    metric_dict.update(logger.name_to_value)
+                if hasattr(logger, 'recorded_values') and logger.recorded_values:
+                    for k, v in logger.recorded_values.items():
+                        if isinstance(v, list) and v:
+                            metric_dict[k] = v[-1]
+                # Add custom metrics
+                metric_dict['total_updates'] = total_updates
+                metric_dict['episodes'] = num_episodes
+
+                # Add lap_times, min_laptime, avg_laptime from the last episode's info if available
+                last_episode = episodes[-1] if episodes else None
+                last_info = last_episode[-1]["info"] if last_episode and last_episode[-1] and "info" in last_episode[-1] else {}
+                lap_times = last_info.get("lap_times", None)
+                min_laptime = last_info.get("min_laptime", None)
+                avg_laptime = last_info.get("avg_laptime", None)
+                metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
+                metric_dict['min_laptime'] = min_laptime if min_laptime is not None else ""
+                metric_dict['avg_laptime'] = avg_laptime if avg_laptime is not None else ""
+
+                # Write to CSV
+                with open(metrics_path, mode="a", newline="") as csvfile:
+                    writer = csv.writer(csvfile)
+                    if not file_exists:
+                        writer.writerow(["timestamp"] + list(metric_dict.keys()))
+                    writer.writerow([
+                        time.strftime("%Y-%m-%d %H:%M:%S")
+                    ] + [metric_dict[k] for k in metric_dict.keys()])
 
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
