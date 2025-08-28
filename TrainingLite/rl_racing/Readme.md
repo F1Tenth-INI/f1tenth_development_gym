@@ -35,7 +35,7 @@ The learner periodically trains on the replay buffer and **broadcasts updated ac
 Loads `{model_dir}/{model_name}.zip`, infers spaces, and starts training/broadcast.
 
 ```bash
-python TrainingLite/rl_racing/server.py   --model-name SAC_RCA1_wpts_lidar_50_async   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
+python TrainingLite/rl_racing/learner_server.py   --model-name SAC_RCA1_wpts_lidar_50_async   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
 ```
 
 ### From scratch
@@ -43,7 +43,7 @@ python TrainingLite/rl_racing/server.py   --model-name SAC_RCA1_wpts_lidar_50_as
 You must provide **obs**/**act** dimensions (e.g., obs=80, act=2).
 
 ```bash
-python TrainingLite/rl_racing/server.py   --init-from-scratch   --obs-dim 80   --act-dim 2   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
+python TrainingLite/rl_racing/learner_server.py   --init-from-scratch   --model-name SAC_RCA1_wpts_lidar_50_async --obs-dim 80   --act-dim 2   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
 ```
 
 ### Run the agent in simulation

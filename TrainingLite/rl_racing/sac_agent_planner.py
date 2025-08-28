@@ -35,6 +35,7 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecNormalize
 
 from Control_Toolkit_ASF.Controllers import template_planner
+from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -46,54 +47,7 @@ from utilities.waypoint_utils import WaypointUtils
 from utilities.lidar_utils import LidarHelper
 
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
-
-
-# ------------------------
-# Tiny dummy env to instantiate an SB3 policy for inference
-# ------------------------
-
-class _SpacesOnlyEnv(gym.Env):
-    metadata = {"render_modes": []}
-
-    def __init__(self, obs_space: spaces.Box, act_space: spaces.Box):
-        super().__init__()
-        self.observation_space = obs_space
-        self.action_space = act_space
-
-    def reset(self, *, seed: int | None = None, options: dict | None = None):
-        super().reset(seed=seed)
-        return np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype), {}
-
-    def step(self, action):  # never used
-        raise RuntimeError("_SpacesOnlyEnv is not meant to be stepped")
-
-
-# ------------------------
-# Vectorized environment wrapper for VecNormalize compatibility
-# ------------------------
-
-class _DummyVecEnv:
-    """Minimal vectorized environment wrapper for VecNormalize compatibility"""
-    
-    def __init__(self, env):
-        self.env = env
-        self.num_envs = 1
-        self.observation_space = env.observation_space
-        self.action_space = env.action_space
-        self.render_mode = getattr(env, 'render_mode', None)
-        self.metadata = getattr(env, 'metadata', {})
-    
-    def reset(self):
-        obs, info = self.env.reset()
-        return np.array([obs]), [info]
-    
-    def step(self, actions):
-        action = actions[0]  # Take first action since we only have 1 env
-        obs, reward, done, truncated, info = self.env.step(action)
-        return np.array([obs]), np.array([reward]), np.array([done]), np.array([truncated]), [info]
-    
-    def close(self):
-        self.env.close()
+from TrainingLite.rl_racing.sac_utilities import SacUtilities
 
 
 # ------------------------
@@ -108,33 +62,9 @@ class RLAgentPlanner(template_planner):
         self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=2)
         self.client.start()
 
-        # --- define spaces (must match server) ---
-        obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6, dtype=np.float32)
-        obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6, dtype=np.float32)
-        obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
-        act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32),
-                            high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
-
-        # SB3’s real VecEnv (NOT the hand-rolled one)
-        from stable_baselines3.common.vec_env import DummyVecEnv
-        def make_env():
-            return _SpacesOnlyEnv(obs_space, act_space)
-        vec_env = DummyVecEnv([make_env])
-
-        device = "cpu"
-        # Fresh SAC just for shapes/settings; weights will be pushed from server
-        self.model = SAC(
-            "MlpPolicy",
-            vec_env,
-            device=device,
-            verbose=0,
-            gamma=0.99,
-            learning_rate=1e-3,
-            policy_kwargs=dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh),
-            buffer_size=1,   # irrelevant on the actor
-            batch_size=256,
-            train_freq=1,
-        )
+        # Initialization of SAC utilities
+        dummy_env = SacUtilities.create_vec_env()
+        self.model = SacUtilities.create_model(dummy_env, device="cpu")
 
         # weight + warmup state
         self._received_weights = False
@@ -162,6 +92,11 @@ class RLAgentPlanner(template_planner):
 
         self.waypoint_utils: WaypointUtils = WaypointUtils()
         self.lidar_utilities: LidarHelper = LidarHelper()
+
+        self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
+        self.fallback_planner.waypoint_utils = self.waypoint_utils
+        self.fallback_planner.lidar_utilities = self.lidar_utilities
+
         self.reset()
 
 
@@ -175,6 +110,7 @@ class RLAgentPlanner(template_planner):
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
+
         # pull latest weights if any
         sd = self.client.pop_latest_state_dict()
         if sd is not None:
@@ -217,11 +153,15 @@ class RLAgentPlanner(template_planner):
         self.translational_control = accel
         self.action_history_queue.append(action)
 
+        # self.fallback_planner.car_state=(self.car_state)
+        # self.fallback_planner.waypoint_utils.next_waypoints=self.waypoint_utils.next_waypoints
+        # return self.fallback_planner.process_observation(ranges, ego_odom)
+
         return self.angular_control, self.translational_control
 
 
     def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
-        """Called by env AFTER stepping. Pass the obs returned by env.step after translating with compute_observation()."""
+        """Called by env AFTER stepping. Pass the obs returned by env.stgep"""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
@@ -264,15 +204,11 @@ class RLAgentPlanner(template_planner):
             return np.clip(a, -1.0, 1.0)
         elif self.warmup_strategy == "policy":
             # use the untrained policy (stochastic); mild but moving
-            a, _ = self.model.predict(obs_for_policy, deterministic=False)
+            a, _ = self.model.predict(obs_for_policy, deterministic=True)
             return np.asarray(a, dtype=np.float32).reshape(-1)
         else:
             return np.array([0.0, 0.3], dtype=np.float32)
-        
-    def compute_observation(self) -> np.ndarray:
-        """Public helper so the env can build the obs using the same translator."""
-        return self._build_observation()
-
+  
     # ---- helpers ----
     def _build_observation(self) -> np.ndarray:
         # car state

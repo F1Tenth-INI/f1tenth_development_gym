@@ -12,30 +12,12 @@ import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
-import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
+from sac_utilities import _SpacesOnlyEnv, SacUtilities  # minimal env for shape probing
 import time
-# ------------------------------
-# Tiny env just to define spaces (no stepping)
-# ------------------------------
-class _SpacesOnlyEnv(gym.Env):
-    metadata = {"render_modes": []}
-
-    def __init__(self, obs_space: spaces.Box, act_space: spaces.Box):
-        super().__init__()
-        self.observation_space = obs_space
-        self.action_space = act_space
-
-    def reset(self, *, seed: int | None = None, options: dict | None = None):
-        super().reset(seed=seed)
-        return np.zeros(self.observation_space.shape, dtype=np.float32), {}
-
-    def step(self, action):  # never used
-        raise RuntimeError("_SpacesOnlyEnv is not meant to be stepped")
-    
 
 
 
@@ -98,8 +80,6 @@ class LearnerServer:
         gradient_steps_per_round: int = 1024,
         replay_capacity: int = 100_000,
         init_from_scratch: bool = False,
-        obs_dim: Optional[int] = None,
-        act_dim: Optional[int] = None,
     ):
         self.host = host
         self.port = port
@@ -109,16 +89,13 @@ class LearnerServer:
         self.gradient_steps_per_round = gradient_steps_per_round
         self.replay_capacity = replay_capacity
 
-        # easier cold start; you can restore 10000 later
+        # Settings
         self.learning_starts = 2000
         self.utd_ratio = 4.0
         self.min_grad_steps = 16
         self.max_grad_steps = 4096
 
         self.init_from_scratch = init_from_scratch
-        # optional bootstrap dims when starting from scratch (required then)
-        self._boot_obs_dim = obs_dim
-        self._boot_act_dim = act_dim
         
         # networking
         self._clients: set[asyncio.StreamWriter] = set()
@@ -132,55 +109,34 @@ class LearnerServer:
         self.model: Optional[SAC] = None
         self.replay_buffer: Optional[ReplayBuffer] = None
         self.vecnorm: Optional[VecNormalize] = None
-        self._obs_dim: Optional[int] = None
-        self._act_dim: Optional[int] = None
+
 
         # file paths
         self.model_path, self.model_dir = resolve_model_paths(self.model_name)
 
     # ---------- setup / init ----------
-    def _load_base_model(self, obs_dim: Optional[int], act_dim: Optional[int]):
+    def _load_base_model(self):
         """
         Initialize the model + replay buffer.
 
-        - If init_from_scratch: build fresh SAC with spaces from (obs_dim, act_dim).
+        - If init_from_scratch: build fresh SAC with spaces.
         (Both must be provided.)
         - Else: load from zip and bind a matching dummy env.
         """
         if self.init_from_scratch:
-            if obs_dim is None or act_dim is None:
-                raise ValueError("When --init-from-scratch is set, you must provide --obs-dim and --act-dim.")
-            obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
-            act_space = spaces.Box(low=-1.0, high=1.0, shape=(act_dim,), dtype=np.float32)
-            dummy_env = self._dummy_vec_from_spaces(obs_space, act_space)
-
-            policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
-            print("[server] Initializing fresh SAC from scratch (no zip).")
-            self.model = SAC(
-                "MlpPolicy",
-                env=dummy_env,
-                verbose=0,
-                train_freq=1,
-                gamma=0.99,
-                learning_rate=1e-3,
-                policy_kwargs=policy_kwargs,
-                buffer_size=self.replay_capacity,
-                device=self.device,
-                batch_size=256,
+            dummy_env = SacUtilities.create_vec_env()
+            self.model = SacUtilities.create_model(
+                env=dummy_env, 
+                buffer_size=self.replay_capacity, 
+                device=self.device
             )
-            self._obs_dim = obs_dim
-            self._act_dim = act_dim
         else:
             print(f"[server] Loading SAC base model from {self.model_path}")
-            probe = SAC.load(self.model_path, device=self.device)
-            exp_obs_space: spaces.Box = probe.observation_space
-            exp_act_space: spaces.Box = probe.action_space
-            self._obs_dim = int(np.prod(exp_obs_space.shape))
-            self._act_dim = int(np.prod(exp_act_space.shape))
-            del probe
+
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-            dummy_env = self._dummy_vec_from_spaces(exp_obs_space, exp_act_space)
+            
+            dummy_env = SacUtilities.create_vec_env()
             self.model = SAC.load(self.model_path, env=dummy_env, device=self.device)
 
         # Minimal logger so .train() works outside .learn()
@@ -201,18 +157,15 @@ class LearnerServer:
         self._weights_blob = state_dict_to_bytes(self.model.policy.actor.state_dict())
 
         print("[server] Base model + replay buffer initialized.",
-            f"Mode={'scratch' if self.init_from_scratch else 'from-zip'}",
-            f"obs_dim={self._obs_dim}, act_dim={self._act_dim}")
+            f"Mode={'scratch' if self.init_from_scratch else 'from-zip'}")
 
 
 
 
     def _ensure_initialized(self, episode: List[dict]):
         if self.model is not None or not episode: return
-        obs0 = episode[0]["obs"]; act0 = episode[0]["action"]
-        self._obs_dim = int(obs0.shape[-1]); self._act_dim = int(act0.shape[-1])
-        self._load_base_model(self._obs_dim, self._act_dim)
-        print(f"[server] Initialized model with obs_dim={self._obs_dim}, act_dim={self._act_dim}")
+        self._load_base_model()
+        print(f"[server] Initialized model")
 
     # ---------- ingestion + training ----------
     def _normalize_obs(self, x: np.ndarray) -> np.ndarray:
@@ -416,11 +369,7 @@ class LearnerServer:
     async def run(self):
         # Eagerly initialize so we have weights ready for the first client:
         if self.model is None:
-            if self.init_from_scratch:
-                self._load_base_model(self._boot_obs_dim, self._boot_act_dim)
-            else:
-                # For non-scratch, load from existing zip (shapes inferred inside)
-                self._load_base_model(None, None)
+            self._load_base_model() 
 
         # start trainer task
         asyncio.create_task(self._train_loop())
@@ -435,6 +384,10 @@ class LearnerServer:
 # ------------------------------
 # CLI
 # ------------------------------
+
+# python TrainingLite/rl_racing/learner_server.py   --model-name SAC_RCA1_wpts_lidar_50
+# python TrainingLite/rl_racing/learner_server.py   --init-from-scratch --model-name SAC_RCA1_wpts_lidar_50
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Learner server: collect episodes, train SAC, broadcast weights.")
@@ -461,8 +414,6 @@ def main():
         gradient_steps_per_round=args.gradient_steps,
         replay_capacity=args.replay_capacity,
         init_from_scratch=args.init_from_scratch,
-        obs_dim=args.obs_dim,
-        act_dim=args.act_dim,
     )
     asyncio.run(srv.run())
 

@@ -125,7 +125,9 @@ class WaypointUtils:
         squared_distance([0,0], [1,1])
         check_if_obstacle_on_raceline(dummy_lidar_points, self.next_waypoint_positions)
         
-        # Start the thread that reloads waypoints every 5 seconds
+        # Threading event and thread for reload loop
+        self._reload_thread_stop_event = None
+        self._reload_thread = None
         self.start_reload_waypoints_thread()
 
     def reset(self):
@@ -145,20 +147,33 @@ class WaypointUtils:
         self.obstacle_on_raceline = False
         self.obstacle_position = None
 
+        # Stop reload thread if running
+        if self._reload_thread_stop_event is not None:
+            self._reload_thread_stop_event.set()
+            if self._reload_thread is not None:
+                self._reload_thread.join()
+            self._reload_thread_stop_event = None
+            self._reload_thread = None
+
         self.reload_waypoints()
+        self.start_reload_waypoints_thread()
 
     def start_reload_waypoints_thread(self):
-        if Settings.OPTIMIZE_FOR_RL: # If we are optimizing for RL, we don't need to reload waypoints
+        if Settings.RELOAD_WP_IN_BACKGROUND:
+            
+            # Create a stop event and thread
+            self._reload_thread_stop_event = threading.Event()
+            def reload_loop():
+                while not self._reload_thread_stop_event.is_set():
+                    self.reload_waypoints()
+                    # Wait up to 5 seconds, exit early if stop event is set
+                    self._reload_thread_stop_event.wait(5)
+            self._reload_thread = threading.Thread(target=reload_loop)
+            self._reload_thread.daemon = True
+            self._reload_thread.start()
+        else:
             self.reload_waypoints()
             return
-        else:
-            def reload_loop(): # Reload waypoints every 5 seconds
-                while True:
-                    self.reload_waypoints()
-                    time.sleep(5)
-            thread = threading.Thread(target=reload_loop)
-            thread.daemon = True  # Daemonize thread to exit when main program exits
-            thread.start()
             
     def update_next_waypoints(self, car_state):
         waypoints = self.waypoints
