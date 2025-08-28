@@ -27,15 +27,9 @@ class PurePursuitPlanner(template_planner):
     
         print("Initializing PP Planner")
 
-        self.render_utils = RenderUtils()
 
         car_parameters = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
-        self.lidar_points = 1080 * [[0,0]]
-        self.lidar_scan_angles = np.linspace(-2.35,2.35, 1080)
 
-        self.speed = 1.
-
-        
         # Controller settings
         self.waypoint_velocity_factor = Settings.PP_WAYPOINT_VELOCITY_FACTOR
         self.lookahead_distance =  Settings.PP_LOOKAHEAD_DISTANCE 
@@ -72,7 +66,7 @@ class PurePursuitPlanner(template_planner):
  
         
         
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
         """
         gives actuation given observation
         @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
@@ -93,6 +87,7 @@ class PurePursuitPlanner(template_planner):
         v_x = self.car_state[LINEAR_VEL_X_IDX]
 
         position = np.array([pose_x, pose_y], dtype=np.float32).copy()
+        waypoints = self.waypoint_utils.next_waypoints
         
         if(Settings.PP_VEL2LOOKAHEAD):
             self.lookahead_distance = v_x * Settings.PP_VEL2LOOKAHEAD
@@ -101,20 +96,20 @@ class PurePursuitPlanner(template_planner):
 
         # Needs too much time
         lookahead_point, i, i2 = get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
-        if self.waypoints[i, WP_VX_IDX] < 0:
+        if waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
-            for idx in range(1, len(self.waypoints[i:])):
-                if self.waypoints[i+idx, WP_VX_IDX] > 0:
+            for idx in range(1, len(waypoints[i:])):
+                if waypoints[i+idx, WP_VX_IDX] > 0:
                     index_switch = i + idx
                     break
-            lookahead_point = np.concatenate((self.waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], self.waypoints[i, WP_VX_IDX:WP_VX_IDX+1]))
+            lookahead_point = np.concatenate((waypoints[index_switch, (WP_X_IDX, WP_Y_IDX)], waypoints[i, WP_VX_IDX:WP_VX_IDX+1]))
 
         else:
             if self.pp_use_curvature_correction:
                 # LOOKAHEAD_CURVATURE = 5
-                LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(self.waypoints)-1))
-                curvature = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
-                speeds = self.waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
+                LOOKAHEAD_CURVATURE = np.min((i2-i+1, len(waypoints)-1))
+                curvature = waypoints[i: i + LOOKAHEAD_CURVATURE, WP_KAPPA_IDX]
+                speeds = waypoints[i: i + LOOKAHEAD_CURVATURE, WP_VX_IDX]
 
                 v_max = Settings.PP_NORMING_V_FOR_CURRVATURE
                 v_abs_mean = np.mean(np.abs(speeds))
@@ -143,12 +138,12 @@ class PurePursuitPlanner(template_planner):
 
                 curvature_slowdown_factor = f
                 self.lookahead_distance = np.max((self.lookahead_distance * curvature_slowdown_factor, Settings.PP_MINIMAL_LOOKAHEAD_DISTANCE))
-                lookahead_point, i, i2 = get_current_waypoint(self.waypoints, self.lookahead_distance, position, pose_theta)
+                lookahead_point, i, i2 = get_current_waypoint(waypoints, self.lookahead_distance, position, pose_theta)
 
             if lookahead_point is None:
                 if Settings.PRINTING_ON and Settings.ROS_BRIDGE is False:
                     print("warning no lookahead point")
-                lookahead_point = self.waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
+                lookahead_point = waypoints[Settings.PP_BACKUP_LOOKAHEAD_POINT_INDEX]
                 lookahead_point = [lookahead_point[WP_X_IDX],lookahead_point[WP_Y_IDX],lookahead_point[WP_VX_IDX]]
              
         
@@ -167,9 +162,7 @@ class PurePursuitPlanner(template_planner):
         else:
             self.correcting_index = 0
 
-        
-        self.speed = speed
-        # print(self.speed)
+    
         
         acceleration = self.controller_utils.motor_pid(speed, v_x)
         

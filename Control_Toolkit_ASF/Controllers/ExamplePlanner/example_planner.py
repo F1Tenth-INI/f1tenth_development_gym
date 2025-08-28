@@ -19,13 +19,13 @@ class ExamplePlanner(template_planner):
 
         super().__init__()
 
+
+        # Utilities and car_state will be overwritten by the car system. 
+        # All relevant data can be accessed from them
         self.car_state = None
-        self.waypoints = None
-        self.imu_data = None
-        
-        # Utilities will be overwritten by the car system
-        self.LIDAR = Optional[LidarHelper]
-        self.waypoint_utils = WaypointUtils()
+        self.lidar_utils = Optional[LidarHelper]
+        self.waypoint_utils = Optional[WaypointUtils]
+        self.render_utils = Optional[RenderUtils]
         
         self.angular_control = 0
         self.translational_control = 0
@@ -33,12 +33,14 @@ class ExamplePlanner(template_planner):
 
     # This function is called every control step
     # State and sensor data is already updated in the car system
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
         
         
         waypoints = self.waypoint_utils.next_waypoints
+        scans = self.lidar_utils.processed_ranges
         print(f'Example planners first waypoint: {waypoints[0]} ')
-       
+        print(f'Example planners first scan: {scans[0]} ')
+        
         self.angular_control = 0
         self.translational_control = 1
         return self.angular_control, self.translational_control

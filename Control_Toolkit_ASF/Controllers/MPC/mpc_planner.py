@@ -101,7 +101,7 @@ class mpc_planner(template_planner):
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
 
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
 
 
         self.lidar_points = self.LIDAR.processed_points_map_coordinates

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import asyncio
-import io
 import os
 import sys
-from typing import Any, Dict, List, Optional, Tuple
-from collections import deque
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -14,61 +12,11 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
-
-from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities  # minimal env for shape probing
 import time
 
+from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
+from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer  
 
-
-# ------------------------------
-# Simple in-memory episode buffer
-# ------------------------------
-class EpisodeReplayBuffer:
-    def __init__(self, capacity_episodes: int = 2000):
-        self.episodes: deque[List[dict]] = deque(maxlen=capacity_episodes)
-        self.total_transitions = 0
-
-    def add_episode(self, episode: List[dict]):
-        self.episodes.append(episode)
-        self.total_transitions += len(episode)
-
-    def drain_all(self) -> List[List[dict]]:
-        """Pop all stored episodes and return them."""
-        items = list(self.episodes)
-        self.episodes.clear()
-        return items
-
-# ------------------------------
-# Torch serialization helpers
-# ------------------------------
-def state_dict_to_bytes(sd: Dict[str, Any]) -> bytes:
-    buf = io.BytesIO()
-    cpu_sd = {k: (v.cpu() if torch.is_tensor(v) else v) for k, v in sd.items()}
-    torch.save(cpu_sd, buf)
-    return buf.getvalue()
-
-# ------------------------------
-# Model path helpers
-# ------------------------------
-def resolve_model_paths(model_name: str) -> Tuple[str, str]:
-    """
-    Return (model_path, model_dir)
-    Layout:
-      root/TrainingLite/rl_racing/models/{model_name}/{model_name}.zip
-      root/TrainingLite/rl_racing/models/{model_name}/vecnormalize.pkl (optional)
-    """
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    model_dir = os.path.join(root_dir, "TrainingLite", "rl_racing", "models", model_name)
-    model_path = os.path.join(model_dir, model_name)
-    os.makedirs(model_dir, exist_ok=True)
-    # if not os.path.exists(model_path + ".zip") and not os.path.exists(model_path):
-    #     raise FileNotFoundError(f"Model not found: {model_path}(.zip)")
-    return model_path, model_dir
-
-# ------------------------------
-# Core server with training
-# ------------------------------
 class LearnerServer:
     def __init__(
         self,
@@ -112,7 +60,9 @@ class LearnerServer:
 
 
         # file paths
-        self.model_path, self.model_dir = resolve_model_paths(self.model_name)
+        self.model_path, self.model_dir = SacUtilities.resolve_model_paths(self.model_name)
+
+        self._initialize_model()
 
     # ---------- setup / init ----------
     def _load_base_model(self):
@@ -154,25 +104,22 @@ class LearnerServer:
         self.model.replay_buffer = self.replay_buffer
 
         # Cache weights for initial broadcast (random if scratch)
-        self._weights_blob = state_dict_to_bytes(self.model.policy.actor.state_dict())
+        self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
 
         print("[server] Base model + replay buffer initialized.",
             f"Mode={'scratch' if self.init_from_scratch else 'from-zip'}")
 
 
-
-
-    def _ensure_initialized(self, episode: List[dict]):
-        if self.model is not None or not episode: return
+    def _initialize_model(self):
+        if self.model is not None: return
         self._load_base_model()
         print(f"[server] Initialized model")
 
     # ---------- ingestion + training ----------
+    # No normalization for now: obs arrive normalized already
     def _normalize_obs(self, x: np.ndarray) -> np.ndarray:
-        if self.vecnorm is None:
-            return x.astype(np.float32)
-        # VecNormalize expects (n_envs, obs_dim)
-        return self.vecnorm.normalize_obs(x[None, :]).astype(np.float32)[0]
+        return x.astype(np.float32)
+      
     
     def _dummy_vec_from_spaces(self, obs_space: spaces.Box, act_space: spaces.Box):
         return DummyVecEnv([lambda: _SpacesOnlyEnv(obs_space, act_space)])
@@ -212,15 +159,11 @@ class LearnerServer:
             if not episodes:
                 continue
 
-            # Lazy init model on first batch (we need shapes)
-            self._ensure_initialized(episodes[0])
-
             n_added = self._ingest_episodes_into_replay(episodes)
             print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                 f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
 
 
-            # Train if we have enough samples
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)
@@ -262,7 +205,7 @@ class LearnerServer:
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 print(f"[server] Metrics: actor_loss={actor_loss}, critic_loss={critic_loss}, ent_coef={ent_coef}, ent_coef_loss={ent_coef_loss}, total_updates={total_updates}, episodes={num_episodes}")
 
-                new_blob = state_dict_to_bytes(self.model.policy.actor.state_dict())
+                new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
                 await self._broadcast_weights(new_blob)
                 print("[server] Trained SAC and broadcast updated actor weights.")
@@ -337,7 +280,7 @@ class LearnerServer:
 
                     # initialize shapes if this is the very first episode
                     if self.model is None:
-                        self._ensure_initialized(episode)
+                        self._initialize_model()
 
                     self.episode_buffer.add_episode(episode)
                     print(f"[server] Stored episode: {len(episode)} transitions "

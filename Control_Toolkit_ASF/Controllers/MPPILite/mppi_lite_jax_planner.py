@@ -112,7 +112,7 @@ class MPPILitePlanner(template_planner):
         )
         print(f"JAX functions compiled and ready for execution on {self.default_device}!")
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
         # Ensure all data is on the default device
         with jax.default_device(self.default_device):
             s = jnp.array(self.car_state, dtype=jnp.float32)

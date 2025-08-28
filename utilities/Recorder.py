@@ -150,11 +150,11 @@ def get_basic_data_dict(driver):
     }
 
     # Creating lidar_names based on indices
-    lidar_names = ['LIDAR_' + str(i).zfill(4) for i in driver.LIDAR.processed_scan_indices]
+    lidar_names = ['LIDAR_' + str(i).zfill(4) for i in driver.lidar_utils.processed_scan_indices]
 
     # Creating lidar_ranges_dict with lambda functions that retrieve current lidar values
     lidar_ranges_dict = {
-        lidar_name: (lambda index=idx: driver.LIDAR.processed_ranges[index])
+        lidar_name: (lambda index=idx: driver.lidar_utils.processed_ranges[index])
         for idx, lidar_name in enumerate(lidar_names)
     }
 

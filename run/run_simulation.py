@@ -103,7 +103,7 @@ class RacingSimulation:
         # Init renderer
         
         if Settings.RENDER_MODE is not None:        
-            from f110_sim.envs.rendering import EnvRenderer
+            from sim.f110_sim.envs.rendering import EnvRenderer
 
             map_name = Settings.MAP_NAME
             map_ext = ".png"
@@ -225,7 +225,8 @@ class RacingSimulation:
         for i in range(self.number_of_drivers):
             driver = self.drivers[i]
             driver.reset()
-            driver.waypoint_utils.update_next_waypoints(initial_states[i])
+            driver_obs = self.get_driver_obs()
+            driver.on_step_end(next_obs=driver_obs)
 
         # Reset the planner if it has a reset method (for RL agents)
         if hasattr(self.drivers[0].planner, 'reset'):
@@ -241,6 +242,8 @@ class RacingSimulation:
         for _ in trange(experiment_length):
 
             self.simulation_step()
+            if(self.obs['collisions'][0]):
+                pass
 
 
         self.on_simulation_end(collision=False)
@@ -248,6 +251,16 @@ class RacingSimulation:
         print('Sim elapsed time:', self.laptime, 'Real elapsed time:', time.time()-self.start_time)
         print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
+
+    def get_driver_obs(self):
+        driver_obs = {}
+        driver_obs['car_state'] = self.sim.agents[0].state
+        driver_obs['scans'] = self.obs['scans'][0]
+        driver_obs['truncated'] = self.sim_index >= 8000
+        driver_obs['collision'] = True if self.obs['collisions'][0] else False
+        driver_obs['done'] = driver_obs['collision'] or driver_obs['truncated']
+        driver_obs['info'] = {}
+        return driver_obs
 
     def simulation_step(self, agent_controls=None):
         
@@ -273,19 +286,10 @@ class RacingSimulation:
             if Settings.RENDER_MODE == "human":
                 time.sleep(0.001)
 
-        # From here on, controls have to be in [steering angle, speed ]
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
             car_state = self.sim.agents[i].state
-            driver_obs = {}
-            driver_obs['car_state'] = car_state
-            driver_obs['scans'] = self.obs['scans'][i]
-            driver_obs['truncated'] = self.sim_index >= Settings.EXPERIMENT_LENGTH
-            driver_obs['collision'] = True if self.obs['collisions'][i] else False
-            driver_obs['done'] = driver_obs['collision'] or driver_obs['truncated']
-            driver_obs['info'] = {}
-
-            
+            driver_obs = self.get_driver_obs()
             driver.set_car_state(car_state)
             driver.on_step_end(next_obs=driver_obs)
 
@@ -313,7 +317,8 @@ class RacingSimulation:
             self.update_driver_state(driver, index)
             # observation = {key: value[index] for key, value in self.obs.items()}
             # Get control actions from driver 
-            angular_control, translational_control = driver.process_observation(ranges[index], None)
+            driver_obs = self.get_driver_obs()
+            angular_control, translational_control = driver.process_observation(driver_obs)
             self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
@@ -337,16 +342,10 @@ class RacingSimulation:
     def render_env(self):
         
         if self.renderer is not None:
-            render_obs = {
-                'ego_idx': 0,  # Only one agent
-                'poses_x': self.obs['poses_x'],
-                'poses_y': self.obs['poses_y'],
-                'poses_theta': self.obs['poses_theta'],
-                'linear_vels_x': self.obs['linear_vels_x'],
-                'lap_times': self.obs.get('lap_times', [0]),
-                'lap_counts': self.obs.get('lap_counts', [0]),
+            render_obs = self.obs.copy()
+            render_obs.update({
                 'simulation_time': self.sim_time,
-            }
+            })
 
             self.renderer.render(render_obs)
             

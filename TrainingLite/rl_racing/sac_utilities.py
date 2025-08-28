@@ -1,8 +1,13 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+from pyparsing import deque
+import io
 import torch
 from stable_baselines3 import SAC
+import os
+import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -61,3 +66,50 @@ class SacUtilities:
                     batch_size=256,
                 )
         return model
+    
+
+    def resolve_model_paths(model_name: str) -> Tuple[str, str]:
+        """
+        Return (model_path, model_dir)
+        Layout:
+        root/TrainingLite/rl_racing/models/{model_name}/{model_name}.zip
+        root/TrainingLite/rl_racing/models/{model_name}/vecnormalize.pkl (optional)
+        """
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        model_dir = os.path.join(root_dir, "TrainingLite", "rl_racing", "models", model_name)
+        model_path = os.path.join(model_dir, model_name)
+        os.makedirs(model_dir, exist_ok=True)
+        # if not os.path.exists(model_path + ".zip") and not os.path.exists(model_path):
+        #     raise FileNotFoundError(f"Model not found: {model_path}(.zip)")
+        return model_path, model_dir
+    
+    # ------------------------------
+    # Torch serialization helpers
+    # ------------------------------
+    def state_dict_to_bytes(sd: Dict[str, Any]) -> bytes:
+        buf = io.BytesIO() 
+        cpu_sd = {k: (v.cpu() if torch.is_tensor(v) else v) for k, v in sd.items()}
+        torch.save(cpu_sd, buf)
+        return buf.getvalue()
+
+
+    
+
+
+# ------------------------------
+# Simple in-memory episode buffer
+# ------------------------------
+class EpisodeReplayBuffer:
+    def __init__(self, capacity_episodes: int = 2000):
+        self.episodes: deque[List[dict]] = deque(maxlen=capacity_episodes)
+        self.total_transitions = 0
+
+    def add_episode(self, episode: List[dict]):
+        self.episodes.append(episode)
+        self.total_transitions += len(episode)
+
+    def drain_all(self) -> List[List[dict]]:
+        """Pop all stored episodes and return them."""
+        items = list(self.episodes)
+        self.episodes.clear()
+        return items

@@ -37,7 +37,6 @@ class PlannerAsController:
         lidar_at_proper_indices = np.zeros((1080,), dtype=np.float32)
         lidar_at_proper_indices[self.LIDAR.processed_scan_indices] = updated_attributes['lidar']
         self.LIDAR.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
-        self.planner.pass_data_to_planner(updated_attributes['next_waypoints'], s, obstacles)
         new_controls = self.planner.process_observation(self.LIDAR, s)
 
         return new_controls

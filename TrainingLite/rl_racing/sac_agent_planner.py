@@ -43,8 +43,7 @@ sys.path.append(root_dir)
         
 # Your project imports
 from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
-from utilities.waypoint_utils import WaypointUtils
-from utilities.lidar_utils import LidarHelper
+
 
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
 from TrainingLite.rl_racing.sac_utilities import SacUtilities
@@ -90,12 +89,9 @@ class RLAgentPlanner(template_planner):
         # episode accumulation
         self._episode: list[dict] = []
 
-        self.waypoint_utils: WaypointUtils = WaypointUtils()
-        self.lidar_utilities: LidarHelper = LidarHelper()
-
         self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
         self.fallback_planner.waypoint_utils = self.waypoint_utils
-        self.fallback_planner.lidar_utilities = self.lidar_utilities
+        self.fallback_planner.lidar_utils = self.lidar_utils
 
         self.reset()
 
@@ -121,8 +117,6 @@ class RLAgentPlanner(template_planner):
                 print("[RLAgentPlanner] ✅ Actor weights updated.")
             except Exception as e:
                 print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
-
-        self.lidar_utilities.update_ranges(ranges)
 
         # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation()
@@ -221,7 +215,7 @@ class RLAgentPlanner(template_planner):
         wpts = xy.astype(np.float32).ravel()  # shape (30,)
 
         # lidar
-        lidar = self.lidar_utilities.processed_ranges
+        lidar = self.lidar_utils.processed_ranges
 
         # last 3 actions (6 dims)
         last_actions = list(self.action_history_queue)[-3:]

@@ -209,13 +209,13 @@ class RacingEnv(gym.Env):
         driver : CarSystem = self.simulation.drivers[0]
 
         driver.waypoint_utils.update_next_waypoints(driver.car_state)
-        driver.LIDAR.update_ranges(self.simulation.obs['scans'][0])
+        driver.lidar_utils.update_ranges(self.simulation.obs['scans'][0])
 
         
         car_state = driver.car_state
         driver.waypoint_utils.update_next_waypoints(car_state)
         
-        lidar_scan = np.clip(driver.LIDAR.processed_ranges, 0.001, 10.0)  # Lidar scan values
+        lidar_scan = np.clip(driver.lidar_utils.processed_ranges, 0.001, 10.0)  # Lidar scan values
 
         xy = driver.waypoint_utils.next_waypoint_positions_relative  # shape (K, 2) = [x,y]
         xy = xy[::2]                         # take every second waypoint → shape (K/2, 2)
