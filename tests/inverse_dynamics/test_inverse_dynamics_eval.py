@@ -4,6 +4,13 @@ import time
 import numpy as np
 import pandas as pd
 import pytest
+
+# Force headless plotting for CI/offline
+import matplotlib
+try:
+    matplotlib.use("Agg")
+except Exception:
+    pass
 import matplotlib.pyplot as plt
 
 from tests.inverse_dynamics import config as CFG
@@ -52,7 +59,6 @@ def _plot_overlay_feature(
     out_dir.mkdir(parents=True, exist_ok=True)
     png = out_dir / f"{stem}_{solver}_T{T}_{init}_{feature}.png"
 
-    import matplotlib.pyplot as plt
     fig, ax = plt.subplots()
     # GT across full horizon
     ax.plot(t, states_gt[:, idx], linestyle=":", color="k", linewidth=1.0, label="GT")
@@ -93,7 +99,6 @@ def _plot_overlay_xy(
     out_dir.mkdir(parents=True, exist_ok=True)
     png = out_dir / f"{stem}_{solver}_T{T}_{init}_XY.png"
 
-    import matplotlib.pyplot as plt
     fig, ax = plt.subplots()
     # GT full path (thicker, solid)
     ax.plot(states_gt[:, xi], states_gt[:, yi], "k-", linewidth=2.0, label="GT")
@@ -182,13 +187,13 @@ def _maybe_plot_series(rmse_curve: np.ndarray, title: str, out_file: Path):
 
 
 # bundle_key = (file, solver, T, init)
+from collections import defaultdict
 _AGG_CURVES: dict[tuple, list[np.ndarray]] = defaultdict(list)
 
 def _add_curve_to_bundle(file_name: str, solver: str, T: int, init: str, rmse_step: np.ndarray):
     _AGG_CURVES[(file_name, solver, int(T), init)].append(rmse_step.astype(np.float32))
 
 def _plot_agg_series(curves: list[np.ndarray], title: str, out_png: Path, out_csv: Path | None):
-    import matplotlib.pyplot as plt
     # ensure same length (should be, because same T; guard anyway)
     L = min(int(c.shape[0]) for c in curves)
     if L == 0: return
