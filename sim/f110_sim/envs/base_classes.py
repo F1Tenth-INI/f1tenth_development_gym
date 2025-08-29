@@ -116,7 +116,7 @@ class RaceCar(object):
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
                 car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
-                dt = 0.01, 
+                dt = Settings.TIMESTEP_SIM,
                 intermediate_steps=1,
                 computation_lib=NumpyLibrary()
                 )
