@@ -1,3 +1,4 @@
+# tests/inverse_dynamics/eval_utils.py
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -10,8 +11,15 @@ from utilities.InverseDynamics import (
     TrajectoryRefiner,
     ProgressiveWindowRefiner,
     HARD_CODED_STATE_STD,
-    build_kinematic_seed,
 )
+from utilities.prior_trajectories import make_prior  # ← replaces legacy build_kinematic_seed
+
+# Optional diagnostics (combine with online ones)
+try:
+    from utilities import id_diagnostics as IDD  # provided earlier
+    _HAS_IDD = True
+except Exception:
+    _HAS_IDD = False
 
 # ------- Data loading / synthesis -------
 
@@ -30,6 +38,10 @@ _HYB_CACHE: dict = {}
 # --- Warm-up registries so we only warm once per solver key ---
 _WARMED_REF: set = set()
 _WARMED_HYB: set = set()
+
+# Module-level caches
+_SWEEP_REFINER_CACHE = {}   # key -> ProgressiveWindowRefiner
+_REF_WARMED = set()         # keys warmed once
 
 
 def _ref_key(dt: float, mu: Optional[float]):
@@ -80,11 +92,11 @@ def _warm_hybrid(solver: ProgressiveWindowRefiner, dt: float, mu: Optional[float
     key = _hyb_key(dt, mu, W, O)
     if key in _WARMED_HYB:
         return
-    # Warm the internal refiner with a very small window to trigger tracing
+    # Warm the internal refiner with a very small window to exclude tracing from timings
     t_small = min(5, Q_old_to_new.shape[0])
     if t_small >= 1:
         Qs = Q_old_to_new[-t_small:]
-        seed_s = build_kinematic_seed(x_T[0], Qs, solver.dt)
+        seed_s = build_seed(x_T[0], Qs, solver.dt)  # ← new seed builder
         solver.refiner.inverse_entire_trajectory(x_T, Qs, X_init=seed_s)
     _WARMED_HYB.add(key)
 
@@ -255,6 +267,18 @@ def per_step_scaled_errors(pred_states_newest_first: np.ndarray,
         rmse_step[k] = float(np.sqrt(np.mean(z**2)))
     return {"rmse_step": rmse_step}
 
+# ------- Prior/seed helper -------
+
+def build_seed(x_T0: np.ndarray, Q_old_to_new: np.ndarray, dt: float) -> np.ndarray:
+    """
+    Build a warm-start seed using your new prior mechanism.
+    Uses CFG.KIN_SEED_PRIOR_KIND (e.g., 'nn', 'kinematic', etc.).
+    Returns an array of shape [T, state_dim].
+    """
+    kind = getattr(CFG, "KIN_SEED_PRIOR_KIND", "nn")
+    prior = make_prior(kind)
+    return prior.generate(np.asarray(x_T0, np.float32), np.asarray(Q_old_to_new, np.float32), float(dt)).astype(np.float32)
+
 # ------- Window helpers -------
 
 def build_window_by_end(states: np.ndarray, Q: np.ndarray, T: int, end_idx: int):
@@ -297,8 +321,42 @@ def _assert_pinned(x_T: np.ndarray, states_pred: np.ndarray):
     if not np.allclose(states_pred[0], x_T[0], atol=1e-6):
         raise AssertionError("Pinned newest state changed by solver.")
 
-
 # ------- Evaluation harness (clear names) -------
+
+def _append_offline_diagnostics(out: Dict[str, float],
+                                states_pred_newest_first: np.ndarray,
+                                gt_newest_first: np.ndarray,
+                                Q_old_to_new: np.ndarray,
+                                dt: float,
+                                solver_like) -> None:
+    """
+    Enrich 'out' with diagnostics, if enabled and the module is present.
+    solver_like: either ProgressiveWindowRefiner or a tiny wrapper with .refiner for the TrajectoryRefiner.
+    """
+    if not (getattr(CFG, "ENABLE_DIAG", False) and _HAS_IDD):
+        return
+    # oldest→newest past sequences (drop the pinned newest)
+    pred_old2new = states_pred_newest_first[1:][::-1]
+    gt_old2new   = gt_newest_first[1:][::-1]
+    try:
+        out.update(IDD.probe_time_shift(pred_old2new, gt_old2new))
+        out.update(IDD.per_dim_residuals(pred_old2new, gt_old2new))
+        out.update(IDD.angle_and_slip_sanity(pred_old2new, gt_old2new))
+        # single-rate offline tests → dt_ctrl==dt_env, ts=1
+        out.update(IDD.dt_alignment_check(dt_ctrl=dt, dt_env=dt, ts=1))
+        out.update(IDD.dynamics_consistency(states_pred_newest_first, Q_old_to_new, solver_like))
+        # Prior audit only if ProgressiveWindowRefiner set a prior
+        try:
+            out.update(IDD.prior_influence_audit(solver_like, gt_old2new, out_stride_ctrl=1))
+        except Exception:
+            pass
+        # Optional sweeps (can be slow)
+        if getattr(CFG, "DIAG_SWEEP_WINDOWS", False):
+            out.update(IDD.window_overlap_sweep(states_pred_newest_first[0:1], Q_old_to_new, solver_like, gt_old2new))
+        if getattr(CFG, "DIAG_SWEEP_MODEL", False):
+            out.update(IDD.model_param_sweep(states_pred_newest_first[0:1], Q_old_to_new, gt_old2new))
+    except Exception as e:
+        out["diag_error"] = str(e)[:160]
 
 def eval_single_pass(x_T: np.ndarray,
                      Q_old_to_new: np.ndarray,
@@ -310,9 +368,9 @@ def eval_single_pass(x_T: np.ndarray,
                      return_states: bool=False):
     """
     Single global refinement over the whole horizon.
-    Warm start: kinematic seed (optionally perturbed with scaled Gaussian noise).
+    Warm start: prior-based seed (optionally perturbed with scaled Gaussian noise).
     """
-    seed = build_kinematic_seed(x_T[0], Q_old_to_new, dt)
+    seed = build_seed(x_T[0], Q_old_to_new, dt)
     if init_type == "noisy":
         rng = np.random.default_rng(1234)
         seed = seed + noise_scale * HARD_CODED_STATE_STD[None, :] * rng.normal(0.0, 1.0, size=seed.shape).astype(np.float32)
@@ -354,6 +412,12 @@ def eval_single_pass(x_T: np.ndarray,
         "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
         "trace_count": (int(trace_count) if trace_count is not None else -1),
     }
+
+    # ---- Diagnostics (offline) ----
+    class _Wrap:  # give IDD.dynamics_consistency a .refiner attribute
+        def __init__(self, r): self.refiner = r
+    _append_offline_diagnostics(out, states_pred, gt_newest_first, Q_old_to_new, dt, _Wrap(solver))
+
     return (out, states_pred) if return_states else out
 
 
@@ -372,9 +436,12 @@ def eval_progressive_window(x_T: np.ndarray,
     # Warm the internal refiner once (small T) to exclude tracing from timings
     _warm_hybrid(solver, dt, mu, CFG.HYB_WINDOW, CFG.HYB_OVERLAP, x_T, Q_old_to_new)
 
-    # Timed
+    # Timed — if diagnostics enabled, use refine_stats so we have internal stats/prior
     t0 = time.perf_counter()
-    states_pred, conv_flags = solver.refine(x_T, Q_old_to_new)
+    if getattr(CFG, "ENABLE_DIAG", False) and _HAS_IDD:
+        states_pred, conv_flags, _ = solver.refine_stats(x_T, Q_old_to_new)
+    else:
+        states_pred, conv_flags = solver.refine(x_T, Q_old_to_new)
     dt_sec = time.perf_counter() - t0
 
     _assert_pinned(x_T, states_pred)
@@ -401,4 +468,8 @@ def eval_progressive_window(x_T: np.ndarray,
         "growth_ratio": float(np.mean(tail) / max(1e-6, np.mean(head))),
         "trace_count": (int(trace_count) if trace_count is not None else -1),
     }
+
+    # ---- Diagnostics (offline) ----
+    _append_offline_diagnostics(out, states_pred, gt_newest_first, Q_old_to_new, dt, solver)
+
     return (out, states_pred) if return_states else out

@@ -18,8 +18,8 @@ FORGE_AT_CONTROLLER_RATE = True
 START_AFTER_X_STEPS = HISTORY_LENGTH
 
 # HistoryForger.py (top-level constants)
-WINDOW_SIZE         = 30
-OVERLAP             = 20
+WINDOW_SIZE         = 15
+OVERLAP             = 10
 SMOOTHING_WINDOW    = None
 SMOOTHING_OVERLAP   = 15
 
@@ -98,7 +98,7 @@ class HistoryForger:
         # Progressive, overlapped refiner with smoothing (reused instance → no retracing)
         self.refiner = ProgressiveWindowRefiner(
             mu=Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None,
-            controls_are_pid=True,
+            controls_are_pid=False,
             dt=(self.dt_ctrl if self.forge_ctrl_rate else self.dt_env),  # CHANGED: forge cadence dt
             window_size=WINDOW_SIZE,
             overlap=OVERLAP,
@@ -112,7 +112,10 @@ class HistoryForger:
 
         # --- Diagnostics / logging (env-controlled) ---
         self.diag_every_n = int(os.getenv("ID_DIAG_EVERY_N", "25"))  # print every N calls
-        self.diag_csv = os.getenv("ID_DIAG_CSV", "")                  # optional CSV path
+
+        # CHANGED: enable CSV by default (path can be overridden via env)
+        self.diag_csv = os.getenv("ID_DIAG_CSV", "logs/id_diag_online.csv")
+
         self._diag_counter = 0
         self._diag_csv_header_written = False
         self._diag_last = {}  # last stats snapshot
@@ -201,7 +204,13 @@ class HistoryForger:
         self._warm_once(x_next, Q_np)
 
         # ---- Refine with stats ----
+        # ---- Refine with stats ----
         states_all, converged_flags, stats = self.refiner.refine_stats(x_next, Q_np)
+
+        # ---- Build controller-cadence predicted past ONCE (reused everywhere) ----
+        states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at controller boundaries
+        past_states_backwards = states_at_ctrl[1:, :]  # drop current; newest→older
+        past_states = past_states_backwards[::-1, :].astype(np.float32)  # oldest→newest
 
         # ---- Compare to true measured past (online quality) ----
         try:
@@ -213,20 +222,17 @@ class HistoryForger:
                 idxs = [-(k * ts) for k in range(H, 0, -1)]
                 gt_past = np.array([self.previous_measured_states[i] for i in idxs], dtype=np.float32)
 
-                states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at control boundaries
-                pred_past = states_at_ctrl[1:1 + H][::-1, :]  # drop current, keep H, flip to oldest→newest
-
                 # Expose ground truth (controller cadence, oldest→newest)
                 self._last_gt_past = gt_past.copy()
 
                 # Sanity check (helps catch future refactors)
-                assert pred_past.shape == gt_past.shape == (H, states_all.shape[1]), \
-                    f"Shape mismatch: pred {pred_past.shape}, gt {gt_past.shape}"
+                assert past_states.shape == gt_past.shape == (H, states_all.shape[1]), \
+                    f"Shape mismatch: pred {past_states.shape}, gt {gt_past.shape}"
 
                 # Per-step scaled RMSE curve and summary stats
                 from utilities.InverseDynamics import HARD_CODED_STATE_STD, KEEP_IDX, POSE_THETA_IDX
 
-                rmse_curve = _scaled_rmse_curve(pred_past, gt_past, HARD_CODED_STATE_STD)
+                rmse_curve = _scaled_rmse_curve(past_states, gt_past, HARD_CODED_STATE_STD)
                 rmse_mean, rmse_head, rmse_tail = _curve_head_tail_stats(rmse_curve)
                 stats.update({
                     "rmse_mean": rmse_mean,
@@ -253,9 +259,9 @@ class HistoryForger:
                     Zf = Z[mask]
                     return float(np.sqrt(np.nanmean(Zf * Zf)))
 
-                rmse0 = _rmse(_scaled(pred_past, gt_past))
-                rmse_m = _rmse(_scaled(pred_past[:-1], gt_past[1:]))  # pred shifted older by 1 ctrl step
-                rmse_p = _rmse(_scaled(pred_past[1:], gt_past[:-1]))  # pred shifted newer by 1 ctrl step
+                rmse0 = _rmse(_scaled(past_states, gt_past))
+                rmse_m = _rmse(_scaled(past_states[:-1], gt_past[1:]))  # pred shifted older by 1 ctrl step
+                rmse_p = _rmse(_scaled(past_states[1:], gt_past[:-1]))  # pred shifted newer by 1 ctrl step
 
                 stats.update({
                     "rmse_unshifted": rmse0,
@@ -267,28 +273,73 @@ class HistoryForger:
             self._last_gt_past = None
             pass
 
-        stats["conv_rate"] = float(np.mean(converged_flags.astype(np.float32)))
-        stats["applied"] = float(1.0 if np.all(converged_flags) else 0.0)
-        self._diag_last = stats
+        ...
+        # --- extra diagnostics (optional; controlled by env) ---
+        try:
+            import os
+            if bool(int(os.getenv("ID_EXTRA_DIAG", "1"))):
+                from utilities import id_diagnostics as IDD
 
-        # optional periodic print
-        self._diag_counter += 1
-        if self.diag_every_n > 0 and (self._diag_counter % self.diag_every_n == 0):
-            print(
-                f"[ID] T={int(stats.get('T', -1))} | total={stats['total_ms']:6.1f} ms "
-                f"(inv={stats['inv_ms']:5.1f}, smooth={stats['smooth_ms']:5.1f}, "
-                f"prep={stats.get('last_prep_ms', 0):5.1f}, opt={stats.get('last_opt_ms', 0):5.1f}) | "
-                f"rmse={stats.get('rmse_mean', float('nan')):.4f} (oldest_quartile={stats.get('rmse_head', float('nan')):.4f}, newest_quartile={stats.get('rmse_tail', float('nan')):.4f}) "
-                f"| conv={stats['conv_rate']:.2f} | traces={int(stats.get('last_traces', -1))}"
-            )
+                # 1) Time-shift / alignment probe (requires GT)
+                if self._last_gt_past is not None:
+                    stats.update(IDD.probe_time_shift(past_states, self._last_gt_past))
 
-        # optional CSV
-        if self.diag_csv:
+                # 2) Per-dimension residuals & scales (requires GT)
+                if self._last_gt_past is not None:
+                    stats.update(IDD.per_dim_residuals(past_states, self._last_gt_past))
+
+                # 3) Control-hold aggregation mismatch check
+                if len(self.previous_control_inputs) >= required_length:
+                    controls_env = np.array(self.previous_control_inputs, dtype=np.float32)[-required_length:]
+                    stats.update(IDD.compare_control_aggregations(self.refiner, x_next, controls_env, self.ts,
+                                                                  gt_past=(
+                                                                      self._last_gt_past if self._last_gt_past is not None else None)))
+
+                # 4) dt / rounding sanity
+                stats.update(IDD.dt_alignment_check(self.dt_ctrl, self.dt_env, self.ts))
+
+                # 5) Prior influence audit (requires prior snapshots + GT)
+                if self._last_gt_past is not None:
+                    stats.update(IDD.prior_influence_audit(self.refiner, self._last_gt_past, self.out_stride_ctrl))
+
+                # 6) Dynamics consistency (forward model, newest->older)
+                stats.update(IDD.dynamics_consistency(states_all, Q_np, self.refiner))
+
+                # Decide once per call
+                do_sweep_windows = os.getenv("ID_SWEEP_WINDOWS", "1").strip() not in ("", "0")
+                do_sweep_model = os.getenv("ID_SWEEP_MODEL", "1").strip() not in ("", "0")
+
+                # Start only when forging has enough data and we actually produced a full past window
+                sweeps_ready = (past_states is not None) and (past_states.shape[0] == HISTORY_LENGTH)
+
+                # 7) Window & overlap sweep (default ON; gated)
+                if do_sweep_windows and sweeps_ready:
+                    stats.update(IDD.window_overlap_sweep(x_next, Q_np, self.refiner, self._last_gt_past))
+
+                # 8) Model mismatch sweep (default ON; gated)
+                if do_sweep_model and sweeps_ready:
+                    stats.update(IDD.model_param_sweep(x_next, Q_np, self._last_gt_past))
+
+                # 9) Angle/sin-cos/slip sanity (requires GT)
+                if self._last_gt_past is not None:
+                    stats.update(IDD.angle_and_slip_sanity(past_states, self._last_gt_past))
+
+                # 10) Waypoint association & tangent alignment
+                try:
+                    stats.update(IDD.waypoint_alignment_check(past_states, waypoint_utils))
+                except Exception:
+                    pass
+        except Exception as e:
+            stats["diag_error"] = str(e)[:120]
+
+        # optional CSV (start only once we had enough data to build past_states)
+        if self.diag_csv and (past_states is not None) and (past_states.shape[0] == HISTORY_LENGTH):
             import csv, os
             os.makedirs(os.path.dirname(self.diag_csv), exist_ok=True) if os.path.dirname(self.diag_csv) else None
             write_header = (not self._diag_csv_header_written) or (not os.path.exists(self.diag_csv))
             with open(self.diag_csv, "a", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=sorted(stats.keys()))
+                # tiny robustness: ignore unexpected keys if future rows differ slightly
+                w = csv.DictWriter(f, fieldnames=sorted(stats.keys()), extrasaction="ignore", restval="")
                 if write_header:
                     w.writeheader()
                     self._diag_csv_header_written = True

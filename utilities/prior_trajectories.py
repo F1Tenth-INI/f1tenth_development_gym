@@ -12,6 +12,8 @@ from utilities.state_utilities import (
     POSE_THETA_COS_IDX,
 )
 
+from functools import lru_cache
+
 STATE_DIM = 10  # keep in sync with your project
 
 def _fix_sin_cos_np(x: np.ndarray) -> np.ndarray:
@@ -140,6 +142,7 @@ class NeuralBackpropPrior:
 # -----------------------------------------------------------------------------
 # Factory
 # -----------------------------------------------------------------------------
+@lru_cache(maxsize=None)
 def make_prior(kind: str) -> Prior:
     k = (kind or "kinematic").strip().lower()
     if k in ("kin", "kinematic", "kinematic_backprop"):
