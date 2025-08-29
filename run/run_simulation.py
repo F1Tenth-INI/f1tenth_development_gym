@@ -225,7 +225,7 @@ class RacingSimulation:
         for i in range(self.number_of_drivers):
             driver = self.drivers[i]
             driver.reset()
-            driver_obs = self.get_driver_obs()
+            driver_obs = self.get_driver_obs(i)
             driver.on_step_end(next_obs=driver_obs)
 
         # Reset the planner if it has a reset method (for RL agents)
@@ -252,14 +252,16 @@ class RacingSimulation:
         print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
 
-    def get_driver_obs(self):
+    def get_driver_obs(self, driver_index):
         driver_obs = {}
-        driver_obs['car_state'] = self.sim.agents[0].state
-        driver_obs['scans'] = self.obs['scans'][0]
-        driver_obs['truncated'] = self.sim_index >= 8000
+        driver_obs['car_state'] = self.sim.agents[driver_index].state
+        driver_obs['scans'] = self.obs['scans'][driver_index]
+        driver_obs['truncated'] = self.sim_index >= 8000 # TODO: Cleaner
         driver_obs['collision'] = True if self.obs['collisions'][0] else False
         driver_obs['done'] = driver_obs['collision'] or driver_obs['truncated']
-        driver_obs['info'] = {}
+
+        if driver_obs['done']:
+            driver_obs['info'] = {}
         return driver_obs
 
     def simulation_step(self, agent_controls=None):
@@ -289,12 +291,15 @@ class RacingSimulation:
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
             car_state = self.sim.agents[i].state
-            driver_obs = self.get_driver_obs()
+            driver_obs = self.get_driver_obs(i)
             driver.set_car_state(car_state)
             driver.on_step_end(next_obs=driver_obs)
 
-            if(driver_obs['done']):
-                self.reset()
+            if i == 0:
+                if driver_obs['done']:
+                    self.reset()
+
+        
 
 
         self.update_driver_state(self.drivers[0], 0)
@@ -317,7 +322,7 @@ class RacingSimulation:
             self.update_driver_state(driver, index)
             # observation = {key: value[index] for key, value in self.obs.items()}
             # Get control actions from driver 
-            driver_obs = self.get_driver_obs()
+            driver_obs = self.get_driver_obs(index)
             angular_control, translational_control = driver.process_observation(driver_obs)
             self.agent_controls.append([angular_control, translational_control ])
 
@@ -463,6 +468,9 @@ class RacingSimulation:
 
  
     def check_and_handle_collisions(self):
+        if self.obs['collisions'][0] == 1:
+            self.reset()
+
         # Collision ends simulation
         if Settings.CRASH_DETECTION:
             if self.obs['collisions'][0] == 1:

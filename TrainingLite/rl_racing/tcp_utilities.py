@@ -49,4 +49,4 @@ def state_dict_to_bytes(sd: Dict[str, Any]) -> bytes:
 
 def bytes_to_state_dict(blob: bytes) -> Dict[str, Any]:
     bio = io.BytesIO(blob)
-    return torch.load(bio, map_location="cpu")
+    return torch.load(bio, map_location="cpu", weights_only=True)

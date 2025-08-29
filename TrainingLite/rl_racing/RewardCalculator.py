@@ -8,6 +8,7 @@ sys.path.append(root_dir)
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
+from utilities.car_system import CarSystem
 
 class RewardCalculator:
     def __init__(self):

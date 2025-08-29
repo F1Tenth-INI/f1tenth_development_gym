@@ -16,7 +16,7 @@ import time
 import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer  
+from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper
 
 class LearnerServer:
     def __init__(
@@ -26,26 +26,21 @@ class LearnerServer:
         model_name: str,
         device: str = "cpu",
         train_every_seconds: float = 10.0,
-        gradient_steps_per_round: int = 1024,
+        grad_steps: int = 1024,
         replay_capacity: int = 100_000,
-        init_from_scratch: bool = False,
     ):
         self.host = host
         self.port = port
         self.model_name = model_name
         self.device = device
         self.train_every_seconds = train_every_seconds
-        self.gradient_steps_per_round = gradient_steps_per_round
         self.replay_capacity = replay_capacity
 
         # Settings
         self.learning_starts = 2000
-        self.utd_ratio = 4.0
-        self.min_grad_steps = 16
-        self.max_grad_steps = 4096
+        self.grad_steps = grad_steps
 
-        self.init_from_scratch = init_from_scratch
-        
+        self.init_from_scratch = None
         # networking
         self._clients: set[asyncio.StreamWriter] = set()
         self._client_lock = asyncio.Lock()
@@ -63,6 +58,8 @@ class LearnerServer:
         # file paths
         self.model_path, self.model_dir = SacUtilities.resolve_model_paths(self.model_name)
 
+        self.trainingLogHelper = TrainingLogHelper(self.model_name,self.model_dir)
+
         self._initialize_model()
 
     # ---------- setup / init ----------
@@ -70,25 +67,26 @@ class LearnerServer:
         """
         Initialize the model + replay buffer.
 
-        - If init_from_scratch: build fresh SAC with spaces.
-        (Both must be provided.)
+        - Check if model already exists
         - Else: load from zip and bind a matching dummy env.
         """
-        if self.init_from_scratch:
-            dummy_env = SacUtilities.create_vec_env()
+        dummy_env = SacUtilities.create_vec_env()
+     
+        try:
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            self.model = SAC.load(self.model_path, env=dummy_env, device=self.device)
+            print(f"[server] Success: Loaded SAC model: {self.model_name}")
+
+        except Exception as e:
+            print(f"[server] No SAC model located at {self.model_path}.")
+            print("Creating new model.")
             self.model = SacUtilities.create_model(
                 env=dummy_env, 
                 buffer_size=self.replay_capacity, 
                 device=self.device
             )
-        else:
-            print(f"[server] Loading SAC base model from {self.model_path}")
-
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            
-            dummy_env = SacUtilities.create_vec_env()
-            self.model = SAC.load(self.model_path, env=dummy_env, device=self.device)
+            print(f"[server] Success: Created new SAC model.")
 
         # Minimal logger so .train() works outside .learn()
         self.model._logger = configure(folder=None, format_strings=[])
@@ -168,16 +166,8 @@ class LearnerServer:
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)
-                grad_steps = int(self.utd_ratio * max(1, n_added))
-                grad_steps = max(self.min_grad_steps, min(grad_steps, self.max_grad_steps))
+                grad_steps = self.grad_steps
 
-                # initialize logger/progress (if not already)
-                if not hasattr(self.model, "_logger") or self.model._logger is None:
-                    self.model._logger = configure(folder=None, format_strings=[])
-                if not hasattr(self.model, "_n_updates"):
-                    self.model._n_updates = 0
-                if not hasattr(self.model, "_current_progress_remaining"):
-                    self.model._current_progress_remaining = 1.0
 
                 print(f"[server] Training SAC... steps={grad_steps} | buffer size={self.replay_buffer.size()}")
                 time_start_training = time.time()
@@ -188,59 +178,9 @@ class LearnerServer:
                     batch_size=self.model.batch_size
                     )
 
-                # Print useful training info
-                logger = self.model.logger
-                def get_metric(name):
-                    # Try to get the last recorded value for a metric
-                    if hasattr(logger, 'name_to_value') and name in logger.name_to_value:
-                        return logger.name_to_value[name]
-                    if hasattr(logger, 'recorded_values') and name in logger.recorded_values:
-                        return logger.recorded_values[name][-1]
-                    return None
-
-                actor_loss = get_metric('train/actor_loss')
-                critic_loss = get_metric('train/critic_loss')
-                ent_coef = get_metric('train/ent_coef')
-                ent_coef_loss = get_metric('train/ent_coef_loss')
-                total_updates = getattr(self.model, '_n_updates', None)
-                num_episodes = len(self.episode_buffer.episodes)
-
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
-                print(f"[server] Metrics: actor_loss={actor_loss}, critic_loss={critic_loss}, ent_coef={ent_coef}, ent_coef_loss={ent_coef_loss}, total_updates={total_updates}, episodes={num_episodes}")
-                # Save metrics to CSV
-                
-                metrics_path = os.path.join(self.model_dir, f"learning_metrics.csv")
-                file_exists = os.path.isfile(metrics_path)
-                # Gather all available metrics from logger
-                metric_dict = {}
-                if hasattr(logger, 'name_to_value') and logger.name_to_value:
-                    metric_dict.update(logger.name_to_value)
-                if hasattr(logger, 'recorded_values') and logger.recorded_values:
-                    for k, v in logger.recorded_values.items():
-                        if isinstance(v, list) and v:
-                            metric_dict[k] = v[-1]
-                # Add custom metrics
-                metric_dict['total_updates'] = total_updates
-                metric_dict['episodes'] = num_episodes
 
-                # Add lap_times, min_laptime, avg_laptime from the last episode's info if available
-                last_episode = episodes[-1] if episodes else None
-                last_info = last_episode[-1]["info"] if last_episode and last_episode[-1] and "info" in last_episode[-1] else {}
-                lap_times = last_info.get("lap_times", None)
-                min_laptime = last_info.get("min_laptime", None)
-                avg_laptime = last_info.get("avg_laptime", None)
-                metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
-                metric_dict['min_laptime'] = min_laptime if min_laptime is not None else ""
-                metric_dict['avg_laptime'] = avg_laptime if avg_laptime is not None else ""
-
-                # Write to CSV
-                with open(metrics_path, mode="a", newline="") as csvfile:
-                    writer = csv.writer(csvfile)
-                    if not file_exists:
-                        writer.writerow(["timestamp"] + list(metric_dict.keys()))
-                    writer.writerow([
-                        time.strftime("%Y-%m-%d %H:%M:%S")
-                    ] + [metric_dict[k] for k in metric_dict.keys()])
+                self.trainingLogHelper.log_to_csv(self.model, episodes)
 
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
@@ -369,19 +309,24 @@ class LearnerServer:
 # python TrainingLite/rl_racing/learner_server.py   --init-from-scratch --model-name SAC_RCA1_wpts_lidar_50
 
 def main():
+
+    model_name = "SAC_RCA1_wpts_lidar_50_async"
+    grad_steps = 512
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    train_every_seconds = 1.0
+    replay_capacity = 100_000
+
+
+
     import argparse
     parser = argparse.ArgumentParser(description="Learner server: collect episodes, train SAC, broadcast weights.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument("--model-name", default="SAC_RCA1_wpts_lidar_50_async")
-    parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
-    parser.add_argument("--train-every-seconds", type=float, default=10.0)
-    parser.add_argument("--gradient-steps", type=int, default=1024)
-    parser.add_argument("--replay-capacity", type=int, default=1_000_000)
-    parser.add_argument("--init-from-scratch", action="store_true",
-                        help="Initialize a fresh SAC (no zip). Requires --obs-dim and --act-dim.")
-    parser.add_argument("--obs-dim", type=int, default=80, help="Observation dimension (required for --init-from-scratch)")
-    parser.add_argument("--act-dim", type=int, default=2, help="Action dimension (required for --init-from-scratch)")
+    parser.add_argument("--model-name", default=model_name)
+    parser.add_argument("--device", default=device, choices=["cpu", "cuda"])
+    parser.add_argument("--train-every-seconds", type=float, default=train_every_seconds)
+    parser.add_argument("--gradient-steps", type=int, default=grad_steps)
+    parser.add_argument("--replay-capacity", type=int, default=replay_capacity)
 
     args = parser.parse_args()
 
@@ -391,9 +336,8 @@ def main():
         model_name=args.model_name,
         device=args.device,
         train_every_seconds=args.train_every_seconds,
-        gradient_steps_per_round=args.gradient_steps,
+        grad_steps=args.gradient_steps,
         replay_capacity=args.replay_capacity,
-        init_from_scratch=args.init_from_scratch,
     )
     asyncio.run(srv.run())
 
