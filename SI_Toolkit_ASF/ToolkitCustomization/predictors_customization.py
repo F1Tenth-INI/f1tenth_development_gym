@@ -1,6 +1,4 @@
-
-
-from utilities.state_utilities import *
+from utilities.state_utilities import STATE_INDICES
 from utilities.Settings import Settings
 
 from SI_Toolkit.computation_library import NumpyLibrary
@@ -21,12 +19,9 @@ class next_state_predictor_ODE():
                  **kwargs,
                  ):
         self.lib = lib
-        self.s = self.lib.to_tensor(create_car_state(), dtype=self.lib.float32)
-
-        self.params = None
-
         self.intermediate_steps = int(intermediate_steps)
         self.t_step = float(dt / float(self.intermediate_steps))
+        self.variable_parameters = variable_parameters
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
@@ -42,20 +37,22 @@ class next_state_predictor_ODE():
                 dt=dt,
                 computation_lib=lib,
                 intermediate_steps=intermediate_steps,
-                variable_parameters=variable_parameters,
                                  )  # Environment model, keeping car ODEs
         else:
             raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
-        self.variable_parameters = variable_parameters
+        self.params = self.env.car_parameters
 
         if disable_individual_compilation:
             self.step = self._step
         else:
-            from SI_Toolkit.Compile import CompileTF # Lazy import
-            self.step = CompileTF(self._step)
+            from SI_Toolkit.Compile import CompileAdaptive  # Lazy import
+            self.step = CompileAdaptive(self._step)
 
     def _step(self, s, Q):
+
+        if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
+            self.lib.assign(self.params.mu, self.variable_parameters.mu)
 
         if self.core_dynamics_only:
             s_next = self.env.step_dynamics_core(s, Q)
