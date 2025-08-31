@@ -28,6 +28,7 @@ class LearnerServer:
         train_every_seconds: float = 10.0,
         grad_steps: int = 1024,
         replay_capacity: int = 100_000,
+        learning_starts: int = 2000
     ):
         self.host = host
         self.port = port
@@ -37,7 +38,7 @@ class LearnerServer:
         self.replay_capacity = replay_capacity
 
         # Settings
-        self.learning_starts = 2000
+        self.learning_starts = learning_starts
         self.grad_steps = grad_steps
 
         self.init_from_scratch = None
@@ -311,10 +312,11 @@ class LearnerServer:
 def main():
 
     model_name = "SAC_RCA1_wpts_lidar_50_async"
-    grad_steps = 512
+    grad_steps = 1024
     device = "cuda" if torch.cuda.is_available() else "cpu"
     train_every_seconds = 1.0
     replay_capacity = 100_000
+    learning_starts = 2000
 
 
 
@@ -327,6 +329,7 @@ def main():
     parser.add_argument("--train-every-seconds", type=float, default=train_every_seconds)
     parser.add_argument("--gradient-steps", type=int, default=grad_steps)
     parser.add_argument("--replay-capacity", type=int, default=replay_capacity)
+    parser.add_argument("--learning-starts", type=int, default=learning_starts)
 
     args = parser.parse_args()
 
@@ -338,6 +341,7 @@ def main():
         train_every_seconds=args.train_every_seconds,
         grad_steps=args.gradient_steps,
         replay_capacity=args.replay_capacity,
+        learning_starts=args.learning_starts
     )
     asyncio.run(srv.run())
 
