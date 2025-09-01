@@ -276,7 +276,7 @@ def window_overlap_sweep(x_next: np.ndarray, Q_ctrl: np.ndarray, refiner_prog, g
     Ws = [10, 15, 20, 30]
     Os = [5, 10, 15]
     dt = refiner_prog.dt
-    mu = getattr(refiner_prog.refiner.car_model, "mu", None)
+    mu = getattr(refiner_prog.refiner.car_model.car_parameters, "mu", None)
     prior_kind = getattr(refiner_prog, "prior_kind", None)
 
     for W in Ws:
