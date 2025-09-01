@@ -158,7 +158,7 @@ class RacingSimulation:
         recording_dict = {
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
-                    'mu': lambda: self.vehicle_parameters_instance.mu,
+                    'mu': lambda: np.float32(self.vehicle_parameters_instance.mu),
         }
         
         # First planner settings
