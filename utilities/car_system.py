@@ -259,7 +259,6 @@ class CarSystem:
 
 
         # TODO: Recording
-        done = next_obs['done']
         info = {
             "lap_times": self.laptimes,
             "min_laptime": min(self.laptimes) if self.laptimes else None,
@@ -272,6 +271,8 @@ class CarSystem:
             next_obs['truncated'] = True
             next_obs['done'] = True
 
+        done = next_obs['done']
+        
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
             self.planner.on_step_end(self.reward, done, info, None)
 

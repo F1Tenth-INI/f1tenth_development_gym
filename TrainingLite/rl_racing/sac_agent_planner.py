@@ -57,19 +57,31 @@ class RLAgentPlanner(template_planner):
         super().__init__()
         print("Initializing RLAgentPlanner (actor client)")
 
+        # Training vs Inference
+        self.training_mode = True
+        self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
+
         # --- networking ---
-        self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=2)
-        self.client.start()
+
+        if self.training_mode or self.inference_model_name is None:
+            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+            self.client.start()
 
         # Initialization of SAC utilities
         dummy_env = SacUtilities.create_vec_env()
-        self.model = SacUtilities.create_model(dummy_env, device="cpu")
 
-        # weight + warmup state
-        self._received_weights = False
-        self._warned_no_weights = False
-        # choose your warmup: "constant", "random", or "policy"
-        self.warmup_strategy = "constant"
+        if self.training_mode or self.inference_model_name is None:
+            self.model = SacUtilities.create_model(dummy_env, device="cpu")
+            self._received_weights = False
+            self._warned_no_weights = False
+        else:
+            model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
+            self.model = SAC.load(model_path, env=dummy_env, device="cpu")
+            print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
+
+            self._received_weights = True  # no waiting for weights in inference
+            self._warned_no_weights = False
+
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         self.warmup_action = np.array([0.0, 0.30], dtype=np.float32)  # slight forward
         # scale from policy space to sim units
@@ -82,16 +94,19 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
+        self.state_history = deque([np.zeros(10) for _ in range(10)], maxlen=10)
 
         self.prev_obs_raw: Optional[np.ndarray] = None
         self.prev_action: Optional[np.ndarray] = None
+
+        self.action_denormalization_array = np.array([0.4, 3.0])
 
         # episode accumulation
         self._episode: list[dict] = []
 
         self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
         self.fallback_planner.waypoint_utils = self.waypoint_utils
-        self.fallback_planner.lidar_utils = self.lidar_utils
+        self.fallback_planner.lidar_utils = self.lidar_utils 
 
         self.reset()
 
@@ -99,6 +114,9 @@ class RLAgentPlanner(template_planner):
     def reset(self):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(10)])
+        self.state_history.clear()
+        self.state_history.extend([np.zeros(10) for _ in range(10)])
+
         self.prev_obs_raw = None
         self.prev_action = None
         self.angular_control = 0.0
@@ -108,15 +126,16 @@ class RLAgentPlanner(template_planner):
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
 
         # pull latest weights if any
-        sd = self.client.pop_latest_state_dict()
-        if sd is not None:
-            try:
-                self.model.policy.actor.load_state_dict(sd, strict=True)
-                self.model.policy.actor.eval()
-                self._received_weights = True
-                print("[RLAgentPlanner] ✅ Actor weights updated.")
-            except Exception as e:
-                print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
+        if self.training_mode or self.inference_model_name is None:
+            sd = self.client.pop_latest_state_dict()
+            if sd is not None:
+                try:
+                    self.model.policy.actor.load_state_dict(sd, strict=True)
+                    self.model.policy.actor.eval()
+                    self._received_weights = True
+                    print("[RLAgentPlanner] ✅ Actor weights updated.")
+                except Exception as e:
+                    print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
 
         # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation()
@@ -126,18 +145,17 @@ class RLAgentPlanner(template_planner):
 
         # choose action
         if self._received_weights:
-            action, _ = self.model.predict(obs_for_policy, deterministic=False)
+            action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
             action = np.asarray(action, dtype=np.float32).reshape(-1)
         else:
             if not self._warned_no_weights:
-                print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy "
-                    f"'{self.warmup_strategy}'. You can adjust accel_scale={self.accel_scale}.")
+                print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
                 self._warned_no_weights = True
-            action = self._fallback_action(obs_for_policy)
+            action = self._fallback_action()
 
         # scale to simulator units
-        steering = float(np.clip(action[0], -1, 1) * 0.4)
-        accel    = float(np.clip(action[1], -1, 1) * self.accel_scale)
+        action = np.clip(action, -1, 1)
+        steering, accel = action * self.action_denormalization_array
 
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
@@ -146,15 +164,16 @@ class RLAgentPlanner(template_planner):
         self.angular_control = steering
         self.translational_control = accel
         self.action_history_queue.append(action)
-
-        # self.fallback_planner.car_state=(self.car_state)
-        # self.fallback_planner.waypoint_utils.next_waypoints=self.waypoint_utils.next_waypoints
-        # return self.fallback_planner.process_observation(ranges, ego_odom)
+        self.state_history.append(self.car_state)
 
         return self.angular_control, self.translational_control
 
 
     def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
+
+        if not self.training_mode:
+            return
+
         """Called by env AFTER stepping. Pass the obs returned by env.stgep"""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
@@ -188,21 +207,18 @@ class RLAgentPlanner(template_planner):
     def close(self):
         pass
     
-    def _fallback_action(self, obs_for_policy: np.ndarray) -> np.ndarray:
-        """Action to use before first weights arrive."""
-        if self.warmup_strategy == "constant":
-            return self.warmup_action.copy()
-        elif self.warmup_strategy == "random":
-            a = np.random.uniform(low=-0.1, high=0.1, size=(2,)).astype(np.float32)
-            a[1] = abs(a[1]) + 0.2  # bias forward
-            return np.clip(a, -1.0, 1.0)
-        elif self.warmup_strategy == "policy":
-            # use the untrained policy (stochastic); mild but moving
-            a, _ = self.model.predict(obs_for_policy, deterministic=True)
-            return np.asarray(a, dtype=np.float32).reshape(-1)
-        else:
-            return np.array([0.0, 0.3], dtype=np.float32)
-  
+    def _fallback_action(self) -> np.ndarray:
+
+        self.fallback_planner.lidar_utils = self.lidar_utils
+        self.fallback_planner.car_state = self.car_state
+        self.fallback_planner.waypoint_utils = self.waypoint_utils
+        self.fallback_planner.car_state=(self.car_state)
+
+        fallback_control = self.fallback_planner.process_observation()
+        fallback_action = fallback_control / self.action_denormalization_array
+
+        return fallback_action
+
     # ---- helpers ----
     def _build_observation(self) -> np.ndarray:
         # car state
@@ -221,13 +237,24 @@ class RLAgentPlanner(template_planner):
         last_actions = list(self.action_history_queue)[-3:]
         last_actions = np.array(last_actions).reshape(-1)
 
+
         state_features = np.array([
             car_state[LINEAR_VEL_X_IDX],
             car_state[LINEAR_VEL_Y_IDX],
             car_state[ANGULAR_VEL_Z_IDX],
             car_state[STEERING_ANGLE_IDX],
         ], dtype=np.float32)
-    
+
+
+        # last_states = np.array(self.state_history)[-4:]
+        # last_states_features = np.array([
+        #     last_states[:,LINEAR_VEL_X_IDX],
+        #     last_states[:,LINEAR_VEL_Y_IDX],
+        #     last_states[:,ANGULAR_VEL_Z_IDX],
+        #     last_states[:,STEERING_ANGLE_IDX],
+        # ], dtype=np.float32)
+        # last_states_features = last_states_features.reshape(-1)
+
         observation_array = np.concatenate([state_features, wpts, lidar, last_actions]).astype(np.float32)
 
         # match env normalization
