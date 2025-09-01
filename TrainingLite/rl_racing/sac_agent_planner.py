@@ -21,6 +21,7 @@ Integration (minimal diff):
 This mirrors the actor→learner design we discussed.
 """
 from __future__ import annotations
+import csv
 import os
 import sys
 
@@ -46,7 +47,7 @@ from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 
 
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
-from TrainingLite.rl_racing.sac_utilities import SacUtilities
+from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
 
 
 # ------------------------
@@ -58,12 +59,14 @@ class RLAgentPlanner(template_planner):
         print("Initializing RLAgentPlanner (actor client)")
 
         # Training vs Inference
-        self.training_mode = True
+        self.training_mode = False
+        # self.inference_model_name = 'sac_pretrained_actor'  # Model name thats loaded: if none: use weights from server
         self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
 
         # --- networking ---
 
         if self.training_mode or self.inference_model_name is None:
+            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=2)
             self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
             self.client.start()
 
@@ -106,7 +109,9 @@ class RLAgentPlanner(template_planner):
 
         self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
         self.fallback_planner.waypoint_utils = self.waypoint_utils
-        self.fallback_planner.lidar_utils = self.lidar_utils 
+        self.fallback_planner.lidar_utils = self.lidar_utils
+        self.transition_logger = TransitionLogger()
+        self.save_transitions = False
 
         self.reset()
 
@@ -116,6 +121,8 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue.extend([np.zeros(2) for _ in range(10)])
         self.state_history.clear()
         self.state_history.extend([np.zeros(10) for _ in range(10)])
+        
+        self.transition_logger.clear()
 
         self.prev_obs_raw = None
         self.prev_action = None
@@ -137,6 +144,7 @@ class RLAgentPlanner(template_planner):
                 except Exception as e:
                     print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
 
+
         # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation()
         obs_for_policy = raw_obs
@@ -153,6 +161,7 @@ class RLAgentPlanner(template_planner):
                 self._warned_no_weights = True
             action = self._fallback_action()
 
+        # action = self._fallback_action()
         # scale to simulator units
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
@@ -171,8 +180,6 @@ class RLAgentPlanner(template_planner):
 
     def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
 
-        if not self.training_mode:
-            return
 
         """Called by env AFTER stepping. Pass the obs returned by env.stgep"""
         if self.prev_obs_raw is None or self.prev_action is None:
@@ -191,18 +198,21 @@ class RLAgentPlanner(template_planner):
             "info":     info or {},
         }
         self._episode.append(transition)
+        self.transition_logger.log(transition)
 
         if done:
-            try:
-                self.client.send_transition_batch(self._episode)
-                total_reward = sum(t["reward"] for t in self._episode)
-                print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
-            except Exception as e:
-                print(f"[RLAgentPlanner] Failed to send episode: {e}")
-            finally:
-                self._episode = []
-                self.prev_obs_raw = None
-                self.prev_action = None
+            self.transition_logger.save_csv()
+            if self.training_mode:
+                try:
+                    self.client.send_transition_batch(self._episode)
+                    total_reward = sum(t["reward"] for t in self._episode)
+                    print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
+                except Exception as e:
+                    print(f"[RLAgentPlanner] Failed to send episode: {e}")
+                finally:
+                    self._episode = []
+                    self.prev_obs_raw = None
+                    self.prev_action = None
 
     def close(self):
         pass
@@ -216,7 +226,7 @@ class RLAgentPlanner(template_planner):
 
         fallback_control = self.fallback_planner.process_observation()
         fallback_action = fallback_control / self.action_denormalization_array
-
+        # return [0., 0.]
         return fallback_action
 
     # ---- helpers ----

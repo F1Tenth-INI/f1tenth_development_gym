@@ -45,21 +45,24 @@ class SacUtilities:
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
-
+    @staticmethod
     def make_env():
         return _SpacesOnlyEnv(SacUtilities.obs_space, SacUtilities.act_space)
 
+    @staticmethod
     def create_vec_env():
         return DummyVecEnv([SacUtilities.make_env])
 
     @staticmethod
-    def create_model(env, buffer_size=100_000, device="cpu"):
+    def create_model(env, buffer_size=100_000, device="cpu") -> SAC:
         policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        #  log_std_init=-3.5
 
         model = SAC(
                     "MlpPolicy",
                     env=env,
                     verbose=0,
+                    # ent_coef=0.01,
                     train_freq=1,
                     gamma=0.99,
                     learning_rate=1e-3,
@@ -94,6 +97,7 @@ class SacUtilities:
         cpu_sd = {k: (v.cpu() if torch.is_tensor(v) else v) for k, v in sd.items()}
         torch.save(cpu_sd, buf)
         return buf.getvalue()
+    
 
 
     
@@ -205,6 +209,48 @@ class TrainingLogHelper():
         plt.savefig(os.path.join(model_dir, 'training_metrics.png'))
 
 
+
+
+class TransitionLogger:
+    def __init__(self):
+        self.transitions = []
+        self.file_path = "transitions_log.csv"
+
+    def log(self, transition: dict):
+        self.transitions.append(transition)
+
+    def save_csv(self):
+        
+        if not self.transitions:
+            return
+        import time
+        file_exists = os.path.isfile(self.file_path)
+        # Use keys from the first transition for header
+        if not self.transitions:
+            return
+        keys = list(self.transitions[0].keys())
+        with open(self.file_path, mode="a", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            if not file_exists:
+                writer.writerow(["timestamp"] + keys)
+            for t in self.transitions:
+                row = []
+                row.append(time.strftime("%Y-%m-%d %H:%M:%S"))
+                for k in keys:
+                    v = t[k]
+                    if isinstance(v, np.ndarray):
+                        row.append(np.array2string(v, separator=',', max_line_width=10000))
+                    else:
+                        row.append(str(v))
+                writer.writerow(row)
+
+
+    def clear(self):
+        self.transitions = []
+
+    def get_logs(self):
+        return self.transitions
+    
 
 # ------------------------------
 # Simple in-memory episode buffer

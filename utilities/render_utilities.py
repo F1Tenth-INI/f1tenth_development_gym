@@ -120,13 +120,13 @@ class RenderUtils:
         self.waypoint_vertices = None
         self.next_waypoint_vertices = None
         self.next_waypoints_alternative_vertices = None
-        self.lidar_vertices = None
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
         self.obstacle_vertices = None
         self.emergency_slowdown_lines = []
+        self.lidar_vertices = None
 
         self.past_car_states_alternative = None
         self.past_car_states_alternative_vertices = None
@@ -139,6 +139,12 @@ class RenderUtils:
             self.position_history_vertices = None
         # Clear position history points
         self.position_history_points = []
+            # Delete lidar vertices if they exist
+        if hasattr(self, 'lidar_vertices') and self.lidar_vertices is not None:
+            self.lidar_vertices.delete()
+            self.lidar_vertices = None
+        # Clear lidar points
+        self.lidar_border_points = None
 
 
     # Pass all data that is updated during simulation

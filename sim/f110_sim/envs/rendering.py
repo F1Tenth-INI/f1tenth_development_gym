@@ -396,14 +396,10 @@ class EnvRenderer(pyglet.window.Window):
     def render(self, render_obs):
         self.update_obs(render_obs)
         # Only render if the window is valid (prevents crash in headless mode)
-        if hasattr(self, '_window') and self._window is not None:
-            self.dispatch_events()  # Handle window events
-            self.on_draw()
-            self.flip()  # Swap buffers
-        else:
-            # Optionally, print a warning or silently skip rendering
-            pass
-        
+        self.dispatch_events()  # Handle window events
+        self.on_draw()
+        self.flip()  # Swap buffers
+
     def close(self):
         self.vertices = None
         super().close()
