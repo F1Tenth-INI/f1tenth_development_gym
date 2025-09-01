@@ -1,4 +1,5 @@
-from utilities.state_utilities import STATE_INDICES
+import numpy as np
+
 from utilities.Settings import Settings
 
 from SI_Toolkit.computation_library import NumpyLibrary
@@ -6,6 +7,27 @@ from SI_Toolkit.computation_library import NumpyLibrary
 environment_name = Settings.ENVIRONMENT_NAME
 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
 car_parameter_file = Settings.CONTROLLER_CAR_PARAMETER_FILE
+
+STATE_VARIABLES_FOR_PREDICTOR = np.sort([
+    'angular_vel_z',  # x5: yaw rate
+    'linear_vel_x',  # x3: velocity in x direction
+    'linear_vel_y',  # x6: velocity in y direction
+    'pose_theta',  # x4: yaw angle
+    'pose_theta_cos',
+    'pose_theta_sin',
+    'pose_x',  # x0: x position in global coordinates
+    'pose_y',  # x1: y position in global coordinates
+    'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
+    'steering_angle'  # x2: steering angle of front wheels
+])
+
+STATE_INDICES = {x: np.where(STATE_VARIABLES_FOR_PREDICTOR == x)[0][0] for x in STATE_VARIABLES_FOR_PREDICTOR}
+
+CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
+    'angular_control_calculated_1',
+    'translational_control_calculated_1',
+    'mu'
+])
 
 class next_state_predictor_ODE():
 
