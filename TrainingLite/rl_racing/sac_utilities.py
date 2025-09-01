@@ -108,24 +108,11 @@ class TrainingLogHelper():
         self.plot_every = 5
 
     def log_to_csv(self, model, episodes):
-        # Print useful training info
-        logger = model.logger
 
-        # Save metrics to CSV
-        total_updates = getattr(model, '_n_updates', None)
-
-        metrics_path = self.csv_path
-        file_exists = os.path.isfile(metrics_path)
+        file_exists = os.path.isfile(self.csv_path)
+        
         # Gather all available metrics from logger
         metric_dict = {}
-        if hasattr(logger, 'name_to_value') and logger.name_to_value:
-            metric_dict.update(logger.name_to_value)
-        if hasattr(logger, 'recorded_values') and logger.recorded_values:
-            for k, v in logger.recorded_values.items():
-                if isinstance(v, list) and v:
-                    metric_dict[k] = v[-1]
-        # Add custom metrics
-        metric_dict['total_updates'] = total_updates
 
         # Add lap_times, min_laptime, avg_laptime from the last episode's info if available
         last_episode = episodes[-1] if episodes else None
@@ -136,9 +123,17 @@ class TrainingLogHelper():
         metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
         metric_dict['min_laptime'] = min_laptime if min_laptime is not None else ""
         metric_dict['avg_laptime'] = avg_laptime if avg_laptime is not None else ""
+        metric_dict['training_duration'] = getattr(model, 'training_duration', None)
+
+        metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
+        metric_dict['actor_loss'] = getattr(model, 'actor_loss', None)
+        metric_dict['critic_loss'] = getattr(model, 'critic_loss', None)
+        metric_dict['ent_coef'] = getattr(model, 'ent_coef', None)
+        metric_dict['ent_coef_loss'] = getattr(model, 'ent_coef_loss', None)
+        metric_dict['total_weight_updates'] = getattr(model, 'total_weight_updates', None)
 
         # Write to CSV
-        with open(metrics_path, mode="a", newline="") as csvfile:
+        with open(self.csv_path, mode="a", newline="") as csvfile:
             writer = csv.writer(csvfile)
             if not file_exists:
                 writer.writerow(["timestamp"] + list(metric_dict.keys()))

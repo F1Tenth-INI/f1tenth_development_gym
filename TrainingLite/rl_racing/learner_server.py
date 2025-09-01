@@ -54,6 +54,8 @@ class LearnerServer:
         self.model: Optional[SAC] = None
         self.replay_buffer: Optional[ReplayBuffer] = None
         self.vecnorm: Optional[VecNormalize] = None
+        self.total_actor_timesteps = 0
+        self.total_weight_updates = 0
 
 
         # file paths
@@ -173,12 +175,104 @@ class LearnerServer:
                 print(f"[server] Training SAC... steps={grad_steps} | buffer size={self.replay_buffer.size()}")
                 time_start_training = time.time()
 
-                
-                self.model.train(
-                    gradient_steps=grad_steps, 
-                    batch_size=self.model.batch_size
-                    )
 
+                # Manual training loop for SAC using torch
+                actor = self.model.policy.actor
+                critic = self.model.policy.critic
+                critic_target = self.model.policy.critic_target
+                actor_optimizer = self.model.policy.actor.optimizer
+                critic_optimizer = self.model.policy.critic.optimizer
+                batch_size = self.model.batch_size
+                replay_buffer = self.model.replay_buffer
+                gamma = self.model.gamma
+                tau = self.model.tau
+                ent_coef = self.model.ent_coef
+                target_entropy = self.model.target_entropy
+                log_ent_coef = getattr(self.model, "log_ent_coef", None)
+                ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
+                                
+                for step in range(grad_steps):
+                    then = time.time()
+                    try:
+                        # Reduce batch size to avoid OOM
+                        safe_batch_size = min(batch_size, 4096)
+                        data = replay_buffer.sample(safe_batch_size)
+                        obs      = data.observations
+                        actions  = data.actions
+                        next_obs = data.next_observations
+                        rewards  = data.rewards  # shape handling below
+                        dones    = data.dones
+                   
+
+                        # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
+
+                        # Critic update
+                        with torch.no_grad():
+                            next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                            target_q1, target_q2 = critic_target(next_obs, next_actions)
+                            target_q = torch.min(target_q1, target_q2)
+                            if log_ent_coef is not None:
+                                ent_coef = torch.exp(log_ent_coef.detach())
+                            # Ensure next_log_prob shape is [batch_size, 1]
+                            if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
+                                next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
+                            else:
+                                next_log_prob = next_log_prob.view(-1, 1)
+                            target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
+                        # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
+
+                        current_q1, current_q2 = critic(obs, actions)
+                        critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
+                        critic_optimizer.zero_grad()
+                        critic_loss.backward()
+                        critic_optimizer.step()
+
+                        # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
+
+                        # Actor update
+                        new_actions, log_prob = actor.action_log_prob(obs)
+                        q1_new, q2_new = critic(obs, new_actions)
+                        q_new = torch.min(q1_new, q2_new)
+                        actor_loss = (ent_coef * log_prob - q_new).mean()
+                        actor_optimizer.zero_grad()
+                        actor_loss.backward()
+                        actor_optimizer.step()
+
+                        # print(f"[server] Actor updated in {(time.time() - then):.5f} seconds.")
+
+                        # Entropy coefficient update
+                        if log_ent_coef is not None and ent_coef_optimizer is not None:
+                            ent_coef_loss = -(log_ent_coef * (log_prob + target_entropy).detach()).mean()
+                            ent_coef_optimizer.zero_grad()
+                            ent_coef_loss.backward()
+                            ent_coef_optimizer.step()
+
+                        # print(f"[server] Entropy coefficient updated in {(time.time() - then):.5f} seconds.")
+
+                        # Soft update of target network
+                        for param, target_param in zip(critic.parameters(), critic_target.parameters()):
+                            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+                        # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
+                        self.total_weight_updates += 1
+
+                        # Free unused memory
+                        # if self.device == "cuda":
+                        #     torch.cuda.empty_cache()
+                    except torch.cuda.OutOfMemoryError as e:
+                        print(f"[server] CUDA OOM during training step {step}: {e}")
+                        if self.device == "cuda":
+                            torch.cuda.empty_cache()
+                        continue
+                # You can now interfere with actor, critic, optimizers, etc. in this loop
+                
+                self.model.actor_loss = actor_loss.item()
+                self.model.critic_loss = critic_loss.item()
+                self.model.ent_coef_loss = ent_coef_loss.item()
+                self.model.ent_coef = ent_coef if isinstance(ent_coef, float) else ent_coef.item()
+                self.model.total_weight_updates = self.total_weight_updates
+                self.model.training_duration = time.time() - time_start_training
+                self.model._total_timesteps = self.total_actor_timesteps
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
 
                 self.trainingLogHelper.log_to_csv(self.model, episodes)
@@ -263,7 +357,7 @@ class LearnerServer:
                     self.episode_buffer.add_episode(episode)
                     print(f"[server] Stored episode: {len(episode)} transitions "
                         f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
-
+                    self.total_actor_timesteps += len(episode)
                     # optional ack
                     try:
                         writer.write(pack_frame({"type": "episode_ack", "data": {"n": len(episode)}}))
