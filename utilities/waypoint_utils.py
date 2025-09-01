@@ -7,7 +7,7 @@ import threading
 import os.path
 import numpy as np
 import pandas as pd
-
+import matplotlib.pyplot as plt
 from numba import njit, prange
 from numba.np.extensions import cross2d
 
@@ -39,13 +39,13 @@ waypoints = waypoint_utils.next_waypoints
 
 
 # Indices of waypoint
-WP_S_IDX = 0 # Distance since start
-WP_X_IDX = 1 # Position x
-WP_Y_IDX = 2 # Position y
-WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
-WP_KAPPA_IDX = 4 # Relative angle
-WP_VX_IDX = 5 # Suggested velocity 
-WP_A_X_IDX = 6 # Suggested acceleration
+WP_S_IDX = 0 # meter. Curvi-linear distance along the raceline.
+WP_X_IDX = 1 #  meter. X-coordinate of raceline point.
+WP_Y_IDX = 2 # meter. Y-coordinate of raceline point
+WP_PSI_IDX = 3 #  rad. Heading of raceline in current point from -pi to +pi rad. Zero is north (along y-axis)
+WP_KAPPA_IDX = 4 # rad/meter. Curvature of raceline in current point.
+WP_VX_IDX = 5 # meter/second. Target velocity in current point.
+WP_A_X_IDX = 6 # meter/second². Target acceleration in current point.
 WP_GLOBID_IDX = 7
 WP_D_RIGHT_IDX = 8 # Distance to right bound
 WP_D_LEFT_IDX = 9 # Distance to left bound
@@ -121,6 +121,7 @@ class WaypointUtils:
         dummy_car_state = np.zeros(NUMBER_OF_STATES)
         dummy_lidar_points = np.zeros((40, 2))
         get_relative_positions_jit(self.next_waypoints, dummy_car_state)
+        transform_to_car_coordinates(dummy_lidar_points, dummy_car_state)
         get_nearest_waypoint(dummy_car_state, self.waypoints)
         squared_distance([0,0], [1,1])
         check_if_obstacle_on_raceline(dummy_lidar_points, self.next_waypoint_positions)
@@ -468,9 +469,80 @@ class WaypointUtils:
 
         return self.cumulative_progress
 
+    
     @staticmethod
     def get_relative_positions(waypoints, car_state):
         return get_relative_positions_jit(waypoints, car_state)
+
+
+    def get_track_border_positions(self, waypoints):
+        # self.waypoints[:, WP_D_RIGHT_IDX] and self.waypoints[:, WP_D_LEFT_IDX] are the right and left distances from the waypoint to the track border.
+        # Get global absolute positions of track borders from each waypoint
+        track_left = waypoints[:, WP_D_LEFT_IDX]
+        track_right = waypoints[:, WP_D_RIGHT_IDX]
+
+        # Calculate border positions using heading ±π/2
+        psi = waypoints[:, WP_PSI_IDX]
+        border_left_x = waypoints[:, WP_X_IDX] + track_left * np.cos(psi + np.pi/2)
+        border_left_y = waypoints[:, WP_Y_IDX] + track_left * np.sin(psi + np.pi/2)
+        border_right_x = waypoints[:, WP_X_IDX] + track_right * np.cos(psi - np.pi/2)
+        border_right_y = waypoints[:, WP_Y_IDX] + track_right * np.sin(psi - np.pi/2)      
+
+        border_points = np.column_stack((border_left_x, border_left_y, border_right_x, border_right_y))
+        border_points_left = np.column_stack((border_left_x, border_left_y))
+        border_points_right = np.column_stack((border_right_x, border_right_y))
+        return border_points_left, border_points_right
+
+    def get_track_border_positions_relative(self, waypoints, car_state):
+        # Get absolute border positions
+        border_points_left, border_points_right = self.get_track_border_positions(waypoints)
+
+        left_border_points_relative = transform_to_car_coordinates(border_points_left, car_state)
+        right_border_points_relative = transform_to_car_coordinates(border_points_right, car_state)
+
+        return left_border_points_relative, right_border_points_relative
+
+    def get_frenet_coordinates(self, car_state):
+        # s: arc-length along the raceline (distance traveled along the line).
+        # d: signed lateral offset from the raceline (left/right of the line).
+        # e: heading error (car yaw - raceline heading)
+        # k: curvature of the raceline
+        
+        
+        # Find nearest waypoint
+        car_x = car_state[POSE_X_IDX]
+        car_y = car_state[POSE_Y_IDX]
+        car_theta = car_state[POSE_THETA_IDX]
+        waypoints = self.waypoints
+        if waypoints is None:
+            return None, None, None, None
+
+        # Find nearest waypoint index
+        car_position = np.array([car_x, car_y])
+        dists = np.linalg.norm(waypoints[:, [WP_X_IDX, WP_Y_IDX]] - car_position, axis=1)
+        nearest_idx = np.argmin(dists)
+
+        # s: arc-length at nearest waypoint
+        s = waypoints[nearest_idx, WP_S_IDX]
+        # k: curvature at nearest waypoint
+        k = waypoints[nearest_idx, WP_KAPPA_IDX]
+        # Raceline heading at nearest waypoint
+        psi = waypoints[nearest_idx, WP_PSI_IDX]
+
+        # Compute signed lateral offset d
+        dx = car_x - waypoints[nearest_idx, WP_X_IDX]
+        dy = car_y - waypoints[nearest_idx, WP_Y_IDX]
+        # Perpendicular direction to raceline (normal vector)
+        normal = np.array([-np.sin(psi), np.cos(psi)])
+        d = dx * normal[0] + dy * normal[1]
+
+        # Heading error e: car yaw minus raceline tangent
+        e = car_theta - psi
+        # Normalize e to [-pi, pi]
+        e = (e + np.pi) % (2 * np.pi) - np.pi
+
+        return s, d, e, k
+                
 
 # Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
@@ -632,6 +704,28 @@ def check_if_obstacle_on_raceline(lidar_points, waypoints, threshold=0.25):
 
     return False, obstacle_position  # No obstacle detected within threshold
 
+
+@njit(fastmath=True)
+def transform_to_car_coordinates(points, car_state):
+    '''Transform points to the car's coordinate frame.
+    @param points: (N, 2) array of global points to transform
+    @param car_state: (6,) array representing the car's state [x, y, theta, ...]
+    @return: (N, 2) array of points in the car's coordinate frame
+    '''
+
+    # Translation
+    points_x_translated = points[:,0] - car_state[POSE_X_IDX]
+    points_y_translated = points[:,1] - car_state[POSE_Y_IDX]
+
+    # Rotation (vectorized transformation)
+    points_transformed = np.column_stack((
+        points_x_translated * car_state[POSE_THETA_COS_IDX] +
+        points_y_translated * car_state[POSE_THETA_SIN_IDX],
+
+        points_x_translated * -car_state[POSE_THETA_SIN_IDX] +
+        points_y_translated * car_state[POSE_THETA_COS_IDX]
+    ))
+    return points_transformed
 
 # Utility functions
 def get_path_suffix(reverse_direction):

@@ -40,8 +40,8 @@ class _SpacesOnlyEnv(gym.Env):
 class SacUtilities:
 
     # --- define spaces ---
-    obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6, dtype=np.float32)
-    obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6, dtype=np.float32)
+    obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6 + [-1]*2, dtype=np.float32)
+    obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6 + [ 1]*2, dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
@@ -73,7 +73,7 @@ class SacUtilities:
                 )
         return model
     
-
+    @staticmethod
     def resolve_model_paths(model_name: str) -> Tuple[str, str]:
         """
         Return (model_path, model_dir)
@@ -92,6 +92,7 @@ class SacUtilities:
     # ------------------------------
     # Torch serialization helpers
     # ------------------------------
+    @staticmethod
     def state_dict_to_bytes(sd: Dict[str, Any]) -> bytes:
         buf = io.BytesIO() 
         cpu_sd = {k: (v.cpu() if torch.is_tensor(v) else v) for k, v in sd.items()}

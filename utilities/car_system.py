@@ -91,6 +91,8 @@ class CarSystem:
         self.alternative_raceline = False
         self.timesteps_on_current_raceline = 0
         self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+        
+        track_positions = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.waypoints)
 
         # Rendering
         self.render_utils = RenderUtils()
@@ -444,7 +446,9 @@ class CarSystem:
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
-
+        if(lap_time < 21.00):
+            print(f"Fast laptime reached.")
+            exit()
      
     
     '''

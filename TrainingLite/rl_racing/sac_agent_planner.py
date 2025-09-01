@@ -39,6 +39,8 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+from utilities.waypoint_utils import *
+
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
         
@@ -59,7 +61,7 @@ class RLAgentPlanner(template_planner):
         print("Initializing RLAgentPlanner (actor client)")
 
         # Training vs Inference
-        self.training_mode = False
+        self.training_mode = True
         # self.inference_model_name = 'sac_pretrained_actor'  # Model name thats loaded: if none: use weights from server
         self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
 
@@ -234,12 +236,12 @@ class RLAgentPlanner(template_planner):
         # car state
         car_state = self.car_state
 
+        # border_points_left, border_points_right = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
+        curvatures = self.waypoint_utils.next_waypoints[:, WP_KAPPA_IDX]
 
-        # waypoints: always 15 waypoints (30 values)
-        xy = self.waypoint_utils.next_waypoint_positions_relative  # shape (K, 2)
-        xy = xy[::2]
-        wpts = xy.astype(np.float32).ravel()  # shape (30,)
-
+        # Get frenet coordinates
+        s, d, e, k = self.waypoint_utils.get_frenet_coordinates(car_state)
+        # print(f"distance: {s}, lateral offset: {d}, heading error: {e}, curvature: {k}")
         # lidar
         lidar = self.lidar_utils.processed_ranges
 
@@ -265,10 +267,10 @@ class RLAgentPlanner(template_planner):
         # ], dtype=np.float32)
         # last_states_features = last_states_features.reshape(-1)
 
-        observation_array = np.concatenate([state_features, wpts, lidar, last_actions]).astype(np.float32)
+        observation_array = np.concatenate([state_features, curvatures, lidar, last_actions, [d], [e]]).astype(np.float32)
 
         # match env normalization
-        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(wpts)+ [0.1] * len(lidar) + [1.0] * len(last_actions) # Adjust normalization factors for each feature
+        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(curvatures) + [0.1] * len(lidar) + [1.0] * len(last_actions) + [0.5, 0.5] # Adjust normalization factors for each feature
 
         observation_array *= np.array(normalization_array, dtype=np.float32)
         return observation_array
