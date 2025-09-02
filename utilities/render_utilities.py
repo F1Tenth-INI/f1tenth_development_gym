@@ -139,7 +139,7 @@ class RenderUtils:
             self.position_history_vertices = None
         # Clear position history points
         self.position_history_points = []
-            # Delete lidar vertices if they exist
+        # Delete lidar vertices if they exist
         if hasattr(self, 'lidar_vertices') and self.lidar_vertices is not None:
             self.lidar_vertices.delete()
             self.lidar_vertices = None

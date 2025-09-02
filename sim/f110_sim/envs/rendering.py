@@ -390,7 +390,7 @@ class EnvRenderer(pyglet.window.Window):
 
 
         state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=ego_car_state[POSE_X_IDX], y=ego_car_state[POSE_Y_IDX], psi=ego_car_state[POSE_THETA_IDX], v_x=ego_car_state[LINEAR_VEL_X_IDX], )
-        self.score_label.text = 'Sim Time: {simulation_time:.2f}]'.format(simulation_time=simulation_time)
+        self.score_label.text = 'Sim Time: {simulation_time:.2f}'.format(simulation_time=simulation_time)
         self.score_label.text +=  "\n" + state_text
 
     def render(self, render_obs):

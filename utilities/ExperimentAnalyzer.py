@@ -11,7 +11,7 @@ from utilities.Settings import Settings
 
 
 class ExperimentAnalyzer:
-    def __init__(self, experiment_name, experiment_path = Settings.RECORDING_FOLDER, step_start=0, step_end= Settings.EXPERIMENT_LENGTH):
+    def __init__(self, experiment_name, experiment_path = Settings.RECORDING_FOLDER, step_start=0, step_end= Settings.SIMULATION_LENGTH):
         
         self.step_start = 0
         self.step_end = step_end
