@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.buffers import ReplayBuffer
+from prioritized_reward_replay_buffer import RewardBiasedReplayBuffer
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
@@ -28,7 +29,8 @@ class LearnerServer:
         train_every_seconds: float = 10.0,
         grad_steps: int = 1024,
         replay_capacity: int = 100_000,
-        learning_starts: int = 2000
+        learning_starts: int = 2000,
+        batch_size: int = 1024,
     ):
         self.host = host
         self.port = port
@@ -36,6 +38,7 @@ class LearnerServer:
         self.device = device
         self.train_every_seconds = train_every_seconds
         self.replay_capacity = replay_capacity
+        self.batch_size = batch_size
 
         # Settings
         self.learning_starts = learning_starts
@@ -92,9 +95,14 @@ class LearnerServer:
             print(f"[server] Success: Created new SAC model.")
 
         # Minimal logger so .train() works outside .learn()
+
+        self.model.batch_size = self.batch_size
+        self.model.gradient_steps = self.grad_steps
         self.model._logger = configure(folder=None, format_strings=[])
 
         # Fresh replay buffer
+        # self.replay_buffer = RewardBiasedReplayBuffer(
+
         self.replay_buffer = ReplayBuffer(
             buffer_size=self.replay_capacity,
             observation_space=self.model.observation_space,
@@ -172,7 +180,7 @@ class LearnerServer:
                 grad_steps = self.grad_steps
 
 
-                print(f"[server] Training SAC... steps={grad_steps} | buffer size={self.replay_buffer.size()}")
+                print(f"[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()}")
                 time_start_training = time.time()
 
 
@@ -265,17 +273,17 @@ class LearnerServer:
                             torch.cuda.empty_cache()
                         continue
                 # You can now interfere with actor, critic, optimizers, etc. in this loop
-                
-                self.model.actor_loss = actor_loss.item()
-                self.model.critic_loss = critic_loss.item()
-                self.model.ent_coef_loss = ent_coef_loss.item()
-                self.model.ent_coef = ent_coef if isinstance(ent_coef, float) else ent_coef.item()
-                self.model.total_weight_updates = self.total_weight_updates
-                self.model.training_duration = time.time() - time_start_training
-                self.model._total_timesteps = self.total_actor_timesteps
+                log_dict = {
+                    "actor_loss": actor_loss.item(),
+                    "critic_loss": critic_loss.item(),
+                    "ent_coef_loss": ent_coef_loss.item(),
+                    "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
+                    "total_weight_updates": self.total_weight_updates,
+                    "training_duration": time.time() - time_start_training,
+                    "total_timesteps": self.total_actor_timesteps
+                }
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
-
-                self.trainingLogHelper.log_to_csv(self.model, episodes)
+                self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
 
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
@@ -405,12 +413,13 @@ class LearnerServer:
 
 def main():
 
-    model_name = "SAC_RCA1_wpts_lidar_50_async"
+    model_name = "SAC_RCA1_wpts_16"
     grad_steps = 1024
     device = "cuda" if torch.cuda.is_available() else "cpu"
     train_every_seconds = 1.0
     replay_capacity = 100_000
     learning_starts = 2000
+    batch_size = 256
 
 
 
@@ -424,6 +433,7 @@ def main():
     parser.add_argument("--gradient-steps", type=int, default=grad_steps)
     parser.add_argument("--replay-capacity", type=int, default=replay_capacity)
     parser.add_argument("--learning-starts", type=int, default=learning_starts)
+    parser.add_argument("--batch-size", type=int, default=batch_size)
 
     args = parser.parse_args()
 
@@ -435,7 +445,8 @@ def main():
         train_every_seconds=args.train_every_seconds,
         grad_steps=args.gradient_steps,
         replay_capacity=args.replay_capacity,
-        learning_starts=args.learning_starts
+        learning_starts=args.learning_starts,
+        batch_size=args.batch_size
     )
     asyncio.run(srv.run())
 

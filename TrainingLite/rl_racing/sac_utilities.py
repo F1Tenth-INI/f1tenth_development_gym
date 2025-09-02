@@ -112,7 +112,7 @@ class TrainingLogHelper():
         self.training_index = 0
         self.plot_every = 5
 
-    def log_to_csv(self, model, episodes):
+    def log_to_csv(self, model, episodes, log_dict):
 
         file_exists = os.path.isfile(self.csv_path)
         
@@ -124,18 +124,33 @@ class TrainingLogHelper():
         last_info = last_episode[-1]["info"] if last_episode and last_episode[-1] and "info" in last_episode[-1] else {}
         lap_times = last_info.get("lap_times", None)
         min_laptime = last_info.get("min_laptime", None)
-        avg_laptime = last_info.get("avg_laptime", None)
-        metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
-        metric_dict['min_laptime'] = min_laptime if min_laptime is not None else ""
-        metric_dict['avg_laptime'] = avg_laptime if avg_laptime is not None else ""
-        metric_dict['training_duration'] = getattr(model, 'training_duration', None)
 
+        episode_lengths = [len(episode) for episode in episodes]
+        episode_rewards = [sum(transition["reward"] for transition in episode) for episode in episodes]
+        episode_mean_step_rewards = [np.mean([transition["reward"] for transition in episode]) if len(episode)>0 else 0.0 for episode in episodes]
+        metric_dict['episode_lengths'] = episode_lengths
+        metric_dict['episode_rewards'] = episode_rewards
+        metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
+        metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
         metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
-        metric_dict['actor_loss'] = getattr(model, 'actor_loss', None)
-        metric_dict['critic_loss'] = getattr(model, 'critic_loss', None)
-        metric_dict['ent_coef'] = getattr(model, 'ent_coef', None)
-        metric_dict['ent_coef_loss'] = getattr(model, 'ent_coef_loss', None)
-        metric_dict['total_weight_updates'] = getattr(model, 'total_weight_updates', None)
+        metric_dict['training_duration'] = getattr(model, 'training_duration', None)
+        
+
+        metric_dict['replay_buffer_size'] = model.replay_buffer.size() if hasattr(model, 'replay_buffer') else None
+        metric_dict['batch_size'] = getattr(model, 'batch_size', None)
+        metric_dict['gradient_steps'] = getattr(model, 'gradient_steps', None)
+        metric_dict['learning_rate'] = getattr(model, 'learning_rate', None) 
+        
+        metric_dict.update(log_dict)
+
+
+        # if(min_laptime is not None):
+        #     if min_laptime < 21.0:
+        #         print("Training done.")
+        #         exit()
+        # if(metric_dict['total_timesteps'] > 2_000_000):
+        #     print("Max timesteps reached.")
+        #     exit()
 
         # Write to CSV
         with open(self.csv_path, mode="a", newline="") as csvfile:
@@ -177,22 +192,52 @@ class TrainingLogHelper():
         # Calculate seconds since first timestamp
         x_vals = (df_plot['timestamp_dt'] - df_plot['timestamp_dt'].iloc[0]).dt.total_seconds().values
 
-
         # Remove 'timestamp' from columns to plot
-        columns_to_plot = [col for col in df_plot.columns if col not in ['lap_times', 'timestamp']]
+        columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp']]
+
         n_cols = len(columns_to_plot)
         fig, axs = plt.subplots(n_cols, 1, figsize=(10, 3 * n_cols), sharex=True)
 
         if n_cols == 1:
             axs = [axs]
 
-
         for i, col in enumerate(columns_to_plot):
-            y_vals = df_plot[col].values
-            if col in ['min_laptime', 'avg_laptime']:
-                axs[i].scatter(x_vals, y_vals, label=col, s=10)
+            # Check if the value of col is an array (list or tuple)
+            import ast
+            first_val = df_plot[col].iloc[0]
+            # Try to detect string representations of lists/tuples for any column
+            is_array_like = False
+            arr_sample = None
+            if isinstance(first_val, (list, tuple)):
+                is_array_like = True
+                arr_sample = first_val
+            elif isinstance(first_val, str):
+                try:
+                    arr_sample = ast.literal_eval(first_val)
+                    if isinstance(arr_sample, (list, tuple)):
+                        is_array_like = True
+                except Exception:
+                    pass
+            if is_array_like:
+                all_vals = []
+                all_x = []
+                for idx, arr_str in enumerate(df_plot[col].values):
+                    try:
+                        arr = arr_str
+                        if isinstance(arr, str):
+                            arr = ast.literal_eval(arr)
+                        if isinstance(arr, (list, tuple)):
+                            all_vals.extend(arr)
+                            all_x.extend([x_vals[idx]] * len(arr))
+                    except Exception:
+                        continue
+                axs[i].scatter(all_x, all_vals, label=col, s=10)
             else:
-                axs[i].plot(x_vals, y_vals, label=col)
+                y_vals = df_plot[col].values
+                if col in ['min_laptime', 'avg_laptime']:
+                    axs[i].scatter(x_vals, y_vals, label=col, s=10)
+                else:
+                    axs[i].plot(x_vals, y_vals, label=col)
             axs[i].set_ylabel(col)
             axs[i].legend()
             axs[i].grid(True)
