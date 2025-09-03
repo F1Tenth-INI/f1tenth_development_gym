@@ -193,7 +193,8 @@ class TrainingLogHelper():
         x_vals = (df_plot['timestamp_dt'] - df_plot['timestamp_dt'].iloc[0]).dt.total_seconds().values
 
         # Remove 'timestamp' from columns to plot
-        columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp']]
+        columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp','training_duration', 'replay_buffer_size', 'batch_size', 'gradient_steps', 'learning_rate']]
+
 
         n_cols = len(columns_to_plot)
         fig, axs = plt.subplots(n_cols, 1, figsize=(10, 3 * n_cols), sharex=True)
@@ -242,14 +243,13 @@ class TrainingLogHelper():
             axs[i].legend()
             axs[i].grid(True)
 
-        axs[-1].set_xlabel('timestamp')
-
-        # Improve x-axis readability: fewer ticks, rotated labels
         import matplotlib.ticker as ticker
         max_xticks = 10
-        axs[-1].xaxis.set_major_locator(ticker.MaxNLocator(max_xticks))
-        for ax in axs:
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+        for idx, ax in enumerate(axs):
+            ax.xaxis.set_major_locator(ticker.MaxNLocator(max_xticks))
+            ax.xaxis.set_tick_params(labelbottom=True)
+            if idx == len(axs) - 1:
+                ax.set_xlabel('timestamp')
 
         plt.tight_layout()
         plt.savefig(os.path.join(model_dir, 'training_metrics.png'))
