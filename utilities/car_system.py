@@ -17,7 +17,7 @@ from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
+from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
@@ -77,6 +77,9 @@ class CarSystem:
         car_index = 1
         self.scans = None
         self.control_index = 0
+
+
+        self.obs = None
         
         
         ### Utilities 
@@ -126,8 +129,10 @@ class CarSystem:
         self.initialize_controller(self.controller_name)
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
-        
-            
+        # Other utilities
+        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+            self.launch_tuner_connector()
+
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -263,20 +268,20 @@ class CarSystem:
         # TODO: Recording
         info = {
             "lap_times": self.laptimes,
-            "min_laptime": min(self.laptimes) if self.laptimes else None,
-            "avg_laptime": sum(self.laptimes) / len(self.laptimes) if self.laptimes else None
         }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)
         
-        if(self.reward_calculator.truncated):
-            next_obs['truncated'] = True
-            next_obs['done'] = True
+        next_obs.update({
+            "reward": self.reward,
+            "info": info,
+            "truncated": self.reward_calculator.truncated or next_obs['collision'],
+            "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'],
+        })
+        self.obs = next_obs
 
-        done = next_obs['done']
-        
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-            self.planner.on_step_end(self.reward, done, info, None)
+            self.planner.on_step_end(self.obs)
 
     '''
     Update waypoints, check for obstacles and adjust waypoints / suggested speed
@@ -446,9 +451,9 @@ class CarSystem:
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
-        if(lap_time < 21.00):
-            print(f"Fast laptime reached.")
-            exit()
+        # if(lap_time < 21.00):
+        #     print(f"Fast laptime reached.")
+        #     exit()
      
     
     '''
@@ -553,7 +558,7 @@ class CarSystem:
                 self.reward_calculator.plot_history(save_path="./")
 
         if self.recorder is not None:    
-       
+
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)

@@ -64,17 +64,15 @@ class Settings():
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
-    CRASH_DETECTION = False
-    REPEAT_IF_CRASHED = False
+    
     MAX_CRASH_REPETITIONS = 10000000
 
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 10000000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
-    STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
-    DISABLE_AUTOMATIC_TERMINATION = False
-    DISABLE_AUTOMATIC_TIMEOUT = True
+    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
+    SIMULATION_LENGTH = 1000000 # In sim timesteps: Length until the simulation is terminated
+    RESET_ON_DONE = True
 
 
     ## Noise ##
@@ -82,7 +80,7 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
@@ -142,7 +140,7 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

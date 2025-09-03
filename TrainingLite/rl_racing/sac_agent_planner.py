@@ -180,16 +180,18 @@ class RLAgentPlanner(template_planner):
         return self.angular_control, self.translational_control
 
 
-    def on_step_end(self, reward: float, done: bool, info: Optional[Dict[str, Any]] = None, next_obs=None) -> None:
+    def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
 
+        reward = driver_obs['reward']
+        done = driver_obs['done']
+        info = driver_obs['info']
 
-        """Called by env AFTER stepping. Pass the obs returned by env.stgep"""
+        """Called by env AFTER stepping. Pass the obs returned by env.step"""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
-        if next_obs is None:
-            # Prefer passing next_obs from env using the same builder; fallback remains
-            next_obs = self._build_observation()
+
+        next_obs = self._build_observation()
 
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
@@ -274,5 +276,3 @@ class RLAgentPlanner(template_planner):
 
         observation_array *= np.array(normalization_array, dtype=np.float32)
         return observation_array
-
-

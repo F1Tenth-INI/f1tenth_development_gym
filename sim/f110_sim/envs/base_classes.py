@@ -449,6 +449,8 @@ class Simulator(object):
         self.agent_scans = []
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
+        self.sim_index = 0
+        
 
         # initializing agents
         for i in range(self.num_agents):
@@ -530,6 +532,7 @@ class Simulator(object):
             'car_states': car_states,
             'scans': self.agent_scans,
             'collisions': self.collisions.copy(),
+            'terminated': self.sim_index >= Settings.EXPERIMENT_MAX_LENGTH,
             'ego_idx': self.ego_idx,
         }
         return obs
@@ -580,6 +583,7 @@ class Simulator(object):
         # fill in observations
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
         observations = self.get_sim_observation()
+        self.sim_index += 1
         return observations
 
     def reset(self, initial_states):
@@ -592,11 +596,12 @@ class Simulator(object):
         Returns:
             obs (dict): initial observation dictionary
         """
+
+        self.sim_index = 0
         if initial_states.shape[0] != self.num_agents:
             raise ValueError('Number of initial_states for reset does not match number of agents.')
 
         # Reset all agents
-        
         self.agent_scans = []
         for i in range(self.num_agents):
             agent = self.agents[i]
