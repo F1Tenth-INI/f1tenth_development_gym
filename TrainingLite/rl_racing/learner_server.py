@@ -372,6 +372,28 @@ class LearnerServer:
                         await writer.drain()
                     except Exception:
                         pass
+                elif msg.get("type") == "clear_buffer":
+                    d = msg.get("data", {})
+                    actor_id = int(d.get("actor_id", -1))
+                    
+                    # Clear the episode buffer
+                    episodes_cleared = len(self.episode_buffer.episodes)
+                    self.episode_buffer.episodes.clear()
+                    
+                    # Clear the replay buffer if it exists
+                    if self.replay_buffer is not None:
+                        replay_size_before = self.replay_buffer.size()
+                        self.replay_buffer.reset()
+                        print(f"[server] Cleared replay buffer (had {replay_size_before} transitions)")
+                    
+                    print(f"[server] Cleared {episodes_cleared} episodes from buffer (requested by actor {actor_id})")
+                    
+                    # Send acknowledgment
+                    try:
+                        writer.write(pack_frame({"type": "clear_buffer_ack", "data": {"episodes_cleared": episodes_cleared}}))
+                        await writer.drain()
+                    except Exception:
+                        pass
                 else:
                     # ignore other messages
                     pass

@@ -59,6 +59,19 @@ class _TCPActorClient:
         except queue.Full:
             pass
 
+    def send_clear_buffer(self) -> None:
+        """Send a message to clear the server's replay buffer."""
+        data = {
+            "type": "clear_buffer",
+            "data": {
+                "actor_id": int(self.actor_id),
+            },
+        }
+        try:
+            self._send_q.put_nowait(data)
+        except queue.Full:
+            pass
+
     def pop_latest_state_dict(self) -> Optional[dict]:
         with self._latest_sd_lock:
             sd = self._latest_state_dict

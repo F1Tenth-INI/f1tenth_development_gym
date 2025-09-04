@@ -62,8 +62,9 @@ class RLAgentPlanner(template_planner):
 
         # Training vs Inference
         self.training_mode = True
-        # self.inference_model_name = 'sac_pretrained_actor'  # Model name thats loaded: if none: use weights from server
         self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
+
+        self.clear_buffer_on_reset = True
 
         # --- networking ---
 
@@ -71,6 +72,11 @@ class RLAgentPlanner(template_planner):
             # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=2)
             self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
             self.client.start()
+            
+            # Send clear buffer message on initialization
+            if self.clear_buffer_on_reset:
+                self.client.send_clear_buffer()
+                print("[RLAgentPlanner] Sent clear buffer message to server")
 
         # Initialization of SAC utilities
         dummy_env = SacUtilities.create_vec_env()
