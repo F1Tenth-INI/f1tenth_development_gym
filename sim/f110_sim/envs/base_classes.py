@@ -451,8 +451,6 @@ class Simulator(object):
         self.collision_idx = -1 * np.ones((self.num_agents, ))
         self.sim_index = 0
         
-        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-        # self.params = car_params.to_dict()
 
         # initializing agents
         for i in range(self.num_agents):

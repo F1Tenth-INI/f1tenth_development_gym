@@ -70,8 +70,8 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_MAX_LENGTH = 8_000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 1_000_000 # In sim timesteps: Length until the simulation is terminated
+    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
+    SIMULATION_LENGTH = 1000000 # In sim timesteps: Length until the simulation is terminated
     RESET_ON_DONE = True
 
 
@@ -140,7 +140,7 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

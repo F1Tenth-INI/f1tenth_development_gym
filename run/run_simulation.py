@@ -454,10 +454,10 @@ class RacingSimulation:
 
 
     def handle_done(self):
-        self.on_simulation_end()
         if Settings.RESET_ON_DONE:
             self.reset()
         else:
+            self.on_simulation_end()
             raise CarCrashException()
 
                 

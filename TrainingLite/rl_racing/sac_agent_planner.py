@@ -276,5 +276,3 @@ class RLAgentPlanner(template_planner):
 
         observation_array *= np.array(normalization_array, dtype=np.float32)
         return observation_array
-
-
