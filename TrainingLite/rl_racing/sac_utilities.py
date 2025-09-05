@@ -13,6 +13,7 @@ import csv
 from typing import Any, Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 from stable_baselines3.common.vec_env import DummyVecEnv
+import yaml
 
 
 # ------------------------------
@@ -99,6 +100,26 @@ class SacUtilities:
         torch.save(cpu_sd, buf)
         return buf.getvalue()
     
+    @staticmethod
+    def zip_relevant_files(model_dir: str) -> str:
+        import zipfile
+        this_files_path = os.path.abspath(__file__)
+        rl_racing_dir = os.path.dirname(this_files_path)
+        gym_dir = os.path.join(rl_racing_dir, "..", "..")
+        paths = [
+            os.path.join(rl_racing_dir, "learner_server.py"),
+            os.path.join(rl_racing_dir, "sac_utilities.py"),
+            os.path.join(rl_racing_dir, "sac_agent_planner.py"),
+            os.path.join(gym_dir, "utilities", "Settings.py"),
+        ]
+
+        zip_path = os.path.join(model_dir, "training_files.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in paths:
+                if os.path.isfile(file_path):
+                    arcname = os.path.basename(file_path)
+                    zipf.write(file_path, arcname=arcname)
+        return zip_path
 
 
     
@@ -108,9 +129,61 @@ class TrainingLogHelper():
         self.model_name = model_name
         self.model_dir = model_dir
         self.csv_path = os.path.join(model_dir, f"learning_metrics.csv")
+        self.start_time = self.initialize_start_time() # Training time start
 
         self.training_index = 0
         self.plot_every = 5
+
+
+    
+    def initialize_start_time(self):
+        # Initialize start time, possibly resuming from existing CSV
+
+        self.start_time = time.time()
+        # check if csv exists. if exists, load it and read last time
+        if os.path.exists(self.csv_path):
+            try:
+                df = pd.read_csv(self.csv_path)
+                if not df.empty and 'time' in df.columns:
+                    print(f"Existing CSV file found: {self.csv_path}, resuming time from last entry. Start time was {self.start_time}")
+                    last_time = df['time'].iloc[-1]
+                    self.start_time -= last_time
+            except Exception as e:
+                print(f"Error reading existing CSV file: {e}")
+        else:
+            print(f"CSV file does not exist, starting fresh: {self.csv_path} with start time {self.start_time}")
+
+        return self.start_time
+    
+
+    def save_meta_info(self, model: SAC, info: dict):
+        info_file = os.path.join(self.model_dir, "info.yaml")
+
+        info_dict = {
+            "model_name": self.model_name,
+            "batch_size": model.batch_size,
+            "buffer_size": model.replay_buffer.buffer_size,
+            "observation_space": model.observation_space.shape[0],
+            "action_space": model.action_space.shape[0],
+            "gamma": model.gamma,
+            "tau": model.tau,
+            "target_entropy": model.target_entropy,
+            "policy_type": type(model.policy).__name__,
+            "actor_arch": str(model.policy.actor),
+            "critic_arch": str(model.policy.critic),
+        }
+        info_dict.update(info)
+
+        with open(info_file, "w") as f:
+            yaml.dump(info_dict, f, sort_keys=False)
+
+    def load_meta_info(self) -> dict:
+        info_file = os.path.join(self.model_path, "info.yaml")
+        if not os.path.exists(info_file):
+            return {}
+        with open(info_file, "r") as f:
+            return yaml.safe_load(f)
+
 
     def log_to_csv(self, model, episodes, log_dict):
 
@@ -128,6 +201,11 @@ class TrainingLogHelper():
         episode_lengths = [len(episode) for episode in episodes]
         episode_rewards = [sum(transition["reward"] for transition in episode) for episode in episodes]
         episode_mean_step_rewards = [np.mean([transition["reward"] for transition in episode]) if len(episode)>0 else 0.0 for episode in episodes]
+
+        current_time = time.time()
+        training_time = current_time - self.start_time
+
+        metric_dict['time'] = training_time
         metric_dict['episode_lengths'] = episode_lengths
         metric_dict['episode_rewards'] = episode_rewards
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
@@ -185,12 +263,7 @@ class TrainingLogHelper():
 
         # Downsample
         df_plot = df.iloc[::downsample_step].copy()
-
-        # Timestep is saved as date string 2025-08-28 23:09:26 and needs to be converted to seconds
-        # Convert to datetime
-        df_plot['timestamp_dt'] = pd.to_datetime(df_plot['timestamp'])
-        # Calculate seconds since first timestamp
-        x_vals = (df_plot['timestamp_dt'] - df_plot['timestamp_dt'].iloc[0]).dt.total_seconds().values
+        x_vals = df_plot['time']
 
         # Remove 'timestamp' from columns to plot
         columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp','training_duration', 'replay_buffer_size', 'batch_size', 'gradient_steps', 'learning_rate']]

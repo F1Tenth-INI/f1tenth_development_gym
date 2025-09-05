@@ -66,6 +66,8 @@ class LearnerServer:
 
         self.trainingLogHelper = TrainingLogHelper(self.model_name,self.model_dir)
 
+        SacUtilities.zip_relevant_files(self.model_dir)
+
         self._initialize_model()
 
     # ---------- setup / init ----------
@@ -113,6 +115,12 @@ class LearnerServer:
         )
         self.model.replay_buffer = self.replay_buffer
 
+        # Save model info
+        info = {
+            "grad_steps": self.grad_steps,
+            "batch_size": self.batch_size,
+        }
+        self.trainingLogHelper.save_meta_info(self.model, info)
         # Cache weights for initial broadcast (random if scratch)
         self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
 
