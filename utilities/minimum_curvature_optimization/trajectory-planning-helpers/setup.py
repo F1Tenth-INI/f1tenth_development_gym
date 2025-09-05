@@ -22,6 +22,7 @@ setuptools.setup(
     install_requires=[
         'numpy>=1.18.1',
         'scipy>=1.3.3',
+        'scikit-learn>=0.22.2',
         'quadprog~=0.1.11',
         'matplotlib>=3.3.1'
     ],
