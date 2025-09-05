@@ -13,7 +13,7 @@ class Settings():
 
 
     # Controller Settings
-    CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example', 'sac_agent'
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.

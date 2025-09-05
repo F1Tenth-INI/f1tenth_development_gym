@@ -51,6 +51,9 @@ from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
 from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
 
+import torch
+torch.set_num_threads(1)          # intra-op parallelism
+torch.set_num_interop_threads(1)  # inter-op parallelism
 
 # ------------------------
 # RL Agent Planner (drop-in replacement for PurePursuitPlanner)

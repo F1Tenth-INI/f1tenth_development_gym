@@ -436,9 +436,9 @@ class LearnerServer:
 def main():
 
     model_name = "SAC_RCA1_wpts_16"
-    grad_steps = 1024
+    grad_steps = 256
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_every_seconds = 1.0
+    train_every_seconds = 0.1
     replay_capacity = 100_000
     learning_starts = 2000
     batch_size = 256

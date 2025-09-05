@@ -65,7 +65,7 @@ class SacUtilities:
                     # ent_coef=0.01,
                     train_freq=1,
                     gamma=0.99,
-                    learning_rate=1e-3,
+                    learning_rate=3e-4,
                     policy_kwargs=policy_kwargs,
                     buffer_size=buffer_size,
                     device=device,
