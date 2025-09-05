@@ -163,24 +163,33 @@ class LearnerServer:
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
         while True:
             await asyncio.sleep(self.train_every_seconds)
-
             # Drain whatever the actor sent since last round
             episodes = self.episode_buffer.drain_all()
-            if not episodes:
-                continue
 
             n_added = self._ingest_episodes_into_replay(episodes)
-            print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
-                f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
+            if( n_added > 0 ):
+                print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
+                    f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
 
+            # Calculate trainign steps per sample
+            current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+            if current_udt > 10.:
+                print(f"[server] UDT too high ({current_udt:.4f}), skipping training this round. total_weight_updates={self.total_weight_updates}, total_actor_timesteps={self.total_actor_timesteps}")
+                await asyncio.sleep(1)
+                continue  # skip training if UDT is already high
 
+            if( self.replay_buffer.size() < self.learning_starts ):
+                needed = self.learning_starts - self.replay_buffer.size()
+                print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
+                await asyncio.sleep(self.train_every_seconds)
+                continue
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)
                 grad_steps = self.grad_steps
 
 
-                print(f"[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()}")
+                print(f"[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
                 time_start_training = time.time()
 
 
@@ -280,7 +289,8 @@ class LearnerServer:
                     "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
                     "total_weight_updates": self.total_weight_updates,
                     "training_duration": time.time() - time_start_training,
-                    "total_timesteps": self.total_actor_timesteps
+                    "total_timesteps": self.total_actor_timesteps,
+                    "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
                 }
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
@@ -438,9 +448,9 @@ def main():
     model_name = "SAC_RCA1_wpts_16"
     grad_steps = 256
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_every_seconds = 0.1
+    train_every_seconds = 0.2
     replay_capacity = 100_000
-    learning_starts = 2000
+    learning_starts = 500
     batch_size = 256
 
 
