@@ -1006,13 +1006,13 @@ class StateComparisonVisualizer:
                 return car_steps_sequential_jax(
                     initial_state, control_sequence, car_params, dt, horizon, 
                     model_type='pacejka',
-                    intermediate_steps=2
+                    intermediate_steps=4
                 )
             elif model_name == 'pacejka_custom':
                 return car_steps_sequential_jax(
                     initial_state, control_sequence, car_params, dt, horizon,
                     model_type='pacejka_custom',
-                    intermediate_steps=2
+                    intermediate_steps=4
                 )
             else:
                 print(f"Unknown model: {model_name}")
@@ -1224,7 +1224,7 @@ class StateComparisonVisualizer:
         """Get timestep from data or use default."""
         if self.data is not None and self.time_column in self.data.columns and len(self.data) > 1:
             return float(self.data[self.time_column].iloc[1] - self.data[self.time_column].iloc[0])
-        return 0.02  # Default 50Hz
+        return 0.04  # Default 50Hz
         
     def convert_predictions_to_dict(self, predicted_states):
         """Convert JAX predictions to dictionary format matching CSV columns."""

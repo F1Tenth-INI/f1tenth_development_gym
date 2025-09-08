@@ -98,6 +98,7 @@ class RenderUtils:
         self.label_dict = {}
         self.waypoints: Optional[np.ndarray] = None
         self.waypoints_alternative: Optional[np.ndarray] = None
+        self.waypoints_full: Optional[np.ndarray] = None
         self.next_waypoints: Optional[np.ndarray] = None
         self.next_waypoints_alternative: Optional[np.ndarray] = None
         self.lidar_border_points: Optional[np.ndarray] = None

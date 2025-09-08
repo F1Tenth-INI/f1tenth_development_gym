@@ -100,6 +100,7 @@ class CarSystem:
         # Rendering
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
+        self.render_utils.waypoints_full = self.waypoint_utils.waypoints
 
         if self.waypoint_utils_alternative is not None:
             self.render_utils.waypoints_alternative = self.waypoint_utils_alternative.waypoint_positions

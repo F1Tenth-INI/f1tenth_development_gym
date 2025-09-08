@@ -35,6 +35,8 @@ class VehicleParameters:
     C_0d: float 
     C_Pf: List[float] # Pacejka parameters for the front tires [B, C, D, E]
     C_Pr: List[float] # Pacejka parameters for the rear tires [B, C, D, E]
+    
+    c_rr: float # Rolling resistance coefficient
 
 
     """
@@ -101,4 +103,6 @@ class VehicleParameters:
             self.v_min,  # v_min (min velocity)
             self.v_max,  # v_max (max velocity)
             self.v_switch,  # v_switch (velocity threshold for model transition)
+            
+            self.c_rr # c_rr (rolling resistance coefficient)
         ], dtype=np.float32)

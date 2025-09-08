@@ -28,7 +28,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     
     # Unpack car parameters from JAX array
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
-    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
+    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch, c_rr = car_params
 
     # Calculate sub-timestep for intermediate integration
     dt_sub = dt / intermediate_steps
@@ -67,6 +67,14 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         # Motor power limits
         pos_limit = jnp.where(v_x > v_switch, a_max * v_switch / v_x, a_max)
         v_x_dot = jnp.clip(v_x_dot, a_min, pos_limit)
+        
+        
+        # --- rolling resistance ---
+        # Smooth sign near 0 to avoid pulling car backwards at rest
+        v_dead = 0.05  # m/s deadband; tune if needed
+        smooth_sign = v_x / jnp.sqrt(v_x*v_x + v_dead*v_dead)
+        a_roll = -c_rr * g_ * smooth_sign
+        v_x_dot += a_roll
         
         # Friction limits
         max_a_friction = mu * g_

@@ -28,7 +28,7 @@ class Settings():
     STARTING_POSITION = [[3.62, 6.26, 0.378]] # Starting position [x, y, yaw] in case of START_FROM_RANDOM_POSITION = False
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
-    GLOBAL_WAYPOINT_VEL_FACTOR = 0.5
+    GLOBAL_WAYPOINT_VEL_FACTOR = 0.6
     GLOBAL_SPEED_LIMIT = 15.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
@@ -70,9 +70,10 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 1000000 # In sim timesteps: Length until the simulation is terminated
-    RESET_ON_DONE = True
+    EXPERIMENT_LENGTH = 150000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
+    STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
+    DISABLE_AUTOMATIC_TERMINATION = False
+    DISABLE_AUTOMATIC_TIMEOUT = True
 
 
     ## Noise ##
@@ -80,7 +81,10 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
+
     
     FACTOR_APPLIED_TRANSLATIONAL_CONTROL = 1.0
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
