@@ -21,10 +21,10 @@ from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
-from utilities.imu_simulator import IMUSimulator
 from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
+from utilities.imu_utilities import IMUUtilities
 
 from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
 
@@ -56,8 +56,6 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.lidar_utils = LidarHelper()
-        self.imu_simulator = IMUSimulator()
-        self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
         self.laptimes = []
 
         # Pure control without noise
@@ -226,7 +224,7 @@ class CarSystem:
             self.render_utils.render(e)
 
     def process_observation(self, obs):
-        
+                
         # Control step
         if self.planner is not None:
             self.angular_control, self.translational_control = self.planner.process_observation()
@@ -250,12 +248,12 @@ class CarSystem:
         
         self.control_index += 1
         self.time += self.time_increment
-
+        
         return self.angular_control, self.translational_control
 
     def on_step_end(self, next_obs):
 
-        self.obs = next_obs
+        self.obs = next_obs.copy()
 
         #Car state and Lidar are updated by parent
         car_state = next_obs['car_state']
@@ -264,6 +262,7 @@ class CarSystem:
         self.set_car_state(car_state)
         self.set_scans(ranges)
         self.set_waypoints()
+        
 
 
         # TODO: Recording
@@ -440,7 +439,23 @@ class CarSystem:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
-            basic_dict = get_basic_data_dict(self)
+            # Process IMU data before recording
+            if hasattr(self, 'obs') and self.obs is not None:
+                imu_array = self.obs.get('imu', None)
+                
+                # Convert IMU data to dictionary using IMUUtilities
+                if imu_array is not None:
+                    imu_dict_raw = IMUUtilities.imu_array_to_dict(imu_array)
+                else:
+                    # Fallback to zeros if no IMU data available
+                    imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
+                
+                # Convert to lambda functions for lazy evaluation (compatible with Recorder)
+                self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
+            
+            # Get simulation observations if available
+            sim_obs = getattr(self, 'sim_obs', None)
+            basic_dict = get_basic_data_dict(self, sim_obs)
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         
@@ -464,6 +479,10 @@ class CarSystem:
         self.recorder: Optional[Recorder] = None
         
         if Settings.SAVE_RECORDINGS and self.save_recordings:
+            # Initialize IMU dict with zeros for Recorder initialization
+            imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
+            self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
+            
             self.recorder = Recorder(driver=self)
             
             # Add more internal data to recording dict:

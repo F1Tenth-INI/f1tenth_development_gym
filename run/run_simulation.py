@@ -233,6 +233,7 @@ class RacingSimulation:
         driver_obs = {}
         driver_obs['car_state'] = self.sim.agents[driver_index].state
         driver_obs['scans'] = self.obs['scans'][driver_index]
+        driver_obs['imu'] = self.obs['imus'][driver_index]
         driver_obs['collision'] = True if self.obs['collisions'][0] else False
         driver_obs['terminated'] = self.obs['terminated']
         driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
@@ -447,6 +448,9 @@ class RacingSimulation:
             car_state_with_noise = self.add_state_noise(car_state)
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
+            
+            # Pass simulation obsrvations to driver for IMU data access
+            driver.sim_obs = self.obs
 
 
     # Noise Level can now be set in Settings.py

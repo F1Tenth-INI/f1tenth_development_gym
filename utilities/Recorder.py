@@ -13,6 +13,7 @@ gym_path = get_gym_path()  # FIXME: Do we need it here?
 
 rounding_decimals = 5
 
+
 class Recorder:
     def __init__(self, driver):
 
@@ -130,7 +131,7 @@ class Recorder:
 
 
 
-def get_basic_data_dict(driver):
+def get_basic_data_dict(driver, sim_obs=None):
     # The below dict lists variables to be logged with csv file when recording is on
     # Just add new variable here and it will be logged
     time_dict = {
@@ -161,10 +162,9 @@ def get_basic_data_dict(driver):
     next_waypoints_dict = get_next_waypoints_dict(driver)
     next_waypoints_relative_dict = get_next_waypoints_relative_dict(driver)
 
-    imu_dict = {
-        key: (lambda k=key: driver.current_imu_dict[k])
-        for key in driver.current_imu_dict.keys()
-    }
+    # IMU data should be provided by the driver (from driver_obs)
+    imu_dict = getattr(driver, 'imu_dict', {})
+    
     
     if hasattr(driver, 'angular_control_dict'):
         angular_control_dict = {

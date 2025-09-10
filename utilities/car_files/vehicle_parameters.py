@@ -66,6 +66,8 @@ class VehicleParameters:
         if Settings.SURFACE_FRICTION is not None:
             self.mu = Settings.SURFACE_FRICTION
 
+    def to_dict(self):
+        return {k: getattr(self, k) for k in self.__annotations__}
 
     def to_np_array(self):
         return np.array([

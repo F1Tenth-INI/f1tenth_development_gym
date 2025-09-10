@@ -81,6 +81,7 @@ class ExperimentAnalyzer:
         self.plot_errors()
         self.plot_states()
         self.plot_controls()
+        self.plot_imu_data()
         self.save_error_stats()
         
         
@@ -188,6 +189,142 @@ class ExperimentAnalyzer:
         except Exception as e:
             print(f"Warning: No mu values found in recording: {e}")
 
+    def plot_imu_data(self):
+        """Plot IMU data including accelerometer, gyroscope, and orientation data."""
+        try:
+            # Check if IMU data columns exist
+            imu_columns = [col for col in self.recording.columns if col.startswith('imu_')]
+            if not imu_columns:
+                print("Warning: No IMU data found in recording")
+                return
+            
+            # Get time data
+            time_data = self.recording['time'].to_numpy()[1:]
+            
+            # Create figure with subplots for different IMU data types
+            fig, axes = plt.subplots(4, 1, figsize=(15, 20))
+            fig.suptitle('IMU Sensor Data', fontsize=16)
+            
+            # Plot 1: Accelerometer data
+            ax1 = axes[0]
+            accel_cols = [col for col in imu_columns if 'a_' in col and not 'quat' in col]
+            for col in accel_cols:
+                data = self.recording[col].to_numpy()[1:]
+                # Remove gravity from Z-axis accelerometer
+                if col == 'imu_a_z':
+                    data = data - 9.81  # Remove gravity component
+                ax1.plot(time_data, data, label=col.replace('imu_', ''))
+            ax1.set_title('Accelerometer Data (m/s²) - Gravity Removed from Z-axis')
+            ax1.set_ylabel('Acceleration (m/s²)')
+            ax1.legend()
+            ax1.grid(True)
+            
+            # Plot 2: Gyroscope data
+            ax2 = axes[1]
+            gyro_cols = [col for col in imu_columns if 'gyro_' in col]
+            for col in gyro_cols:
+                ax2.plot(time_data, self.recording[col].to_numpy()[1:], label=col.replace('imu_', ''))
+            ax2.set_title('Gyroscope Data (rad/s)')
+            ax2.set_ylabel('Angular Velocity (rad/s)')
+            ax2.legend()
+            ax2.grid(True)
+            
+            # Plot 3: Euler angles
+            ax3 = axes[2]
+            euler_cols = [col for col in imu_columns if col in ['imu_roll', 'imu_pitch', 'imu_yaw']]
+            for col in euler_cols:
+                ax3.plot(time_data, self.recording[col].to_numpy()[1:], label=col.replace('imu_', ''))
+            ax3.set_title('Euler Angles (rad)')
+            ax3.set_ylabel('Angle (rad)')
+            ax3.legend()
+            ax3.grid(True)
+            
+            # Plot 4: Quaternion data
+            ax4 = axes[3]
+            quat_cols = [col for col in imu_columns if 'quat_' in col]
+            for col in quat_cols:
+                ax4.plot(time_data, self.recording[col].to_numpy()[1:], label=col.replace('imu_', ''))
+            ax4.set_title('Quaternion Data')
+            ax4.set_ylabel('Quaternion Component')
+            ax4.set_xlabel('Time (s)')
+            ax4.legend()
+            ax4.grid(True)
+            
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.experiment_data_path, "imu_data.png"), dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            # Create additional detailed plots for accelerometer and gyroscope
+            self._plot_imu_detailed()
+            
+        except Exception as e:
+            print(f"Warning: Error plotting IMU data: {e}")
+    
+    def _plot_imu_detailed(self):
+        """Create detailed IMU plots with magnitude and individual components."""
+        try:
+            time_data = self.recording['time'].to_numpy()[1:]
+            
+            # Detailed accelerometer plot
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            fig.suptitle('Detailed IMU Analysis', fontsize=16)
+            
+            # Accelerometer magnitude (with gravity removed from Z-axis)
+            ax1 = axes[0, 0]
+            accel_x = self.recording['imu_a_x'].to_numpy()[1:]
+            accel_y = self.recording['imu_a_y'].to_numpy()[1:]
+            accel_z = self.recording['imu_a_z'].to_numpy()[1:] - 9.81  # Remove gravity
+            accel_magnitude = np.sqrt(accel_x**2 + accel_y**2 + accel_z**2)
+            ax1.plot(time_data, accel_magnitude, 'k-', linewidth=2, label='Magnitude (Z-gravity removed)')
+            ax1.axhline(y=0, color='r', linestyle='--', alpha=0.7, label='Zero reference')
+            ax1.set_title('Accelerometer Magnitude (Gravity Removed from Z-axis)')
+            ax1.set_ylabel('Acceleration (m/s²)')
+            ax1.legend()
+            ax1.grid(True)
+            
+            # Gyroscope magnitude
+            ax2 = axes[0, 1]
+            gyro_x = self.recording['imu_gyro_x'].to_numpy()[1:]
+            gyro_y = self.recording['imu_gyro_y'].to_numpy()[1:]
+            gyro_z = self.recording['imu_gyro_z'].to_numpy()[1:]
+            gyro_magnitude = np.sqrt(gyro_x**2 + gyro_y**2 + gyro_z**2)
+            ax2.plot(time_data, gyro_magnitude, 'k-', linewidth=2, label='Magnitude')
+            ax2.set_title('Gyroscope Magnitude')
+            ax2.set_ylabel('Angular Velocity (rad/s)')
+            ax2.legend()
+            ax2.grid(True)
+            
+            # Quaternion magnitude (should be close to 1)
+            ax3 = axes[1, 0]
+            quat_w = self.recording['imu_quat_w'].to_numpy()[1:]
+            quat_x = self.recording['imu_quat_x'].to_numpy()[1:]
+            quat_y = self.recording['imu_quat_y'].to_numpy()[1:]
+            quat_z = self.recording['imu_quat_z'].to_numpy()[1:]
+            quat_magnitude = np.sqrt(quat_w**2 + quat_x**2 + quat_y**2 + quat_z**2)
+            ax3.plot(time_data, quat_magnitude, 'k-', linewidth=2, label='Magnitude')
+            ax3.axhline(y=1.0, color='r', linestyle='--', alpha=0.7, label='Normalized (1.0)')
+            ax3.set_title('Quaternion Magnitude')
+            ax3.set_ylabel('Magnitude')
+            ax3.set_xlabel('Time (s)')
+            ax3.legend()
+            ax3.grid(True)
+            
+            # Yaw angle over time
+            ax4 = axes[1, 1]
+            yaw_angle = self.recording['imu_yaw'].to_numpy()[1:]
+            ax4.plot(time_data, yaw_angle, 'b-', linewidth=2, label='Yaw Angle')
+            ax4.set_title('Yaw Angle Over Time')
+            ax4.set_ylabel('Yaw Angle (rad)')
+            ax4.set_xlabel('Time (s)')
+            ax4.legend()
+            ax4.grid(True)
+            
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.experiment_data_path, "imu_detailed_analysis.png"), dpi=150, bbox_inches='tight')
+            plt.close()
+            
+        except Exception as e:
+            print(f"Warning: Error creating detailed IMU plots: {e}")
 
     
     def save_error_stats(self):
