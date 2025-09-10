@@ -31,6 +31,9 @@ class LearnerServer:
         replay_capacity: int = 100_000,
         learning_starts: int = 2000,
         batch_size: int = 1024,
+        learning_rate: float = 3e-4,
+        discount_factor: float = 0.99,
+        train_frequency: int = 1
     ):
         self.host = host
         self.port = port
@@ -39,6 +42,9 @@ class LearnerServer:
         self.train_every_seconds = train_every_seconds
         self.replay_capacity = replay_capacity
         self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.discount_factor = discount_factor
+        self.train_frequency = train_frequency
 
         # Settings
         self.learning_starts = learning_starts
@@ -92,7 +98,11 @@ class LearnerServer:
             self.model = SacUtilities.create_model(
                 env=dummy_env, 
                 buffer_size=self.replay_capacity, 
-                device=self.device
+                device=self.device,
+                learning_rate=self.learning_rate,
+                discount_factor=self.discount_factor,
+                train_freq=self.train_frequency,
+                batch_size=self.batch_size
             )
             print(f"[server] Success: Created new SAC model.")
 
@@ -460,6 +470,10 @@ def main():
     replay_capacity = 100_000
     learning_starts = 500
     batch_size = 256
+    learning_rate = 3e-4
+    discount_factor = 0.99
+    train_frequency = 1
+
 
 
 
@@ -474,6 +488,9 @@ def main():
     parser.add_argument("--replay-capacity", type=int, default=replay_capacity)
     parser.add_argument("--learning-starts", type=int, default=learning_starts)
     parser.add_argument("--batch-size", type=int, default=batch_size)
+    parser.add_argument("--learning-rate", type=float, default=learning_rate)
+    parser.add_argument("--discount-factor", type=float, default=discount_factor)
+    parser.add_argument("--train-frequency", type=int, default=train_frequency)
 
     args = parser.parse_args()
 
@@ -486,7 +503,10 @@ def main():
         grad_steps=args.gradient_steps,
         replay_capacity=args.replay_capacity,
         learning_starts=args.learning_starts,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        discount_factor=args.discount_factor,
+        train_frequency=args.train_frequency
     )
     asyncio.run(srv.run())
 

@@ -41,8 +41,21 @@ class _SpacesOnlyEnv(gym.Env):
 class SacUtilities:
 
     # --- define spaces ---
-    obs_low  = np.array([-1, -1, -1, -1] + [-1]*30 + [0]*40 + [-1]*6 + [-1]*2, dtype=np.float32)
-    obs_high = np.array([ 1,  1,  1,  1] + [ 1]*30 + [1]*40 + [ 1]*6 + [ 1]*2, dtype=np.float32)
+    obs_low  = np.array(
+        [-1, -1, -1, -1] +
+        [-1]*30 +
+        # [0]*40 + 
+        [0.]*60 +
+        [-1]*6 +
+        [-1]*2, dtype=np.float32)
+    
+    obs_high = np.array(
+        [ 1,  1,  1,  1] +
+        [ 1]*30 + 
+        # [1]*40 + 
+        [1.0]*60 +
+        [ 1]*6 + 
+        [ 1]*2, dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
@@ -55,7 +68,14 @@ class SacUtilities:
         return DummyVecEnv([SacUtilities.make_env])
 
     @staticmethod
-    def create_model(env, buffer_size=100_000, device="cpu") -> SAC:
+    def create_model(env, 
+                     buffer_size=100_000, 
+                     device="cpu",
+                     learning_rate=3e-4,
+                     discount_factor=0.99,
+                     batch_size=256,
+                     train_freq=1
+                     ) -> SAC:
         policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
         #  log_std_init=-3.5
 
@@ -64,13 +84,13 @@ class SacUtilities:
                     env=env,
                     verbose=0,
                     # ent_coef=0.01,
-                    train_freq=1,
-                    gamma=0.99,
-                    learning_rate=3e-4,
+                    train_freq=train_freq,
+                    gamma=discount_factor,
+                    learning_rate=learning_rate,
                     policy_kwargs=policy_kwargs,
                     buffer_size=buffer_size,
                     device=device,
-                    batch_size=1024,
+                    batch_size=batch_size,
                 )
         return model
     

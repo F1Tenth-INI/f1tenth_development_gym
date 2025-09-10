@@ -28,6 +28,8 @@ Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
 
 
+
+
 class RacingSimulation:
 
     def __init__(self):
@@ -52,6 +54,8 @@ class RacingSimulation:
         self.sim : Optional[Simulator] = None
         self.laptime = 0.0
         self.initial_states = None
+
+        self.step_end_time = 0
 
         
         self.renderer = None
@@ -238,6 +242,8 @@ class RacingSimulation:
         return driver_obs
 
     def simulation_step(self):
+
+        step_start_time = time.time()
         
         self.update_driver_state(self.drivers[0], 0)
         agent_controls = self.get_agent_controls()
@@ -258,7 +264,16 @@ class RacingSimulation:
         self.on_step_end()
         self.check_done()
 
-
+       
+        
+        # limit fps
+        if self.step_end_time is not None:
+            time_taken = time.time() - step_start_time
+            if(Settings.RENDER_MODE == "human_fast")  and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
+                time.sleep(0.25 * Settings.TIMESTEP_CONTROL - time_taken)
+            if Settings.RENDER_MODE == 'human' and time_taken < Settings.TIMESTEP_CONTROL:
+                time.sleep(Settings.TIMESTEP_CONTROL - time_taken)
+        self.step_end_time = time.time()
         # End of controller time step
 
 

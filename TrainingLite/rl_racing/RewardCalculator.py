@@ -82,6 +82,14 @@ class RewardCalculator:
             reward = -30
             self.truncated = True
 
+        # Terminate if track boundary is crossed
+        s, d, e, k = driver.waypoint_utils.get_frenet_coordinates(driver.car_state)
+        wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
+        wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
+        if d < -wp_distances_r or d > wp_distances_l:
+            reward = -30
+            self.truncated = True
+
 
         # Penalize action  
         steering_reward = - np.linalg.norm(0.003 * driver.angular_control)
@@ -145,12 +153,26 @@ class RewardCalculator:
             self.stuck_counter = 0
         reward += stuck_reward
 
+        # # Penalize beeing too fast
+        # suggested_speed = waypoint_utils.next_waypoints[0][WP_VX_IDX]
+        # if speed > suggested_speed:
+        #     reward -= (speed - suggested_speed) * 0.1
+
         # Update State
         self.last_steering = car_state[STEERING_ANGLE_IDX]
 
         # Debug Info (Optional)
         if self.print_info and reward != 0:
             print(f"Reward: {reward}")
+
+
+
+        # # Penalize backward driving by hecking the car_state[LINEAR_VEL_X_IDX]
+        # backward_driving_reward = 0.0
+        # if car_state[LINEAR_VEL_X_IDX] < 0:
+        #     backward_driving_reward = car_state[LINEAR_VEL_X_IDX] * 2.0
+        # reward += backward_driving_reward
+
 
         self.reward = reward
 

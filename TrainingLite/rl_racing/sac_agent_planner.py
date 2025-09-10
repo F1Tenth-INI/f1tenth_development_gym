@@ -211,10 +211,12 @@ class RLAgentPlanner(template_planner):
             "info":     info or {},
         }
         self._episode.append(transition)
-        self.transition_logger.log(transition)
+        if self.save_transitions:
+            self.transition_logger.log(transition)
 
         if done:
-            self.transition_logger.save_csv()
+            if self.save_transitions:
+                self.transition_logger.save_csv()
             if self.training_mode:
                 try:
                     self.client.send_transition_batch(self._episode)
@@ -250,6 +252,11 @@ class RLAgentPlanner(template_planner):
         # border_points_left, border_points_right = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
         curvatures = self.waypoint_utils.next_waypoints[:, WP_KAPPA_IDX]
 
+        border_distances_right = self.waypoint_utils.next_waypoints[:, WP_D_RIGHT_IDX]
+        border_distances_left = self.waypoint_utils.next_waypoints[:, WP_D_LEFT_IDX]
+        border_distances = np.concatenate([border_distances_right, border_distances_left])
+
+
         # Get frenet coordinates
         s, d, e, k = self.waypoint_utils.get_frenet_coordinates(car_state)
         # print(f"distance: {s}, lateral offset: {d}, heading error: {e}, curvature: {k}")
@@ -278,10 +285,25 @@ class RLAgentPlanner(template_planner):
         # ], dtype=np.float32)
         # last_states_features = last_states_features.reshape(-1)
 
-        observation_array = np.concatenate([state_features, curvatures, lidar, last_actions, [d], [e]]).astype(np.float32)
+        observation_array = np.concatenate([
+            state_features, 
+            curvatures, 
+            # lidar, 
+            border_distances,
+            last_actions, 
+            [d], 
+            [e]
+        ]).astype(np.float32)
 
         # match env normalization
-        normalization_array =  [0.1, 1.0, 0.5, 1 / 0.4] + [0.1] * len(curvatures) + [0.1] * len(lidar) + [1.0] * len(last_actions) + [0.5, 0.5] # Adjust normalization factors for each feature
+        normalization_array =  np.concatenate((
+            [0.1, 1.0, 0.5, 1 / 0.4], 
+            [1.0] * len(curvatures), 
+            # [0.1] * len(lidar), 
+            [1.0] * len(border_distances),
+            [1.0] * len(last_actions), 
+            [0.5, 0.5]
+            )) # Adjust normalization factors for each feature
 
         observation_array *= np.array(normalization_array, dtype=np.float32)
         return observation_array

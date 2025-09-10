@@ -504,7 +504,7 @@ class WaypointUtils:
 
     def get_frenet_coordinates(self, car_state):
         # s: arc-length along the raceline (distance traveled along the line).
-        # d: signed lateral offset from the raceline (left/right of the line).
+        # d: signed lateral offset from the raceline (left/right of the line). Left is positive, right is negative.
         # e: heading error (car yaw - raceline heading)
         # k: curvature of the raceline
         
