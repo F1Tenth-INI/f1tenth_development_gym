@@ -69,6 +69,14 @@ class RacingSimulation:
             self.state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
             self.time_axis = self.state_recording['time'].to_numpy()
             self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
+        
+        # State history for respawn functionality
+        self.state_history = []  # Store last N timesteps of simulation state
+        self.control_history = []  # Store last N timesteps of control inputs
+        self.obs_history = []  # Store last N timesteps of observations
+        self.sim_time_history = []  # Store last N timesteps of simulation time
+        self.sim_index_history = []  # Store last N timesteps of simulation index
+        self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
     
 
     '''
@@ -196,6 +204,12 @@ class RacingSimulation:
        
   
     def reset(self, poses = None):
+        # Check if respawn is enabled and we have enough history
+        if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
+            self.respawn()
+            return
+        
+        # Normal reset
         self.sim_index = 0
         
         # Populate control delay buffer
@@ -210,6 +224,12 @@ class RacingSimulation:
             driver : CarSystem = self.drivers[i]
             driver.reset()
 
+        # Clear state history on full reset
+        self.state_history.clear()
+        self.control_history.clear()
+        self.obs_history.clear()
+        self.sim_time_history.clear()
+        self.sim_index_history.clear()
 
         self.on_step_end()
 
@@ -275,8 +295,102 @@ class RacingSimulation:
             if Settings.RENDER_MODE == 'human' and time_taken < Settings.TIMESTEP_CONTROL:
                 time.sleep(Settings.TIMESTEP_CONTROL - time_taken)
         self.step_end_time = time.time()
+        
+        # Store state history for respawn functionality
+        self._update_state_history()
+
         # End of controller time step
 
+    def _update_state_history(self):
+        """Update state history for respawn functionality"""
+        # Store current state for all agents
+        current_states = []
+        for i in range(self.number_of_drivers):
+            current_states.append(self.sim.agents[i].state.copy())
+        
+        # Store current control inputs
+        current_controls = []
+        for i in range(self.number_of_drivers):
+            if hasattr(self.drivers[i], 'angular_control') and hasattr(self.drivers[i], 'translational_control'):
+                current_controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
+            else:
+                current_controls.append([0.0, 0.0])
+        
+        # Store current observations
+        current_obs = self.obs.copy() if self.obs is not None else {}
+        
+        # Add to history
+        self.state_history.append(current_states)
+        self.control_history.append(current_controls)
+        self.obs_history.append(current_obs)
+        self.sim_time_history.append(self.sim_time)
+        self.sim_index_history.append(self.sim_index)
+        
+        # Keep only last RESPAWN_HISTORY_LENGTH entries
+        if len(self.state_history) > self.RESPAWN_HISTORY_LENGTH:
+            self.state_history.pop(0)
+            self.control_history.pop(0)
+            self.obs_history.pop(0)
+            self.sim_time_history.pop(0)
+            self.sim_index_history.pop(0)
+
+    def respawn(self):
+        """Respawn the environment to a state from N timesteps ago (configurable via Settings.RESPAWN_SETBACK_TIMESTEPS)"""
+        if len(self.state_history) < self.RESPAWN_HISTORY_LENGTH:
+            print("Warning: Not enough state history for respawn. Falling back to full reset.")
+            self.reset()
+            return
+        
+        # Get state from N timesteps ago (first entry in history)
+        respawn_states = self.state_history[0]
+        respawn_controls = self.control_history[0]
+        respawn_obs = self.obs_history[0]
+        respawn_sim_time = self.sim_time_history[0]
+        respawn_sim_index = self.sim_index_history[0]
+        
+        # Reset simulation index and time
+        self.sim_index = respawn_sim_index
+        self.sim_time = respawn_sim_time
+        
+        # Reset simulator to respawn state
+        self.obs = self.sim.reset(initial_states=np.array(respawn_states))
+        
+        # Reset drivers
+        for i in range(self.number_of_drivers):
+            driver = self.drivers[i]
+            driver.reset()
+            # Set car state to respawn state
+            driver.set_car_state(respawn_states[i])
+            if 'scans' in respawn_obs and i < len(respawn_obs['scans']):
+                driver.set_scans(respawn_obs['scans'][i])
+        
+        # Clear control delay buffer and repopulate
+        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
+        self.control_delay_buffer.clear()
+        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)]
+        
+        # Clear state history to prevent respawn loops
+        self.state_history.clear()
+        self.control_history.clear()
+        self.obs_history.clear()
+        self.sim_time_history.clear()
+        self.sim_index_history.clear()
+        
+        self.on_step_end()
+
+    def manual_respawn(self):
+        """Manually trigger respawn - useful for testing or external control"""
+        if len(self.state_history) < self.RESPAWN_HISTORY_LENGTH:
+            print(f"Warning: Not enough state history for respawn. Need {self.RESPAWN_HISTORY_LENGTH}, have {len(self.state_history)}. Falling back to full reset.")
+            self.reset()
+            return
+        
+        print(f"Respawn triggered: Going back {self.RESPAWN_HISTORY_LENGTH} timesteps from sim_index {self.sim_index} to {self.sim_index_history[0]}")
+        self.respawn()
+
+    def can_respawn(self):
+        """Check if respawn is available (enough state history)"""
+        return len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH
 
     def get_agent_controls(self):
         self.get_control_for_history_forger()

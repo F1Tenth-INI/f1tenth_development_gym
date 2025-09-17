@@ -66,7 +66,9 @@ class Settings():
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     
     MAX_CRASH_REPETITIONS = 10000000
-
+    RESET_ON_DONE = True  # Reset the environment when done
+    RESPAWN_ON_RESET = True  # If True, respawn to state N timesteps ago instead of complete reset
+    RESPAWN_SETBACK_TIMESTEPS = 50  # Number of timesteps to go back when respawning
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
