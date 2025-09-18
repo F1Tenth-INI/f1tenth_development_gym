@@ -27,6 +27,18 @@ from tkinter import ttk, filedialog, messagebox
 import jax.numpy as jnp
 from typing import Dict, List, Optional, Tuple
 
+# Configure matplotlib for normal plot fonts
+import matplotlib
+matplotlib.rcParams['figure.dpi'] = 100
+matplotlib.rcParams['savefig.dpi'] = 300
+matplotlib.rcParams['font.size'] = 12  # Normal plot font size
+matplotlib.rcParams['axes.titlesize'] = 14  # Normal plot title size
+matplotlib.rcParams['axes.labelsize'] = 12  # Normal plot label size
+matplotlib.rcParams['xtick.labelsize'] = 10  # Normal tick label size
+matplotlib.rcParams['ytick.labelsize'] = 10  # Normal tick label size
+matplotlib.rcParams['legend.fontsize'] = 11  # Normal legend size
+matplotlib.rcParams['figure.titlesize'] = 16  # Normal figure title size
+
 # Add the parent directories to path to import simulation modules
 current_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(current_dir)
@@ -51,7 +63,14 @@ class StateComparisonVisualizer:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("State Comparison Visualizer")
-        self.root.geometry("1200x800")
+        
+        # Detect and handle high DPI displays
+        self.setup_dpi_scaling()
+        
+        # Setup larger UI fonts for control panel
+        self.setup_ui_fonts()
+        
+        self.root.geometry("1800x1100")  # Extra large window for much larger fonts
         
         # Data storage
         self.data = None
@@ -77,15 +96,17 @@ class StateComparisonVisualizer:
         self.available_models = {
             'pacejka': 'Pure Pacejka Model',
             'pacejka_custom': 'Pacejka Model with Customization',
+            'pacejka_residual': 'Pacejka Model with Residuals',
+            'direct': 'Direct Dynamics Neural Network',
         }
         
-        # Available car parameter files
-        self.available_car_params = {
-            'mpc_car_parameters.yml': 'MPC Car Parameters',
-            'gym_car_parameters.yml': 'Gym Car Parameters',
-            'ini_car_parameters.yml': 'INI Car Parameters',
-            'custom_car_parameters.yml': 'Custom Car Parameters'
-        }
+        # Available car parameter files - automatically detect all YAML files
+        self.available_car_params = {}
+        car_files_dir = os.path.join(parent_dir, 'utilities', 'car_files')
+        if os.path.exists(car_files_dir):
+            for filename in os.listdir(car_files_dir):
+                if filename.endswith('.yml') or filename.endswith('.yaml'):
+                    self.available_car_params[filename] = filename
         
         # Use centralized state mapping from utilities
         self.state_indices = STATE_INDICES
@@ -99,6 +120,88 @@ class StateComparisonVisualizer:
         
         # Set up cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+    def setup_dpi_scaling(self):
+        """Setup DPI scaling for high resolution displays."""
+        try:
+            # Get screen DPI
+            dpi = self.root.winfo_fpixels('1i')
+            
+            # Calculate scaling factor (assuming 96 DPI as baseline)
+            scale_factor = max(1.0, dpi / 96.0)
+            
+            # Normal scaling for plots, but keep UI scaling
+            if scale_factor > 1.2:  # Only scale for high DPI displays
+                # Moderate scaling for plot readability
+                plot_scale = max(1.2, scale_factor * 0.8)  # Moderate scaling for plots
+                
+                matplotlib.rcParams['figure.dpi'] = int(100 * plot_scale)
+                matplotlib.rcParams['font.size'] = int(12 * plot_scale)
+                matplotlib.rcParams['axes.titlesize'] = int(14 * plot_scale)
+                matplotlib.rcParams['axes.labelsize'] = int(12 * plot_scale)
+                matplotlib.rcParams['xtick.labelsize'] = int(10 * plot_scale)
+                matplotlib.rcParams['ytick.labelsize'] = int(10 * plot_scale)
+                matplotlib.rcParams['legend.fontsize'] = int(11 * plot_scale)
+                matplotlib.rcParams['figure.titlesize'] = int(16 * plot_scale)
+                
+                print(f"Moderate plot scaling applied (DPI: {dpi:.1f}). Plot scale: {plot_scale:.1f}x")
+            
+            # Set tkinter scaling for better text rendering
+            try:
+                self.root.tk.call('tk', 'scaling', max(1.2, scale_factor))
+            except:
+                pass  # Some systems don't support tk scaling
+                
+        except Exception as e:
+            print(f"Could not detect DPI scaling: {e}")
+            # Use normal default fonts for plots
+            matplotlib.rcParams['font.size'] = 12
+            matplotlib.rcParams['axes.titlesize'] = 14
+            matplotlib.rcParams['axes.labelsize'] = 12
+            matplotlib.rcParams['xtick.labelsize'] = 10
+            matplotlib.rcParams['ytick.labelsize'] = 10
+            matplotlib.rcParams['legend.fontsize'] = 11
+            matplotlib.rcParams['figure.titlesize'] = 16
+    
+    def setup_ui_fonts(self):
+        """Setup much larger fonts for the UI control panel."""
+        try:
+            import tkinter.font as tkFont
+            
+            # Create much larger custom fonts
+            self.large_font = tkFont.Font(family="Arial", size=14, weight="normal")
+            self.large_bold_font = tkFont.Font(family="Arial", size=14, weight="bold")
+            self.button_font = tkFont.Font(family="Arial", size=13, weight="normal")
+            self.metrics_font = tkFont.Font(family="Arial", size=13, weight="bold")
+            
+            # Configure ttk styles with much larger fonts
+            style = ttk.Style()
+            
+            # Configure all styles with larger fonts
+            style.configure('Large.TLabel', font=self.large_font)
+            style.configure('Bold.TLabel', font=self.large_bold_font)
+            style.configure('Large.TButton', font=self.button_font)
+            style.configure('Large.TEntry', font=self.large_font)
+            style.configure('Large.TCombobox', font=self.large_font)
+            style.configure('Large.TCheckbutton', font=self.large_font)
+            
+            # Set default fonts for all ttk widgets
+            style.configure('TLabel', font=self.large_font)
+            style.configure('TButton', font=self.button_font)
+            style.configure('TEntry', font=self.large_font)
+            style.configure('TCombobox', font=self.large_font)
+            style.configure('TCheckbutton', font=self.large_font)
+            style.configure('TLabelFrame', font=self.large_bold_font)
+            
+            print("Large UI fonts configured (14pt base, 13pt buttons)")
+            
+        except Exception as e:
+            print(f"Could not configure UI fonts: {e}")
+            # Fallback to system fonts
+            self.large_font = None
+            self.large_bold_font = None
+            self.button_font = None
+            self.metrics_font = None
         
     def _on_closing(self):
         """Clean up resources when the window is closed."""
@@ -131,39 +234,42 @@ class StateComparisonVisualizer:
         file_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         ttk.Button(file_frame, text="Load CSV File", 
-                  command=self.load_csv_file).pack(pady=2)
+                  command=self.load_csv_file, style='Large.TButton').pack(pady=2)
         
         self.file_label = ttk.Label(file_frame, text="No file loaded", 
-                                   wraplength=200)
+                                   wraplength=200, style='Large.TLabel')
         self.file_label.pack(pady=2)
         
         # Data range controls
-        ttk.Label(file_frame, text="Start Index:").pack()
+        ttk.Label(file_frame, text="Start Index:", style='Bold.TLabel').pack()
         self.start_index_var = tk.StringVar(value="0")
-        ttk.Entry(file_frame, textvariable=self.start_index_var, width=10).pack()
+        ttk.Entry(file_frame, textvariable=self.start_index_var, width=10, 
+                 style='Large.TEntry').pack()
         
-        ttk.Label(file_frame, text="End Index:").pack()
+        ttk.Label(file_frame, text="End Index:", style='Bold.TLabel').pack()
         self.end_index_var = tk.StringVar(value="")
-        ttk.Entry(file_frame, textvariable=self.end_index_var, width=10).pack()
+        ttk.Entry(file_frame, textvariable=self.end_index_var, width=10, 
+                 style='Large.TEntry').pack()
         
         ttk.Button(file_frame, text="Update Range", 
-                  command=self.update_data_range).pack(pady=2)
+                  command=self.update_data_range, style='Large.TButton').pack(pady=2)
         
         # State selection
         state_frame = ttk.LabelFrame(parent, text="State Selection")
         state_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
-        ttk.Label(state_frame, text="Select State:").pack()
+        ttk.Label(state_frame, text="Select State:", style='Bold.TLabel').pack()
         self.state_var = tk.StringVar()
         self.state_combo = ttk.Combobox(state_frame, textvariable=self.state_var,
-                                       values=self.state_columns, state='readonly')
+                                       values=self.state_columns, state='readonly',
+                                       style='Large.TCombobox')
         self.state_combo.pack(pady=2)
         self.state_combo.bind('<<ComboboxSelected>>', self.on_state_changed)
         
         self.show_controls = tk.BooleanVar(value=False)
         ttk.Checkbutton(state_frame, text="Show Control Plots",
                        variable=self.show_controls,
-                       command=self.on_show_controls_toggled).pack(pady=2)
+                       command=self.on_show_controls_toggled, style='Large.TCheckbutton').pack(pady=2)
         
         # Model Comparison options
         comparison_frame = ttk.LabelFrame(parent, text="Model Comparison")
@@ -172,27 +278,28 @@ class StateComparisonVisualizer:
         self.enable_comparison = tk.BooleanVar(value=True)  # Default enabled
         ttk.Checkbutton(comparison_frame, text="Enable Comparison",
                        variable=self.enable_comparison,
-                       command=self.on_comparison_toggled).pack()
+                       command=self.on_comparison_toggled, style='Large.TCheckbutton').pack()
         
-        ttk.Label(comparison_frame, text="Car Model:").pack()
+        ttk.Label(comparison_frame, text="Car Model:", style='Bold.TLabel').pack()
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(comparison_frame, textvariable=self.model_var,
                                        values=list(self.available_models.values()),
-                                       state='readonly')
+                                       state='readonly', style='Large.TCombobox')
         self.model_combo.pack(pady=2)
         self.model_combo.bind('<<ComboboxSelected>>', self.on_model_changed)
         
-        ttk.Label(comparison_frame, text="Car Parameters:").pack()
+        ttk.Label(comparison_frame, text="Car Parameters:", style='Bold.TLabel').pack()
         self.params_var = tk.StringVar()
         self.params_combo = ttk.Combobox(comparison_frame, textvariable=self.params_var,
                                         values=list(self.available_car_params.values()),
-                                        state='readonly')
+                                        state='readonly', style='Large.TCombobox')
         self.params_combo.pack(pady=2)
         self.params_combo.bind('<<ComboboxSelected>>', self.on_params_changed)
         
-        ttk.Label(comparison_frame, text="Horizon Steps:").pack()
+        ttk.Label(comparison_frame, text="Horizon Steps:", style='Bold.TLabel').pack()
         self.horizon_var = tk.StringVar(value="50")
-        horizon_entry = ttk.Entry(comparison_frame, textvariable=self.horizon_var, width=10)
+        horizon_entry = ttk.Entry(comparison_frame, textvariable=self.horizon_var, width=10,
+                                 style='Large.TEntry')
         horizon_entry.pack()
         horizon_entry.bind('<KeyRelease>', self.on_horizon_changed)
         
@@ -200,35 +307,65 @@ class StateComparisonVisualizer:
         settings_frame = ttk.LabelFrame(parent, text="Settings")
         settings_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
-        ttk.Label(settings_frame, text="Steering Delay Steps:").pack()
-        self.steering_delay_var = tk.StringVar(value="1")
-        steering_delay_entry = ttk.Entry(settings_frame, textvariable=self.steering_delay_var, width=10)
+        ttk.Label(settings_frame, text="Steering Delay Steps:", style='Bold.TLabel').pack()
+        self.steering_delay_var = tk.StringVar(value="2")
+        steering_delay_entry = ttk.Entry(settings_frame, textvariable=self.steering_delay_var, width=10,
+                                        style='Large.TEntry')
         steering_delay_entry.pack()
         steering_delay_entry.bind('<KeyRelease>', self.on_steering_delay_changed)
         
-        ttk.Label(settings_frame, text="Acceleration Delay Steps:").pack()
-        self.acceleration_delay_var = tk.StringVar(value="1")
-        acceleration_delay_entry = ttk.Entry(settings_frame, textvariable=self.acceleration_delay_var, width=10)
+        ttk.Label(settings_frame, text="Acceleration Delay Steps:", style='Bold.TLabel').pack()
+        self.acceleration_delay_var = tk.StringVar(value="2")
+        acceleration_delay_entry = ttk.Entry(settings_frame, textvariable=self.acceleration_delay_var, width=10,
+                                            style='Large.TEntry')
         acceleration_delay_entry.pack()
         acceleration_delay_entry.bind('<KeyRelease>', self.on_acceleration_delay_changed)
         
         # Add explanatory label for control delays
         delay_help_label = ttk.Label(settings_frame, 
                                    text="(0 = no delay, 4 = use control\nfrom 4 timesteps ago)",
-                                   font=('TkDefaultFont', 8), 
-                                   foreground='gray')
+                                   style='Large.TLabel', foreground='gray')
         delay_help_label.pack(pady=(0, 5))
         
         ttk.Button(settings_frame, text="Run Full Comparison",
-                  command=self.run_full_comparison).pack(pady=5)
+                  command=self.run_full_comparison, style='Large.TButton').pack(pady=5)
         
         ttk.Button(settings_frame, text="Save Plot",
-                  command=self.save_plot).pack(pady=2)
+                  command=self.save_plot, style='Large.TButton').pack(pady=2)
         
         self.show_all_comparisons = tk.BooleanVar()
         ttk.Checkbutton(settings_frame, text="Show All Comparisons",
                        variable=self.show_all_comparisons,
-                       command=self.on_show_all_comparisons_toggled).pack(pady=2)
+                       command=self.on_show_all_comparisons_toggled, style='Large.TCheckbutton').pack(pady=2)
+        
+        # Metrics display section
+        metrics_frame = ttk.LabelFrame(parent, text="Error Metrics")
+        metrics_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        
+        # Create labels for metrics display with larger fonts
+        self.metrics_labels = {}
+        metrics_list = ['Mean Error', 'Max Error', 'Error Std', 'RMSE']
+        for metric in metrics_list:
+            ttk.Label(metrics_frame, text=f"{metric}:", style='Bold.TLabel').pack(anchor='w')
+            self.metrics_labels[metric.lower().replace(' ', '_')] = ttk.Label(
+                metrics_frame, text="N/A", style='Large.TLabel'
+            )
+            self.metrics_labels[metric.lower().replace(' ', '_')].pack(anchor='w', pady=(0, 5))
+        
+        # Show metrics for current comparison checkbox
+        self.show_metrics = tk.BooleanVar(value=True)
+        ttk.Checkbutton(metrics_frame, text="Show Metrics",
+                       variable=self.show_metrics,
+                       command=self.on_show_metrics_toggled, style='Large.TCheckbutton').pack(pady=2)
+        
+        # Font size control (for plot fonts)
+        ttk.Label(metrics_frame, text="Plot Font Size:", style='Bold.TLabel').pack(anchor='w')
+        self.font_size_var = tk.StringVar(value="12")  # Default to normal size
+        font_size_combo = ttk.Combobox(metrics_frame, textvariable=self.font_size_var,
+                                      values=["8", "10", "12", "14", "16", "18", "20"], 
+                                      state='readonly', width=8, style='Large.TCombobox')
+        font_size_combo.pack(anchor='w', pady=2)
+        font_size_combo.bind('<<ComboboxSelected>>', self.on_font_size_changed)
         
     def setup_plot_area(self, parent):
         """Setup the plotting area."""
@@ -252,8 +389,9 @@ class StateComparisonVisualizer:
             self.comparison_index_label = ttk.Label(slider_frame, text="Index: 0")
             self.comparison_index_label.pack(side=tk.RIGHT, padx=5)
             
-            # Create figure with zoom/pan capabilities
-            self.fig = Figure(figsize=(12, 10), dpi=100)
+            # Create figure with zoom/pan capabilities and proper DPI
+            current_dpi = matplotlib.rcParams['figure.dpi']
+            self.fig = Figure(figsize=(12, 10), dpi=current_dpi)
             
             # Initially create just the main plot (single subplot)
             self.ax = self.fig.add_subplot(111)  # Full-size single plot
@@ -384,6 +522,61 @@ class StateComparisonVisualizer:
                 self.comparison_slider.config(state='normal')
         
         self.plot_state()
+        
+    def on_show_metrics_toggled(self):
+        """Handle show metrics checkbox toggle."""
+        self.update_metrics_display()
+        
+    def on_font_size_changed(self, event=None):
+        """Handle font size change."""
+        try:
+            font_size = int(self.font_size_var.get())
+            
+            # Update matplotlib font sizes with normal proportions
+            matplotlib.rcParams['font.size'] = font_size
+            matplotlib.rcParams['axes.titlesize'] = font_size + 2  # Normal title
+            matplotlib.rcParams['axes.labelsize'] = font_size  # Same as base
+            matplotlib.rcParams['xtick.labelsize'] = font_size - 2  # Smaller ticks
+            matplotlib.rcParams['ytick.labelsize'] = font_size - 2  # Smaller ticks
+            matplotlib.rcParams['legend.fontsize'] = font_size - 1  # Slightly smaller legend
+            matplotlib.rcParams['figure.titlesize'] = font_size + 4  # Normal figure title
+            
+            # Update existing plot
+            if self.fig is not None:
+                # Redraw with new font sizes
+                self.canvas.draw()
+                
+        except ValueError:
+            # Invalid font size, revert to default
+            self.font_size_var.set("12")
+        
+    def update_metrics_display(self):
+        """Update the metrics display based on current comparison."""
+        if not hasattr(self, 'metrics_labels') or not self.show_metrics.get():
+            # Hide metrics if checkbox is unchecked
+            for label in self.metrics_labels.values():
+                label.config(text="N/A")
+            return
+        
+        selected_state = self.state_var.get()
+        if not selected_state or not self.enable_comparison.get():
+            for label in self.metrics_labels.values():
+                label.config(text="N/A")
+            return
+        
+        # Calculate metrics for the entire data range (from start_index to end_index)
+        metrics = self.calculate_metrics_for_entire_range(selected_state)
+        
+        if metrics:
+            # Update display labels
+            self.metrics_labels['mean_error'].config(text=f"{metrics['mean_error']:.4f}")
+            self.metrics_labels['max_error'].config(text=f"{metrics['max_error']:.4f}")
+            self.metrics_labels['error_std'].config(text=f"{metrics['error_std']:.4f}")
+            self.metrics_labels['rmse'].config(text=f"{metrics['rmse']:.4f}")
+        else:
+            # If we get here, no valid metrics could be calculated
+            for label in self.metrics_labels.values():
+                label.config(text="N/A")
         
     def on_comparison_toggled(self):
         """Handle comparison checkbox toggle."""
@@ -605,6 +798,9 @@ class StateComparisonVisualizer:
             self.plot_controls(start_idx, end_idx, time_data)
         
         self.canvas.draw()
+        
+        # Update metrics display after plotting
+        self.update_metrics_display()
         
     def plot_prediction_with_gradient(self, time_data, prediction_data, trajectory_index, horizon, label=None):
         """Plot prediction with color gradient over horizon."""
@@ -903,8 +1099,9 @@ class StateComparisonVisualizer:
         
         if file_path:
             try:
-                # Save the figure with high DPI for better quality
-                self.fig.savefig(file_path, dpi=300, bbox_inches='tight', 
+                # Save the figure with current DPI settings for consistent quality
+                current_dpi = matplotlib.rcParams['savefig.dpi']
+                self.fig.savefig(file_path, dpi=current_dpi, bbox_inches='tight', 
                                facecolor='white', edgecolor='none')
                 messagebox.showinfo("Success", f"Plot saved to: {file_path}")
             except Exception as e:
@@ -997,6 +1194,8 @@ class StateComparisonVisualizer:
             
         except Exception as e:
             print(f"Single comparison failed for index {start_index}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
             
     def _run_model_prediction(self, model_name, initial_state, control_sequence, car_params, dt, horizon):
@@ -1023,40 +1222,56 @@ class StateComparisonVisualizer:
             return None
         except Exception as e:
             print(f"Model prediction failed: {e}")
+            import traceback
+            traceback.print_exc()
             return None
             
     def run_full_comparison(self):
         """Run model comparison for multiple start indices to enable sliding comparison."""
+        import importlib
+        import sys
+        # Force reload car_model_jax and dynamic_model_pacejka_jax using importlib.reload
+        if 'sim.f110_sim.envs.dynamic_model_pacejka_jax' in sys.modules:
+            importlib.reload(sys.modules['sim.f110_sim.envs.dynamic_model_pacejka_jax'])
+        else:
+            import sim.f110_sim.envs.dynamic_model_pacejka_jax
+        if 'sim.f110_sim.envs.car_model_jax' in sys.modules:
+            importlib.reload(sys.modules['sim.f110_sim.envs.car_model_jax'])
+        else:
+            import sim.f110_sim.envs.car_model_jax
+        global car_steps_sequential_jax
+        car_steps_sequential_jax = sys.modules['sim.f110_sim.envs.car_model_jax'].car_steps_sequential_jax
+
         horizon = self._validate_comparison_requirements()
         if not horizon:
             return
-        
+
         # Force reload car parameters at the start to ensure we have the latest values
         param_file = self.get_car_parameters_filename(self.params_var.get())
         test_params = self.load_car_parameters(param_file)
         if test_params is None:
             messagebox.showerror("Error", "Failed to load car parameters.")
             return
-            
+
         print(f"Car parameters reloaded from {param_file}")
-        
+
         # Clear previous comparison data
         self.comparison_data_dict = {}
-        
+
         # Determine range of start indices based on current data range settings
         effective_start = self.start_index if self.start_index is not None else 0
         effective_end = self.end_index if self.end_index is not None else len(self.data) if self.data is not None else 0
         max_start_idx = effective_end - horizon
-        
+
         if max_start_idx <= effective_start:
             messagebox.showerror("Error", "Horizon is larger than available data in current range.")
             return
-            
+
         # Use a reasonable step size for performance within the current data range
         range_size = max_start_idx - effective_start
         step_size = max(1, range_size // 100)  # Compute ~100 predictions max
         start_indices = list(range(effective_start, max_start_idx, step_size))
-        
+
         # Show progress
         progress_window = tk.Toplevel(self.root)
         progress_window.title("Computing Predictions...")
@@ -1067,38 +1282,30 @@ class StateComparisonVisualizer:
         progress_label = ttk.Label(progress_window, text="Starting...")
         progress_label.pack()
         progress_window.update()
-        
+
         try:
             successful_comparisons = 0
-            
             for i, start_idx in enumerate(start_indices):
                 # Update progress
                 progress_var.set(i)
                 progress_label.config(text=f"Computing prediction {i+1}/{len(start_indices)} (start index: {start_idx})")
                 progress_window.update()
-                
                 # Run single comparison for this index
                 if self.run_single_comparison(start_idx):
                     successful_comparisons += 1
-                    
             progress_window.destroy()
-            
             if successful_comparisons == 0:
                 messagebox.showerror("Error", "No successful comparisons computed.")
                 return
-            
             # Enable comparison checkbox
             self.enable_comparison.set(True)
-            
             # Update slider range properly using the existing method that respects data constraints
             self.update_comparison_slider_range()
-            
             # If we have computed data, set the slider to a reasonable starting position within current range
             if self.comparison_data_dict:
                 computed_indices = list(self.comparison_data_dict.keys())
                 current_min = self.comparison_slider.cget('from')
                 current_max = self.comparison_slider.cget('to')
-                
                 # Find the first computed index that's within the current slider range
                 valid_indices = [idx for idx in computed_indices if current_min <= idx <= current_max]
                 if valid_indices:
@@ -1108,13 +1315,10 @@ class StateComparisonVisualizer:
                     # If no computed indices are in range, set to the start of the range
                     self.comparison_start_var.set(int(current_min))
                     self.comparison_start_index = int(current_min)
-            
             # Refresh plot
             self.plot_state()
-            
             print(f"Full comparison completed. {successful_comparisons}/{len(start_indices)} successful comparisons.")
             print(f"Available indices: {list(self.comparison_data_dict.keys())}")
-            
         except Exception as e:
             progress_window.destroy()
             messagebox.showerror("Error", f"Model comparison failed: {str(e)}")
@@ -1185,7 +1389,8 @@ class StateComparisonVisualizer:
                     first_control = self.data[STEERING_CONTROL_COLUMN].iloc[0]
                     offset = max(0, -steering_start_index)
                     actual_length = min(horizon - offset, available_end - available_start)
-                    control_sequence[offset:offset + actual_length, 0] = self.data[STEERING_CONTROL_COLUMN].iloc[available_start:available_end].values
+                    if actual_length > 0:
+                        control_sequence[offset:offset + actual_length, 0] = self.data[STEERING_CONTROL_COLUMN].iloc[available_start:available_start + actual_length].values
                     # Fill the initial delayed timesteps with the first control value
                     if offset > 0:
                         control_sequence[:offset, 0] = first_control
@@ -1213,7 +1418,8 @@ class StateComparisonVisualizer:
                     first_control = self.data[ACCELERATION_CONTROL_COLUMN].iloc[0]
                     offset = max(0, -acceleration_start_index)
                     actual_length = min(horizon - offset, available_end - available_start)
-                    control_sequence[offset:offset + actual_length, 1] = self.data[ACCELERATION_CONTROL_COLUMN].iloc[available_start:available_end].values
+                    if actual_length > 0:
+                        control_sequence[offset:offset + actual_length, 1] = self.data[ACCELERATION_CONTROL_COLUMN].iloc[available_start:available_start + actual_length].values
                     # Fill the initial delayed timesteps with the first control value
                     if offset > 0:
                         control_sequence[:offset, 1] = first_control
@@ -1235,16 +1441,130 @@ class StateComparisonVisualizer:
                 comparison_data[col_name] = predicted_states[:, idx]
                 
         return comparison_data
+    
+    def calculate_error_metrics(self, ground_truth, prediction, state_name):
+        """Calculate error metrics between ground truth and prediction for a given state."""
+        if len(ground_truth) == 0 or len(prediction) == 0:
+            return None
+        
+        # Ensure both arrays have the same length for comparison
+        min_length = min(len(ground_truth), len(prediction))
+        gt_data = np.array(ground_truth[:min_length])
+        pred_data = np.array(prediction[:min_length])
+        
+        # Calculate error (deviation from ground truth to prediction)
+        error = pred_data - gt_data
+        
+        # Calculate metrics
+        mean_error = np.mean(error)
+        max_error = np.max(np.abs(error))
+        error_std = np.std(error)
+        
+        return {
+            'mean_error': mean_error,
+            'max_error': max_error,
+            'error_std': error_std,
+            'rmse': np.sqrt(np.mean(error**2))
+        }
+    
+    def get_ground_truth_for_comparison(self, start_idx, horizon, state_name):
+        """Get ground truth data for comparison with prediction."""
+        if self.data is None or state_name not in self.data.columns:
+            return None
+        
+        end_idx = min(start_idx + horizon, len(self.data))
+        return self.data[state_name].iloc[start_idx:end_idx].values
+    
+    def calculate_metrics_for_entire_range(self, state_name):
+        """Calculate error metrics for the entire data range using model predictions."""
+        if self.data is None or state_name not in self.data.columns:
+            return None
+        
+        # Get the current data range
+        start_idx = self.start_index
+        end_idx = self.end_index if self.end_index is not None else len(self.data)
+        
+        if start_idx >= end_idx:
+            return None
+        
+        # Get ground truth data for the entire range
+        ground_truth = self.data[state_name].iloc[start_idx:end_idx].values
+        
+        # Generate model predictions for the entire range
+        # We'll use a sliding window approach to get predictions for each timestep
+        predictions = []
+        
+        try:
+            # Get model parameters
+            model_name = self.get_model_key(self.model_var.get())
+            param_file = self.get_car_parameters_filename(self.params_var.get())
+            car_params = self.load_car_parameters(param_file)
+            
+            if car_params is None:
+                return None
+            
+            # Use a reasonable horizon for individual predictions (e.g., 10 steps)
+            prediction_horizon = min(10, end_idx - start_idx)
+            
+            # Generate predictions for each timestep in the range
+            for i in range(start_idx, end_idx - prediction_horizon + 1):
+                # Extract initial state and control sequence
+                initial_state = self.extract_initial_state_at_index(i)
+                control_sequence = self.extract_control_sequence_at_index(i, prediction_horizon)
+                dt = self.get_timestep()
+                
+                # Run model prediction
+                predicted_states = self._run_model_prediction(model_name, initial_state, control_sequence, car_params, dt, prediction_horizon)
+                
+                if predicted_states is not None:
+                    # Get the state index for the selected state
+                    state_idx = self.state_indices.get(state_name, 0)
+                    # Take only the first prediction step (next timestep)
+                    predictions.append(predicted_states[0, state_idx])
+                else:
+                    # If prediction fails, use the current ground truth value
+                    predictions.append(ground_truth[i - start_idx])
+            
+            # Pad predictions to match ground truth length if needed
+            while len(predictions) < len(ground_truth):
+                predictions.append(ground_truth[len(predictions)])
+            
+            # Ensure both arrays have the same length
+            min_length = min(len(ground_truth), len(predictions))
+            gt_data = np.array(ground_truth[:min_length])
+            pred_data = np.array(predictions[:min_length])
+            
+            # Calculate error (deviation from ground truth to prediction)
+            error = pred_data - gt_data
+            
+            # Calculate metrics
+            mean_error = np.mean(error)
+            max_error = np.max(np.abs(error))
+            error_std = np.std(error)
+            rmse = np.sqrt(np.mean(error**2))
+            
+            return {
+                'mean_error': mean_error,
+                'max_error': max_error,
+                'error_std': error_std,
+                'rmse': rmse
+            }
+            
+        except Exception as e:
+            print(f"Error calculating metrics for entire range: {e}")
+            return None
         
     def run(self):
         """Start the application."""
-        # Set default CSV file if it exists
-        default_csv = os.path.join(os.path.dirname(__file__), '..', 'ExperimentRecordings', 'Test.csv')
+        # Set specific recording file to auto-load
+        default_csv = os.path.join(os.path.dirname(__file__), '..', 'ExperimentRecordings', 
+                                  '2025-09-15_04-49-49_Recording1_0_IPZ7_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv')
         if os.path.exists(default_csv):
-            # Auto-load default file
+            # Auto-load specific recording file
             try:
                 self.data = pd.read_csv(default_csv, comment='#')
-                self.file_label.config(text="Loaded: Test.csv (default)")
+                filename = os.path.basename(default_csv)
+                self.file_label.config(text=f"Loaded: {filename} (auto)")
                 
                 # Set up initial state
                 available_states = [col for col in self.state_columns if col in self.data.columns]
@@ -1266,7 +1586,7 @@ class StateComparisonVisualizer:
                 
                 self.plot_state()
             except Exception as e:
-                print(f"Could not auto-load default CSV: {e}")
+                print(f"Could not auto-load specific recording CSV: {e}")
                 
         self.root.mainloop()
 
