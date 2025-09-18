@@ -28,7 +28,8 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     
     # Unpack car parameters from JAX array
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
-    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch, c_rr = car_params
+    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch, c_rr, \
+    v_dead, curve_resistance_factor, brake_multiplier = car_params
 
     # Calculate sub-timestep for intermediate integration
     dt_sub = dt / intermediate_steps
@@ -56,8 +57,13 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         
         delta_dot = jnp.clip(delta_dot, sv_min, sv_max)
 
-        # Apply acceleration constraints (match original exactly)
-        v_x_dot = translational_control
+        # Apply acceleration constraints with asymmetric braking
+        # Use brake_multiplier parameter for asymmetric acceleration/braking
+        v_x_dot = jnp.where(
+            translational_control >= 0,
+            translational_control,  # Acceleration unchanged
+            translational_control * brake_multiplier  # Scale down braking
+        )
         
         # Velocity constraints (stop acceleration when at velocity limits)
         v_too_low = jnp.logical_and(v_x < v_min, v_x_dot < 0)
@@ -69,10 +75,11 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         v_x_dot = jnp.clip(v_x_dot, a_min, pos_limit)
         
         
-        # --- rolling resistance ---
+        # --- Enhanced resistance forces ---
         # Smooth sign near 0 to avoid pulling car backwards at rest
-        v_dead = 0.05  # m/s deadband; tune if needed
         smooth_sign = v_x / jnp.sqrt(v_x*v_x + v_dead*v_dead)
+        
+        # 1. Rolling resistance (proportional to normal force)
         a_roll = -c_rr * g_ * smooth_sign
         v_x_dot += a_roll
         
@@ -94,6 +101,13 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         # Compute lateral forces using Pacejka's formula
         Fy_f = mu * F_zf * D_f * jnp.sin(C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
         Fy_r = mu * F_zr * D_r * jnp.sin(C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
+        
+        # 3. Curve resistance (tire scrub during cornering)
+        # Additional rolling resistance due to lateral forces
+        # This creates the "slowing down in curves" effect
+        lateral_force_magnitude = jnp.sqrt(Fy_f*Fy_f + Fy_r*Fy_r)
+        a_curve = -curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
+        v_x_dot += a_curve
                 
         # Compute state derivatives
         d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
