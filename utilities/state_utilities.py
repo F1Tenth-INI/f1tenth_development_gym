@@ -17,7 +17,9 @@ STATE_VARIABLES = np.sort([
 
 NUMBER_OF_STATES = len(STATE_VARIABLES)
 
+
 FULL_STATE_VARIABLES = STATE_VARIABLES
+
 
 STATE_INDICES = {x: np.where(STATE_VARIABLES == x)[0][0] for x in STATE_VARIABLES}
 
@@ -36,6 +38,17 @@ LINEAR_VEL_Y_IDX = STATE_INDICES['linear_vel_y']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
+
+# POSE_THETA_IDX = STATE_INDICES['pose_theta_1']
+# POSE_THETA_COS_IDX = STATE_INDICES['pose_theta_cos_1']
+# POSE_THETA_SIN_IDX = STATE_INDICES['pose_theta_sin_1']
+# POSE_X_IDX = STATE_INDICES['pose_x_1']
+# POSE_Y_IDX = STATE_INDICES['pose_y_1']
+# LINEAR_VEL_X_IDX = STATE_INDICES['linear_vel_x_1']
+# LINEAR_VEL_Y_IDX = STATE_INDICES['linear_vel_y_1']
+# ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z_1']
+# SLIP_ANGLE_IDX = STATE_INDICES['slip_angle_1']
+# STEERING_ANGLE_IDX = STATE_INDICES['steering_angle_1']
 
 def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
     """

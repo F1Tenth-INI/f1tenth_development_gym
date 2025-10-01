@@ -15,16 +15,15 @@ from utilities.car_files.vehicle_parameters import VehicleParameters
     The format of the outputted csv is as follows: 
     -10 states that were directly measured (including current position x,y)
     -2 control input that were applied
-    -8 states of the error between real and simulating the states for 1 timestep
+    The above multiplied by number of history
+
+    -10 states of the error between real and simulating the states for 1 timestep
 
     angular_vel_z,linear_vel_x,linear_vel_y,pose_theta,pose_theta_cos,pose_theta_sin,pose_x,pose_y,slip_angle,steering_angle,
     manual_steering_angle,manual_acceleration,
     err_x,err_y,
     sim_angular_vel_z,sim_linear_vel_x,sim_linear_vel_y,sim_pose_theta,sim_pose_theta_cos,sim_pose_theta_sin,sim_slip_angle,sim_steering_angle
     
-    If use_history is true (for SI_tool), then becomes 8-2-8 states
-    
-    If flie is meant to be used on personal NN_train, keep use_history False.
     If feeding csv for SI_toolkit, use_history to make csv with columns input_dim * history
 """
 using_manual = False
@@ -32,18 +31,21 @@ save_csv=True
 plotting= False
 use_history= True
 
+#Determines what folder to put the output files
 training= True
 validate= False
 test=False
 
 #Make sure to change the input columns below!!
 # input_folder = "F1tenth_data/hardware_data/sysid/manual_control"
-input_folder = "F1tenth_data/hardware_data/sysid/auto_control"
+# input_folder = "F1tenth_data/hardware_data/sysid/auto_control"
+input_folder = "F1tenth_data/hardware_data/the_track"
 
 """File for loading experiment and sim csv files for analyzing the differenece if plotting"""
 input_file = "F1tenth_data/hardware_data/validation_2.csv"
 
-"""Simulate the ODE as in the simulation. Depending on number of steps of prediction"""
+"""DEPRECATED Simulate the ODE as in the simulation. Depending on number of steps of prediction
+Use the Other simulate ODE one step function instead, gives same result but more readable"""
 def simulate_ODE(state,control,predict):
     sim_states=[]
     tot_data=state.shape[0]
@@ -73,6 +75,29 @@ def simulate_ODE(state,control,predict):
 
     return sim_df    
 
+"""Simplified simulate ODE specifically for 1 timestep prediction"""
+def simulate_ODE_one_step(state, control):
+    vehicle_parm=VehicleParameters()
+    car_params=vehicle_parm.to_np_array()
+    index=0
+    sim_states=[]
+
+    # Convert to numpy arrays
+    s = state.to_numpy(dtype=np.float32)
+    Q = control.to_numpy(dtype=np.float32)
+
+    for i in range(len(Q)):
+        # Simulate the ODE for one step
+        s_now=s[i, :]
+        Q_now=Q[i, :]
+        
+        predicted_state = car_dynamics_pacejka_jit(s_now, Q_now, car_params, 0.02)
+        sim_states.append(predicted_state)
+        
+    # Convert back to DataFrame
+    sim_df = pd.DataFrame(sim_states)
+    sim_df.columns = ["angular_vel_z", "linear_vel_x", "linear_vel_y", "pose_theta", "pose_theta_cos", "pose_theta_sin", "pose_x", "pose_y", "slip_angle","steering_angle"]
+    return sim_df
 
 """The real part of the code: First Load CSV files, process them and save the results"""
 csv_files = [f for f in os.listdir(input_folder) if f.endswith('.csv')]
@@ -109,53 +134,33 @@ for csv_file in csv_files:
         input_acc=clean_control["translational_control"]
 
 
-    """"Now calculate the change in state per every timestep"""
-    real_state_change=clean_real_state.diff(1, axis=0)
-    real_state_change = real_state_change.dropna(axis=0) #remove first row which has NaN
-
-
     """define variables that will be used to simulate in simulation for later comparison of error in delx
-        maybe make different versions, one for computing 1 steps ahead, another for 10 (error builds up)"""
+        Since sim starts from t=1, to compare correct data, must cut t=0 in true data"""
 
     dt= 0.02
-    true_delx=real_state_change["pose_x"]
-    true_dely=real_state_change["pose_y"]
-
+    #drop the first row to match the prediction of ODE (starting from t=1)  and real data (t=0)
+    comparison_real_state = clean_real_state.iloc[1:, :].reset_index(drop=True) 
+ 
     """Call the simulation with varying simulation timesteps"""
-    notime_clean_real_state= clean_real_state.drop(["time"],axis=1)
-    onestep_sim=simulate_ODE(notime_clean_real_state,clean_control,1)
-    # tenstep_sim=simulate_ODE(notime_clean_real_state,clean_control,10)
+    notime_clean_real_state= clean_real_state.drop(["time"],axis=1 )
+    onestep_sim = simulate_ODE_one_step(notime_clean_real_state, clean_control)
 
 
     """Calculate the difference between real and sim x,y positions"""
-    sim_state_change = onestep_sim.diff(1, axis=0).dropna(axis=0)
-    sim_state_change = sim_state_change.reset_index(drop=True)
-    sim_delx = sim_state_change["pose_x"]
-    sim_dely = sim_state_change["pose_y"]
+    error = notime_clean_real_state - onestep_sim
 
-    #ensure same length of data with sim and real
-    true_delx = true_delx.iloc[:len(sim_delx)].reset_index(drop=True)
-    true_dely = true_dely.iloc[:len(sim_dely)].reset_index(drop=True)
 
-    sim_error_x= true_delx - sim_delx
-    sim_error_y= true_dely - sim_dely
-
-    """calculate the rest of error in state between real and sim"""
-    sim_error_state=notime_clean_real_state - onestep_sim
-    sim_error_state= sim_error_state.drop(["pose_x", "pose_y"],axis=1)
 
 
     if plotting== True:
         """Plotting the results of sim and real data for sanity check"""
         time_pred1 = np.arange(0, len(onestep_sim) * dt, dt)
-        time_pred10 = np.arange(0, len(tenstep_sim) * dt, dt)
         time_real = np.arange(0, len(clean_real_state) * dt, dt)
         time_real_ctrl = np.arange(0, len(clean_control) * dt, dt)
 
 
         fig, (ax1, ax2,ax3,ax4, ax5, ax6, ax7) = plt.subplots(7, 1, figsize=(14, 12))
         ax1.plot(time_pred1, onestep_sim["pose_y"], label='Predicted pose_y 1', linestyle='--')
-        ax1.plot(time_pred10, tenstep_sim['pose_y'], label='Predicted pose_y 10', linestyle='-')
         ax1.plot(time_real, clean_real_state['pose_y'], label='Actual pose_y', linestyle='-')
 
         ax1.set_xlabel("Time (s)")
@@ -165,7 +170,6 @@ for csv_file in csv_files:
         ax1.grid(True)
 
         ax2.plot(time_pred1, onestep_sim["pose_x"], label='Predicted pose_x', linestyle='--')
-        ax2.plot(time_pred10, tenstep_sim["pose_x"], label='Predicted pose_x', linestyle='--')
         ax2.plot(time_real, clean_real_state["pose_x"], label='Actual pose_x', linestyle='-')
         ax2.set_xlabel("Time (s)")
         ax2.set_ylabel("X Position")
@@ -174,7 +178,6 @@ for csv_file in csv_files:
         ax2.grid(True)
 
         ax3.plot(time_pred1, onestep_sim["angular_vel_z"], label='Predicted angular_vel_z', linestyle='--')
-        ax3.plot(time_pred10, tenstep_sim["angular_vel_z"], label='Predicted angular_vel_z', linestyle='--')
         ax3.plot(time_real, clean_real_state["angular_vel_z"], label='Actual angular_vel_z', linestyle='-')
         ax3.set_xlabel("Time (s)")
         ax3.set_ylabel("angular_vel_z")
@@ -193,7 +196,6 @@ for csv_file in csv_files:
         ax4.grid(True)
 
         ax5.plot(time_pred1, onestep_sim["pose_theta"], label='Predicted pose_theta', linestyle='--')
-        ax5.plot(time_pred10, tenstep_sim["pose_theta"], label='Predicted pose_theta', linestyle='--')
         ax5.plot(time_real, clean_real_state["pose_theta"], label='Actual pose_theta', linestyle='-')
         ax5.set_xlabel("Time (s)")
         ax5.set_ylabel("pose_theta (rad)")
@@ -202,7 +204,6 @@ for csv_file in csv_files:
         ax5.grid(True)
 
         ax6.plot(time_pred1, onestep_sim["linear_vel_x"], label='Predicted vel x', linestyle='--')
-        ax6.plot(time_pred10, tenstep_sim["linear_vel_x"], label='Predicted vel x', linestyle='--')
         ax6.plot(time_real, clean_real_state["linear_vel_x"], label='Actual vel x', linestyle='-')
         ax6.set_xlabel("Time (s)")
         ax6.set_ylabel("velocity (m/s)")
@@ -211,7 +212,6 @@ for csv_file in csv_files:
         ax6.grid(True)
 
         ax7.plot(time_pred1, onestep_sim["linear_vel_y"], label='Predicted vel y', linestyle='--')
-        ax7.plot(time_pred10, tenstep_sim["linear_vel_y"], label='Predicted vel y', linestyle='--')
         ax7.plot(time_real, clean_real_state["linear_vel_y"], label='Actual vel y', linestyle='-')
         ax7.set_xlabel("Time (s)")
         ax7.set_ylabel("velocity (m/s)")
@@ -229,23 +229,26 @@ for csv_file in csv_files:
         cutlength = min(
             len(notime_clean_real_state),
             len(clean_control),
-            len(sim_error_x),
-            len(sim_error_y),
-            len(sim_error_state)
+            len(error),
+            # len(sim_error_x),
+            # len(sim_error_y),
+            # len(sim_error_state)
         )
 
         trimmed_real_state = notime_clean_real_state.iloc[:cutlength].reset_index(drop=True)
         trimmed_control     = clean_control.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_x     = sim_error_x.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_y     = sim_error_y.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_state = sim_error_state.iloc[:cutlength].reset_index(drop=True)
+        trimmed_error       = error.iloc[:cutlength].reset_index(drop=True)
+        # trimmed_error_x     = sim_error_x.iloc[:cutlength].reset_index(drop=True)
+        # trimmed_error_y     = sim_error_y.iloc[:cutlength].reset_index(drop=True)
+        # trimmed_error_state = sim_error_state.iloc[:cutlength].reset_index(drop=True)
 
         combined_df = pd.concat([
             trimmed_real_state,
             trimmed_control,
-            trimmed_error_x,
-            trimmed_error_y,
-            trimmed_error_state
+            trimmed_error,
+            # trimmed_error_x,
+            # trimmed_error_y,
+            # trimmed_error_state
         ], axis=1)
 
         combined_df.columns = ["angular_vel_z", "linear_vel_x", "linear_vel_y", "pose_theta", "pose_theta_cos", "pose_theta_sin", "pose_x", "pose_y", "slip_angle","steering_angle",
@@ -270,45 +273,30 @@ for csv_file in csv_files:
         combined_df.to_csv(save_path, index=False)
 
         print(f"CSV saved to: {save_path}")
+        
 
     if save_csv==True and use_history==True:
-        history= 8
+        history= 8 #Actual number here
         inputs = []
         targets = []
 
-        cutlength = min(
-        len(notime_clean_real_state),
-        len(clean_control),
-        len(sim_error_x),
-        len(sim_error_y),
-        len(sim_error_state)
-        )
-
-        trimmed_real_state = notime_clean_real_state.iloc[:cutlength].reset_index(drop=True)
-        trimmed_control     = clean_control.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_x     = sim_error_x.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_y     = sim_error_y.iloc[:cutlength].reset_index(drop=True)
-        trimmed_error_state = sim_error_state.iloc[:cutlength].reset_index(drop=True)
-        
-        #We don't need the poes x,y as input to NN so remove them
-        # trimmed_real_state = trimmed_real_state.drop(["pose_x","pose_y"],axis=1)
-
-        
+       
+        #Combine the state and control
         combined_df = pd.concat([
-            trimmed_real_state,
-            trimmed_control,
+            notime_clean_real_state,
+            clean_control
         ], axis=1)
 
-
-        for i in range(cutlength):
+        #Now combine the history into one row
+        for i in range(len(combined_df)):
             if i < history:
                 continue 
             else:
                 # Get the past `history` rows and flatten them into one row
                 past_states = combined_df.iloc[i - history:i].values.flatten()
 
-                #target is the change in position and state 
-                target = [trimmed_error_x.iloc[i], trimmed_error_y.iloc[i], *trimmed_error_state.iloc[i].values]
+                #target is the error of real-sim 
+                target = error.iloc[i]
 
                 inputs.append(past_states)
                 targets.append(target)
@@ -316,6 +304,7 @@ for csv_file in csv_files:
         # Convert to dataframe
         inputs_df = pd.DataFrame(inputs)
         targets_df = pd.DataFrame(targets)
+  
 
         #renaming the columns iteratively
         base_features = [
@@ -325,10 +314,8 @@ for csv_file in csv_files:
             "pose_theta",
             "pose_theta_cos",
             "pose_theta_sin",
-            #Inserting pose here for trial
             "pose_x",
             "pose_y",
-            #######
             "slip_angle",
             "steering_angle",
             "angular_control",
@@ -341,7 +328,11 @@ for csv_file in csv_files:
 
         # Assign to your DataFrame
         inputs_df.columns = stacked_columns
-        targets_df.columns = ["err_x","err_y","err_angular_vel_z", "err_linear_vel_x", "err_linear_vel_y", "err_pose_theta", "err_pose_theta_cos", "err_pose_theta_sin","err_slip_angle","err_steering_angle"] 
+        targets_df.columns = ["err_angular_vel_z", "err_linear_vel_x", "err_linear_vel_y", "err_pose_theta", "err_pose_theta_cos", "err_pose_theta_sin", "err_x", "err_y", "err_slip_angle","err_steering_angle"] 
+
+        #To ensure smooth concatenation, reset the index of both DataFrames
+        inputs_df.reset_index(drop=True, inplace=True)
+        targets_df.reset_index(drop=True, inplace=True)
 
         # Combine them
         final_df = pd.concat([inputs_df, targets_df], axis=1)
