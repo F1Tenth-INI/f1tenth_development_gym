@@ -38,7 +38,7 @@ class Settings():
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = True
+    SAVE_VIDEOS = False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -67,15 +67,13 @@ class Settings():
     
     MAX_CRASH_REPETITIONS = 10000000
     RESET_ON_DONE = True  # Reset the environment when done
-    RESPAWN_ON_RESET = True  # If True, respawn to state N timesteps ago instead of complete reset
+    RESPAWN_ON_RESET = False  # If True, respawn to state N timesteps ago instead of complete reset
     RESPAWN_SETBACK_TIMESTEPS = 50  # Number of timesteps to go back when respawning
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_LENGTH = 150000  # in timesteps, only valid if DISABLE_AUTOMATIC_TIMEOUT is True.
-    STOP_TIMER_AFTER_N_LAPS = 2                 # Timer stops after N laps for competition 
-    DISABLE_AUTOMATIC_TERMINATION = False
-    DISABLE_AUTOMATIC_TIMEOUT = True
+    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
+    SIMULATION_LENGTH = 1_000_000 # In sim timesteps: Length until the simulation is terminated
 
 
     ## Noise ##
@@ -145,7 +143,8 @@ class Settings():
     
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
@@ -175,16 +174,4 @@ class Settings():
     # Deprecated
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
-    OPTIMIZE_FOR_RL = False # Optimize for RL training
-    
-    if(OPTIMIZE_FOR_RL):
-        
-        # SIM_ODE_IMPLEMENTATION = "jit_Pacejka" # Faster model for RL training
-        TIMESTEP_CONTROL = 0.04
-        CONTROLLER = None
-        CONNECT_RACETUNER_TO_MAIN_CAR = False # Performance 
-        SAVE_RECORDINGS = False # Performance
-        EXPERIMENT_LENGTH = 10000 # dont stop experiment
-        
-        RENDER_MODE = None
-        # RENDER_MODE = 'human'
+

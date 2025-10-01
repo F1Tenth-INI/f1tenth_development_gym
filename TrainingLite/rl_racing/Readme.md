@@ -1,10 +1,62 @@
 # Async SAC Learner–Actor
 
-This repo contains a **learner server** (trainer) and a **lightweight actor** (policy client) for an asynchronous SAC pipeline.  
+This folder contains a **learner server** (SAC trainer) and a **lightweight actor** (policy client) for an asynchronous SAC pipeline.  
 Actors run inside the simulator, compute actions locally, and stream full-episode trajectories to the learner over TCP.  
 The learner periodically trains on the replay buffer and **broadcasts updated actor weights** back to all connected actors.
 
 ---
+
+## How to run
+
+Go to Settings.py and set the SAC agent as controller:
+
+```python
+# Controller Settings
+CONTROLLER = 'sac_agent'
+...
+RESET_ON_DONE = True
+...
+SAVE_VIDEOS = False # For very long experiments, rendering will take forever
+...
+SIMULATION_LENGTH = 1_000_000 # In sim timesteps: Length until the simulation is terminate: adjust
+
+```
+
+Run the learner server and let it create a new model by settings a model name that does not yet exist.
+You can also continue training an existing model by providing a --model-name of a pretrained model
+
+```bash
+python TrainingLite/rl_racing/learner_server.py --model-name SAC_test
+```
+
+The server will now wait for an agent to connect and provide observations.
+In another terminal, run the simulation with the SAC agent.
+
+```bash
+python run.py
+```
+
+As the simulation runs, the SAC agent controller will collect observations ( states, waypoints, sensor data etc. and a reward for a state-action pair) and send to the server.
+
+The server saves the observations to the replay buffer and continuously trains on them. Check out the plots in the models folder ( TrainingLite/rl-racing/Models/YOUR_MODEL_NAME) to track the progress.
+You can also switch between render_mode = None / 'human' to see whats going on.
+
+ATTENTION: The server runs independantly from the client. Depending of the hardware, the bottleneck can either be observation collection or training.
+In the learner server, check UTD in the prints. This number represents how many training steps are done per opservation.
+
+## Inference
+
+After a successful training, the model can used without the exploration variance by setting it to inference mode.
+
+In sac_agent_planner.py, check the following lines:
+
+```bash
+self.training_mode = True
+self.inference_model_name = None
+```
+
+If you set training_mode = False, the model is loaded in inference mode ( no exploration )
+If you set the inference_model_name, the SAC planner works without server: it will load the model weights by itself. Note that the model has to be on the computer, where the planner is running in that case.
 
 ## Features
 
@@ -17,46 +69,9 @@ The learner periodically trains on the replay buffer and **broadcasts updated ac
 
 ---
 
-## Requirements
-
-- Python ≥ 3.10
-- `stable-baselines3`, `torch`
-- `gymnasium`, `numpy`
-- Your sim + utilities (e.g., `WaypointUtils`, `LidarHelper`, `state_utilities`)
-
 > This setup intentionally **does not** use VecNormalize; observations are pre-scaled manually in the actor.
 
 ---
-
-## Running the RL pipeline
-
-### From an existing model zip
-
-Loads `{model_dir}/{model_name}.zip`, infers spaces, and starts training/broadcast.
-
-```bash
-python TrainingLite/rl_racing/learner_server.py   --model-name SAC_RCA1_wpts_lidar_50_async   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
-```
-
-### From scratch
-
-You must provide **obs**/**act** dimensions (e.g., obs=80, act=2).
-
-```bash
-python TrainingLite/rl_racing/learner_server.py   --init-from-scratch   --model-name SAC_RCA1_wpts_lidar_50_async --obs-dim 80   --act-dim 2   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
-```
-
-### Run the agent in simulation
-
-Make sure in Settings.py that
-CONTROLLER='sac_agent'
-EXPERIMENT_LENGTH = 10000000 ( just very long).
-
-Then just run the simulation.
-
-```bash
-python run.py   --init-from-scratch   --obs-dim 80   --act-dim 2   --device cuda   --train-every-seconds 10   --replay-capacity 1000000
-```
 
 ## Architecture
 

@@ -25,10 +25,10 @@ sv_min: -3.2
 sv_max: 3.2
 
 # Acceleration Constraints - ADJUSTED based on observed data
-a_max: 5.0  # reduced from 5.0 - observed accelerations go higher
-a_min: -5.0  # increased from -10.0 - more realistic braking
+a_max: 5.0 # reduced from 5.0 - observed accelerations go higher
+a_min: -5.0 # increased from -10.0 - more realistic braking
 v_min: -5.0
-v_max: 10.0  # reduced from 15 - based on observed max ~6.6 m/s
+v_max: 10.0 # reduced from 15 - based on observed max ~6.6 m/s
 v_switch: 7.319
 
 # Servo
@@ -59,15 +59,15 @@ C_Pr:
 C_R: 3.693303119695026
 
 # MINIMAL ADJUSTMENTS to MPC baseline
-C_acc: 5.0  # slightly reduced from 7.14 - more conservative
-C_d: 0.0    # neutral drag - remove negative drag
-C_dec: 6.0  # keep reasonable braking
+C_acc: 5.0 # slightly reduced from 7.14 - more conservative
+C_d: 0.0 # neutral drag - remove negative drag
+C_dec: 6.0 # keep reasonable braking
 
 # Rolling resistance coefficient (dimensionless)
-c_rr: 0.025  # slightly increased from 0.02
+c_rr: 0.025 # slightly increased from 0.02
 
 # Additional resistance parameters - SMALL INCREASE
-v_dead: 0.05  # [m/s] velocity deadband for smooth sign function
-curve_resistance_factor: 0.14  # increased from 0.12 - modest improvement for cornering
+v_dead: 0.05 # [m/s] velocity deadband for smooth sign function
+curve_resistance_factor: 0.14 # increased from 0.12 - modest improvement for cornering
 
 brake_multiplier: 1.0
