@@ -434,38 +434,39 @@ You can find the [documentation](https://f1tenth-gym.readthedocs.io/en/latest/) 
 
 ## Sosuke's Code explanation:
 Here is a description of all the files and what they do:
-benchmark.py: 
+
+**benchmark.py**: 
 File to see how fast jit compilation is working on the hardware. 
 Originally written to observe difference in computation speed when the F1TENTH car computer used energy saving vs
 performance mode
 
 
-check_nan.py: 
+**check_nan.py**: 
 Loads a folder filled with csv files of the experiments, and checks whether all cells have values.
 
 
-combine_csv.py: 
+**combine_csv**.py: 
 Loads a folder with csv files of the experiments and combines it into one large csv file. This also
 records which experiment each data came from in terms of dataset id.
 
-plot_state_coverage.py: 
+**plot_state_coverage.py**: 
 Looks at 2 folders, one containing data collected from automatically controlled car,
 and the other containing manually driven data. Plots the state coverage 
 
-plot_traj.py:
+**plot_traj.py**:
 File for visualizing each trajectory collected. Used for visually checking whether the state
 estimation was properly working for the whole period.
 
-process_data.py:
+**process_data.py**:
 Main file for preparing the experiment csv files into training files for NN. Looks through each csv file
 and deletes data until first acceleration command is seen. Make sure to indicate whether the data was collected
 by manual driving or autonomously. Creates labels for the NN in output csv. Also has option to plot the states vs the one-step ahead prediction.
 
-simulate_prediction.py:
+**simulate_prediction.py**:
 File to copmare the prediction of the NN to the base MPC. load any csv file of an experiment recording,
 and the file creates a plot comparing each state. Saves a npz file that can then be loaded into the plot_pred.pyfile
 
-plot_pred.py: Plots all the saved prediction against the true data
+**plot_pred.py**: Plots all the saved prediction against the true data
 
 
 ## Known issues
