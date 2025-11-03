@@ -92,9 +92,9 @@ class RewardCalculator:
 
 
         # Penalize action  
-        steering_reward = - np.linalg.norm(0.003 * driver.angular_control)
-        acceleration_reward = - np.linalg.norm(0.001 * driver.translational_control)
-        reward += steering_reward + acceleration_reward
+        steering_reward = - np.linalg.norm(1 * driver.angular_control)
+        acceleration_reward = - np.linalg.norm(0.1 * driver.translational_control)
+        reward += 0.05 * (steering_reward + acceleration_reward)
 
         # Penalize d_control for smooth control
         action = np.array([driver.angular_control, driver.translational_control])
@@ -105,7 +105,7 @@ class RewardCalculator:
             d_angular_control = d_control[0]
             d_translational_control = d_control[1]
 
-            d_control_reward = - 1.0 * (np.linalg.norm(d_angular_control) * 0.15 + np.linalg.norm(d_translational_control) * 0.03)
+            d_control_reward = - 0.5 * (np.linalg.norm(d_angular_control) * 1.0 + np.linalg.norm(d_translational_control) * 0.1)
         reward += d_control_reward
         
         self.action_history_queue.append(action)
@@ -132,8 +132,6 @@ class RewardCalculator:
         if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
             self.spin_counter += 1
             if self.spin_counter >= 50:
-                spin_reward = -self.spin_counter * 0.5
-            if self.spin_counter >= 200:
                 spin_reward = -10
                 self.truncated = True
         else:
@@ -144,9 +142,7 @@ class RewardCalculator:
         stuck_reward = 0.0
         if speed < 1.0:
             self.stuck_counter += 1
-            if self.stuck_counter >= 20:
-                stuck_reward = -0.1
-            if self.stuck_counter >= 200:
+            if self.stuck_counter >= 100:
                 stuck_reward = -10
                 self.truncated = True
         else:

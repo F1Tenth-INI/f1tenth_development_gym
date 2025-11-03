@@ -42,7 +42,7 @@ The server saves the observations to the replay buffer and continuously trains o
 You can also switch between render_mode = None / 'human' to see whats going on.
 
 ATTENTION: The server runs independantly from the client. Depending of the hardware, the bottleneck can either be observation collection or training.
-In the learner server, check UTD in the prints. This number represents how many training steps are done per opservation.
+In the learner server, check UTD (Update-to-Data) in the prints. This number represents how many training steps are done per opservation.
 
 ## Inference
 
