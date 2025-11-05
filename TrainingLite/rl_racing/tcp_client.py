@@ -72,6 +72,19 @@ class _TCPActorClient:
         except queue.Full:
             pass
 
+    def send_terminate(self) -> None:
+        """Send a terminate message to the server, causing it to save the model and shutdown."""
+        data = {
+            "type": "terminate",
+            "data": {
+                "actor_id": int(self.actor_id),
+            },
+        }
+        try:
+            self._send_q.put_nowait(data)
+        except queue.Full:
+            pass
+
     def pop_latest_state_dict(self) -> Optional[dict]:
         with self._latest_sd_lock:
             sd = self._latest_state_dict

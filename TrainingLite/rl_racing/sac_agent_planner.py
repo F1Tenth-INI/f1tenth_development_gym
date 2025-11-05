@@ -68,6 +68,7 @@ class RLAgentPlanner(template_planner):
         self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
 
         self.clear_buffer_on_reset = True
+        self.terminate_server_after_simulation = True
 
         # --- networking ---
 
@@ -229,6 +230,16 @@ class RLAgentPlanner(template_planner):
                     self.prev_obs_raw = None
                     self.prev_action = None
 
+    def on_simulation_end(self, collision=False):
+        """Called when the simulation ends. Sends a terminate message to the server."""
+        if self.terminate_server_after_simulation:
+            if self.training_mode and hasattr(self, 'client') and self.client is not None:
+                try:
+                    self.client.send_terminate()
+                    print("[RLAgentPlanner] Sent terminate message to server")
+                except Exception as e:
+                    print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+       
     def close(self):
         pass
     
@@ -304,6 +315,8 @@ class RLAgentPlanner(template_planner):
             [1.0] * len(last_actions), 
             [0.5, 0.5]
             )) # Adjust normalization factors for each feature
+        
+        # SAC Training loop
 
         observation_array *= np.array(normalization_array, dtype=np.float32)
         return observation_array

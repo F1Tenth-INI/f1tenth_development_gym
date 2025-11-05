@@ -571,6 +571,10 @@ class CarSystem:
         if hasattr(self, '_simulation_ended') and self._simulation_ended:
             print("Simulation already ended, skipping recorder finalization.")
             return
+
+        if hasattr(self.planner, 'on_simulation_end'):
+            self.planner.on_simulation_end(collision=collision)
+
         self._simulation_ended = True
 
         if Settings.SAVE_REWARDS:

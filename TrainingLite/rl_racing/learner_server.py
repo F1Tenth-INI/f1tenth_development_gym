@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from stable_baselines3 import SAC
 from stable_baselines3.common.buffers import ReplayBuffer
-from prioritized_reward_replay_buffer import RewardBiasedReplayBuffer
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
@@ -54,6 +53,8 @@ class LearnerServer:
         # networking
         self._clients: set[asyncio.StreamWriter] = set()
         self._client_lock = asyncio.Lock()
+        self._should_terminate = False
+        self._terminate_lock = asyncio.Lock()
 
         # data
         self.episode_buffer = EpisodeReplayBuffer(capacity_episodes=2000)
@@ -142,6 +143,15 @@ class LearnerServer:
         if self.model is not None: return
         self._load_base_model()
         print(f"[server] Initialized model")
+
+    def _save_model(self):
+        """Save the current model to disk."""
+        if self.model is not None:
+            try:
+                self.model.save(os.path.join(self.model_dir, self.model_name))
+                print(f"[server] Model saved to {os.path.join(self.model_dir, self.model_name)}")
+            except Exception as e:
+                print(f"[server] Error saving model: {e}")
 
     # ---------- ingestion + training ----------
     # No normalization for now: obs arrive normalized already
@@ -422,6 +432,28 @@ class LearnerServer:
                         await writer.drain()
                     except Exception:
                         pass
+                elif msg.get("type") == "terminate":
+                    d = msg.get("data", {})
+                    actor_id = int(d.get("actor_id", -1))
+                    
+                    print(f"[server] Received terminate message from actor {actor_id}")
+                    
+                    # Save the model
+                    self._save_model()
+                    
+                    # Set termination flag
+                    async with self._terminate_lock:
+                        self._should_terminate = True
+                    
+                    # Send acknowledgment
+                    try:
+                        writer.write(pack_frame({"type": "terminate_ack", "data": {"msg": "terminating"}}))
+                        await writer.drain()
+                    except Exception:
+                        pass
+                    
+                    # Break out of the read loop
+                    break
                 else:
                     # ignore other messages
                     pass
@@ -450,8 +482,35 @@ class LearnerServer:
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
         addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
         print(f"[server] Listening on {addrs} | model='{self.model_name}' | device='{self.device}'")
-        async with server:
-            await server.serve_forever()
+        
+        # Create a task to monitor termination flag
+        async def monitor_termination():
+            while True:
+                async with self._terminate_lock:
+                    if self._should_terminate:
+                        print("[server] Termination flag set, shutting down server...")
+                        server.close()
+                        await server.wait_closed()
+                        print("[server] Server shut down gracefully")
+                        return
+                await asyncio.sleep(0.5)  # Check every 0.5 seconds
+        
+        monitor_task = asyncio.create_task(monitor_termination())
+        
+        try:
+            async with server:
+                # Wait for monitor task to complete (which happens when termination is requested)
+                await monitor_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Cancel monitor task if still running
+            if not monitor_task.done():
+                monitor_task.cancel()
+                try:
+                    await monitor_task
+                except asyncio.CancelledError:
+                    pass
 
 
 # ------------------------------
@@ -463,7 +522,7 @@ class LearnerServer:
 
 def main():
 
-    model_name = "SAC_RCA1_wpts_16"
+    model_name = "SAC_RCA1_0"
     grad_steps = 256
     device = "cuda" if torch.cuda.is_available() else "cpu"
     train_every_seconds = 0.2
