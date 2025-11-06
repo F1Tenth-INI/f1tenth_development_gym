@@ -64,8 +64,23 @@ class RLAgentPlanner(template_planner):
         print("Initializing RLAgentPlanner (actor client)")
 
         # Training vs Inference
-        self.training_mode = True
-        self.inference_model_name = None  # Model name thats loaded: if none: use weights from server
+        # If inference_model_name is provided in command-line arguments directly, use it
+        # Parse command-line arguments directly
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--inference_model', type=str, default=None)
+        # Parse only known args to avoid conflicts with other arguments
+        args, _ = parser.parse_known_args()
+        inference_model_name = args.inference_model
+        
+        self.inference_model_name = inference_model_name  # Model name thats loaded: if none: use weights from server
+        self.training_mode = (self.inference_model_name is None)  # Training mode if no inference model specified
+        
+        if self.training_mode:
+            print(f"[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
+        else:
+            print(f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
+
 
         self.clear_buffer_on_reset = True
         self.terminate_server_after_simulation = True
