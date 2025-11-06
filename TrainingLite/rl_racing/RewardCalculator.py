@@ -16,12 +16,13 @@ class RewardCalculator:
 
 
         self.action_history_queue = deque(maxlen=10)
+        self.reward_components_history = []
+        
         self.reset()
 
+        self.control_penalty_factor = 0.05
+        self.d_control_penalty_factor = 0.5
 
-        self.checkpoint_fraction = 1/400 # 1 / number of checkopoints that give reward. ATTENTION: must not be smaller than dist between waypoints
-        
-        
     def reset(self):
         
         self.time = 0
@@ -33,7 +34,6 @@ class RewardCalculator:
         self.last_wp_index = 0
         self.truncated = False
 
-        self.reward_components_history = []
         self.reward = 0
         self.last_position = None
         self.reward_history = []
@@ -64,8 +64,8 @@ class RewardCalculator:
         distance = np.linalg.norm(delta_position)
         projection = np.dot(delta_position, wp_vector) / np.linalg.norm(wp_vector)
         self.last_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-
-        reward += projection * 2.0
+        progress_reward = projection * 2.0
+        reward += progress_reward
 
 
         # Distance to waypoints
@@ -92,9 +92,10 @@ class RewardCalculator:
 
 
         # Penalize action  
-        steering_reward = - np.linalg.norm(1 * driver.angular_control)
-        acceleration_reward = - np.linalg.norm(0.1 * driver.translational_control)
-        reward += 0.05 * (steering_reward + acceleration_reward)
+        steering_reward = - self.control_penalty_factor * np.linalg.norm(1 * driver.angular_control)
+        acceleration_reward = - self.control_penalty_factor * np.linalg.norm(0.1 * driver.translational_control)
+        reward += steering_reward
+        reward += acceleration_reward
 
         # Penalize d_control for smooth control
         action = np.array([driver.angular_control, driver.translational_control])
@@ -105,7 +106,7 @@ class RewardCalculator:
             d_angular_control = d_control[0]
             d_translational_control = d_control[1]
 
-            d_control_reward = - 0.5 * (np.linalg.norm(d_angular_control) * 1.0 + np.linalg.norm(d_translational_control) * 0.1)
+            d_control_reward = - self.d_control_penalty_factor * (np.linalg.norm(d_angular_control) * 1.0 + np.linalg.norm(d_translational_control) * 0.1)
         reward += d_control_reward
         
         self.action_history_queue.append(action)
@@ -174,7 +175,7 @@ class RewardCalculator:
 
         if Settings.SAVE_REWARDS:
             reward_components = {
-                "progress": projection,
+                "progress": progress_reward,
                 "crash_reward": crash_reward,
                 "steering_penalty": steering_reward,
                 "acceleration_penalty": acceleration_reward,

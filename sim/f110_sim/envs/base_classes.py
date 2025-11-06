@@ -626,6 +626,10 @@ class Simulator(object):
         self.agent_scans = []
         self.agent_imus = []
         
+        # Clear collision flags
+        self.collisions = np.zeros((self.num_agents, ))
+        self.collision_idx = -1 * np.ones((self.num_agents, ))
+        
         # Reset IMU simulator
         RaceCar.imu_simulator.reset()
         

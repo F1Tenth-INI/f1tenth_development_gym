@@ -283,7 +283,7 @@ class TrainingLogHelper():
 
         # Downsample
         df_plot = df.iloc[::downsample_step].copy()
-        x_vals = df_plot['time']
+        x_vals = df_plot['time'].values  # Use .values to get numpy array for proper indexing
 
         # Remove 'timestamp' from columns to plot
         columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp','training_duration', 'replay_buffer_size', 'batch_size', 'gradient_steps', 'learning_rate']]
@@ -302,7 +302,11 @@ class TrainingLogHelper():
             # Try to detect string representations of lists/tuples for any column
             is_array_like = False
             arr_sample = None
-            if isinstance(first_val, (list, tuple)):
+            
+            # Force certain columns to be treated as array-like
+            if col in ['episode_lengths', 'episode_rewards', 'episode_mean_step_rewards']:
+                is_array_like = True
+            elif isinstance(first_val, (list, tuple)):
                 is_array_like = True
                 arr_sample = first_val
             elif isinstance(first_val, str):

@@ -14,6 +14,9 @@ if __name__ == '__main__':
     parser.add_argument('--simulation_length', type=str, default=None)
     parser.add_argument('--render_mode', type=str, default=None)
     parser.add_argument('--save_recordings', type=str, default=None)
+    parser.add_argument('--inference_model', type=str, default=None,
+                       help='SAC model name for inference mode (e.g., SAC0)')
+    
     args = parser.parse_args()
 
     # Import Settings after parsing arguments
