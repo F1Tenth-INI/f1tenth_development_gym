@@ -126,6 +126,11 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
         self.state_history = deque([np.zeros(10) for _ in range(10)], maxlen=10)
 
+        # Lowpass filter state for control outputs
+        self.prev_angular_control = 0.0
+        self.prev_translational_control = 0.0
+        self.lowpass_alpha = 1.0  # Filter coefficient: 0 = no passing, 1 = no smoothing
+
         self.prev_obs_raw: Optional[np.ndarray] = None
         self.prev_action: Optional[np.ndarray] = None
 
@@ -155,6 +160,8 @@ class RLAgentPlanner(template_planner):
         self.prev_action = None
         self.angular_control = 0.0
         self.translational_control = 0.0
+        self.prev_angular_control = 0.0
+        self.prev_translational_control = 0.0
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
@@ -197,10 +204,18 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw = raw_obs
         self.prev_action  = action
 
-        self.angular_control = steering
-        self.translational_control = accel
+        # Apply lowpass filter to control outputs
+        # filtered = alpha * new_value + (1 - alpha) * previous_value
+        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
+        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
+        
+        # Update previous values for next iteration
+        self.prev_angular_control = self.angular_control
+        self.prev_translational_control = self.translational_control
+        
         self.action_history_queue.append(action)
         self.state_history.append(self.car_state)
+        
 
         return self.angular_control, self.translational_control
 
@@ -237,7 +252,7 @@ class RLAgentPlanner(template_planner):
                 try:
                     self.client.send_transition_batch(self._episode)
                     total_reward = sum(t["reward"] for t in self._episode)
-                    print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
+                    # print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send episode: {e}")
                 finally:
@@ -284,7 +299,7 @@ class RLAgentPlanner(template_planner):
 
 
         # Get frenet coordinates
-        s, d, e, k = self.waypoint_utils.get_frenet_coordinates(car_state)
+        s, d, e, k = self.waypoint_utils.frenet_coordinates
         # print(f"distance: {s}, lateral offset: {d}, heading error: {e}, curvature: {k}")
         # lidar
         lidar = self.lidar_utils.processed_ranges

@@ -193,6 +193,8 @@ class CarSystem:
         self.lap_analyzer.reset()
         self.render_utils.reset()
         self.planner.reset()
+        self.waypoint_utils.reset_frenet_progress()
+        # self.waypoint_utils.get_frenet_coordinates(self.car_state)
 
     def initialize_controller(self, controller_name):
         
@@ -262,6 +264,7 @@ class CarSystem:
         self.set_car_state(car_state)
         self.set_scans(ranges)
         self.set_waypoints()
+    
         
 
 
@@ -271,7 +274,6 @@ class CarSystem:
         }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)
-        
         next_obs.update({
             "reward": self.reward,
             "info": info,
@@ -302,6 +304,9 @@ class CarSystem:
         else:
             self.waypoints_for_controller = self.chose_raceline_from_wpts()
         self.handle_emergency_slowdown() # overwrite self.waypoint_utils.next_waypoints if necessary
+
+        self.waypoint_utils.get_frenet_coordinates(self.car_state)
+
         
         
     def update_render_utils(self):

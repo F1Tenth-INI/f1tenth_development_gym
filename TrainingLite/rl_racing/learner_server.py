@@ -424,8 +424,8 @@ class LearnerServer:
                         self._initialize_model()
 
                     self.episode_buffer.add_episode(episode)
-                    print(f"[server] Stored episode: {len(episode)} transitions "
-                        f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
+                    # print(f"[server] Stored episode: {len(episode)} transitions "
+                    #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
                     self.total_actor_timesteps += len(episode)
                     # optional ack
                     try:

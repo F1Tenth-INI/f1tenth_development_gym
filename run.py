@@ -8,7 +8,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 # Read input arguments from terminal
 import argparse
-
+# python run.py --simulation_length 1000 --render_mode human_fast --save_recordings 1 --inference_model SAC_CTest3
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--simulation_length', type=str, default=None)

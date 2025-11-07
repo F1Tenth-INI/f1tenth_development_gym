@@ -96,6 +96,11 @@ class WaypointUtils:
         self.waypoints = None  # type: Optional[np.ndarray]
         self.waypoint_positions = None
 
+        #Frenet initialization
+        self._s_int = None   # integrated, unwrapped s (internal)
+        self._s0    = None   # s-offset so that reported s starts from 0 each episode
+        self.frenet_coordinates = None # (s, d, e, k)
+
         self.preprocess_waypoints()
 
         self.nearest_waypoint_index = None
@@ -502,47 +507,74 @@ class WaypointUtils:
 
         return left_border_points_relative, right_border_points_relative
 
+    # In your WaypointUtils class
+    def reset_frenet_progress(self):
+        """Call at episode reset to re-initialize integrated s and zero-based output."""
+        self._s_int = None
+        self._s0    = None
+
     def get_frenet_coordinates(self, car_state):
-        # s: arc-length along the raceline (distance traveled along the line).
-        # d: signed lateral offset from the raceline (left/right of the line). Left is positive, right is negative.
-        # e: heading error (car yaw - raceline heading)
-        # k: curvature of the raceline
-        
-        
-        # Find nearest waypoint
-        car_x = car_state[POSE_X_IDX]
-        car_y = car_state[POSE_Y_IDX]
-        car_theta = car_state[POSE_THETA_IDX]
+        # [STATEFUL] ONLY CALL ONCE PER STEP!
+        """
+        Returns (s, d, e, k) with:
+        - d, e, k from nearest waypoint (geometry)
+        - s from integrating s_dot = (vx*cos(e) - vy*sin(e)) / (1 - k*d)
+        and then shifted so that s == 0 at the episode start (first call after reset).
+        """
         waypoints = self.waypoints
-        if waypoints is None:
+        if waypoints is None or len(waypoints) < 2:
             return None, None, None, None
 
-        # Find nearest waypoint index
-        car_position = np.array([car_x, car_y])
-        dists = np.linalg.norm(waypoints[:, [WP_X_IDX, WP_Y_IDX]] - car_position, axis=1)
-        nearest_idx = np.argmin(dists)
+        # --- Car pose/vel
+        car_x   = car_state[POSE_X_IDX]
+        car_y   = car_state[POSE_Y_IDX]
+        car_yaw = car_state[POSE_THETA_IDX]
+        vx_body = car_state[LINEAR_VEL_X_IDX]   # forward vel in body frame
+        vy_body = car_state[LINEAR_VEL_Y_IDX]   # lateral  vel in body frame
 
-        # s: arc-length at nearest waypoint
-        s = waypoints[nearest_idx, WP_S_IDX]
-        # k: curvature at nearest waypoint
-        k = waypoints[nearest_idx, WP_KAPPA_IDX]
-        # Raceline heading at nearest waypoint
-        psi = waypoints[nearest_idx, WP_PSI_IDX]
+        # --- Nearest waypoint (for geometry: d, e, k)
+        car_pos = np.array([car_x, car_y], dtype=float)
+        xy = waypoints[:, [WP_X_IDX, WP_Y_IDX]]
+        nearest_idx = int(np.argmin(np.linalg.norm(xy - car_pos, axis=1)))
 
-        # Compute signed lateral offset d
-        dx = car_x - waypoints[nearest_idx, WP_X_IDX]
-        dy = car_y - waypoints[nearest_idx, WP_Y_IDX]
-        # Perpendicular direction to raceline (normal vector)
-        normal = np.array([-np.sin(psi), np.cos(psi)])
-        d = dx * normal[0] + dy * normal[1]
+        s_geom = float(waypoints[nearest_idx, WP_S_IDX])    # geometric s at spawn vicinity
+        k      = float(waypoints[nearest_idx, WP_KAPPA_IDX])
+        psi    = float(waypoints[nearest_idx, WP_PSI_IDX])  # raceline heading
 
-        # Heading error e: car yaw minus raceline tangent
-        e = car_theta - psi
-        # Normalize e to [-pi, pi]
-        e = (e + np.pi) % (2 * np.pi) - np.pi
+        # Lateral offset d via local normal
+        dx, dy = car_x - xy[nearest_idx, 0], car_y - xy[nearest_idx, 1]
+        n_hat  = np.array([-np.sin(psi), np.cos(psi)], dtype=float)  # left normal
+        d      = float(dx * n_hat[0] + dy * n_hat[1])
 
-        return s, d, e, k
-                
+        # Heading error e (wrap to [-pi, pi])
+        e = float((car_yaw - psi + np.pi) % (2*np.pi) - np.pi)
+
+        # --- s integration (paper)
+        denom = max(1e-6, 1.0 - k * d)  # numeric safety
+        s_dot = (vx_body * np.cos(e) - vy_body * np.sin(e)) / denom
+        dt    = Settings.TIMESTEP_CONTROL
+
+        # Internal unwrapped integrator
+        if self._s_int is None:
+            # First call after reset: seed the integrator from geometry at spawn
+            self._s_int = s_geom
+            self._s0    = self._s_int   # zero-based output: s_out = _s_int - _s0
+        else:
+            self._s_int += s_dot * dt
+
+        # Report s starting from 0 at reset (zero-based, continuous, unwrapped)
+        s_out = self._s_int - self._s0
+
+        # If you also want a wrapped version in [0, track_len), you can compute it from s_out:
+        # track_len = float(waypoints[-1, WP_S_IDX]) if waypoints[-1, WP_S_IDX] > 0 else \
+        #             float(np.sum(np.linalg.norm(np.diff(xy, axis=0), axis=1)))
+        # s_wrapped = s_out % track_len
+        self.frenet_coordinates = (s_out, d, e, k)
+
+        return s_out, d, e, k
+
+
+                    
 
 # Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
