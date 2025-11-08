@@ -144,8 +144,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -175,3 +175,9 @@ class Settings():
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
 
 
+    @classmethod
+    def recalculate_paths(cls) -> None:
+        """Recompute path dependent settings after attribute overrides."""
+        cls.MAP_PATH = os.path.join("utilities", "maps", cls.MAP_NAME)
+        cls.MAP_CONFIG_FILE = os.path.join(cls.MAP_PATH, cls.MAP_NAME + ".yaml")
+        cls.RECORDING_PATH = os.path.join(cls.RECORDING_FOLDER, cls.RECORDING_NAME)

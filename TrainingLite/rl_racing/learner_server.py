@@ -2,7 +2,6 @@
 from __future__ import annotations
 import asyncio
 import os
-import sys
 import subprocess
 from typing import List, Optional
 
@@ -56,7 +55,6 @@ class LearnerServer:
         self._client_lock = asyncio.Lock()
         self._should_terminate = False
         self._terminate_lock = asyncio.Lock()
-        self._client_process: Optional[subprocess.Popen] = None
 
         # data
         self.episode_buffer = EpisodeReplayBuffer(capacity_episodes=2000)
@@ -494,68 +492,7 @@ class LearnerServer:
                 self._clients.discard(writer)
             print(f"[server] Client disconnected: {addr}")
 
-    def _start_client_process(self, run_script_path: str = "run.py", forward_output: bool = True):
-        """Start the client/simulation as a subprocess."""
-        if self._client_process is not None:
-            print("[server] Client process already running")
-            return
-        
-        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), run_script_path)
-        if not os.path.exists(script_path):
-            print(f"[server] Warning: Could not find client script at {script_path}, skipping auto-start")
-            return
-        
-        try:
-            if forward_output:
-                # Forward output directly to terminal (for real-time viewing)
-                self._client_process = subprocess.Popen(
-                    [sys.executable, script_path],
-                    stdout=None,  # Inherit stdout (terminal)
-                    stderr=None,  # Inherit stderr (terminal)
-                    cwd=os.path.dirname(script_path)
-                )
-            else:
-                # Capture output (for later processing)
-                self._client_process = subprocess.Popen(
-                    [sys.executable, script_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,  # Combine stderr into stdout
-                    cwd=os.path.dirname(script_path),
-                    bufsize=1  # Line buffered
-                )
-                # Start background task to forward output (will be started in run() method)
-            
-            print(f"[server] Started client process (PID: {self._client_process.pid})")
-        except Exception as e:
-            print(f"[server] Failed to start client process: {e}")
-            self._client_process = None
-
-    async def _forward_client_output(self):
-        """Forward client process output to terminal with [client] prefix."""
-        if self._client_process is None or self._client_process.stdout is None:
-            return
-        
-        try:
-            # Use a loop to read lines and print them
-            while self._client_process.poll() is None:
-                try:
-                    # Read line asynchronously
-                    line = await asyncio.to_thread(self._client_process.stdout.readline)
-                    if not line:
-                        break
-                    # Decode and print with prefix
-                    decoded = line.decode('utf-8', errors='replace').rstrip()
-                    if decoded:
-                        print(f"[client] {decoded}")
-                except Exception as e:
-                    # If process ended, break
-                    if self._client_process.poll() is not None:
-                        break
-                    print(f"[server] Error reading client output: {e}")
-        except Exception as e:
-            print(f"[server] Error forwarding client output: {e}")
-
-    async def run(self, auto_start_client: bool = False, run_script_path: str = "run.py", forward_client_output: bool = True):
+    async def run(self):
         # Eagerly initialize so we have weights ready for the first client:
         if self.model is None:
             self._load_base_model() 
@@ -567,35 +504,12 @@ class LearnerServer:
         addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
         print(f"[server] Listening on {addrs} | model='{self.model_name}' | device='{self.device}'")
         
-        # Optionally start the client process
-        if auto_start_client:
-            # Wait a moment for server to be ready
-            await asyncio.sleep(1.0)
-            self._start_client_process(run_script_path, forward_output=forward_client_output)
-            # Start output forwarding if needed (when output is captured)
-            if not forward_client_output and self._client_process is not None and self._client_process.stdout:
-                asyncio.create_task(self._forward_client_output())
-        
         # Create a task to monitor termination flag
         async def monitor_termination():
             while True:
                 async with self._terminate_lock:
                     if self._should_terminate:
                         print("[server] Termination flag set, shutting down server...")
-                        # Terminate client process if it was started by us
-                        if self._client_process is not None:
-                            print("[server] Terminating client process...")
-                            try:
-                                self._client_process.terminate()
-                                # Wait a bit for graceful shutdown
-                                try:
-                                    self._client_process.wait(timeout=5)
-                                except subprocess.TimeoutExpired:
-                                    print("[server] Client process did not terminate, killing...")
-                                    self._client_process.kill()
-                                print("[server] Client process terminated")
-                            except Exception as e:
-                                print(f"[server] Error terminating client process: {e}")
                         server.close()
                         await server.wait_closed()
                         print("[server] Server shut down gracefully")
@@ -643,21 +557,6 @@ class LearnerServer:
                         pass
                 self._clients.clear()
             
-            # Terminate client process if we started it
-            if self._client_process is not None:
-                print("[server] Terminating client process...")
-                try:
-                    self._client_process.terminate()
-                    try:
-                        self._client_process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        print("[server] Client process did not terminate, killing...")
-                        self._client_process.kill()
-                        self._client_process.wait()
-                    print("[server] Client process terminated")
-                except Exception as e:
-                    print(f"[server] Error terminating client process: {e}")
-            
             # Close server
             server.close()
             await server.wait_closed()
@@ -668,82 +567,3 @@ class LearnerServer:
             
             print("[server] Shutdown complete")
 
-
-# ------------------------------
-# CLI
-# ------------------------------
-
-# python TrainingLite/rl_racing/learner_server.py   --model-name SAC_RCA1_wpts_lidar_50
-# python TrainingLite/rl_racing/learner_server.py   --init-from-scratch --model-name SAC_RCA1_wpts_lidar_50
-
-def main():
-
-    # Default parameters
-    model_name = "SAC_RCA1_0"
-    grad_steps = 256
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_every_seconds = 0.2
-    replay_capacity = 100_000
-    learning_starts = 500
-    batch_size = 256
-    learning_rate = 3e-4
-    discount_factor = 0.99
-    train_frequency = 1
-
-
-
-
-    import argparse
-    parser = argparse.ArgumentParser(description="Learner server: collect episodes, train SAC, broadcast weights.")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument("--model-name", default=model_name)
-    parser.add_argument("--device", default=device, choices=["cpu", "cuda"])
-    parser.add_argument("--train-every-seconds", type=float, default=train_every_seconds)
-    parser.add_argument("--gradient-steps", type=int, default=grad_steps)
-    parser.add_argument("--replay-capacity", type=int, default=replay_capacity)
-    parser.add_argument("--learning-starts", type=int, default=learning_starts)
-    parser.add_argument("--batch-size", type=int, default=batch_size)
-    parser.add_argument("--learning-rate", type=float, default=learning_rate)
-    parser.add_argument("--discount-factor", type=float, default=discount_factor)
-    parser.add_argument("--train-frequency", type=int, default=train_frequency)
-    parser.add_argument("--auto-start-client", default=True, action="store_true",
-                       help="Automatically start the client/simulation process")
-    parser.add_argument("--run-script-path", type=str, default="run.py",
-                       help="Path to the run.py script (relative to project root)")
-    parser.add_argument("--no-forward-client-output", action="store_true",
-                       help="Don't forward client output to terminal (output forwarding is enabled by default)")
-    parser.add_argument("--control_penalty_factor", type=float, default=0.1,
-                       help="Control penalty factor for reward calculation")
-    parser.add_argument("--d_control_penalty_factor", type=float, default=0.1,
-                       help="Derivative control penalty factor for reward calculation")
-
-    args = parser.parse_args()
-
-    srv = LearnerServer(
-        host=args.host,
-        port=args.port,
-        model_name=args.model_name,
-        device=args.device,
-        train_every_seconds=args.train_every_seconds,
-        grad_steps=args.gradient_steps,
-        replay_capacity=args.replay_capacity,
-        learning_starts=args.learning_starts,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        discount_factor=args.discount_factor,
-        train_frequency=args.train_frequency
-    )
-    
-    try:
-        asyncio.run(srv.run(
-            auto_start_client=args.auto_start_client, 
-            run_script_path=args.run_script_path,
-            forward_client_output=not args.no_forward_client_output
-        ))
-    except KeyboardInterrupt:
-        print("\n[server] KeyboardInterrupt received in main, exiting...")
-        # asyncio.run handles cleanup via the finally block in run()
-
-if __name__ == "__main__":
-    main()
