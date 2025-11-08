@@ -181,7 +181,7 @@ def save_settings_snapshot(output_path: Optional[str] = None, format: str = 'yam
 
 
 def parse_settings_args(description: Optional[str] = None, verbose: bool = True, 
-                       save_snapshot: bool = True, snapshot_path: Optional[str] = None) -> argparse.Namespace:
+                       save_snapshot: bool = False, snapshot_path: Optional[str] = None) -> argparse.Namespace:
     """
     Parse command-line arguments and override Settings attributes.
     

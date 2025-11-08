@@ -17,7 +17,7 @@ from stable_baselines3.common.results_plotter import load_results, ts2xy, plot_r
 
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from TrainingLite.rl_racing.train_model import log_dir, model_name
+from TrainingLite.rl_racing.old_train_model import log_dir, model_name
 
 print(log_dir)
 timesteps = 1e8

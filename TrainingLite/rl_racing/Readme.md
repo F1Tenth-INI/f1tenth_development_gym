@@ -8,55 +8,71 @@ The learner periodically trains on the replay buffer and **broadcasts updated ac
 
 ## How to run
 
-Go to Settings.py and set the SAC agent as controller:
+### Option 1: Server Only (Manual Client Launch)
 
-```python
-# Controller Settings
-CONTROLLER = 'sac_agent'
-...
-RESET_ON_DONE = True
-...
-SAVE_VIDEOS = False # For very long experiments, rendering will take forever
-...
-SIMULATION_LENGTH = 1_000_000 # In sim timesteps: Length until the simulation is terminate: adjust
-
-```
-
-Run the learner server and let it create a new model by settings a model name that does not yet exist.
-You can also continue training an existing model by providing a --model-name of a pretrained model
+Run the learner server and let it create a new model by setting a model name that does not yet exist.
+You can also continue training an existing model by providing a `--model-name` of a pretrained model.
 
 ```bash
-python TrainingLite/rl_racing/learner_server.py --model-name SAC_test
+python TrainingLite/rl_racing/run_training.py --SIMULATION_LENGTH 300000 --model-name OriginalReward1
 ```
 
 The server will now wait for an agent to connect and provide observations.
-In another terminal, run the simulation with the SAC agent.
+In another terminal, run the simulation with the SAC agent:
 
 ```bash
 python run.py
 ```
 
-As the simulation runs, the SAC agent controller will collect observations ( states, waypoints, sensor data etc. and a reward for a state-action pair) and send to the server.
+### Option 2: Server with Auto-Started Client (Recommended)
 
-The server saves the observations to the replay buffer and continuously trains on them. Check out the plots in the models folder ( TrainingLite/rl-racing/Models/YOUR_MODEL_NAME) to track the progress.
-You can also switch between render_mode = None / 'human' to see whats going on.
+Run both server and client together with a single command:
 
-ATTENTION: The server runs independantly from the client. Depending of the hardware, the bottleneck can either be observation collection or training.
-In the learner server, check UTD (Update-to-Data) in the prints. This number represents how many training steps are done per opservation.
+```bash
+python TrainingLite/rl_racing/run_training.py --auto-start-client --SIMULATION_LENGTH 300000 --model-name OriginalReward1
+```
+
+This will automatically:
+- Start the learner server
+- Launch the simulation client
+- Begin training
+
+As the simulation runs, the SAC agent controller will collect observations (states, waypoints, sensor data etc. and a reward for a state-action pair) and send them to the server.
+
+The server saves the observations to the replay buffer and continuously trains on them. Check out the plots in the models folder (`TrainingLite/rl_racing/Models/YOUR_MODEL_NAME`) to track the progress.
+
+**ATTENTION:** The server runs independently from the client. Depending on the hardware, the bottleneck can either be observation collection or training.
+In the learner server, check UTD (Update-to-Data) in the prints. This number represents how many training steps are done per observation.
 
 ## Inference
 
-After a successful training, the model can used without the exploration variance by setting it to inference mode.
+After successful training, the model can be used in inference mode for evaluation or deployment.
 
-In sac_agent_planner.py, check the following lines:
+### Evaluation with Custom Settings
+
+Run the simulator with a trained model in inference mode:
 
 ```bash
-self.training_mode = True
-self.inference_model_name = None
+python run.py --RENDER_MODE human_fast --SIMULATION_LENGTH 2000 --SAVE_RECORDINGS True --SAC_INFERENCE_MODEL_NAME OriginalReward1
 ```
 
-If you set training_mode = False, the model is loaded in inference mode ( no exploration )
-If you set the inference_model_name, the SAC planner works without server: it will load the model weights by itself. Note that the model has to be on the computer, where the planner is running in that case.
+**Available options:**
+
+All settings from `Settings.py` are available as command-line arguments. Common examples include:
+- `--RENDER_MODE`: Visualization mode (`None`, `human`, `human_fast`)
+- `--SIMULATION_LENGTH`: Number of timesteps to run
+- `--SAVE_RECORDINGS`: Save episode data to CSV (`True`/`False`)
+- `--SAC_INFERENCE_MODEL_NAME`: Name of the trained model to load
+- `--MAP_NAME`: Select map (e.g., `RCA1`, `RCA2`)
+- `--CONTROLLER`: Controller type (e.g., `sac_agent`, `pure_pursuit`)
+- And many more from `Settings.py`
+
+When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
+- Loads the model weights directly (no server needed)
+- Runs in deterministic mode (no exploration)
+- Does not send transitions to any server
+
+**Note:** The model must be available on the computer where the planner is running.
 
 ## Features
 
@@ -112,6 +128,40 @@ If you set the inference_model_name, the SAC planner works without server: it wi
 - `learning_starts = 2000` (raise to 10000 later if desired)
 - `utd_ratio ≈ 4.0` (gradient steps per newly added sample; capped by `min_grad_steps=16`, `max_grad_steps=4096`)
 - Saves model to `models/{model_name}/{model_name}.zip` after each train round
+
+**Command-line arguments for training:**
+
+Server-specific arguments:
+- `--model-name`: Name of the model (required)
+- `--host`: Server host address (default: `0.0.0.0`)
+- `--port`: Server port (default: `5555`)
+- `--device`: Training device (`cpu` or `cuda`)
+- `--train-every-seconds`: Training interval in seconds
+- `--gradient-steps`: Number of gradient steps per training iteration
+- `--replay-capacity`: Replay buffer capacity
+- `--learning-starts`: Minimum samples before training starts
+- `--batch-size`: Batch size for training
+- `--learning-rate`: Learning rate for SAC
+- `--discount-factor`: Discount factor (gamma)
+- `--train-frequency`: Training frequency
+- `--auto-start-client`: Automatically start client simulation (flag)
+- `--forward-client-output`: Forward client output to terminal (flag, enabled by default)
+
+Simulation settings (all from `Settings.py`):
+- `--SIMULATION_LENGTH`: Total simulation timesteps
+- `--RENDER_MODE`: Visualization mode
+- `--MAP_NAME`: Select map
+- `--CONTROLLER`: Controller type
+- And all other settings from `Settings.py`
+
+**Command-line arguments for inference:**
+
+All settings from `Settings.py` are available, including:
+- `--SAC_INFERENCE_MODEL_NAME`: Name of trained model to load
+- `--RENDER_MODE`: Visualization (`None`, `human`, `human_fast`)
+- `--SIMULATION_LENGTH`: Number of timesteps to run
+- `--SAVE_RECORDINGS`: Save episode recordings (`True`/`False`)
+- `--MAP_NAME`: Select map for evaluation
 
 **Actor behavior**
 

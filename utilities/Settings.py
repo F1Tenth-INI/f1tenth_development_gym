@@ -73,7 +73,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 1_000_000 # In sim timesteps: Length until the simulation is terminated
+    SIMULATION_LENGTH = 300_000 # In sim timesteps: Length until the simulation is terminated
 
 
     ## Noise ##
@@ -144,8 +144,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -166,6 +166,9 @@ class Settings():
     ROS_BRIDGE = False # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
+
+    ## SAC Agent planner
+    SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     
     
     ## Friction ##

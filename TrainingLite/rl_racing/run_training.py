@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
 Command-line entry point for launching the learner server training loop.
+example usage:
+
+python TrainingLite/rl_racing/run_training.py --model-name ServerClientTest1 --RENDER_MODE human_fast --MAP_NAME RCA2
+
 """
 
 from __future__ import annotations
@@ -51,7 +55,7 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
     parser.add_argument("--train-frequency", type=int, default=1)
     parser.add_argument(
         "--auto-start-client",
-        default=True,
+        default=False,
         action="store_true",
         help="Automatically start the client/simulation process",
     )
