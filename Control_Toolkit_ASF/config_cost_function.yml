@@ -8,8 +8,8 @@ Car:
     # Different optimizers works the best with different cost functions parameters
     rpgd:
       cc_weight: [0.2, 0.1] # Cost on control; steering and throttle
-      ccrc_weight: [20.0, 1.0] # Steering and throttle; penalty of instant control change (compared to prev input)
-      ccrh_weight: [20.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
+      ccrc_weight: [10.0, 0.5] # Steering and throttle; penalty of instant control change (compared to prev input)
+      ccrh_weight: [10.0, 0.0] # Steering and throttle; penalty of instant control change within the horizon
 
       crash_cost_max_cost: 100.0
       crash_cost_safe_margin: 0.4

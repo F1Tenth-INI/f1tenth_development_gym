@@ -164,7 +164,7 @@ class Settings():
     
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start
-    GLOBALLY_DISABLE_COMPILATION = True # Disable TF Compilation
+    GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
     ## SAC Agent planner
