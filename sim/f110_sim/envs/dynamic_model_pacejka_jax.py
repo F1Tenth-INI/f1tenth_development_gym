@@ -102,12 +102,12 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         Fy_f = mu * F_zf * D_f * jnp.sin(C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
         Fy_r = mu * F_zr * D_r * jnp.sin(C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
         
-        # 3. Curve resistance (tire scrub during cornering)
-        # Additional rolling resistance due to lateral forces
-        # This creates the "slowing down in curves" effect
-        lateral_force_magnitude = jnp.sqrt(Fy_f*Fy_f + Fy_r*Fy_r)
-        a_curve = -curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
-        v_x_dot += a_curve
+        # # 3. Curve resistance (tire scrub during cornering)
+        # # Additional rolling resistance due to lateral forces
+        # # This creates the "slowing down in curves" effect
+        # lateral_force_magnitude = jnp.sqrt(Fy_f*Fy_f + Fy_r*Fy_r)
+        # a_curve = -curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
+        # v_x_dot += a_curve
                 
         # Compute state derivatives
         d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)

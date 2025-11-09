@@ -503,7 +503,7 @@ def compute_waypoint_distance_jax(state, waypoints):
 @jax.jit
 def cost_function_jax(state, control, waypoints):
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 1.0
+    angular_control_cost = jnp.abs(control[0]) * 0.1
     translational_control_cost = jnp.abs(control[1]) * 0.1
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]

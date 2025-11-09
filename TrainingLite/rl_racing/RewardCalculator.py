@@ -130,7 +130,7 @@ class RewardCalculator:
 
         # Spinning reward Penalize Spinning (Fixing Instability)
         spin_reward = 0.0
-        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
+        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 25.0:
             self.spin_counter += 1
             if self.spin_counter >= 50:
                 spin_reward = -10
