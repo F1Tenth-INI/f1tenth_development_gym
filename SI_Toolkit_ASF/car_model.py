@@ -376,9 +376,7 @@ class car_model:
         accl = self.lib.where(condition, 0., accl)
 
         # Constraint longitudinal acceleration by motor power
-        # accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
-        a_min = self.lib.constant(self.car_parameters.a_min, t=self.lib.float32)
-        accl = self.lib.clip(accl, a_min, pos_limit)
+        accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
 
         # Constraint longitudinal acceleration by slipping
         max_acceleration = self.car_parameters.g * self.car_parameters.mu        
