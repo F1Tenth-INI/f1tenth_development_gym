@@ -34,6 +34,7 @@ if __name__ == "__main__":
     Settings.APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
     Settings.START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
     Settings.SIMULATION_LENGTH = 2000
+    Settings.SAVE_RECORDINGS = True
     Settings.SURFACE_FRICTION = 0.75
     Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0]
 
