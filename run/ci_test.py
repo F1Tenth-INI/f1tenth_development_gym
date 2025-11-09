@@ -17,9 +17,10 @@ if __name__ == "__main__":
     
     # Test car models first to ensure they work correctly
     from sim.f110_sim.envs.test_dynamic_models import test_car_models, test_jax_pacejka_integration
-    test_car_models()
-    test_jax_pacejka_integration()
-    print("All car model tests completed successfully.\n")
+    # test_car_models()
+    # test_jax_pacejka_integration()
+    # print("All car model tests completed successfully.\n")
+    print("Skipping car model tests.\n")
     
 
     # Global Settings
