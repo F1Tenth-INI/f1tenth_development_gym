@@ -49,7 +49,8 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     
     # Unpack car parameters from NumPy array
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
-    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params
+    servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch, c_rr, \
+    v_dead, curve_resistance_factor, brake_multiplier = car_params
 
     # Unpack state
     psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s
@@ -73,8 +74,11 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     
     delta_dot = max(min(delta_dot, sv_max), sv_min)  # Apply steering velocity constraints
 
-    # Apply Motor Control for Acceleration (Matches Batch Model exactly)
-    v_x_dot = translational_control
+    # Apply Motor Control for Acceleration with asymmetric braking
+    if translational_control >= 0:
+        v_x_dot = translational_control  # Acceleration unchanged
+    else:
+        v_x_dot = translational_control * brake_multiplier  # Scale down braking
     
     # Velocity constraints (stop acceleration when at velocity limits)
     if (v_x < v_min and v_x_dot < 0) or (v_x > v_max and v_x_dot > 0):
@@ -89,6 +93,14 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     # Apply acceleration limits (motor power)
     v_x_dot = max(min(v_x_dot, pos_limit), a_min)
 
+    # --- Enhanced resistance forces ---
+    # Smooth sign near 0 to avoid pulling car backwards at rest
+    smooth_sign = v_x / np.sqrt(v_x*v_x + v_dead*v_dead)
+    
+    # 1. Rolling resistance (proportional to normal force)
+    a_roll = -c_rr * g_ * smooth_sign
+    v_x_dot += a_roll
+    
     # Limit due to tire friction
     max_a_friction = mu * g_
     v_x_dot = min(max(v_x_dot, -max_a_friction), max_a_friction)
@@ -110,6 +122,13 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
         # Compute lateral forces using Pacejka's formula
         F_yf = mu * F_zf * D_f * np.sin(C_f * np.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - np.arctan(B_f * alpha_f))))
         F_yr = mu * F_zr * D_r * np.sin(C_r * np.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - np.arctan(B_r * alpha_r))))
+        
+        # 3. Curve resistance (tire scrub during cornering)
+        # Additional rolling resistance due to lateral forces
+        # This creates the "slowing down in curves" effect
+        lateral_force_magnitude = np.sqrt(F_yf*F_yf + F_yr*F_yr)
+        a_curve = -curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
+        v_x_dot += a_curve
                 
         # Compute state derivatives
         d_s_x = v_x * np.cos(psi) - v_y * np.sin(psi)

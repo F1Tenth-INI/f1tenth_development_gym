@@ -34,7 +34,8 @@ Author: Hongrui Zheng
 import numpy as np
 
 from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
-from f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
+from sim.f110_sim.envs.car_model_jax import car_dynamics_pacejka_jax
+
 
 from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_sim.envs.collision_models import get_vertices, collision_multiple
@@ -43,6 +44,7 @@ from f110_sim.envs.collision_models import get_vertices, collision_multiple
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.imu_simulator import IMUSimulator
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -79,6 +81,7 @@ class RaceCar(object):
     cosines = None
     scan_angles = None
     side_distances = None
+    imu_simulator = None
 
     def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
         """
@@ -95,8 +98,9 @@ class RaceCar(object):
             None
         """
 
-        # initialization
-        self.params = params
+        # initialization - use VehicleParameters instead of params argument
+        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        self.params = car_params.to_dict()
         self.seed = seed
         self.is_ego = is_ego
         self.time_step = time_step
@@ -186,8 +190,8 @@ class RaceCar(object):
             RaceCar.scan_angles = np.zeros((num_beams, ))
             RaceCar.side_distances = np.zeros((num_beams, ))
 
-            dist_sides = params['width']/2.
-            dist_fr = (params['lf']+params['lr'])/2.
+            dist_sides = self.params['width']/2.
+            dist_fr = (self.params['lf']+self.params['lr'])/2.
 
             for i in range(num_beams):
                 angle = -fov/2. + i*scan_ang_incr
@@ -228,7 +232,9 @@ class RaceCar(object):
         Returns:
             None
         """
-        self.params = params
+        # Use VehicleParameters for consistency
+        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        self.params = car_params.to_dict()
     
     def set_map(self, map_path, map_ext):
         """
@@ -387,7 +393,6 @@ class RaceCar(object):
         """
         self.opp_poses = opp_poses
 
-
     def update_scan(self, agent_scans, agent_index):
         """
         Steps the vehicle's laser scan simulation
@@ -446,8 +451,18 @@ class Simulator(object):
         self.params = params
         self.agent_poses = np.empty((self.num_agents, 3))
         self.agents = []
+        self.agent_scans = []
+        self.agent_imus = []
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
+        self.sim_index = 0
+        
+        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        # self.params = car_params.to_dict()
+
+        # Initialize IMU simulator
+        if RaceCar.imu_simulator is None:
+            RaceCar.imu_simulator = IMUSimulator()
 
         # initializing agents
         for i in range(self.num_agents):
@@ -514,7 +529,28 @@ class Simulator(object):
             all_vertices[i, :, :] = get_vertices(np.append([pos_x, pos_y], yaw), self.params['length'], self.params['width'])
         self.collisions, self.collision_idx = collision_multiple(all_vertices)
 
+    def get_sim_observation(self):
+        """
+        Returns a dictionary containing car states, scans, IMU data, and collisions for all agents.
 
+        Returns:
+            obs (dict): observation dictionary with keys:
+                'car_states': np.ndarray of shape (num_agents, state_dim)
+                'scans': list of np.ndarray, each scan for an agent
+                'imus': list of np.ndarray, each IMU data for an agent [accel_x, accel_y, angular_vel_z]
+                'collisions': np.ndarray of shape (num_agents, )
+        """
+        car_states = np.array([agent.state for agent in self.agents])
+        obs = {
+            'car_states': car_states,
+            'scans': self.agent_scans,
+            'imus': self.agent_imus,
+            'collisions': self.collisions.copy(),
+            'terminated': self.sim_index >= Settings.EXPERIMENT_MAX_LENGTH,
+            'ego_idx': self.ego_idx,
+        }
+        return obs
+    
     def step(self, control_inputs):
         """
         Steps the simulation environment
@@ -528,6 +564,7 @@ class Simulator(object):
 
 
         agent_scans = []
+        agent_imus = []
 
         # looping over agents
         for i, agent in enumerate(self.agents):
@@ -540,6 +577,13 @@ class Simulator(object):
             pos_y = agent.state[StateIndices.pose_y]
             yaw = agent.state[StateIndices.yaw_angle]
             self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
+            
+            # compute IMU data for this agent
+            imu_data = RaceCar.imu_simulator.update_car_state(agent.state, self.time_step)
+            agent_imus.append(imu_data)
+            
+        self.agent_scans = agent_scans
+        self.agent_imus = agent_imus
 
         # check collisions between all agents
         self.check_collision()
@@ -555,29 +599,12 @@ class Simulator(object):
             # update agent collision with environment
             if agent.in_collision:
                 self.collisions[i] = 1.
+       
 
         # fill in observations
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
-        # collision_angles is removed from observations
-        observations = {'ego_idx': self.ego_idx,
-            'scans': [],
-            'poses_x': [],
-            'poses_y': [],
-            'poses_theta': [],
-            'linear_vels_x': [],
-            'linear_vels_y': [],
-            'ang_vels_z': [],
-            'collisions': self.collisions}
-        for i, agent in enumerate(self.agents):
-            observations['scans'].append(agent_scans[i])
-            observations['poses_x'].append(agent.state[StateIndices.pose_x])
-            observations['poses_y'].append(agent.state[StateIndices.pose_y])
-            observations['poses_theta'].append(agent.state[StateIndices.yaw_angle])
-            observations['linear_vels_x'].append(agent.state[StateIndices.v_x])
-            observations['linear_vels_y'].append(agent.state[StateIndices.v_y])
-            observations['ang_vels_z'].append(agent.state[StateIndices.yaw_rate])
-            # Missing state[2] and state[6]
-
+        observations = self.get_sim_observation()
+        self.sim_index += 1
         return observations
 
     def reset(self, initial_states):
@@ -590,28 +617,32 @@ class Simulator(object):
         Returns:
             obs (dict): initial observation dictionary
         """
+
+        self.sim_index = 0
         if initial_states.shape[0] != self.num_agents:
             raise ValueError('Number of initial_states for reset does not match number of agents.')
 
         # Reset all agents
+        self.agent_scans = []
+        self.agent_imus = []
+        
+        # Clear collision flags
+        self.collisions = np.zeros((self.num_agents, ))
+        self.collision_idx = -1 * np.ones((self.num_agents, ))
+        
+        # Reset IMU simulator
+        RaceCar.imu_simulator.reset()
+        
         for i in range(self.num_agents):
-            self.agents[i].reset(initial_states[i, :])
+            agent = self.agents[i]
+            agent.reset(initial_states[i, :])
+            pose = np.array([agent.state[StateIndices.pose_x], agent.state[StateIndices.pose_y], agent.state[StateIndices.yaw_angle]])
+            current_scan = RaceCar.scan_simulator.scan(pose, agent.scan_rng)
+            self.agent_scans.append(current_scan)
+            
+            # Initialize IMU data for this agent
+            imu_data = RaceCar.imu_simulator.update_car_state(agent.state, self.time_step)
+            self.agent_imus.append(imu_data)
 
-        # Construct initial observation
-        obs = {
-            "poses_x": np.array([self.agents[i].state[0] for i in range(self.num_agents)]),
-            "poses_y": np.array([self.agents[i].state[1] for i in range(self.num_agents)]),
-            "poses_theta": np.array([self.agents[i].state[2] for i in range(self.num_agents)]),
-            "linear_vels_x": np.array([self.agents[i].state[3] for i in range(self.num_agents)]),  # Assuming index 3 is velocity
-            "collisions": np.zeros(self.num_agents, dtype=bool),  # No collisions at start
-            "lap_times": np.zeros(self.num_agents),  # Start with 0 lap time
-            "lap_counts": np.zeros(self.num_agents, dtype=int),  # No laps completed
-        }
-
-        # If LiDAR is available, include scans in observation
-        if hasattr(self.agents[0], "get_lidar_scan"):
-            obs["scans"] = np.array([self.agents[i].get_lidar_scan() for i in range(self.num_agents)])
-        else:
-            obs["scans"] = np.array([np.zeros(1080) for i in range(self.num_agents)])
-
+        obs = self.get_sim_observation()
         return obs

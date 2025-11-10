@@ -64,7 +64,7 @@ class FollowTheGapPlanner(template_planner):
 
 
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
         """
         gives actuation given observation
         @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).

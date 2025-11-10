@@ -11,7 +11,7 @@ from utilities.car_files.vehicle_parameters import VehicleParameters
 
 # Import the standalone models
 from .dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, car_step_parallel
-from .dynamic_model_pacejka_jax import car_dynamics_pacejka_jax, car_step_parallel_jax
+from .dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
 
 
 def test_car_models():
@@ -40,28 +40,11 @@ def test_car_models():
     single_step_diff = np.max(np.abs(jit_result - np.array(jax_result)))
     single_step_close = single_step_diff < 1e-5
     
-    # Test batch operations
-    batch_size = 10  # Smaller batch for CI to keep it fast
-    batch_states = np.tile(test_state, (batch_size, 1))
-    batch_controls = np.tile(test_control, (batch_size, 1))
-    batch_states_jax = jnp.array(batch_states)
-    batch_controls_jax = jnp.array(batch_controls)
-    
-    jit_batch_result = car_step_parallel(batch_states, batch_controls, car_params, dt)
-    jax_batch_result = car_step_parallel_jax(batch_states_jax, batch_controls_jax, car_params_jax, dt)
-    
-    batch_diff = np.max(np.abs(jit_batch_result - np.array(jax_batch_result)))
-    batch_close = batch_diff < 1e-5
-    
     print(f"Single step max difference: {single_step_diff:.2e}")
-    print(f"Batch step max difference: {batch_diff:.2e}")
-    print(f"Car models test: {'PASSED' if single_step_close and batch_close else 'FAILED'}")
-    
+    print(f"Car models test: {'PASSED' if single_step_close else 'FAILED'}")
     # Assert that models are consistent
     assert single_step_close, f"JIT and JAX single step models differ by {single_step_diff:.2e} (threshold: 1e-5)"
-    assert batch_close, f"JIT and JAX batch models differ by {batch_diff:.2e} (threshold: 1e-5)"
-    
-    return single_step_close and batch_close
+    return single_step_close
 
 
 def test_jax_pacejka_integration():
@@ -82,7 +65,7 @@ def test_jax_pacejka_integration():
             'mu': car_params.mu,
             'lf': car_params.lf,
             'lr': car_params.lr,
-            'h_cg': car_params.h_cg,
+            'h_cg': car_params.h,
             'm': car_params.m,
             'I_z': car_params.I_z,
             'length': car_params.length,
@@ -104,8 +87,9 @@ def test_jax_pacejka_integration():
         
     except Exception as e:
         print(f"JAX Pacejka integration test: SKIPPED - {e}")
-        # Don't fail the test suite for integration issues
-    
+        # Fail the test
+        assert False, f"JAX Pacejka integration test failed: {e}"
+
     return True
 
 

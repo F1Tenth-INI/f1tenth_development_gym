@@ -29,7 +29,6 @@ from Control_Toolkit.Cost_Functions.cost_function_tester import CostFunctionTest
 from SI_Toolkit.load_and_normalize import load_yaml
 
 
-
 class mpc_planner(template_planner):
     """
     Example Planner
@@ -56,8 +55,8 @@ class mpc_planner(template_planner):
         self.target_point = np.array([0, 0], dtype=np.float32)
 
                     
-        self.LIDAR = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
-        self.lidar_points = self.LIDAR.processed_points_map_coordinates
+        self.lidar_utils = LidarHelper()  # Will be overwritten with a LidarUtils instance from car_system
+        self.lidar_points = self.lidar_utils.processed_points_map_coordinates
 
         self.car_parameters = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
@@ -101,10 +100,11 @@ class mpc_planner(template_planner):
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
 
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
 
 
-        self.lidar_points = self.LIDAR.processed_points_map_coordinates
+        self.lidar_points = self.lidar_utils.processed_points_map_coordinates
+
 
 
         angular_control, translational_control  = self.mpc.step(self.car_state,

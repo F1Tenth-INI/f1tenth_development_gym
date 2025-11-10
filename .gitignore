@@ -59,6 +59,7 @@ utilities/minimum_curvature_optimization/inputs/tracks/
 !utilities/maps/Germany2022
 !utilities/maps/IPZ33
 !utilities/maps/Blank
+!utilities/maps/IPZ2
 
 
 # TrainingLite
@@ -82,3 +83,5 @@ ppo_models/*
 
 
 *.egg-info
+
+.github/instructions/python_instructions.instructions.md

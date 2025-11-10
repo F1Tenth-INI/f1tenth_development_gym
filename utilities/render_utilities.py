@@ -17,10 +17,7 @@ else:
             from pyglet import shapes
             import pyglet
         except ImportError as e:
-
-            # Handle the import error gracefully
             print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
-            # Optionally, you can print the error message
             print(f"ImportError: {e}")
    
             Settings.RENDER_MODE = None
@@ -97,22 +94,11 @@ class RenderUtils:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
-        
+
         self.label_dict = {}
-
-        self.waypoint_vertices = None
-        self.next_waypoint_vertices = None
-        self.next_waypoints_alternative_vertices = None
-        self.lidar_vertices = None
-        self.gap_vertex = None
-        self.mppi_rollouts_vertices = None
-        self.optimal_trajectory_vertices = None
-        self.target_vertex = None
-        self.obstacle_vertices = None
-        self.emergency_slowdown_lines = []
-
         self.waypoints: Optional[np.ndarray] = None
         self.waypoints_alternative: Optional[np.ndarray] = None
+        self.waypoints_full: Optional[np.ndarray] = None
         self.next_waypoints: Optional[np.ndarray] = None
         self.next_waypoints_alternative: Optional[np.ndarray] = None
         self.lidar_border_points: Optional[np.ndarray] = None
@@ -124,15 +110,43 @@ class RenderUtils:
         self.car_state = None
         self.obstacles = None
 
-        self.past_car_states_alternative = None
-        self.past_car_states_alternative_vertices = None
         
-        self.steering_direction = None
-
-        self.emergency_slowdown_sprites = None
+        self.reset()
 
         if(Settings.ROS_BRIDGE):
            pass
+
+
+    def reset(self):
+        self.waypoint_vertices = None
+        self.next_waypoint_vertices = None
+        self.next_waypoints_alternative_vertices = None
+        self.gap_vertex = None
+        self.mppi_rollouts_vertices = None
+        self.optimal_trajectory_vertices = None
+        self.target_vertex = None
+        self.obstacle_vertices = None
+        self.emergency_slowdown_lines = []
+        self.lidar_vertices = None
+
+        self.past_car_states_alternative = None
+        self.past_car_states_alternative_vertices = None
+        self.steering_direction = None
+        self.emergency_slowdown_sprites = None
+
+        # Delete position history vertices if they exist
+        if hasattr(self, 'position_history_vertices') and self.position_history_vertices is not None:
+            self.position_history_vertices.delete()
+            self.position_history_vertices = None
+        # Clear position history points
+        self.position_history_points = []
+        # Delete lidar vertices if they exist
+        if hasattr(self, 'lidar_vertices') and self.lidar_vertices is not None:
+            self.lidar_vertices.delete()
+            self.lidar_vertices = None
+        # Clear lidar points
+        self.lidar_border_points = None
+
 
     # Pass all data that is updated during simulation
     def update(self, 
@@ -208,8 +222,6 @@ class RenderUtils:
             label_text = "\n".join([f"{key}: {value}" for key, value in sorted(self.label_dict.items())])
             e.info_label.text = label_text
         
-        # Waypoints
-        gl.glPointSize(1)
         if self.draw_waypoints:        
 
             waypoints = self.waypoints
@@ -274,19 +286,35 @@ class RenderUtils:
                         ('v2f/stream', [start_point_x, start_point_y, end_point_x, end_point_y]),
                         ('c3B/static', tuple((0, 204, 0)) * 2))  # color of the arrow
               
-            # Position History             
+            # Position History
             if self.draw_position_history:
-                points = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])
-                speed = self.car_state[LINEAR_VEL_X_IDX]
-                scaled_points = RenderUtils.get_scaled_points(points)
-                # Color [r,g,b] values (int) between 0 and 255
-                color = [
-                    max(min(int(10 * speed), 255), 0),
-                    min(max(int(255 - 10 * speed), 0), 255),
-                    0
+                # Initialize if not present
+                if not hasattr(self, 'position_history_points') or self.position_history_points is None:
+                    self.position_history_points = []
+                # Add current position to history
+                self.position_history_points.append([
+                    self.car_state[POSE_X_IDX],
+                    self.car_state[POSE_Y_IDX],
+                    self.car_state[LINEAR_VEL_X_IDX]
+                ])
+                # Prepare arrays for rendering
+                points_arr = np.array([[p[0], p[1]] for p in self.position_history_points])
+                speeds_arr = np.array([p[2] for p in self.position_history_points])
+                scaled_points = RenderUtils.get_scaled_points(points_arr)
+                # Color for each point
+                colors = [
+                    [max(min(int(10 * s), 255), 0), min(max(int(255 - 10 * s), 0), 255), 0]
+                    for s in speeds_arr
                 ]
-                e.batch.add(1, GL_POINTS, None, ('v3f/stream', [scaled_points[0], scaled_points[1], 0.]),
-                            ('c3B',color))
+                colors_flat = [c for color in colors for c in color]
+                # Delete previous position history vertices if they exist
+                if hasattr(self, 'position_history_vertices') and self.position_history_vertices is not None:
+                    self.position_history_vertices.delete()
+                # Add all position history points as GL_POINTS
+                howmany = scaled_points.shape[0]
+                scaled_points_flat = [coord for pt in scaled_points for coord in (pt[0], pt[1], 0.)]
+                self.position_history_vertices = e.batch.add(howmany, GL_POINTS, None, ('v3f/stream', scaled_points_flat),
+                            ('c3B', colors_flat))
 
         if self.past_car_states_alternative is not None:
 

@@ -30,13 +30,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Create and activate virtual environment
+      - name: Upgrade pip and build tools
         run: |
-          python -m venv venv
-          source venv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
 
       - name: Install sim
-        run: pip install -e sim/
+        run: python -m pip install -e sim/
 
       - name: Check submodules
         run: |
@@ -44,8 +43,8 @@ jobs:
             git submodule update --init --recursive
           fi
 
-      - name: Install SI_Toolkit
-        run: pip install -e ./SI_Toolkit
+      - name: Install SI_Toolkit (non-editable)
+        run: python -m pip install ./SI_Toolkit
 
       - name: Add project root to PYTHONPATH
         run: |

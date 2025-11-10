@@ -25,6 +25,15 @@ class LapAnalyzer:
         max_distance = np.max(self.distance_log)
 
         return mean_distance, std_distance, max_distance
+    
+    def reset(self):
+        self.current_lap_time = None
+        self.waypoint_log = []
+        self.distance_log = []
+        self.time_log = []
+        self.ready_for_readout = []
+        self.single_measurement_point_index = None
+        self.single_measurement_point_time = None
 
     def update(self, nearest_waypoint_index, time_now, distance_to_raceline=None):
 

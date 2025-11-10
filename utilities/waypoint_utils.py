@@ -7,7 +7,7 @@ import threading
 import os.path
 import numpy as np
 import pandas as pd
-
+import matplotlib.pyplot as plt
 from numba import njit, prange
 from numba.np.extensions import cross2d
 
@@ -39,14 +39,16 @@ waypoints = waypoint_utils.next_waypoints
 
 
 # Indices of waypoint
-WP_S_IDX = 0 # Distance since start
-WP_X_IDX = 1 # Position x
-WP_Y_IDX = 2 # Position y
-WP_PSI_IDX = 3 # Absolute angle of vector connecting to next wp
-WP_KAPPA_IDX = 4 # Relative angle
-WP_VX_IDX = 5 # Suggested velocity 
-WP_A_X_IDX = 6 # Suggested acceleration
+WP_S_IDX = 0 # meter. Curvi-linear distance along the raceline.
+WP_X_IDX = 1 #  meter. X-coordinate of raceline point.
+WP_Y_IDX = 2 # meter. Y-coordinate of raceline point
+WP_PSI_IDX = 3 #  rad. Heading of raceline in current point from -pi to +pi rad. Zero is north (along y-axis)
+WP_KAPPA_IDX = 4 # rad/meter. Curvature of raceline in current point.
+WP_VX_IDX = 5 # meter/second. Target velocity in current point.
+WP_A_X_IDX = 6 # meter/second². Target acceleration in current point.
 WP_GLOBID_IDX = 7
+WP_D_RIGHT_IDX = 8 # Distance to right bound
+WP_D_LEFT_IDX = 9 # Distance to left bound
 
 
 # Indices for sectors
@@ -66,7 +68,7 @@ class WaypointUtils:
         self.waypoint_file_name = waypoint_file_name
         self.speed_scaling_file_name = speed_scaling_file_name
         
-        print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
+        # print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
         
         self.interpolation_steps = Settings.INTERPOLATION_STEPS
         self.decrease_resolution_factor = Settings.DECREASE_RESOLUTION_FACTOR
@@ -94,6 +96,11 @@ class WaypointUtils:
         self.waypoints = None  # type: Optional[np.ndarray]
         self.waypoint_positions = None
 
+        #Frenet initialization
+        self._s_int = None   # integrated, unwrapped s (internal)
+        self._s0    = None   # s-offset so that reported s starts from 0 each episode
+        self.frenet_coordinates = None # (s, d, e, k)
+
         self.preprocess_waypoints()
 
         self.nearest_waypoint_index = None
@@ -104,7 +111,7 @@ class WaypointUtils:
         self.initial_distance = None
 
          # next waypoints considering ignored waypoints index offset
-        self.next_waypoints = np.zeros((self.look_ahead_steps, 8), dtype=np.float32)
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 10), dtype=np.float32)
         self.next_waypoint_positions = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
         self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps,2), dtype=np.float32)
 
@@ -119,25 +126,60 @@ class WaypointUtils:
         dummy_car_state = np.zeros(NUMBER_OF_STATES)
         dummy_lidar_points = np.zeros((40, 2))
         get_relative_positions_jit(self.next_waypoints, dummy_car_state)
+        transform_to_car_coordinates(dummy_lidar_points, dummy_car_state)
         get_nearest_waypoint(dummy_car_state, self.waypoints)
         squared_distance([0,0], [1,1])
         check_if_obstacle_on_raceline(dummy_lidar_points, self.next_waypoint_positions)
         
-        # Start the thread that reloads waypoints every 5 seconds
+        # Threading event and thread for reload loop
+        self._reload_thread_stop_event = None
+        self._reload_thread = None
+        self.start_reload_waypoints_thread()
+
+    def reset(self):
+        self.car_state = None
+        self.waypoints = None
+        self.sectors = None
+        self.current_distance_to_raceline = 0
+        self.nearest_waypoint_index = None
+        self.lap_count = 0
+        self.cumulative_progress = 0
+        self.initial_position = None
+        self.previous_distance = 0
+        self.initial_distance = None
+        self.next_waypoints = np.zeros((self.look_ahead_steps, 10), dtype=np.float32)
+        self.next_waypoint_positions = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+        self.next_waypoint_positions_relative = np.zeros((self.look_ahead_steps, 2), dtype=np.float32)
+        self.obstacle_on_raceline = False
+        self.obstacle_position = None
+
+        # Stop reload thread if running
+        if self._reload_thread_stop_event is not None:
+            self._reload_thread_stop_event.set()
+            if self._reload_thread is not None:
+                self._reload_thread.join()
+            self._reload_thread_stop_event = None
+            self._reload_thread = None
+
+        self.reload_waypoints()
         self.start_reload_waypoints_thread()
 
     def start_reload_waypoints_thread(self):
-        if Settings.OPTIMIZE_FOR_RL: # If we are optimizing for RL, we don't need to reload waypoints
+        if Settings.RELOAD_WP_IN_BACKGROUND:
+            
+            # Create a stop event and thread
+            self._reload_thread_stop_event = threading.Event()
+            def reload_loop():
+                while not self._reload_thread_stop_event.is_set():
+                    self.reload_waypoints()
+                    # Wait up to 5 seconds, exit early if stop event is set
+                    self._reload_thread_stop_event.wait(5)
+            self._reload_thread = threading.Thread(target=reload_loop)
+            self._reload_thread.daemon = True
+            self._reload_thread.start()
+        else:
             self.reload_waypoints()
             return
-        else:
-            def reload_loop(): # Reload waypoints every 5 seconds
-                while True:
-                    self.reload_waypoints()
-                    time.sleep(5)
-            thread = threading.Thread(target=reload_loop)
-            thread.daemon = True  # Daemonize thread to exit when main program exits
-            thread.start()
             
     def update_next_waypoints(self, car_state):
         waypoints = self.waypoints
@@ -226,9 +268,27 @@ class WaypointUtils:
             print("Continuting without waypoinnts")
             return None
         
-        waypoints = pd.read_csv(file_path, comment='#')
-        waypoints.loc[:, "idx_global"] = np.arange(waypoints.shape[0])
-        waypoints = waypoints.to_numpy()
+        waypoints_df = pd.read_csv(file_path, comment='#')
+        waypoints_df.loc[:, "idx_global"] = np.arange(waypoints_df.shape[0])
+
+        # Assign waypoints array to custom indices, only first 8 columns
+        try:
+            waypoints = np.zeros((waypoints_df.shape[0], 10), dtype=np.float32)
+            waypoints[:, WP_S_IDX] = waypoints_df.loc[:, "s_m"].to_numpy()
+            waypoints[:, WP_X_IDX] = waypoints_df.loc[:, "x_m"].to_numpy()
+            waypoints[:, WP_Y_IDX] = waypoints_df.loc[:, "y_m"].to_numpy()
+            waypoints[:, WP_PSI_IDX] = waypoints_df.loc[:, "psi_rad"].to_numpy()
+            waypoints[:, WP_KAPPA_IDX] = waypoints_df.loc[:, "kappa_radpm"].to_numpy()
+            waypoints[:, WP_VX_IDX] = waypoints_df.loc[:, "vx_mps"].to_numpy()
+            waypoints[:, WP_A_X_IDX] = waypoints_df.loc[:, "ax_mps2"].to_numpy()
+            waypoints[:, WP_GLOBID_IDX] = waypoints_df.loc[:, "idx_global"].to_numpy()
+            waypoints[:, WP_D_RIGHT_IDX] = waypoints_df.loc[:, "d_right_iqp"].to_numpy()
+            waypoints[:, WP_D_LEFT_IDX] = waypoints_df.loc[:, "d_left_iqp"].to_numpy()
+        except KeyError as e:
+            print("KeyError:", e)
+            print("This Wp file is deprecated. Make sure the waypoint file has the correct columns: s_m, x_m, y_m, psi_rad, kappa_radpm, vx_mps, ax_mps2, idx_global, d_right_m, d_left_m")
+            exit()
+
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
         return np.array(waypoints)
@@ -284,9 +344,14 @@ class WaypointUtils:
                 self.sector_index = len(self.sectors) - 1
         self.save_sector_file()
 
-    def change_sector(self, sector_index, new_scaling):
+    def set_sector_speed(self, sector_index, new_scaling):
         self.sectors[sector_index][SECTOR_SCALING_IDX] = new_scaling
         self.save_sector_file()
+
+    def change_current_sector_speed(self, delta):
+        current_speed = self.sectors[self.sector_index][SECTOR_SCALING_IDX]
+        new_speed = current_speed + delta
+        self.set_sector_speed(self.sector_index, new_speed)
 
     def save_sector_file(self):
         path = os.path.join(self.map_path, self.map_name)
@@ -409,9 +474,107 @@ class WaypointUtils:
 
         return self.cumulative_progress
 
+    
     @staticmethod
     def get_relative_positions(waypoints, car_state):
         return get_relative_positions_jit(waypoints, car_state)
+
+
+    def get_track_border_positions(self, waypoints):
+        # self.waypoints[:, WP_D_RIGHT_IDX] and self.waypoints[:, WP_D_LEFT_IDX] are the right and left distances from the waypoint to the track border.
+        # Get global absolute positions of track borders from each waypoint
+        track_left = waypoints[:, WP_D_LEFT_IDX]
+        track_right = waypoints[:, WP_D_RIGHT_IDX]
+
+        # Calculate border positions using heading ±π/2
+        psi = waypoints[:, WP_PSI_IDX]
+        border_left_x = waypoints[:, WP_X_IDX] + track_left * np.cos(psi + np.pi/2)
+        border_left_y = waypoints[:, WP_Y_IDX] + track_left * np.sin(psi + np.pi/2)
+        border_right_x = waypoints[:, WP_X_IDX] + track_right * np.cos(psi - np.pi/2)
+        border_right_y = waypoints[:, WP_Y_IDX] + track_right * np.sin(psi - np.pi/2)      
+
+        border_points = np.column_stack((border_left_x, border_left_y, border_right_x, border_right_y))
+        border_points_left = np.column_stack((border_left_x, border_left_y))
+        border_points_right = np.column_stack((border_right_x, border_right_y))
+        return border_points_left, border_points_right
+
+    def get_track_border_positions_relative(self, waypoints, car_state):
+        # Get absolute border positions
+        border_points_left, border_points_right = self.get_track_border_positions(waypoints)
+
+        left_border_points_relative = transform_to_car_coordinates(border_points_left, car_state)
+        right_border_points_relative = transform_to_car_coordinates(border_points_right, car_state)
+
+        return left_border_points_relative, right_border_points_relative
+
+    # In your WaypointUtils class
+    def reset_frenet_progress(self):
+        """Call at episode reset to re-initialize integrated s and zero-based output."""
+        self._s_int = None
+        self._s0    = None
+
+    def get_frenet_coordinates(self, car_state):
+        # [STATEFUL] ONLY CALL ONCE PER STEP!
+        """
+        Returns (s, d, e, k) with:
+        - d, e, k from nearest waypoint (geometry)
+        - s from integrating s_dot = (vx*cos(e) - vy*sin(e)) / (1 - k*d)
+        and then shifted so that s == 0 at the episode start (first call after reset).
+        """
+        waypoints = self.waypoints
+        if waypoints is None or len(waypoints) < 2:
+            return None, None, None, None
+
+        # --- Car pose/vel
+        car_x   = car_state[POSE_X_IDX]
+        car_y   = car_state[POSE_Y_IDX]
+        car_yaw = car_state[POSE_THETA_IDX]
+        vx_body = car_state[LINEAR_VEL_X_IDX]   # forward vel in body frame
+        vy_body = car_state[LINEAR_VEL_Y_IDX]   # lateral  vel in body frame
+
+        # --- Nearest waypoint (for geometry: d, e, k)
+        car_pos = np.array([car_x, car_y], dtype=float)
+        xy = waypoints[:, [WP_X_IDX, WP_Y_IDX]]
+        nearest_idx = int(np.argmin(np.linalg.norm(xy - car_pos, axis=1)))
+
+        s_geom = float(waypoints[nearest_idx, WP_S_IDX])    # geometric s at spawn vicinity
+        k      = float(waypoints[nearest_idx, WP_KAPPA_IDX])
+        psi    = float(waypoints[nearest_idx, WP_PSI_IDX])  # raceline heading
+
+        # Lateral offset d via local normal
+        dx, dy = car_x - xy[nearest_idx, 0], car_y - xy[nearest_idx, 1]
+        n_hat  = np.array([-np.sin(psi), np.cos(psi)], dtype=float)  # left normal
+        d      = float(dx * n_hat[0] + dy * n_hat[1])
+
+        # Heading error e (wrap to [-pi, pi])
+        e = float((car_yaw - psi + np.pi) % (2*np.pi) - np.pi)
+
+        # --- s integration (paper)
+        denom = max(1e-6, 1.0 - k * d)  # numeric safety
+        s_dot = (vx_body * np.cos(e) - vy_body * np.sin(e)) / denom
+        dt    = Settings.TIMESTEP_CONTROL
+
+        # Internal unwrapped integrator
+        if self._s_int is None:
+            # First call after reset: seed the integrator from geometry at spawn
+            self._s_int = s_geom
+            self._s0    = self._s_int   # zero-based output: s_out = _s_int - _s0
+        else:
+            self._s_int += s_dot * dt
+
+        # Report s starting from 0 at reset (zero-based, continuous, unwrapped)
+        s_out = self._s_int - self._s0
+
+        # If you also want a wrapped version in [0, track_len), you can compute it from s_out:
+        # track_len = float(waypoints[-1, WP_S_IDX]) if waypoints[-1, WP_S_IDX] > 0 else \
+        #             float(np.sum(np.linalg.norm(np.diff(xy, axis=0), axis=1)))
+        # s_wrapped = s_out % track_len
+        self.frenet_coordinates = (s_out, d, e, k)
+
+        return s_out, d, e, k
+
+
+                    
 
 # Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
@@ -573,6 +736,28 @@ def check_if_obstacle_on_raceline(lidar_points, waypoints, threshold=0.25):
 
     return False, obstacle_position  # No obstacle detected within threshold
 
+
+@njit(fastmath=True)
+def transform_to_car_coordinates(points, car_state):
+    '''Transform points to the car's coordinate frame.
+    @param points: (N, 2) array of global points to transform
+    @param car_state: (6,) array representing the car's state [x, y, theta, ...]
+    @return: (N, 2) array of points in the car's coordinate frame
+    '''
+
+    # Translation
+    points_x_translated = points[:,0] - car_state[POSE_X_IDX]
+    points_y_translated = points[:,1] - car_state[POSE_Y_IDX]
+
+    # Rotation (vectorized transformation)
+    points_transformed = np.column_stack((
+        points_x_translated * car_state[POSE_THETA_COS_IDX] +
+        points_y_translated * car_state[POSE_THETA_SIN_IDX],
+
+        points_x_translated * -car_state[POSE_THETA_SIN_IDX] +
+        points_y_translated * car_state[POSE_THETA_COS_IDX]
+    ))
+    return points_transformed
 
 # Utility functions
 def get_path_suffix(reverse_direction):

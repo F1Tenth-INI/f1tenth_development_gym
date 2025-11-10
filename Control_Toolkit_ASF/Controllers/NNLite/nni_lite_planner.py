@@ -41,7 +41,7 @@ class NNLitePlanner(template_planner):
         self.mu_predicted = 0
         self.predicted_frictions = []
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
         
         
         self.car_state_history.append(self.car_state)
