@@ -427,7 +427,6 @@ class HistoryForger:
                 next_wps_interp = waypoint_utils.get_interpolated_waypoints(
                     past_next_waypoints, interpolate_local_wp
                 )
-                planner.pass_data_to_planner(next_wps_interp, past_car_state, obstacles)
                 planner.process_observation(ranges_, past_car_state)
 
             # Optionally update rendering or debugging

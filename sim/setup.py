@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='f110_sim',
       version='0.3.0',
@@ -33,5 +33,8 @@ setup(name='f110_sim',
                         'pytest',
                         'opencv-python',
                         'tensorboardX',
+                        'jax',
+                        'optax',
+                        'pygame',
                         ]
       )

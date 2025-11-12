@@ -17,14 +17,14 @@ from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
+from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
-from utilities.imu_simulator import IMUSimulator
 from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
+from utilities.imu_utilities import IMUUtilities
 
 from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
 
@@ -55,9 +55,7 @@ class CarSystem:
         self.draw_lidar_data = True
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
-        self.LIDAR = LidarHelper()
-        self.imu_simulator = IMUSimulator()
-        self.current_imu_dict = self.imu_simulator.array_to_dict(np.zeros(3))
+        self.lidar_utils = LidarHelper()
         self.laptimes = []
 
         # Pure control without noise
@@ -73,10 +71,13 @@ class CarSystem:
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
         self.car_state_history = []
-        self.car_state_noiseless = np.ones(len(STATE_VARIABLES))
+        self.control_history = []
         car_index = 1
         self.scans = None
         self.control_index = 0
+
+
+        self.obs = None
         
         
         ### Utilities 
@@ -91,10 +92,13 @@ class CarSystem:
         self.alternative_raceline = False
         self.timesteps_on_current_raceline = 0
         self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+        
+        track_positions = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.waypoints)
 
         # Rendering
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
+        self.render_utils.waypoints_full = self.waypoint_utils.waypoints
 
         if self.waypoint_utils_alternative is not None:
             self.render_utils.waypoints_alternative = self.waypoint_utils_alternative.waypoint_positions
@@ -124,8 +128,10 @@ class CarSystem:
         self.initialize_controller(self.controller_name)
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
+        # Other utilities
+        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+            self.launch_tuner_connector()
 
-            
         if Settings.FRICTION_FOR_CONTROLLER is not None:
             has_mpc = hasattr(self.planner, 'mpc')
             if has_mpc:
@@ -175,15 +181,27 @@ class CarSystem:
         if(not Settings.ROS_BRIDGE):
             self.start_recorder()
 
-           
+    def reset(self):
+        self.car_state = None
+        self.laptimes = []
+        
+        self.control_history = []
+        self.car_state_history = []
+        self.lidar_utils.reset()
+        self.waypoint_utils.reset()
+        self.reward_calculator.reset()
+        self.lap_analyzer.reset()
+        self.render_utils.reset()
+        self.planner.reset()
+        self.waypoint_utils.reset_frenet_progress()
+        # self.waypoint_utils.get_frenet_coordinates(self.car_state)
+
     def initialize_controller(self, controller_name):
         
         self.planner = initialize_planner(controller_name)
-        
-        if(hasattr(self.planner, 'render_utils')):
-            self.planner.render_utils = self.render_utils
-        if(hasattr(self.planner, 'waypoint_utils')):
-            self.planner.waypoint_utils = self.waypoint_utils
+        self.planner.render_utils = self.render_utils
+        self.planner.waypoint_utils = self.waypoint_utils
+        self.planner.lidar_utils = self.lidar_utils
         
         
     def launch_tuner_connector(self):
@@ -195,69 +213,90 @@ class CarSystem:
     def set_car_state(self, car_state):
         self.car_state = car_state
         self.car_state_history.append(car_state)
+        if self.planner is not None:
+            self.planner.car_state = self.car_state
+
 
     def set_scans(self, ranges):
         ranges = np.array(ranges)
-        self.LIDAR.update_ranges(ranges, self.car_state)
+        self.lidar_utils.update_ranges(ranges, self.car_state)
 
     def render(self, e):
         if Settings.RENDER_MODE is not None:
             self.render_utils.render(e)
 
-    def process_observation(self, ranges=None, ego_odom=None):
-        
-        #Car state and Lidar are updated by parent
-        
-        car_state = self.car_state
-        
-        self.update_waypoints()
-        obstacles = self.obstacle_detector.get_obstacles(self.LIDAR.processed_ranges, car_state)
-
-
-        # Pass data to planner
-        if hasattr(self.planner, 'pass_data_to_planner'):
-            self.planner.pass_data_to_planner(self.waypoints_for_controller, car_state, obstacles)
-
-
+    def process_observation(self, obs):
+                
         # Control step
         if self.planner is not None:
-            if(self.control_index % Settings.OPTIMIZE_EVERY_N_STEPS == 0):
-                self.angular_control, self.translational_control = self.planner.process_observation(ranges, ego_odom)
-                
-            # Extract from mpc control sequence
-            if hasattr(self.planner, 'optimal_control_sequence'):
+            self.angular_control, self.translational_control = self.planner.process_observation()
+
+            # Extract control from sequence if mpc
+            if hasattr(self.planner, 'optimal_control_sequence') or hasattr(self.planner, 'mpc'):
                 self.angular_control, self.translational_control = self.extract_control_from_control_sequence()
-        else: # planner = none
+            
+        else: # planner == None
             self.angular_control = 0
             self.translational_control = 0
         
-        
-        self.process_data_post_control()
-        
-        
 
-        self.control_index += 1
-        self.time += self.time_increment
-        
         self.angular_control_calculated = self.angular_control
         self.translational_control_calculated = self.translational_control
         
         # Add noise to control
         self.angular_control, self.translational_control = self.add_control_noise(np.array([self.angular_control, self.translational_control]))
-
+        
+        self.process_data_post_control()
+        
+        self.control_index += 1
+        self.time += self.time_increment
+        
         return self.angular_control, self.translational_control
 
+    def on_step_end(self, next_obs):
+
+        self.obs = next_obs.copy()
+
+        #Car state and Lidar are updated by parent
+        car_state = next_obs['car_state']
+        ranges = next_obs['scans']
+
+        self.set_car_state(car_state)
+        self.set_scans(ranges)
+        self.set_waypoints()
+    
+        
+
+
+        # TODO: Recording
+        info = {
+            "lap_times": self.laptimes,
+        }
+
+        self.reward = self.reward_calculator._calculate_reward(self, next_obs)
+        next_obs.update({
+            "reward": self.reward,
+            "info": info,
+            "truncated": self.reward_calculator.truncated or next_obs['collision'],
+            "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'],
+        })
+        self.obs = next_obs
+
+        if self.planner is not None and hasattr(self.planner, 'on_step_end'):
+            self.planner.on_step_end(self.obs)
 
     '''
     Update waypoints, check for obstacles and adjust waypoints / suggested speed
     '''
-    def update_waypoints(self):
+    def set_waypoints(self):
+
+        car_state = self.car_state
         # Update waypoints
-        self.waypoint_utils.update_next_waypoints(self.car_state)
-        self.waypoint_utils.check_if_obstacle_on_my_raceline(self.LIDAR.processed_points_map_coordinates)
+        self.waypoint_utils.update_next_waypoints(car_state)
+        self.waypoint_utils.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
         if self.waypoint_utils_alternative is not None:
-            self.waypoint_utils_alternative.update_next_waypoints(self.car_state)
-            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(self.LIDAR.processed_points_map_coordinates)
+            self.waypoint_utils_alternative.update_next_waypoints(car_state)
+            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
         
         # Adjust waypoints
         if self.use_waypoints_from_mpc:
@@ -265,6 +304,9 @@ class CarSystem:
         else:
             self.waypoints_for_controller = self.chose_raceline_from_wpts()
         self.handle_emergency_slowdown() # overwrite self.waypoint_utils.next_waypoints if necessary
+
+        self.waypoint_utils.get_frenet_coordinates(self.car_state)
+
         
         
     def update_render_utils(self):
@@ -287,15 +329,15 @@ class CarSystem:
 
         self.render_utils.set_label_dict(label_dict)
         self.render_utils.update(
-            lidar_points= self.LIDAR.processed_points_map_coordinates,
+            lidar_points= self.lidar_utils.processed_points_map_coordinates,
             # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
             next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
             next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
             car_state = car_state,
         )
         # self.render_utils.update_obstacles(obstacles)
-    
-    # The MPC returns a control seqwuence instead of a single control: extract for delay compensation
+
+    # The MPC returns a control sequence instead of a single control: extract for delay compensation
     def extract_control_from_control_sequence(self) -> tuple:
         
         optimal_control_sequence = self.planner.optimal_control_sequence
@@ -347,8 +389,7 @@ class CarSystem:
         
         if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
             next_interpolated_waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoint_utils.next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-            self.waypoints_planner.pass_data_to_planner(next_interpolated_waypoints, car_state, obstacles)
-            self.waypoints_planner.process_observation(ranges, ego_odom)
+            self.waypoints_planner.process_observation()
             optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
             if optimal_trajectory is not None:
                 self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]
@@ -369,8 +410,8 @@ class CarSystem:
         if Settings.STOP_IF_OBSTACLE_IN_FRONT:
             car_state = self.car_state
             corrected_next_waypoints_vx, use_alternative_waypoints_for_control_flag = self.emergency_slowdown.stop_if_obstacle_in_front(
-                self.LIDAR.processed_ranges,
-                self.LIDAR.processed_angles_rad,
+                self.lidar_utils.processed_ranges,
+                self.lidar_utils.processed_angles_rad,
                 self.waypoint_utils.next_waypoints[:, WP_VX_IDX],
                 car_state[STEERING_ANGLE_IDX]
             )
@@ -391,7 +432,7 @@ class CarSystem:
         self.lap_analyzer.update(nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index, time_now = self.time, distance_to_raceline = self.waypoint_utils.current_distance_to_raceline)
 
         if Settings.FORGE_HISTORY:
-            self.history_forger.feed_planner_forged_history(self.car_state_noiseless, self.LIDAR.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
+            self.history_forger.feed_planner_forged_history(self.car_state, self.lidar_utils.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
         if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
             self.state_metric_calculator.calculate_metrics(
                 current_state=self.car_state,
@@ -404,11 +445,26 @@ class CarSystem:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
-            basic_dict = get_basic_data_dict(self)
+            # Process IMU data before recording
+            if hasattr(self, 'obs') and self.obs is not None:
+                imu_array = self.obs.get('imu', None)
+                
+                # Convert IMU data to dictionary using IMUUtilities
+                if imu_array is not None:
+                    imu_dict_raw = IMUUtilities.imu_array_to_dict(imu_array)
+                else:
+                    # Fallback to zeros if no IMU data available
+                    imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
+                
+                # Convert to lambda functions for lazy evaluation (compatible with Recorder)
+                self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
+            
+            # Get simulation observations if available
+            sim_obs = getattr(self, 'sim_obs', None)
+            basic_dict = get_basic_data_dict(self, sim_obs)
             self.recorder.dict_data_to_save_basic.update(basic_dict)
             self.recorder.step()
         
-        self.reward = self.reward_calculator._calculate_reward(self)        
         # print('Reward:', self.reward)
     
     '''
@@ -417,7 +473,9 @@ class CarSystem:
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
-
+        # if(lap_time < 21.00):
+        #     print(f"Fast laptime reached.")
+        #     exit()
      
     
     '''
@@ -427,6 +485,10 @@ class CarSystem:
         self.recorder: Optional[Recorder] = None
         
         if Settings.SAVE_RECORDINGS and self.save_recordings:
+            # Initialize IMU dict with zeros for Recorder initialization
+            imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
+            self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
+            
             self.recorder = Recorder(driver=self)
             
             # Add more internal data to recording dict:
@@ -458,60 +520,42 @@ class CarSystem:
 
     def on_press(self,key):
         try:
-            if key.char == 'r':  # Press 'r' to start recording
-                print("Start recording...")
-                self.start_recorder()  # Replace 'car' with your object instance
+            if key.char == 'r':  # Press 'r' to toggle recording
+                if self.recorder is not None:
+                    recording_started = self.recorder.toggle_recording()
+                    if recording_started is True:
+                        print("Recording STARTED (r key pressed)")
+                    elif recording_started is False:
+                        print("Recording STOPPED (r key pressed)")
+                    else:
+                        print("Recording toggle requested but recorder is starting up...")
+                else:
+                    print("No recorder available to toggle")
         except AttributeError:
             pass  # For special keys like shift, ctrl, etc.
 
     def start_keyboard_listener(self):
         if Settings.RENDER_MODE is None:
-            print("Keyboard listener not started, starting recording automatically")
+            # print("Keyboard listener not started, starting recording automatically")
             self.start_recorder()
             return
-        if Settings.KEYBOARD_LISTENER_ON:
+        # If keyboard exists
+        try:
+            from pynput import keyboard
             listener = keyboard.Listener(on_press=self.on_press)
             listener.start()
+        except ImportError:
+            self.start_recorder()
+        
+           
 
     def start_recorder(self):
-        self.recorder.start_csv_recording()
-    
-
-
-    # def init_recorder_and_start(self, recorder_dict={}):
-    #     self.recorder: Optional[Recorder] = None
-        
-    #     if Settings.SAVE_RECORDINGS and self.save_recordings:
-    #         self.recorder = Recorder(driver=self)
-            
-    #         # Add more internal data to recording dict:
-    #         self.recorder.dict_data_to_save_basic.update(
-    #             {   
-    #                 'nearest_wpt_idx': lambda: self.waypoint_utils.nearest_waypoint_index,
-    #                 'reward': lambda: self.reward,
-    #             }
-    #         )
-    #         # Add data from outside the car stysem
-    #         self.recorder.dict_data_to_save_basic.update(recorder_dict)
-       
-    #         if Settings.FORGE_HISTORY:
-    #             self.recorder.dict_data_to_save_basic.update(
-    #                 {
-    #                     'forged_history_applied': lambda: self.history_forger.forged_history_applied,
-    #                 }
-    #             )
-    #         if Settings.SAVE_STATE_METRICS:
-    #             from utilities.StateMetricCalculator import StateMetricCalculator
-    #             self.state_metric_calculator = StateMetricCalculator(
-    #                 environment_name="Car",
-    #                 initial_environment_attributes={
-    #                     "next_waypoints": self.waypoint_utils.next_waypoints,
-    #                 },
-    #                 recorder_base_dict=self.recorder.dict_data_to_save_basic
-    #             )
-            
-            # # Start Recording
-            # self.recorder.start_csv_recording()
+        if self.recorder is not None:
+            # print(f"Starting recorder for {self.controller_name}")
+            self.recorder.start_csv_recording()
+        else:
+            pass
+            # print("No recorder to start - recorder is None")
 
     
     def add_control_noise(self, control):
@@ -529,27 +573,22 @@ class CarSystem:
     Plotting and saving data
     '''   
     def on_simulation_end(self, collision=False):
-        
-        # import matplotlib.pyplot as plt
-        # plt.clf()
-        # plt.plot(self.reward_calculator.reward_history)
-        # plt.savefig('rewards.png')
-        
-        # # Also plot the accumulated rewards:
-        # accumulated_rewards = np.cumsum(self.reward_calculator.reward_history)
-        # plt.clf()
-        # plt.plot(accumulated_rewards)
-        # plt.savefig('accumulated_rewards.png')
-        # plt.clf()
-        
-       
-        
+        # Prevent further recording after simulation end
+        if hasattr(self, '_simulation_ended') and self._simulation_ended:
+            print("Simulation already ended, skipping recorder finalization.")
+            return
+
+        if hasattr(self.planner, 'on_simulation_end'):
+            self.planner.on_simulation_end(collision=collision)
+
+        self._simulation_ended = True
+
+        if Settings.SAVE_REWARDS:
+            if self.reward_calculator is not None:
+                self.reward_calculator.plot_history(save_path="./")
+
         if self.recorder is not None:    
-            
-            if Settings.SAVE_REWARDS:
-                self.reward_calculator.plot_history(save_path=self.recorder.recording_path)
-            
-            
+
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
                 self.recorder.finish_csv_recording()            
             augment_csv_header_with_laptime(self.laptimes, self.recorder.csv_filepath)
@@ -560,17 +599,14 @@ class CarSystem:
 
             if collision:
                 index = min(len(self.car_state_history), 200)
-                
                 # Save or append self.control_index to csv file
-                # if a csv file called survival.csv already exists, just add a new line, otherwise cfreate the file
                 with open('survival.csv', 'a') as f:
                     f.write(f"{self.control_index}\n")
-          
-                
+
                 print('Collision detected, moving csv to crash folder')
                 print('Car State at crtash:', self.car_state)
                 print('Car State at -index steps:', self.car_state_history[-index])
-                
+
                 # Save to csv file
                 np.savetxt("Test.csv", [self.car_state_history[-index]], delimiter=",")
                 move_csv_to_crash_folder(self.recorder.csv_filepath, path_to_plots)
@@ -588,6 +624,9 @@ def initialize_planner(controller: str):
     elif controller == 'mppi-lite-jax':
         from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_jax_planner import MPPILitePlanner
         planner = MPPILitePlanner()
+    elif controller == 'rpgd-lite-jax':
+        from Control_Toolkit_ASF.Controllers.MPPILite.rpgd_jax_planner import RPGDPlanner
+        planner = RPGDPlanner()
     elif controller == 'ftg':
         from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
         importlib.reload(ftg_planner)
@@ -612,10 +651,17 @@ def initialize_planner(controller: str):
         from Control_Toolkit_ASF.Controllers.SysId import sysid_planner
         importlib.reload(sysid_planner)
         planner = sysid_planner.SysIdPlanner()
+    elif controller == 'sac_agent':
+        from TrainingLite.rl_racing.sac_agent_planner import RLAgentPlanner
+        planner = RLAgentPlanner()
     elif controller == 'manual':
         from Control_Toolkit_ASF.Controllers.Manual import manual_planner
         importlib.reload(manual_planner)
         planner = manual_planner.manual_planner()
+    elif controller == 'example':
+        from Control_Toolkit_ASF.Controllers.ExamplePlanner import example_planner
+        importlib.reload(example_planner)
+        planner = example_planner.ExamplePlanner()
     elif controller == 'random':
         from Control_Toolkit_ASF.Controllers.Random import random_planner
         importlib.reload(random_planner)
@@ -629,10 +675,16 @@ def initialize_planner(controller: str):
 
 
 def if_mpc_define_cs_variables(planner):
-    if hasattr(planner, 'mpc'):
+    if hasattr(planner, 'mpc'): # MPC planner from Control_Toolkit_ASF
         horizon = planner.mpc.optimizer.mpc_horizon
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
         translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
         return angular_control_dict, translational_control_dict
+    
+    if hasattr(planner, 'optimal_control_sequence'): # MPC planner lite
+        horizon = len(planner.optimal_control_sequence)
+        angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
+        translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
+        return angular_control_dict, translational_control_dict 
     else:
         return {}, {}

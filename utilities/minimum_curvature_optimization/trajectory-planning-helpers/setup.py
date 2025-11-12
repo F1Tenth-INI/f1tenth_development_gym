@@ -22,6 +22,7 @@ setuptools.setup(
     install_requires=[
         'numpy>=1.18.1',
         'scipy>=1.3.3',
+        'scikit-learn>=0.22.2',
         'quadprog~=0.1.11',
         'matplotlib>=3.3.1'
     ],
@@ -30,6 +31,5 @@ setuptools.setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
-        "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
         "Operating System :: OS Independent",
     ])

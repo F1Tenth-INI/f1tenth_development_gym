@@ -16,10 +16,10 @@ class PlannerAsController:
     def __init__(self, controller_config, initial_environment_attributes):
         controller_name = controller_config["controller_name"]
         self.planner = initialize_planner(controller_name)
-        self.LIDAR = LidarHelper()
+        self.lidar_utils = LidarHelper()
         self.waypoint_utils = WaypointUtils()
-        if hasattr(self.planner, 'LIDAR'):
-            self.planner.LIDAR = self.LIDAR
+        if hasattr(self.planner, 'lidar_utils'):
+            self.planner.lidar_utils = self.lidar_utils
         if hasattr(self.planner, 'waypoint_utils'):
             self.planner.waypoint_utils = self.waypoint_utils
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
@@ -37,7 +37,6 @@ class PlannerAsController:
         lidar_at_proper_indices = np.zeros((1080,), dtype=np.float32)
         lidar_at_proper_indices[self.LIDAR.processed_scan_indices] = updated_attributes['lidar']
         self.LIDAR.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
-        self.planner.pass_data_to_planner(updated_attributes['next_waypoints'], s, obstacles)
         new_controls = self.planner.process_observation(self.LIDAR, s)
 
         return new_controls

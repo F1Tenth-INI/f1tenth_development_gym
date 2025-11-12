@@ -16,8 +16,8 @@ mppi:
 
 rpgd:
   seed: null # If null, random seed based on datetime is used
-  mpc_horizon: 75 # steps
-  mpc_timestep: 0.02 # For model based planner (MPC) timestep of simulation, can be arbitrary number
+  mpc_horizon: 38 # steps
+  mpc_timestep: 0.04 # For model based planner (MPC) timestep of simulation, can be arbitrary number
   SAMPLING_DISTRIBUTION: uniform # "normal" or "uniform"
   period_interpolation_inducing_points: 1 #interpolation stepsize when sampling, a random point is chosen every period_interpolation_inducing_points and horizon points in between are linearly interpolated
   learning_rate: 0.01
@@ -37,7 +37,7 @@ rpgd:
   sample_whole_control_space: false # If true bounds of uniform distribution are set to max limits of action space, otherwise see below
   uniform_dist_max: [0.4, 10] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
   uniform_dist_min: [-0.4, -10] # With PID: [desired steering, desired speed], only applies if SAMPLING_DISTRIBUTION: uniform AND sample_whole_control_space: false
-  shift_previous: 3
+  shift_previous: 1
   warmup: false
   warmup_iterations: 250
 

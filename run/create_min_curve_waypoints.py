@@ -84,6 +84,8 @@ class GlobalPlanner:
         img_path = os.path.join(self.map_dir, self.map_name + '_wp_min_curve.png')
         img_path_original = os.path.join(self.map_dir, self.map_name + '.png')
         
+        print(f"loading map from {img_path}...")
+        
         if(not os.path.isdir(os.path.join(self.map_dir,'data'))):
             os.makedirs(os.path.join(self.map_dir,'data' ))
         # check if file exists
@@ -253,10 +255,20 @@ class GlobalPlanner:
         # Save as _wp.csv or _wp_reverse.csv
         suffix = '_wp_reverse.csv' if reverse else '_wp.csv'
         path = os.path.join(self.map_dir, self.map_name + suffix)
-        
+        # Concatenate d_right_iqp and d_left_iqp as columns to global_trajectory_iqp
+        global_trajectory_with_bounds = np.column_stack((global_trajectory_iqp, d_right_iqp, d_left_iqp))
+        np.savetxt(
+            path,
+            global_trajectory_with_bounds,
+            delimiter=',',
+            fmt='%f',
+            header='s_m,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2,d_right_iqp,d_left_iqp',
+            comments=''
+        )
+    
         # global_trajectory_iqp[:,3] += 0.5 * np.pi
         
-        np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2', comments='')
+        # np.savetxt( path,np.array(global_trajectory_iqp),delimiter=',', fmt='%f', header='s_m,x_m,y_m,psi_rad,kappa_radpm,vx_mps,ax_mps2', comments='')
         
         # Save image of track including waypoints
         plt.clf()

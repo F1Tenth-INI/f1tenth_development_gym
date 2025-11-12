@@ -1,3 +1,4 @@
+from operator import index
 import psutil
 import os
 import time
@@ -8,7 +9,7 @@ import numpy as np
 from tqdm import trange
 from argparse import Namespace
 
-from f110_sim.envs.base_classes import Simulator, wrap_angle_rad
+from sim.f110_sim.envs.base_classes import Simulator, wrap_angle_rad
 
 from typing import Optional
 from utilities.Settings import Settings
@@ -20,9 +21,12 @@ from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     )
 from utilities.Exceptions import CarCrashException
+from utilities.screen_utils import ScreenUtils
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
+
+
 
 
 
@@ -51,6 +55,8 @@ class RacingSimulation:
         self.laptime = 0.0
         self.initial_states = None
 
+        self.step_end_time = 0
+
         
         self.renderer = None
 
@@ -63,6 +69,14 @@ class RacingSimulation:
             self.state_recording = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
             self.time_axis = self.state_recording['time'].to_numpy()
             self.state_recording = self.state_recording[STATE_VARIABLES].to_numpy()
+        
+        # State history for respawn functionality
+        self.state_history = []  # Store last N timesteps of simulation state
+        self.control_history = []  # Store last N timesteps of control inputs
+        self.obs_history = []  # Store last N timesteps of observations
+        self.sim_time_history = []  # Store last N timesteps of simulation time
+        self.sim_index_history = []  # Store last N timesteps of simulation index
+        self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
     
 
     '''
@@ -80,7 +94,7 @@ class RacingSimulation:
                 self.run_simulation()
             except CarCrashException as e:
                 print("the car crashed.")
-                if(Settings.REPEAT_IF_CRASHED):
+                if(Settings.RESET_ON_DONE):
                     
                     if self.crash_repetition < Settings.MAX_CRASH_REPETITIONS:
                         self.crash_repetition += 1
@@ -90,6 +104,7 @@ class RacingSimulation:
                         print(f"Max number of crash repetitions ({Settings.MAX_CRASH_REPETITIONS}) reached. Exiting.")
                         raise Exception("Max number of crash repetitions reached.")
                 else:
+                    print(f"Controller {Settings.CONTROLLER} crashed the car.")
                     print("Crash repetition disabled. Exiting.")
                     raise Exception("Crash repetition disabled.")
             i += 1
@@ -100,14 +115,18 @@ class RacingSimulation:
         # Init renderer
         
         if Settings.RENDER_MODE is not None:        
-            from f110_sim.envs.rendering import EnvRenderer
+            from sim.f110_sim.envs.rendering import EnvRenderer
 
             map_name = Settings.MAP_NAME
             map_ext = ".png"
             map_path = os.path.join(Settings.MAP_PATH, map_name)
 
-            WINDOW_W, WINDOW_H = 1000, 800
-            self.renderer = EnvRenderer(WINDOW_W, WINDOW_H)
+
+            # screen size is 40% of the actual screen size
+            # Determine screen size
+            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+            window_height = int(window_width / 1.5)
+            self.renderer = EnvRenderer(window_width, window_height)
             self.renderer.update_map(map_path, map_ext)
         
         
@@ -138,14 +157,12 @@ class RacingSimulation:
 
         # Simulation settings
         num_agents = 1 + Settings.NUMBER_OF_OPPONENTS
-        timestep = 0.01
         seed = 12345
 
         # Initialize Simulator
         self.sim = Simulator(env_car_parameters, num_agents, seed)
 
         # Set the map
-        map_file = os.path.join(Settings.MAP_PATH, Settings.MAP_NAME + ".png")  
         self.sim.set_map(Settings.MAP_CONFIG_FILE, ".png")
         
     '''
@@ -163,48 +180,58 @@ class RacingSimulation:
         
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
-
-        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
-            driver.launch_tuner_connector()
         
+        # Explicitly start recorder since ROS_BRIDGE might be True by default
+        if driver.recorder is not None:
+            driver.start_recorder()
+
+
         #Start looking for keyboard press
-        driver.start_keyboard_listener()
+        # driver.start_keyboard_listener()
 
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
-        for i in range(Settings.NUMBER_OF_OPPONENTS):
+        for _ in range(Settings.NUMBER_OF_OPPONENTS):
             opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
             opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
             opponent.save_recordings = False
             opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
             opponents.append(opponent)
-
-
+            
         self.drivers = [driver] + opponents
         self.number_of_drivers = len(self.drivers)
        
-
-
-        # Populate control delay buffer
-        control_delay_steps = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM))
-        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
+       
   
     def reset(self, poses = None):
-        if self.initial_states is not None:
-            initial_states = np.array(self.initial_states)
-        else:
-            initial_states = np.zeros((self.number_of_drivers, len(STATE_VARIABLES)))            
-            for i in range(len(self.starting_positions)):
-                initial_states[i][POSE_X_IDX] = self.starting_positions[i][0]
-                initial_states[i][POSE_Y_IDX] = self.starting_positions[i][1]
-                initial_states[i][POSE_THETA_IDX] = self.starting_positions[i][2]
-                initial_states[i][POSE_THETA_COS_IDX] = np.cos(initial_states[i][POSE_THETA_IDX])
-                initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
-                initial_states[i][LINEAR_VEL_X_IDX] = 0.0
-                initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
-                
-                
+        # Check if respawn is enabled and we have enough history
+        if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
+            self.respawn()
+            return
+        
+        # Normal reset
+        self.sim_index = 0
+        
+        # Populate control delay buffer
+        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
+        self.control_delay_buffer.clear()
+        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
+
+        initial_states = self.get_initial_states()
+
         self.obs = self.sim.reset(initial_states=initial_states)
+        for i in range(self.number_of_drivers):
+            driver : CarSystem = self.drivers[i]
+            driver.reset()
+
+        # Clear state history on full reset
+        self.state_history.clear()
+        self.control_history.clear()
+        self.obs_history.clear()
+        self.sim_time_history.clear()
+        self.sim_index_history.clear()
+
+        self.on_step_end()
 
 
     def run_simulation(self):
@@ -212,71 +239,178 @@ class RacingSimulation:
         self.reset()
     
         # Main loop
-        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.EXPERIMENT_LENGTH
+        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.SIMULATION_LENGTH
         for _ in trange(experiment_length):
-
             self.simulation_step()
-
 
         self.on_simulation_end(collision=False)
 
-        print('Sim elapsed time:', self.laptime, 'Real elapsed time:', time.time()-self.start_time)
+        print('Sim elapsed time:', self.sim_time, 'Real elapsed time:', time.time()-self.start_time)
         print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
 
-    def simulation_step(self, agent_controls=None):
+    def get_driver_obs(self, driver_index):
+        driver_obs = {}
+        driver_obs['car_state'] = self.sim.agents[driver_index].state
+        driver_obs['scans'] = self.obs['scans'][driver_index]
+        driver_obs['imu'] = self.obs['imus'][driver_index]
+        driver_obs['collision'] = True if self.obs['collisions'][0] else False
+        driver_obs['terminated'] = self.obs['terminated']
+        driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
 
-        # try:
-        if(agent_controls is None):
-            agent_controls_execute = self.get_agent_controls()
-        else:
-            agent_controls_execute = agent_controls
-        # except Exception as e:
-        #     print("Error in get_agent_controls", e) 
-        #     agent_controls_execute = [[0.0, 0.0]]
+        if driver_obs['done']:
+            driver_obs['info'] = {}
+        return driver_obs
 
-        self.obs = self.sim.step(np.array(agent_controls_execute))
-        # From here on, controls have to be in [steering angle, speed ]
+    def simulation_step(self):
 
-        self.laptime += self.step_reward
-        self.sim_time += Settings.TIMESTEP_SIM
-        self.sim_index += 1
-
+        step_start_time = time.time()
         
+        self.update_driver_state(self.drivers[0], 0)
+        agent_controls = self.get_agent_controls()
+
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+        for _ in range(intermediate_steps):
+
+            # Control delay buffer
+            self.control_delay_buffer.append(agent_controls)        
+            agent_controls_execute  = self.control_delay_buffer.pop(0)
+
+            self.obs = self.sim.step(np.array(agent_controls_execute))
+            self.sim_time += Settings.TIMESTEP_SIM
+            self.sim_index += 1
+
+        # On Step end
         self.render_env()
-        self.check_and_handle_collisions()
+        self.on_step_end()
+        self.check_done()
+
+       
         
+        # limit fps
+        if self.step_end_time is not None:
+            time_taken = time.time() - step_start_time
+            if(Settings.RENDER_MODE == "human_fast")  and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
+                time.sleep(0.25 * Settings.TIMESTEP_CONTROL - time_taken)
+            if Settings.RENDER_MODE == 'human' and time_taken < Settings.TIMESTEP_CONTROL:
+                time.sleep(Settings.TIMESTEP_CONTROL - time_taken)
+        self.step_end_time = time.time()
+        
+        # Store state history for respawn functionality
+        self._update_state_history()
 
         # End of controller time step
 
+    def _update_state_history(self):
+        """Update state history for respawn functionality"""
+        # Store current state for all agents
+        current_states = []
+        for i in range(self.number_of_drivers):
+            current_states.append(self.sim.agents[i].state.copy())
+        
+        # Store current control inputs
+        current_controls = []
+        for i in range(self.number_of_drivers):
+            if hasattr(self.drivers[i], 'angular_control') and hasattr(self.drivers[i], 'translational_control'):
+                current_controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
+            else:
+                current_controls.append([0.0, 0.0])
+        
+        # Store current observations
+        current_obs = self.obs.copy() if self.obs is not None else {}
+        
+        # Add to history
+        self.state_history.append(current_states)
+        self.control_history.append(current_controls)
+        self.obs_history.append(current_obs)
+        self.sim_time_history.append(self.sim_time)
+        self.sim_index_history.append(self.sim_index)
+        
+        # Keep only last RESPAWN_HISTORY_LENGTH entries
+        if len(self.state_history) > self.RESPAWN_HISTORY_LENGTH:
+            self.state_history.pop(0)
+            self.control_history.pop(0)
+            self.obs_history.pop(0)
+            self.sim_time_history.pop(0)
+            self.sim_index_history.pop(0)
+
+    def respawn(self):
+        """Respawn the environment to a state from N timesteps ago (configurable via Settings.RESPAWN_SETBACK_TIMESTEPS)"""
+        if len(self.state_history) < self.RESPAWN_HISTORY_LENGTH:
+            print("Warning: Not enough state history for respawn. Falling back to full reset.")
+            self.reset()
+            return
+        
+        # Get state from N timesteps ago (first entry in history)
+        respawn_states = self.state_history[0]
+        respawn_controls = self.control_history[0]
+        respawn_obs = self.obs_history[0]
+        respawn_sim_time = self.sim_time_history[0]
+        respawn_sim_index = self.sim_index_history[0]
+        
+        # Reset simulation index and time
+        self.sim_index = respawn_sim_index
+        self.sim_time = respawn_sim_time
+        
+        # Reset simulator to respawn state
+        self.obs = self.sim.reset(initial_states=np.array(respawn_states))
+        
+        # Reset drivers
+        for i in range(self.number_of_drivers):
+            driver = self.drivers[i]
+            driver.reset()
+            # Set car state to respawn state
+            driver.set_car_state(respawn_states[i])
+            if 'scans' in respawn_obs and i < len(respawn_obs['scans']):
+                driver.set_scans(respawn_obs['scans'][i])
+        
+        # Clear control delay buffer and repopulate
+        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
+        self.control_delay_buffer.clear()
+        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)]
+        
+        # Clear state history to prevent respawn loops
+        self.state_history.clear()
+        self.control_history.clear()
+        self.obs_history.clear()
+        self.sim_time_history.clear()
+        self.sim_index_history.clear()
+        
+        self.on_step_end()
+
+    def manual_respawn(self):
+        """Manually trigger respawn - useful for testing or external control"""
+        if len(self.state_history) < self.RESPAWN_HISTORY_LENGTH:
+            print(f"Warning: Not enough state history for respawn. Need {self.RESPAWN_HISTORY_LENGTH}, have {len(self.state_history)}. Falling back to full reset.")
+            self.reset()
+            return
+        
+        print(f"Respawn triggered: Going back {self.RESPAWN_HISTORY_LENGTH} timesteps from sim_index {self.sim_index} to {self.sim_index_history[0]}")
+        self.respawn()
+
+    def can_respawn(self):
+        """Check if respawn is available (enough state history)"""
+        return len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH
 
     def get_agent_controls(self):
-        ranges = self.obs['scans']
         self.get_control_for_history_forger()
 
-        # Recalculate control every Nth timestep (N = Settings.TIMESTEP_CONTROL)
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
-        if self.sim_index % intermediate_steps == 0:
+        self.agent_controls = []
 
-            self.agent_controls = []
+        #Process observations and get control actions
+        for index, driver in enumerate(self.drivers):
+            driver : CarSystem = driver
+            self.update_driver_state(driver, index)
 
-            #Process observations and get control actions
-            for index, driver in enumerate(self.drivers):
-                driver : CarSystem = driver
-                self.update_driver_state(driver, index)
-
-                # Get control actions from driver 
-                angular_control, translational_control = driver.process_observation(ranges[index], None)
-                self.agent_controls.append([angular_control, translational_control ])
-
-        # Control delay buffer
-        self.control_delay_buffer.append(self.agent_controls)        
-        agent_controls_execute  = self.control_delay_buffer.pop(0)
+            # Get control actions from driver 
+            driver_obs = self.get_driver_obs(index)
+            angular_control, translational_control = driver.process_observation(driver_obs)
+            self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
 
         # shape: [number_of_drivers, 2]
-        return agent_controls_execute
+        return self.agent_controls
 
     def get_control_for_history_forger(self):
         if not Settings.FORGE_HISTORY: return
@@ -291,19 +425,25 @@ class RacingSimulation:
             if hasattr(driver, 'history_forger'):
                 driver.history_forger.update_state_history(self.sim.agents[index].state)
 
-    def render_env(self):
+    
+    def on_step_end(self):
+        # Driver on step end
+        for i in range(self.number_of_drivers):
+            driver : CarSystem = self.drivers[i]
+            driver_obs = self.get_driver_obs(i)
+            driver.on_step_end(next_obs=driver_obs)
         
+
+    
+    def render_env(self):
+        if Settings.RENDER_MODE == "human":
+            time.sleep(0.001)
+            
         if self.renderer is not None:
-            render_obs = {
-                'ego_idx': 0,  # Only one agent
-                'poses_x': self.obs['poses_x'],
-                'poses_y': self.obs['poses_y'],
-                'poses_theta': self.obs['poses_theta'],
-                'linear_vels_x': self.obs['linear_vels_x'],
-                'lap_times': self.obs.get('lap_times', [0]),
-                'lap_counts': self.obs.get('lap_counts', [0]),
+            render_obs = self.obs.copy()
+            render_obs.update({
                 'simulation_time': self.sim_time,
-            }
+            })
 
             self.renderer.render(render_obs)
             
@@ -350,7 +490,6 @@ class RacingSimulation:
             main_driver = self.drivers[0]
             if hasattr(main_driver, 'render'):
                 main_driver.render(env_renderer)
-
 
     
     '''
@@ -404,9 +543,28 @@ class RacingSimulation:
         
         self.starting_positions = starting_positions
         Settings.STARTING_POSITION = starting_positions
+        return starting_positions
 
 
-    
+    def get_initial_states(self):
+        
+        if self.initial_states is not None:
+            initial_states = np.array(self.initial_states)
+        
+       
+        else:
+            starting_positions = self.get_starting_positions()
+            initial_states = np.zeros((self.number_of_drivers, len(STATE_VARIABLES)))            
+            for i in range(len(starting_positions)):
+                initial_states[i][POSE_X_IDX] = starting_positions[i][0]
+                initial_states[i][POSE_Y_IDX] = starting_positions[i][1]
+                initial_states[i][POSE_THETA_IDX] = starting_positions[i][2]
+                initial_states[i][POSE_THETA_COS_IDX] = np.cos(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
+                initial_states[i][LINEAR_VEL_X_IDX] = 0.0
+                initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
+        return initial_states
+
     '''
     Update the driver state with the current car state
     Either from gym env or recording
@@ -422,6 +580,9 @@ class RacingSimulation:
 
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
+            
+            # Pass simulation obsrvations to driver for IMU data access
+            driver.sim_obs = self.obs
 
             driver.car_state_noiseless = car_state_clean
 
@@ -439,13 +600,17 @@ class RacingSimulation:
         return state_with_noise
 
  
-    def check_and_handle_collisions(self):
-        # Collision ends simulation
-        if Settings.CRASH_DETECTION:
-            if self.obs['collisions'][0] == 1:
-                self.on_simulation_end(collision=True)
-                if not Settings.OPTIMIZE_FOR_RL:
-                    raise CarCrashException('car crashed')
+    def check_done(self):
+        if self.drivers[0].obs['done']:
+            self.handle_done()
+
+
+    def handle_done(self):
+        if Settings.RESET_ON_DONE:
+            self.reset()
+        else:
+            self.on_simulation_end()
+            raise CarCrashException()
 
                 
     '''

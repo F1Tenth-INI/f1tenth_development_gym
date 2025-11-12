@@ -24,6 +24,8 @@
 
 import sys
 
+from utilities.state_utilities import POSE_THETA_IDX, POSE_Y_IDX, POSE_X_IDX, LINEAR_VEL_X_IDX
+
 """
 Rendering engine for f1tenth gym env based on pyglet and OpenGL
 Author: Hongrui Zheng
@@ -390,9 +392,13 @@ class EnvRenderer(pyglet.window.Window):
         """
 
         self.ego_idx = obs['ego_idx']
-        poses_x = obs['poses_x']
-        poses_y = obs['poses_y']
-        poses_theta = obs['poses_theta']
+        car_states = obs['car_states']
+        ego_car_state = car_states[self.ego_idx]
+
+        poses_x = car_states[:, POSE_X_IDX]
+        poses_y = car_states[:, POSE_Y_IDX]
+        poses_theta = car_states[:, POSE_THETA_IDX]
+        
         simulation_time = obs['simulation_time']
         # estimate_friction = Settings.SURFACE_FRICTION
         
@@ -418,17 +424,18 @@ class EnvRenderer(pyglet.window.Window):
             self.cars[j].vertices = vertices
         self.poses = poses
 
-    
-        state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=obs['poses_x'][0], y=obs['poses_y'][0], psi=obs['poses_theta'][0], v_x=obs['linear_vels_x'][0], )
-        self.score_label.text = 'Sim Time: {simulation_time:.2f}, Ego Lap Count: {count:.0f}'.format(simulation_time=simulation_time, count=obs['lap_counts'][obs['ego_idx']])
+
+        state_text = 'State: x: {x:.2f}, y: {y:.2f}, psi: {psi:.2f}, v_x: {v_x:.2f}'.format( x=ego_car_state[POSE_X_IDX], y=ego_car_state[POSE_Y_IDX], psi=ego_car_state[POSE_THETA_IDX], v_x=ego_car_state[LINEAR_VEL_X_IDX], )
+        self.score_label.text = 'Sim Time: {simulation_time:.2f}'.format(simulation_time=simulation_time)
         self.score_label.text +=  "\n" + state_text
 
     def render(self, render_obs):
         self.update_obs(render_obs)
+        # Only render if the window is valid (prevents crash in headless mode)
         self.dispatch_events()  # Handle window events
         self.on_draw()
         self.flip()  # Swap buffers
-        
+
     def close(self):
         self.vertices = None
         super().close()

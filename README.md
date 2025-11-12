@@ -85,6 +85,22 @@ Run the simulation
 python run.py
 ```
 
+You can override any setting from `Settings.py` using command-line arguments. For example:
+
+```bash
+# Run with different map and controller
+python run.py --MAP_NAME RCA2 --CONTROLLER pure_pursuit
+
+# Run with custom simulation length and rendering
+python run.py --SIMULATION_LENGTH 5000 --RENDER_MODE human_fast
+
+# Save recordings with custom settings
+python run.py --SAVE_RECORDINGS True --MAP_NAME RCA1 --CONTROLLER sac_agent --SAC_INFERENCE_MODEL_NAME OriginalReward1
+
+```
+
+All settings from [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) can be overridden this way.
+
 If you are running from terminal, please run all python scripts from the project's root folder. You might want to export the Python Path env variable:
 
 ```bash

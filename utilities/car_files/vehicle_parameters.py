@@ -36,6 +36,13 @@ class VehicleParameters:
     C_0d: float 
     C_Pf: List[float] # Pacejka parameters for the front tires [B, C, D, E]
     C_Pr: List[float] # Pacejka parameters for the rear tires [B, C, D, E]
+    
+    c_rr: float # Rolling resistance coefficient
+    
+    # Additional resistance parameters
+    v_dead: float # velocity deadband for smooth sign function [m/s]
+    curve_resistance_factor: float # additional resistance factor for cornering
+    brake_multiplier: float # asymmetric braking effectiveness multiplier
 
 
     """
@@ -64,6 +71,10 @@ class VehicleParameters:
         # Overwrite Sufrace friction
         if Settings.SURFACE_FRICTION is not None:
             self.mu = self.lib.to_variable(Settings.SURFACE_FRICTION, self.lib.float32)
+            self.mu = Settings.SURFACE_FRICTION
+
+    def to_dict(self):
+        return {k: getattr(self, k) for k in self.__annotations__}
 
     def to_np_array(self):
         return np.array([
@@ -96,9 +107,16 @@ class VehicleParameters:
             self.lib.to_numpy(self.sv_max),  # sv_max (max steering velocity)
 
             # Acceleration Constraints
-            self.lib.to_numpy(self.a_min),  # a_min (min acceleration)
-            self.lib.to_numpy(self.a_max),  # a_max (max acceleration)
-            self.lib.to_numpy(self.v_min),  # v_min (min velocity)
-            self.lib.to_numpy(self.v_max),  # v_max (max velocity)
-            self.lib.to_numpy(self.v_switch),  # v_switch (velocity threshold for model transition)
+            self.a_min,  # a_min (min acceleration)
+            self.a_max,  # a_max (max acceleration)
+            self.v_min,  # v_min (min velocity)
+            self.v_max,  # v_max (max velocity)
+            self.v_switch,  # v_switch (velocity threshold for model transition)
+            
+            self.c_rr, # c_rr (rolling resistance coefficient)
+            
+            # Additional resistance parameters
+            self.v_dead, # v_dead (velocity deadband for smooth sign function)
+            self.curve_resistance_factor, # curve_resistance_factor (cornering resistance)
+            self.brake_multiplier # brake_multiplier (asymmetric braking effectiveness)
         ], dtype=np.float32)

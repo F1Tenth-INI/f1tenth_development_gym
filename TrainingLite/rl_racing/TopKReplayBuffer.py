@@ -50,21 +50,30 @@ class TopKTrajectoryBuffer:
     def load(self, path):
         with open(path, 'rb') as f:
             self.buffer = pickle.load(f)
-
 class TopKTrajectoryCallback(BaseCallback):
-    def __init__(self, topk_buffer: TopKTrajectoryBuffer, inject_every: int = 10000, verbose=0):
+    def __init__(
+        self,
+        topk_buffer: TopKTrajectoryBuffer,
+        inject_every: int = 10000,
+        injection_chunk: int = 256,   # decouple from n_envs
+        verbose: int = 0,
+    ):
         super().__init__(verbose)
         self.topk_buffer = topk_buffer
+        self.inject_every = inject_every
+        self.injection_chunk = injection_chunk
+
         self.episode_buffers = []
         self.total_rewards = []
         self.episode_counter = 0
         self.last_injection_step = 0
-        self.inject_every = inject_every
+        self.last_obs = None  # shape: (n_envs, obs_dim)
 
     def _on_training_start(self):
         n_envs = self.training_env.num_envs
         self.episode_buffers = [[] for _ in range(n_envs)]
         self.total_rewards = [0.0 for _ in range(n_envs)]
+        self.last_obs = None  # will be set on the first step when we see new_obs
 
     def _on_step(self) -> bool:
         if self.locals is None or 'infos' not in self.locals:
@@ -72,65 +81,82 @@ class TopKTrajectoryCallback(BaseCallback):
 
         infos = self.locals['infos']
         dones = self.locals['dones']
-        observations = self.locals['new_obs']
-        actions = self.locals['actions']
-        rewards = self.locals['rewards']
+        observations = self.locals['new_obs']     # this is obs_{t+1}
+        actions = self.locals['actions']          # a_t
+        rewards = self.locals['rewards']          # r_{t+1}
 
+        # Initialize last_obs on the very first step we see
+        if self.last_obs is None:
+            # We don't have obs_t for the first transition yet; just set baseline
+            self.last_obs = observations.copy()
+            return True
+
+        # Build correct transitions (obs_t, a_t, r_{t+1}, obs_{t+1}, done_{t+1})
         for i in range(len(dones)):
+            # If episode ended by time-limit, SB3 puts the true terminal obs here
+            next_obs_i = infos[i].get("terminal_observation", observations[i])
+
             transition = (
-                observations[i].copy(),
-                actions[i].copy(),
-                rewards[i].item(),
-                observations[i].copy(),  # Placeholder for next_obs if not explicitly available
-                dones[i].item()
+                self.last_obs[i].copy(),        # obs_t
+                actions[i].copy(),              # a_t
+                float(rewards[i]),              # r_{t+1}
+                next_obs_i.copy(),              # obs_{t+1}
+                bool(dones[i])                  # done_{t+1}
             )
             self.episode_buffers[i].append(transition)
-            self.total_rewards[i] += rewards[i].item()
+            self.total_rewards[i] += float(rewards[i])
 
             if dones[i]:
+                # Episode ended (crash/goal/time-limit/etc.)
                 self.episode_counter += 1
-                # print(f"[TopKCallback] Episode {self.episode_counter} done. Total reward: {self.total_rewards[i]:.2f}")
                 self.topk_buffer.add_episode(self.episode_buffers[i], self.total_rewards[i])
                 self.episode_buffers[i] = []
                 self.total_rewards[i] = 0.0
 
+        # Advance last_obs to current obs_{t+1} for next step
+        self.last_obs = observations.copy()
+
+        # Periodic injection of top-K transitions
         current_step = self.num_timesteps
         if current_step - self.last_injection_step >= self.inject_every:
-            # print("[TopKCallback] Re-injecting top-K episodes into replay buffer...")
-            
             self.last_injection_step = current_step
 
-            batch_size = self.model.n_envs  # Usually 16 with SubprocVecEnv
+            n_envs = self.model.n_envs  # must add in exact multiples of this
             batch_obs, batch_next_obs, batch_actions = [], [], []
             batch_rewards, batch_dones, batch_infos = [], [], []
 
             for ep_id, episode in self.topk_buffer.get_uninjected_episodes():
                 for obs, action, reward, next_obs, done in episode:
-                    batch_obs.append(np.array(obs, dtype=np.float32))
-                    batch_next_obs.append(np.array(next_obs, dtype=np.float32))
-                    batch_actions.append(np.array(action, dtype=np.float32))
-                    batch_rewards.append([reward])
-                    batch_dones.append([done])
+                    batch_obs.append(np.asarray(obs, dtype=np.float32))
+                    batch_next_obs.append(np.asarray(next_obs, dtype=np.float32))
+                    batch_actions.append(np.asarray(action, dtype=np.float32))
+                    batch_rewards.append(float(reward))
+                    batch_dones.append(bool(done))
                     batch_infos.append({})
-                    self.topk_buffer.mark_injected(ep_id)
-                    # Once we fill a batch, inject it
-                    if len(batch_obs) == batch_size:
+
+                    # When we have n_envs transitions, push one chunk
+                    if len(batch_obs) == n_envs:
                         try:
                             self.model.replay_buffer.add(
-                                np.stack(batch_obs),
-                                np.stack(batch_next_obs),
-                                np.stack(batch_actions),
-                                np.array(batch_rewards, dtype=np.float32).squeeze(-1),  # (n_envs,)
-                                np.array(batch_dones, dtype=bool).squeeze(-1),          # (n_envs,)
-
-                                infos=batch_infos
+                                np.stack(batch_obs),                   # (n_envs, obs_dim)
+                                np.stack(batch_next_obs),              # (n_envs, obs_dim)
+                                np.stack(batch_actions),               # (n_envs, act_dim)
+                                np.asarray(batch_rewards, np.float32), # (n_envs,)
+                                np.asarray(batch_dones,   bool),       # (n_envs,)
+                                infos=batch_infos                      # list of length n_envs
                             )
-                            # print(f"[TopKCallback] Injected batch of {batch_size} transitions into replay buffer.")
                         except Exception as e:
                             print(f"[TopKCallback] Injection failed: {e}")
-
-                        # Reset batch
+                        # reset the small chunk
                         batch_obs, batch_next_obs, batch_actions = [], [], []
                         batch_rewards, batch_dones, batch_infos = [], [], []
+
+                # mark after scheduling this episode (whether or not fully injected yet)
+                self.topk_buffer.mark_injected(ep_id)
+
+            # If anything remains (< n_envs), either discard or pad; here we discard to be strict:
+            if batch_obs:
+                print(f"[TopKCallback] Skipping leftover {len(batch_obs)} (< n_envs) transitions to satisfy SB3 add() shape.")
+
 
         return True

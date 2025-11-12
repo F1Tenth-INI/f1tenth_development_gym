@@ -13,6 +13,7 @@ gym_path = get_gym_path()  # FIXME: Do we need it here?
 
 rounding_decimals = 5
 
+
 class Recorder:
     def __init__(self, driver):
 
@@ -39,7 +40,9 @@ class Recorder:
 
         self.csv_filepath = None
         self.recording_path = None
+        self.recording_started = False  # Flag to prevent multiple start calls
     def step(self):
+        self.start_csv_recording_if_requested()
         self.csv_recording_step()
 
     @property
@@ -51,14 +54,22 @@ class Recorder:
         return self.data_manager.starting_recording
 
     def start_csv_recording(self, time_limited_recording=False):
+        if self.recording_started:
+            return
+        
+        self.recording_started = True
         self.recording_on_off(time_limited_recording)
         self.start_csv_recording_if_requested()
 
-    def recording_on_off(self, time_limited_recording=False):
+    def toggle_recording(self, time_limited_recording=False):
+        """
+        Toggle recording on/off. If not recording, start recording. If recording, stop recording.
+        Returns True if recording was started, False if recording was stopped.
+        """
         # (Exclude situation when recording is just being initialized, it may take more than one control iteration)
         if not self.starting_recording:
             if not self.recording_running:
-
+                # Start recording
                 self.controller_info = self.driver.controller_name                
                 self.csv_name = create_csv_file_name(Settings)
 
@@ -68,9 +79,20 @@ class Recorder:
                     self.recording_length = np.inf
 
                 self.start_recording_flag = True
-
+                return True  # Recording started
             else:
+                # Stop recording
                 self.finish_csv_recording(wait_till_complete=True)
+                return False  # Recording stopped
+        
+        return None  # No action taken (recording is starting up)
+
+    def recording_on_off(self, time_limited_recording=False):
+        """
+        Deprecated: Use toggle_recording() instead.
+        Kept for backward compatibility.
+        """
+        return self.toggle_recording(time_limited_recording)
 
 
     def start_csv_recording_if_requested(self):
@@ -105,10 +127,11 @@ class Recorder:
         if self.recording_running:
             self.data_manager.finish_experiment(wait_till_complete=wait_till_complete)
         self.recording_length = np.inf
+        self.recording_started = False  # Reset flag to allow new recording
 
 
 
-def get_basic_data_dict(driver):
+def get_basic_data_dict(driver, sim_obs=None):
     # The below dict lists variables to be logged with csv file when recording is on
     # Just add new variable here and it will be logged
     time_dict = {
@@ -128,21 +151,20 @@ def get_basic_data_dict(driver):
     }
 
     # Creating lidar_names based on indices
-    lidar_names = ['LIDAR_' + str(i).zfill(4) for i in driver.LIDAR.processed_scan_indices]
+    lidar_names = ['LIDAR_' + str(i).zfill(4) for i in driver.lidar_utils.processed_scan_indices]
 
     # Creating lidar_ranges_dict with lambda functions that retrieve current lidar values
     lidar_ranges_dict = {
-        lidar_name: (lambda index=idx: driver.LIDAR.processed_ranges[index])
+        lidar_name: (lambda index=idx: driver.lidar_utils.processed_ranges[index])
         for idx, lidar_name in enumerate(lidar_names)
     }
 
     next_waypoints_dict = get_next_waypoints_dict(driver)
     next_waypoints_relative_dict = get_next_waypoints_relative_dict(driver)
 
-    imu_dict = {
-        key: (lambda k=key: driver.current_imu_dict[k])
-        for key in driver.current_imu_dict.keys()
-    }
+    # IMU data should be provided by the driver (from driver_obs)
+    imu_dict = getattr(driver, 'imu_dict', {})
+    
     
     if hasattr(driver, 'angular_control_dict'):
         angular_control_dict = {

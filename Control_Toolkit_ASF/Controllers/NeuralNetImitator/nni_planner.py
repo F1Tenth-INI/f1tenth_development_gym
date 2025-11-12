@@ -59,7 +59,7 @@ class NeuralNetImitatorPlanner(template_planner):
         if number_of_next_waypoints_network > Settings.LOOK_AHEAD_STEPS:
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self):
 
 
         # Build a dict data_dict, to store all environment and sensor data that we have access to

@@ -66,7 +66,16 @@ class LidarHelper:
 
         self.lidar_names = None
 
-    
+    def reset(self):
+        self.all_lidar_ranges = None
+        self.processed_ranges = None
+        self.processed_points_relative_to_car = None
+        self.processed_points_map_coordinates = None
+        self.all_points_relative_to_car = None
+        self.all_points_map_coordinates = None
+        self.corrupted_indices_of_processed_ranges = None
+        self.lidar_names = None
+
     # Call on every state update
     def update_ranges(self, all_lidar_ranges, car_state = None):
         self.all_lidar_ranges = all_lidar_ranges

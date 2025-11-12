@@ -1,4 +1,4 @@
-image: RCA2.pgm
+image: RCA2.png
 resolution: 0.050000
 origin: [-24.252060, -8.117816, 0.000000]
 negate: 0
@@ -11,5 +11,3 @@ starting_positions:
   - [1.633183, 9.850949, 2.998505]
   - [-12.287339, 8.597600, -3.058426]
   - [-19.849816, 7.189728, -2.452520]
-
-map_path: utilities/maps_files/maps/WithRandomObstacles/RCA2-2024-06-26_14-20-17/RCA2-2024-06-26_14-20-17
