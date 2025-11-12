@@ -26,7 +26,7 @@ STATE_INDICES = {x: np.where(STATE_VARIABLES_FOR_PREDICTOR == x)[0][0] for x in 
 CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
     'angular_control_calculated_1',
     'translational_control_calculated_1',
-    'mu'
+    # 'mu'  # Include it for brunton plot
 ])
 
 class next_state_predictor_ODE():
