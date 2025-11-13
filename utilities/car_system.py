@@ -271,6 +271,7 @@ class CarSystem:
         # TODO: Recording
         info = {
             "lap_times": self.laptimes,
+            # "reward_difficulty": self.reward_calculator.difficulty
         }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)

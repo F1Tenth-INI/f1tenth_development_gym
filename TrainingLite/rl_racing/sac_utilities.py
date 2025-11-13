@@ -77,6 +77,8 @@ class SacUtilities:
                      train_freq=1
                      ) -> SAC:
         policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        # policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.ReLU)
+
         #  log_std_init=-3.5
 
         model = SAC(
@@ -131,6 +133,7 @@ class SacUtilities:
             os.path.join(rl_racing_dir, "sac_utilities.py"),
             os.path.join(rl_racing_dir, "sac_agent_planner.py"),
             os.path.join(gym_dir, "utilities", "Settings.py"),
+            os.path.join(rl_racing_dir, "RewardCalculator.py"),
         ]
 
         zip_path = os.path.join(model_dir, "training_files.zip")
@@ -216,7 +219,6 @@ class TrainingLogHelper():
         last_episode = episodes[-1] if episodes else None
         last_info = last_episode[-1]["info"] if last_episode and last_episode[-1] and "info" in last_episode[-1] else {}
         lap_times = last_info.get("lap_times", None)
-        min_laptime = last_info.get("min_laptime", None)
 
         episode_lengths = [len(episode) for episode in episodes]
         episode_rewards = [sum(transition["reward"] for transition in episode) for episode in episodes]
@@ -230,6 +232,8 @@ class TrainingLogHelper():
         metric_dict['episode_rewards'] = episode_rewards
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
         metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
+        metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
+        
         metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
         metric_dict['training_duration'] = getattr(model, 'training_duration', None)
         

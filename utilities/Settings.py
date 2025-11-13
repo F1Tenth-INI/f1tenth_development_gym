@@ -145,7 +145,7 @@ class Settings():
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -169,8 +169,7 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
-    
-    
+
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
     
@@ -184,3 +183,19 @@ class Settings():
         cls.MAP_PATH = os.path.join("utilities", "maps", cls.MAP_NAME)
         cls.MAP_CONFIG_FILE = os.path.join(cls.MAP_PATH, cls.MAP_NAME + ".yaml")
         cls.RECORDING_PATH = os.path.join(cls.RECORDING_FOLDER, cls.RECORDING_NAME)
+
+
+    def save_snapshot(self, path: str) -> None:
+        """
+        Save the current settings into a YAML file located at <path>/settings_snapshot.yml.
+        """
+
+        os.makedirs(path, exist_ok=True)
+        out_path = os.path.join(path, "settings_snapshot.yml")
+        with open(out_path, "w") as f:
+            for attr, value in Settings.__dict__.items():
+                if not attr.startswith("__") and not callable(getattr(Settings, attr)):
+                    f.write(f"{attr}: {value}\n")
+        print(f"Settings snapshot saved to {out_path}")
+
+
