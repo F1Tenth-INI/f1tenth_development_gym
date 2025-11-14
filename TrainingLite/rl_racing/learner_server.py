@@ -18,6 +18,8 @@ import csv
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper
 
+from utilities.Settings import Settings
+
 class LearnerServer:
     def __init__(
         self,
@@ -223,6 +225,40 @@ class LearnerServer:
                 )
                 n_added += 1
         return n_added
+    
+    def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
+        """
+        Modify rewards IN PLACE so that, if an episode ends in a crash,
+        the last `ramp_steps` transitions before the crash get extra negative reward.
+
+        extra_penalty: total additional penalty distributed over the ramp.
+        """
+        # find crash index (last transition where done and info["crash"] == True)
+        crash_idx = None
+        for i in reversed(range(len(episode))):
+            t = episode[i]
+            info = t.get("info", {})
+            if t.get("done", False) and info.get("truncated", False):
+                crash_idx = i
+                break
+
+        if crash_idx is None:
+            # no crash in this episode -> leave rewards unchanged
+            return episode
+
+        # distribute extra_penalty backwards over ramp_steps
+        # closer to crash -> larger share
+        for k in range(ramp_steps):
+            idx = crash_idx - k
+            if idx < 0:
+                break
+            t = episode[idx]
+            # weight from 0..1, increasing towards crash
+            w = (ramp_steps - k) / ramp_steps
+            shaped_penalty = w * (max_ramp_value )
+            t["reward"] -= shaped_penalty
+        return episode
+
 
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
@@ -458,6 +494,9 @@ class LearnerServer:
                             "info":     info_list[i] if i < len(info_list) else {},
                             "actor_id": int(d.get("actor_id", -1)),
                         })
+
+                    if Settings.RL_CRASH_REWQARD_RAMPING:
+                        episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=5.0)
 
                     # initialize shapes if this is the very first episode
                     if self.model is None:
