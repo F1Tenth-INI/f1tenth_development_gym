@@ -1,3 +1,5 @@
+# rendering.py
+
 # MIT License
 
 # Copyright (c) 2020 Joseph Auckley, Matthew O'Kelly, Aman Sinha, Hongrui Zheng
@@ -271,6 +273,23 @@ class EnvRenderer(pyglet.window.Window):
             self.bottom = mouse_y_in_world - mouse_y * self.zoomed_height
             self.top = mouse_y_in_world + (1 - mouse_y) * self.zoomed_height
 
+    # ---- added: car-centered zoom helper ------------------------------------
+    def _zoom_at_world(self, xw, yw, f):
+        # Keep (xw, yw) fixed on screen while zooming. Compute its fractional
+        # position inside the current view before scaling, then rebuild bounds.
+        if .01 < self.zoom_level * f < 10:
+            self.zoom_level *= f
+            ax = (xw - self.left) / self.zoomed_width
+            ay = (yw - self.bottom) / self.zoomed_height
+            self.zoomed_width *= f
+            self.zoomed_height *= f
+            self.left = xw - ax * self.zoomed_width
+            self.right = xw + (1 - ax) * self.zoomed_width
+            self.bottom = yw - ay * self.zoomed_height
+            self.top = yw + (1 - ay) * self.zoomed_height
+
+    # -------------------------------------------------------------------------
+
     def on_key_press(self, symbol, modifiers):
         """
         This function is called when a key is pressed.
@@ -286,7 +305,24 @@ class EnvRenderer(pyglet.window.Window):
         # Space key toggles camera auto follow
         if symbol == key.SPACE:
             Settings.CAMERA_AUTO_FOLLOW = not Settings.CAMERA_AUTO_FOLLOW
-        
+
+        # ---- added: 'I' zoom-in / 'O' zoom-out anchored at ego car ----------
+        elif symbol in (key.I, key.O) and self.poses is not None:
+            ego = self.poses[self.ego_idx]
+            xw = 50.0 * float(ego[0]);
+            yw = 50.0 * float(ego[1])
+            f = ZOOM_IN_FACTOR if symbol == key.I else ZOOM_OUT_FACTOR
+            if .01 < self.zoom_level * f < 10:
+                self.zoom_level /= f
+                self.zoomed_width /= f
+                self.zoomed_height /= f
+                self.left = xw - self.zoomed_width / 2.0
+                self.right = xw + self.zoomed_width / 2.0
+                self.bottom = yw - self.zoomed_height / 2.0
+                self.top = yw + self.zoomed_height / 2.0
+
+        # ---------------------------------------------------------------------
+
     def on_close(self):
         """
         Callback function when the 'x' is clicked on the window, overrides inherited method. Also throws exception to end the python program when in a loop.

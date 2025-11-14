@@ -54,19 +54,18 @@ class VehicleParameters:
     :param param_file_name: The name of the YAML file containing car parameters.
                             Defaults to 'gym_car_parameters.yaml'.
     """
-    def __init__(self, param_file_name = 'gym_car_parameters.yml'):
-      
+    def __init__(self, param_file_name='gym_car_parameters.yml'):
         class_variable_names = list(VehicleParameters.__annotations__.keys())
         current_dir = os.path.dirname(__file__)
         yaml_file_path = os.path.join(current_dir, param_file_name)
 
         with open(yaml_file_path, 'r') as file:
           params = yaml.safe_load(file)
-          for class_variable_name in class_variable_names: 
+          for class_variable_name in class_variable_names:
             if class_variable_name not in params:
               raise ValueError(f"Parameter '{class_variable_name}' not found in the YAML file.")
             setattr(self, class_variable_name, params[class_variable_name])
-        
+
         # Overwrite Sufrace friction
         if Settings.SURFACE_FRICTION is not None:
             self.mu = Settings.SURFACE_FRICTION
@@ -84,7 +83,7 @@ class VehicleParameters:
             self.m,  # m (Total Mass of car)
             self.I_z,  # I_z (Moment of inertia about z-axis)
             self.g,  # g (Gravitation Constant)
-            
+
             # Pacejka Magic Formula Parameters (Front Tire)
             self.C_Pf[0],  # B_f
             self.C_Pf[1],  # C_f

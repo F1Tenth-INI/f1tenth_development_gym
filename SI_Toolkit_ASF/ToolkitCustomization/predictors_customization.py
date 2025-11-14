@@ -1,6 +1,5 @@
+import numpy as np
 
-
-from utilities.state_utilities import *
 from utilities.Settings import Settings
 
 from SI_Toolkit.computation_library import NumpyLibrary
@@ -8,6 +7,30 @@ from SI_Toolkit.computation_library import NumpyLibrary
 environment_name = Settings.ENVIRONMENT_NAME
 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
 car_parameter_file = Settings.CONTROLLER_CAR_PARAMETER_FILE
+
+STATE_VARIABLES_FOR_PREDICTOR = np.sort([
+    'angular_vel_z',  # x5: yaw rate
+    'linear_vel_x',  # x3: velocity in x direction
+    'linear_vel_y',  # x6: velocity in y direction
+    'pose_theta',  # x4: yaw angle
+    'pose_theta_cos',
+    'pose_theta_sin',
+    'pose_x',  # x0: x position in global coordinates
+    'pose_y',  # x1: y position in global coordinates
+    'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
+    'steering_angle'  # x2: steering angle of front wheels
+])
+
+STATE_INDICES = {x: np.where(STATE_VARIABLES_FOR_PREDICTOR == x)[0][0] for x in STATE_VARIABLES_FOR_PREDICTOR}
+STATE_VARIABLES = STATE_VARIABLES_FOR_PREDICTOR
+
+CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
+    'angular_control_calculated_1',
+    'translational_control_calculated_1',
+    # 'mu'  # Include it for brunton plot
+])
+CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
+CONTROL_INPUTS_LEN = len(CONTROL_INPUTS_FOR_PREDICTOR)
 
 class next_state_predictor_ODE():
 
@@ -21,12 +44,9 @@ class next_state_predictor_ODE():
                  **kwargs,
                  ):
         self.lib = lib
-        self.s = self.lib.to_tensor(create_car_state(), dtype=self.lib.float32)
-
-        self.params = None
-
         self.intermediate_steps = int(intermediate_steps)
         self.t_step = float(dt / float(self.intermediate_steps))
+        self.variable_parameters = variable_parameters
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
@@ -42,20 +62,23 @@ class next_state_predictor_ODE():
                 dt=dt,
                 computation_lib=lib,
                 intermediate_steps=intermediate_steps,
-                variable_parameters=variable_parameters,
                                  )  # Environment model, keeping car ODEs
         else:
             raise NotImplementedError('{} not yet implemented in next_state_predictor_ODE_tf'.format(Settings.ENVIRONMENT_NAME))
 
-        self.variable_parameters = variable_parameters
+        self.params = self.env.car_parameters
 
         if disable_individual_compilation:
             self.step = self._step
         else:
-            from SI_Toolkit.Compile import CompileTF # Lazy import
-            self.step = CompileTF(self._step)
+            from SI_Toolkit.Compile import CompileAdaptive  # Lazy import
+            self.step = CompileAdaptive(self._step)
 
     def _step(self, s, Q):
+
+        if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
+            # mu = self.lib.to_numpy(self.variable_parameters.mu, self.lib.float32)
+            self.params.mu = self.variable_parameters.mu
 
         if self.core_dynamics_only:
             s_next = self.env.step_dynamics_core(s, Q)
@@ -107,11 +130,11 @@ class predictor_output_augmentation:
         self.augmentation_len = len(self.indices_augmentation)
 
         if 'pose_theta' in outputs_after_integration:
-            self.index_pose_theta = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta'])
+            self.index_pose_theta = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta'], self.lib.int32)
         if 'pose_theta_sin' in outputs_after_integration:
-            self.index_pose_theta_sin = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_sin'])
+            self.index_pose_theta_sin = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_sin'], self.lib.int32)
         if 'pose_theta_cos' in outputs_after_integration:
-            self.index_pose_theta_cos = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_cos'])
+            self.index_pose_theta_cos = self.lib.to_tensor(self.outputs_after_integration_indices['pose_theta_cos'], self.lib.int32)
 
         if disable_individual_compilation:
             self.augment = self._augment
@@ -165,3 +188,4 @@ class predictor_output_augmentation:
 
 
         return output
+

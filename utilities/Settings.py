@@ -13,7 +13,7 @@ class Settings():
 
 
     # Controller Settings
-    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'mpc' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
@@ -151,6 +151,8 @@ class Settings():
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
+
+    KEYBOARD_LISTENER_ON = False
     
     
     
