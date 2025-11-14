@@ -1,3 +1,4 @@
+
 import os
 import sys
 
@@ -15,125 +16,113 @@ class RewardCalculator:
         self.print_info = False
 
 
-        self.action_history_queue = deque(maxlen=10)
         self.reward_components_history = []
-        
-        self.reset()
 
-        self.control_penalty_factor = 0.05
-        self.d_control_penalty_factor = 0.5
+
+        # Weights
+        self.w_crash = 15
+        self.w_progress = 1.0   # per meter of along-track progress
+        self.w_lateral_error = 0.05   # per meter cross-track error penalty
+        self.w_d_steering = 1.5
+        self.w_d_acceleration = 0.1
+        self.w_speed_cap = 0.0 # 0.3
+        
+      
+        
+        self.increase_difficulty = False
+        
+        # Weight ranges for Curriculum Learning
+        self.crash_penalty_range = [15, 15]
+        self.w_d_steering_range = [0.0, 3.5]
+        self.w_d_acceleration_range = [0.0, 0.2]
+        
+        
+        self.simulation_step = 0
+        self.difficulty = 0
+
+        self.reset()
 
     def reset(self):
         
         self.time = 0
         self.last_progress : float = 0
         self.last_progress_time : float = 0
-        self.action_history_queue.clear()
         self.spin_counter = 0
         self.stuck_counter = 0
         self.last_wp_index = 0
         self.truncated = False
-
+        self.last_s = None
+        self.last_action = None
         self.reward = 0
-        self.last_position = None
         self.reward_history = []
+        self.accumulated_reward = 0
 
     def _calculate_reward(self, driver: 'CarSystem', obs: dict) -> float:
         waypoint_utils: WaypointUtils = driver.waypoint_utils
         car_state = driver.car_state
         reward = 0
 
-        # Crash penalty
+        # Get variables
         crash = obs.get('collision', False)
-        crash_reward = -30 if crash else 0
-        reward += crash_reward
+        s, d, e, k = waypoint_utils.frenet_coordinates
 
 
-        # Progress along the waypoints
-        if self.last_position is None:
-            self.last_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
+        # Crash / Leave track penalty 
+        crash_penalty = 0
 
-        current_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-        delta_position = np.array(current_position) - np.array(self.last_position)
+        wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
+        wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
+        leave_bounds = d < -wp_distances_r or d > wp_distances_l
+        if leave_bounds or crash:
+            crash_penalty = -self.w_crash
+            reward += crash_penalty
+            self.truncated = True
 
-        wpts = waypoint_utils.next_waypoints
-        closest_wp_pos = [wpts[0][WP_X_IDX], wpts[0][WP_Y_IDX]]
-        next_wp_pos = [wpts[1][WP_X_IDX], wpts[1][WP_Y_IDX]]
-        wp_vector = np.array(next_wp_pos) - np.array(closest_wp_pos)
 
-        distance = np.linalg.norm(delta_position)
-        projection = np.dot(delta_position, wp_vector) / np.linalg.norm(wp_vector)
-        self.last_position = [car_state[POSE_X_IDX], car_state[POSE_Y_IDX]]
-        progress_reward = projection * 2.0
+        # Progress along the raceline ( Frenet s coordinate ) [meters]
+        progress_reward = 0.0
+
+        if(self.last_s is None):
+            self.last_s = s
+        delta_s = s - self.last_s
+        progress_reward = delta_s * self.w_progress
         reward += progress_reward
 
 
-        # Distance to waypoints
-        next_wp_pos_relative = driver.waypoint_utils.next_waypoint_positions_relative[0]
-        distance_to_next_wp = np.linalg.norm(next_wp_pos_relative)
-        
-        if(distance_to_next_wp < 0.15): 
-            distance_to_next_wp = 0
+        # Lateral error do raceline
+        wp_distance_penalty = 0.0
+        wp_distance_penalty = -self.w_lateral_error * abs(d)
+        reward += wp_distance_penalty
 
-        reward -= distance_to_next_wp * 0.1
-
-        # Terminate if too far
-        if(distance_to_next_wp > 5): 
-            reward = -30
-            self.truncated = True
-
-        # Terminate if track boundary is crossed
-        s, d, e, k = driver.waypoint_utils.get_frenet_coordinates(driver.car_state)
-        wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
-        wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
-        if d < -wp_distances_r or d > wp_distances_l:
-            reward = -30
-            self.truncated = True
-
-
-        # Penalize action  
-        steering_reward = - self.control_penalty_factor * np.linalg.norm(1 * driver.angular_control)
-        acceleration_reward = - self.control_penalty_factor * np.linalg.norm(0.1 * driver.translational_control)
-        reward += steering_reward
-        reward += acceleration_reward
 
         # Penalize d_control for smooth control
+        d_action_penality = 0.0
+
         action = np.array([driver.angular_control, driver.translational_control])
-        d_control_reward = 0
-        if len(self.action_history_queue) > 0:
-            last_action = self.action_history_queue[-1] 
-            d_control = last_action - action
-            d_angular_control = d_control[0]
-            d_translational_control = d_control[1]
+        if(self.last_action is None):
+            self.last_action = action
+        d_action = self.last_action - action
 
-            d_control_reward = - self.d_control_penalty_factor * (np.linalg.norm(d_angular_control) * 1.0 + np.linalg.norm(d_translational_control) * 0.1)
-        reward += d_control_reward
+        d_action_penality = - (self.w_d_steering * abs(d_action[0]) + self.w_d_acceleration * abs(d_action[1]))
+        reward += d_action_penality
         
-        self.action_history_queue.append(action)
-
-        # Debug prints for diagnosing reward calculation
-        if self.print_info:
-            print(f"[Reward Debug] delta_position: {delta_position}")
-            print(f"[Reward Debug] wp_vector: {wp_vector}")
-            print(f"[Reward Debug] projection: {projection}")
-            print(f"[Reward Debug] distance: {distance}")
-            print(f"[Reward Debug] v_x: {car_state[LINEAR_VEL_X_IDX]}")
-            print(f"[Reward Debug] reward after projection: {reward}")
-            # print(f"[Reward Debug] d_control_reward: {d_control_reward}")
-            print(f"[Reward Debug] total_reward: {reward + d_control_reward}")
-
-        self.last_position = current_position
-        # print(f"distance: {distance}, projection: {projection}")
-
-        # Speed Reward (Encourage Fast Movement)
+        # Speed cap penalty
+        speed_cap_penalty = 0.0
+        
         speed = car_state[LINEAR_VEL_X_IDX]
+        suggested_speed = waypoint_utils.next_waypoints[0, WP_VX_IDX]
+        if(speed > suggested_speed):
+            speed_cap_penalty = - self.w_speed_cap * (speed - suggested_speed) ** 2
+        reward += speed_cap_penalty
+        
+        
 
         # Spinning reward Penalize Spinning (Fixing Instability)
         spin_reward = 0.0
-        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 25.0:
+        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
             self.spin_counter += 1
             if self.spin_counter >= 50:
-                spin_reward = -10
+                spin_reward = -self.w_crash 
                 self.truncated = True
         else:
             self.spin_counter = 0
@@ -144,51 +133,58 @@ class RewardCalculator:
         if speed < 1.0:
             self.stuck_counter += 1
             if self.stuck_counter >= 100:
-                stuck_reward = -10
+                stuck_reward = -self.w_crash 
                 self.truncated = True
         else:
             self.stuck_counter = 0
         reward += stuck_reward
 
-        # # Penalize beeing too fast
-        # suggested_speed = waypoint_utils.next_waypoints[0][WP_VX_IDX]
-        # if speed > suggested_speed:
-        #     reward -= (speed - suggested_speed) * 0.1
-
         # Update State
-        self.last_steering = car_state[STEERING_ANGLE_IDX]
-
-        # Debug Info (Optional)
-        if self.print_info and reward != 0:
-            print(f"Reward: {reward}")
-
-
-
-        # # Penalize backward driving by hecking the car_state[LINEAR_VEL_X_IDX]
-        # backward_driving_reward = 0.0
-        # if car_state[LINEAR_VEL_X_IDX] < 0:
-        #     backward_driving_reward = car_state[LINEAR_VEL_X_IDX] * 2.0
-        # reward += backward_driving_reward
-
-
+        self.last_s = s
+        self.last_action = action
+      
         self.reward = reward
 
         if Settings.SAVE_REWARDS:
             reward_components = {
                 "progress": progress_reward,
-                "crash_reward": crash_reward,
-                "steering_penalty": steering_reward,
-                "acceleration_penalty": acceleration_reward,
-                "d_control_reward": d_control_reward,
+                "crash_reward": crash_penalty,
+                "wp_distance_penalty": wp_distance_penalty,
+                "d_action_penality": d_action_penality,
                 "stuck_reward": stuck_reward,
                 "spin_reward": spin_reward,
                 "total_reward": reward,
+                "difficulty": self.difficulty
             }
             self.reward_components_history.append(reward_components)
 
         self.reward_history.append(reward)
-        self.time += Settings.TIMESTEP_CONTROL
+        self.accumulated_reward += reward
+        self.simulation_step += 1
+        
+        self.adjust_difficulty()
+
         return reward
+    
+    def adjust_difficulty(self):
+        
+        if not self.increase_difficulty:
+            return
+        
+        progress = self.simulation_step / Settings.SIMULATION_LENGTH
+        
+        if progress <= 0.3:
+            self.difficulty = 0.0
+        elif progress >= 0.8:
+            self.difficulty = 1.0
+        else:
+            self.difficulty = (progress - 0.3) / (0.8 - 0.3)
+
+        self.w_crash = self.crash_penalty_range[0] + self.difficulty * (self.crash_penalty_range[1] - self.crash_penalty_range[0])
+        self.w_d_steering = self.w_d_steering_range[0] + self.difficulty * (self.w_d_steering_range[1] - self.w_d_steering_range[0])
+        self.w_d_acceleration = self.w_d_acceleration_range[0] + self.difficulty * (self.w_d_acceleration_range[1] - self.w_d_acceleration_range[0])
+        
+    
 
 
     def plot_history(self, save_path: str):
@@ -203,23 +199,16 @@ class RewardCalculator:
         reward_labels = [
             "progress",
             "crash_reward",
-            "steering_penalty",
-            "acceleration_penalty",
-            "d_control_reward",
+            # "steering_penalty",
+            # "acceleration_penalty",
+            "wp_distance_penalty",
+            "d_action_penality",
             "stuck_reward",
             "spin_reward",
+            "difficulty",
             "total_reward"
         ]
-        reward_colors = [
-            "blue",
-            "gray",
-            "red",
-            "orange",
-            "purple",
-            "green",
-            "magenta",
-            "black"
-        ]
+        reward_colors = ["blue"] * len(reward_labels)
 
         # Compute cumulative sums for each reward component
         cumulative_rewards = {

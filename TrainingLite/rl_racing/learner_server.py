@@ -18,25 +18,31 @@ import csv
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper
 
+from utilities.Settings import Settings
+
 class LearnerServer:
     def __init__(
         self,
         host: str,
         port: int,
-        model_name: str,
+        # load_model_name: if None -> start from scratch; otherwise attempt to load this model
+        load_model_name: Optional[str] = None,
+        # save_model_name: where to save training progress (fallback if not provided)
+        save_model_name: Optional[str] = None,
         device: str = "cpu",
         train_every_seconds: float = 10.0,
         grad_steps: int = 1024,
         replay_capacity: int = 100_000,
         learning_starts: int = 2000,
         batch_size: int = 1024,
-        learning_rate: float = 3e-4,
+        learning_rate: float = 1e-4,
         discount_factor: float = 0.99,
-        train_frequency: int = 1
+        train_frequency: int = 1,
     ):
         self.host = host
         self.port = port
-        self.model_name = model_name
+        self.load_model_name = load_model_name
+        self.save_model_name = save_model_name
         self.device = device
         self.train_every_seconds = train_every_seconds
         self.replay_capacity = replay_capacity
@@ -68,10 +74,23 @@ class LearnerServer:
         self.total_weight_updates = 0
 
 
-        # file paths
-        self.model_path, self.model_dir = SacUtilities.resolve_model_paths(self.model_name)
+        # file paths: default save name fallback
+        if self.save_model_name is None:
+            # If save name not provided, fall back to load name if present, else use a generic default
+            if self.load_model_name is not None:
+                self.save_model_name = self.load_model_name
+            else:
+                self.save_model_name = "SAC_RCA1_0"
 
-        self.trainingLogHelper = TrainingLogHelper(self.model_name,self.model_dir)
+        # resolve save paths (where we will write checkpoints/logs)
+        self.save_model_path, self.model_dir = SacUtilities.resolve_model_paths(self.save_model_name)
+
+        # resolve load path if different
+        self.load_model_path = None
+        if self.load_model_name is not None:
+            self.load_model_path, _ = SacUtilities.resolve_model_paths(self.load_model_name)
+
+        self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
         SacUtilities.zip_relevant_files(self.model_dir)
 
@@ -82,30 +101,47 @@ class LearnerServer:
         """
         Initialize the model + replay buffer.
 
-        - Check if model already exists
-        - Else: load from zip and bind a matching dummy env.
+        - If `load_model_name` is set, attempt to load from that path.
+        - Else: create a new model (train from scratch).
         """
         dummy_env = SacUtilities.create_vec_env()
-     
-        try:
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            self.model = SAC.load(self.model_path, env=dummy_env, device=self.device)
-            print(f"[server] Success: Loaded SAC model: {self.model_name}")
 
-        except Exception as e:
-            print(f"[server] No SAC model located at {self.model_path}.")
-            print("Creating new model.")
+        # If no load model specified -> start from scratch
+        if self.load_model_name is None:
+            print("[server] No load model specified: creating new model from scratch.")
+            self.init_from_scratch = True
             self.model = SacUtilities.create_model(
-                env=dummy_env, 
-                buffer_size=self.replay_capacity, 
+                env=dummy_env,
+                buffer_size=self.replay_capacity,
                 device=self.device,
                 learning_rate=self.learning_rate,
                 discount_factor=self.discount_factor,
                 train_freq=self.train_frequency,
-                batch_size=self.batch_size
+                batch_size=self.batch_size,
             )
-            print(f"[server] Success: Created new SAC model.")
+            print(f"[server] Success: Created new SAC model (scratch).")
+        else:
+            # try loading provided model, otherwise fall back to creating new
+            try:
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                self.model = SAC.load(self.load_model_path, env=dummy_env, device=self.device)
+                self.init_from_scratch = False
+                print(f"[server] Success: Loaded SAC model: {self.load_model_name}")
+            except Exception as e:
+                print(f"[server] Failed to load SAC model at {self.load_model_path}: {e}")
+                print("Creating new model from scratch.")
+                self.init_from_scratch = True
+                self.model = SacUtilities.create_model(
+                    env=dummy_env,
+                    buffer_size=self.replay_capacity,
+                    device=self.device,
+                    learning_rate=self.learning_rate,
+                    discount_factor=self.discount_factor,
+                    train_freq=self.train_frequency,
+                    batch_size=self.batch_size,
+                )
+                print(f"[server] Success: Created new SAC model (fallback).")
 
         # Minimal logger so .train() works outside .learn()
 
@@ -135,8 +171,10 @@ class LearnerServer:
         # Cache weights for initial broadcast (random if scratch)
         self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
 
-        print("[server] Base model + replay buffer initialized.",
-            f"Mode={'scratch' if self.init_from_scratch else 'from-zip'}")
+        print(
+            "[server] Base model + replay buffer initialized.",
+            f"Mode={'scratch' if self.init_from_scratch else f'from-{self.load_model_name}'}",
+        )
 
 
     def _initialize_model(self):
@@ -145,11 +183,12 @@ class LearnerServer:
         print(f"[server] Initialized model")
 
     def _save_model(self):
-        """Save the current model to disk."""
+        """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
-                self.model.save(os.path.join(self.model_dir, self.model_name))
-                print(f"[server] Model saved to {os.path.join(self.model_dir, self.model_name)}")
+                target = os.path.join(self.model_dir, self.save_model_name)
+                self.model.save(target)
+                print(f"[server] Model saved to {target}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
 
@@ -186,6 +225,40 @@ class LearnerServer:
                 )
                 n_added += 1
         return n_added
+    
+    def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
+        """
+        Modify rewards IN PLACE so that, if an episode ends in a crash,
+        the last `ramp_steps` transitions before the crash get extra negative reward.
+
+        extra_penalty: total additional penalty distributed over the ramp.
+        """
+        # find crash index (last transition where done and info["crash"] == True)
+        crash_idx = None
+        for i in reversed(range(len(episode))):
+            t = episode[i]
+            info = t.get("info", {})
+            if t.get("done", False) and info.get("truncated", False):
+                crash_idx = i
+                break
+
+        if crash_idx is None:
+            # no crash in this episode -> leave rewards unchanged
+            return episode
+
+        # distribute extra_penalty backwards over ramp_steps
+        # closer to crash -> larger share
+        for k in range(ramp_steps):
+            idx = crash_idx - k
+            if idx < 0:
+                break
+            t = episode[idx]
+            # weight from 0..1, increasing towards crash
+            w = (ramp_steps - k) / ramp_steps
+            shaped_penalty = w * (max_ramp_value )
+            t["reward"] -= shaped_penalty
+        return episode
+
 
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
@@ -349,7 +422,12 @@ class LearnerServer:
                 await self._broadcast_weights(new_blob)
                 print("[server] Trained SAC and broadcast updated actor weights.")
 
-                self.model.save(os.path.join(self.model_dir, self.model_name))
+                try:
+                    target = os.path.join(self.model_dir, str(self.save_model_name))
+                    self.model.save(target)
+                    # print(f"[server] Auto-saved model to {target}")
+                except Exception as e:
+                    print(f"[server] Error auto-saving model: {e}")
             else:
                 needed = self.learning_starts - (self.replay_buffer.size() if self.replay_buffer else 0)
                 print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
@@ -416,6 +494,9 @@ class LearnerServer:
                             "info":     info_list[i] if i < len(info_list) else {},
                             "actor_id": int(d.get("actor_id", -1)),
                         })
+
+                    if Settings.RL_CRASH_REWQARD_RAMPING:
+                        episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=5.0)
 
                     # initialize shapes if this is the very first episode
                     if self.model is None:
@@ -502,7 +583,9 @@ class LearnerServer:
 
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
         addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
-        print(f"[server] Listening on {addrs} | model='{self.model_name}' | device='{self.device}'")
+        print(
+            f"[server] Listening on {addrs} | save_model='{self.save_model_name}' | load_model='{self.load_model_name}' | device='{self.device}'"
+        )
         
         # Create a task to monitor termination flag
         async def monitor_termination():

@@ -517,61 +517,96 @@ class WaypointUtils:
         # [STATEFUL] ONLY CALL ONCE PER STEP!
         """
         Returns (s, d, e, k) with:
-        - d, e, k from nearest waypoint (geometry)
+        - d, e, k from the closest point on the *polyline* raceline (segment projection)
         - s from integrating s_dot = (vx*cos(e) - vy*sin(e)) / (1 - k*d)
         and then shifted so that s == 0 at the episode start (first call after reset).
         """
+
         waypoints = self.waypoints
         if waypoints is None or len(waypoints) < 2:
             return None, None, None, None
 
         # --- Car pose/vel
-        car_x   = car_state[POSE_X_IDX]
-        car_y   = car_state[POSE_Y_IDX]
-        car_yaw = car_state[POSE_THETA_IDX]
-        vx_body = car_state[LINEAR_VEL_X_IDX]   # forward vel in body frame
-        vy_body = car_state[LINEAR_VEL_Y_IDX]   # lateral  vel in body frame
+        car_x   = float(car_state[POSE_X_IDX])
+        car_y   = float(car_state[POSE_Y_IDX])
+        car_yaw = float(car_state[POSE_THETA_IDX])
+        vx_body = float(car_state[LINEAR_VEL_X_IDX])  # forward vel in body frame
+        vy_body = float(car_state[LINEAR_VEL_Y_IDX])  # lateral vel in body frame
 
-        # --- Nearest waypoint (for geometry: d, e, k)
         car_pos = np.array([car_x, car_y], dtype=float)
-        xy = waypoints[:, [WP_X_IDX, WP_Y_IDX]]
-        nearest_idx = int(np.argmin(np.linalg.norm(xy - car_pos, axis=1)))
 
-        s_geom = float(waypoints[nearest_idx, WP_S_IDX])    # geometric s at spawn vicinity
-        k      = float(waypoints[nearest_idx, WP_KAPPA_IDX])
-        psi    = float(waypoints[nearest_idx, WP_PSI_IDX])  # raceline heading
+        # --- Precompute segment geometry
+        xy = waypoints[:, [WP_X_IDX, WP_Y_IDX]]               # (N, 2)
+        p0 = xy[:-1]                                           # (N-1, 2)
+        p1 = xy[1:]                                            # (N-1, 2)
+        v  = p1 - p0                                           # segment vectors (N-1, 2)
+        seg_len2 = np.einsum("ij,ij->i", v, v) + 1e-12         # ||v||^2 + eps
 
-        # Lateral offset d via local normal
-        dx, dy = car_x - xy[nearest_idx, 0], car_y - xy[nearest_idx, 1]
-        n_hat  = np.array([-np.sin(psi), np.cos(psi)], dtype=float)  # left normal
-        d      = float(dx * n_hat[0] + dy * n_hat[1])
+        # Vector from p0 to car
+        w = car_pos[None, :] - p0                              # (N-1, 2)
+
+        # Parametric coordinate t along each segment, clamped to [0, 1]
+        t = np.einsum("ij,ij->i", w, v) / seg_len2            # (N-1,)
+        t = np.clip(t, 0.0, 1.0)
+
+        # Projected points on each segment
+        proj = p0 + t[:, None] * v                             # (N-1, 2)
+
+        # Squared distance car -> projection
+        dist2 = np.einsum("ij,ij->i", car_pos[None, :] - proj, car_pos[None, :] - proj)
+
+        # Best segment
+        seg_idx = int(np.argmin(dist2))
+        t_best  = float(t[seg_idx])
+        closest = proj[seg_idx]                                # (2,)
+
+        # Tangent vector and heading psi at closest point
+        v_seg = v[seg_idx]
+        seg_len = float(np.sqrt(seg_len2[seg_idx]))
+        if seg_len < 1e-6:
+            # degenerate segment, fall back to waypoint heading
+            psi = float(waypoints[seg_idx, WP_PSI_IDX])
+        else:
+            t_hat = v_seg / seg_len
+            psi = float(np.arctan2(t_hat[1], t_hat[0]))
+
+        # Left normal
+        n_hat = np.array([-np.sin(psi), np.cos(psi)], dtype=float)
+
+        # Lateral offset d: signed distance from closest point
+        d_vec = car_pos - closest
+        d = float(np.dot(d_vec, n_hat))
 
         # Heading error e (wrap to [-pi, pi])
-        e = float((car_yaw - psi + np.pi) % (2*np.pi) - np.pi)
+        e = float((car_yaw - psi + np.pi) % (2 * np.pi) - np.pi)
 
-        # --- s integration (paper)
+        # Geometric s from interpolation between the two waypoints' s
+        s_i   = float(waypoints[seg_idx,     WP_S_IDX])
+        s_ip1 = float(waypoints[seg_idx + 1, WP_S_IDX])
+        s_geom = s_i + t_best * (s_ip1 - s_i)
+
+        # Curvature k: simple linear interpolation
+        k_i   = float(waypoints[seg_idx,     WP_KAPPA_IDX])
+        k_ip1 = float(waypoints[seg_idx + 1, WP_KAPPA_IDX])
+        k = k_i + t_best * (k_ip1 - k_i)
+
+        # --- s integration (as before)
         denom = max(1e-6, 1.0 - k * d)  # numeric safety
         s_dot = (vx_body * np.cos(e) - vy_body * np.sin(e)) / denom
         dt    = Settings.TIMESTEP_CONTROL
 
-        # Internal unwrapped integrator
         if self._s_int is None:
-            # First call after reset: seed the integrator from geometry at spawn
+            # First call after reset: seed integrator from geometry
             self._s_int = s_geom
-            self._s0    = self._s_int   # zero-based output: s_out = _s_int - _s0
+            self._s0    = self._s_int
         else:
             self._s_int += s_dot * dt
 
-        # Report s starting from 0 at reset (zero-based, continuous, unwrapped)
         s_out = self._s_int - self._s0
 
-        # If you also want a wrapped version in [0, track_len), you can compute it from s_out:
-        # track_len = float(waypoints[-1, WP_S_IDX]) if waypoints[-1, WP_S_IDX] > 0 else \
-        #             float(np.sum(np.linalg.norm(np.diff(xy, axis=0), axis=1)))
-        # s_wrapped = s_out % track_len
         self.frenet_coordinates = (s_out, d, e, k)
-
         return s_out, d, e, k
+
 
 
                     

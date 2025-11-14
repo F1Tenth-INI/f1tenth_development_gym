@@ -98,6 +98,8 @@ class RenderUtils:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
+        self.track_border_visualization_color = (255, 0, 0)
+
         self.gt_history_color = (0, 128, 255)      # blue-ish
         self.prior_history_color = (255, 255, 255)  # white
         self.prior_full_history_color = (0, 255, 255)  # cyan
@@ -116,6 +118,9 @@ class RenderUtils:
         self.target_point = None
         self.car_state = None
         self.obstacles = None
+        self.track_border_points: Optional[np.ndarray] = None
+        # cache PointSizeGroup instances to avoid creating new groups each frame
+        self._point_size_groups = {}
 
         self.past_car_states_alternative = None
         self.past_car_states_alternative_vertices = None
@@ -143,6 +148,7 @@ class RenderUtils:
         self.obstacle_vertices = None
         self.emergency_slowdown_lines = []
         self.lidar_vertices = None
+        self.track_border_vertices = None
 
         self.past_car_states_alternative = None
         self.past_car_states_alternative_vertices = None
@@ -161,38 +167,61 @@ class RenderUtils:
             self.lidar_vertices = None
         # Clear lidar points
         self.lidar_border_points = None
+        # Clear track border points
+        self.track_border_points = None
 
 
     # Pass all data that is updated during simulation
-    def update(self, 
-               lidar_points=None, 
-               rollout_trajectory=None, 
-               traj_cost=None, 
+    def update(self,
+               lidar_points=None,
+               rollout_trajectory=None,
+               traj_cost=None,
                optimal_trajectory=None,
-               largest_gap_middle_point=None, 
-               target_point=None, 
+               largest_gap_middle_point=None,
+               target_point=None,
                next_waypoints=None,
                next_waypoints_alternative=None,
-               car_state = None,
+               car_state=None,
                emergency_slowdown_sprites=None,
                past_car_states_alternative=None,
-               gt_past_car_states=None,
+               track_border_points=None,
+                gt_past_car_states=None,
                prior_past_car_states=None,
                prior_full_past_car_states=None,
                ):
+    
+        if Settings.RENDER_MODE is None:
+            return
+
+        if lidar_points is not None:
+            self.lidar_border_points = lidar_points
+        if rollout_trajectory is not None:
+            self.rollout_trajectory = rollout_trajectory
+        if traj_cost is not None:
+            self.traj_cost = traj_cost
+        if optimal_trajectory is not None:
+            self.optimal_trajectory = optimal_trajectory
+        if largest_gap_middle_point is not None:
+            self.largest_gap_middle_point = largest_gap_middle_point
+        if target_point is not None:
+            self.target_point = target_point
+        if next_waypoints is not None:
+            self.next_waypoints = next_waypoints
+        if next_waypoints_alternative is not None:
+            self.next_waypoints_alternative = next_waypoints_alternative
+        if car_state is not None:
+            self.car_state = car_state
+        if emergency_slowdown_sprites is not None:
+            self.emergency_slowdown_sprites = emergency_slowdown_sprites
+        if past_car_states_alternative is not None:
+            self.past_car_states_alternative = past_car_states_alternative
+        if track_border_points is not None:
+            self.track_border_points = track_border_points
+
+   
         if Settings.RENDER_MODE is None: return
         
-        if(lidar_points is not None): self.lidar_border_points = lidar_points
-        if(rollout_trajectory is not None): self.rollout_trajectory = rollout_trajectory,
-        if(traj_cost is not None): self.traj_cost = traj_cost
-        if(optimal_trajectory is not None): self.optimal_trajectory = optimal_trajectory
-        if(largest_gap_middle_point is not None): self.largest_gap_middle_point = largest_gap_middle_point
-        if(target_point is not None): self.target_point = target_point
-        if(next_waypoints is not None): self.next_waypoints = next_waypoints
-        if(next_waypoints_alternative is not None): self.next_waypoints_alternative = next_waypoints_alternative
-        if(car_state is not None): self.car_state = car_state
-        if emergency_slowdown_sprites is not None: self.emergency_slowdown_sprites = emergency_slowdown_sprites
-        if past_car_states_alternative is not None: self.past_car_states_alternative = past_car_states_alternative
+
         if gt_past_car_states is not None: self.past_car_states_gt = gt_past_car_states
         if prior_past_car_states is not None: self.past_car_states_prior = prior_past_car_states
         if prior_full_past_car_states is not None: self.past_car_states_prior_full = prior_full_past_car_states
@@ -255,26 +284,56 @@ class RenderUtils:
                 self.waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
                                                ('c3B', self.waypoint_visualization_color * howmany))
 
+        # small normalizer to ensure point arrays are (N,2)
+        def _normalize_points(points):
+            if points is None:
+                return None
+            pts = np.array(points)
+            if pts.size == 0:
+                return None
+            if pts.ndim == 1:
+                if pts.size == 2:
+                    return pts.reshape(1, 2)
+                elif pts.size % 2 == 0:
+                    return pts.reshape(-1, 2)
+                else:
+                    return None
+            # pts.ndim >= 2
+            if pts.shape[-1] == 2:
+                return pts.reshape(-1, 2)
+            total = pts.size
+            if total % 2 == 0:
+                return pts.reshape(-1, 2)
+            return None
+
+        # Note: reverted to simple per-set rendering blocks (no centralized helper)
+        # This keeps behavior consistent with previous code and reduces unexpected
+        # interactions from the helper.
+
         if self.draw_next_waypoints and self.next_waypoints_alternative is not None:
-            scaled_points = RenderUtils.get_scaled_points(self.next_waypoints_alternative)
-            howmany = scaled_points.shape[0]
-            scaled_points_flat = scaled_points.flatten()
-            if self.next_waypoints_alternative_vertices is None:
-                self.next_waypoints_alternative_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
-                                               ('c3B', self.next_waypoints_alternative_visualization_color * howmany))
-            else:
-                self.next_waypoints_alternative_vertices.vertices = scaled_points_flat
+            pts = _normalize_points(self.next_waypoints_alternative)
+            if pts is not None:
+                scaled_points = RenderUtils.get_scaled_points(pts)
+                howmany = scaled_points.shape[0]
+                scaled_points_flat = scaled_points.flatten()
+                if self.next_waypoints_alternative_vertices is None:
+                    self.next_waypoints_alternative_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                                   ('c3B', self.next_waypoints_alternative_visualization_color * howmany))
+                else:
+                    self.next_waypoints_alternative_vertices.vertices = scaled_points_flat
                 
                 
         if self.draw_next_waypoints and self.next_waypoints is not None:
-            scaled_points = RenderUtils.get_scaled_points(self.next_waypoints)
-            howmany = scaled_points.shape[0]
-            scaled_points_flat = scaled_points.flatten()
-            if self.next_waypoint_vertices is None:
-                self.next_waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
-                                               ('c3B', self.next_waypoint_visualization_color * howmany))
-            else:
-                self.next_waypoint_vertices.vertices = scaled_points_flat
+            pts = _normalize_points(self.next_waypoints)
+            if pts is not None:
+                scaled_points = RenderUtils.get_scaled_points(pts)
+                howmany = scaled_points.shape[0]
+                scaled_points_flat = scaled_points.flatten()
+                if self.next_waypoint_vertices is None:
+                    self.next_waypoint_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                                   ('c3B', self.next_waypoint_visualization_color * howmany))
+                else:
+                    self.next_waypoint_vertices.vertices = scaled_points_flat
                 
      
         gl.glPointSize(3)
@@ -387,16 +446,45 @@ class RenderUtils:
             )
 
     
-        if self.draw_lidar_data: 
-            if self.lidar_border_points is not None:
-                scaled_points = RenderUtils.get_scaled_points(self.lidar_border_points)
+        if self.draw_lidar_data:
+            pts = _normalize_points(self.lidar_border_points)
+            if pts is not None:
+                scaled_points = RenderUtils.get_scaled_points(pts)
                 howmany = scaled_points.shape[0]
                 scaled_points_flat = scaled_points.flatten()
                 if self.lidar_vertices is None:
                     self.lidar_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
                                                 ('c3B', self.lidar_visualization_color * howmany))
                 else:
-                    self.lidar_vertices.vertices = scaled_points_flat
+                    try:
+                        self.lidar_vertices.vertices = scaled_points_flat
+                    except Exception:
+                        # recreate if update fails
+                        try:
+                            self.lidar_vertices.delete()
+                        except Exception:
+                            pass
+                        self.lidar_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat), ('c3B', self.lidar_visualization_color * howmany))
+
+        # Render global track border points (new feature)
+        if self.track_border_points is not None:
+            pts = _normalize_points(self.track_border_points)
+            if pts is not None:
+                scaled_points = RenderUtils.get_scaled_points(pts)
+                howmany = scaled_points.shape[0]
+                scaled_points_flat = scaled_points.flatten()
+                if self.track_border_vertices is None:
+                    self.track_border_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
+                                                             ('c3B', self.track_border_visualization_color * howmany))
+                else:
+                    try:
+                        self.track_border_vertices.vertices = scaled_points_flat
+                    except Exception:
+                        try:
+                            self.track_border_vertices.delete()
+                        except Exception:
+                            pass
+                        self.track_border_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat), ('c3B', self.track_border_visualization_color * howmany))
 
         if self.largest_gap_middle_point is not None:
             scaled_point_gap = RenderUtils.get_scaled_points(self.largest_gap_middle_point)
@@ -444,12 +532,9 @@ class RenderUtils:
             scaled_points = RenderUtils.get_scaled_points(self.obstacles)
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
-            
             # if self.obstacle_vertices is None:
             self.obstacle_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
                                             ('c3B', self.obstacle_visualization_color * howmany))
-            # else:
-            #     self.obstacle_vertices.vertices = scaled_points_flat
 
         # Render the emergency slowdown boundary lines if they are available.
         # Render the emergency slowdown boundary lines if they are available.
@@ -509,85 +594,7 @@ class RenderUtils:
                     batch=e.batch
                 )
 
-    def render_ros(self):
-        #  Publish data for RVIZ
-        
-        # PP lookahead point
-        if(self.target_point is not None):
-            marker = Marker()
-            marker.header.frame_id = 'map'
-            marker.type = marker.SPHERE
-            marker.scale.x = 0.5
-            marker.scale.y = 0.5
-            marker.scale.z = 0.5
-            marker.color.a = 1.0 # global_wpnt.vx_mps / max_vx_mps
-            marker.color.r = 1.0
-            marker.color.g = 1.0
-
-            marker.id = 1444444
-            marker.pose.position.x = self.target_point[0]
-            marker.pose.position.y = self.target_point[1]
-            
-            marker.pose.orientation.w = 1
-            self.pub_target_point.publish(marker)
-        
-        # Rollouts
-        if(self.rollout_trajectory is None): return
-        rollout_markers = MarkerArray()        
-        p = 0
-        t = 0
-        
-        rollout_trajectory = np.array(self.rollout_trajectory)
-        rollout_points = rollout_trajectory[:,:,5:7]
-        rollout_points = rollout_points[:10]
-        
-        for trajectory in rollout_points:
-            alpha = 1 - 0.5
-            for point in trajectory:
-                # print("point shape", point.shape)
-                marker = Marker()
-                marker.header.frame_id = 'map'
-                marker.type = marker.SPHERE
-                marker.scale.x = 0.1
-                marker.scale.y = 0.1
-                marker.scale.z = 0.1
-                marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
-                marker.color.r = 1.0
-
-                marker.id = p
-                marker.pose.position.x = point[0]
-                marker.pose.position.y = point[1]
-                marker.pose.orientation.w = 1
-                rollout_markers.markers.append(marker)
-                p += 1
-            t += 1
-            
-
-
-        # optimal trajectory
-        if(self.optimal_trajectory is not None):
-            optimal_trajectory = self.optimal_trajectory[0]
-            for point in optimal_trajectory:
-            
-                    marker = Marker()
-                    marker.header.frame_id = 'map'
-                    marker.type = marker.SPHERE
-                    marker.scale.x = 0.1
-                    marker.scale.y = 0.1
-                    marker.scale.z = 0.1
-                    marker.color.a = alpha # global_wpnt.vx_mps / max_vx_mps
-                    marker.color.r = 1.0
-                    marker.color.b = 1.0
-
-                    marker.id = p
-                    marker.pose.position.x = point[5]
-                    marker.pose.position.y = point[6]
-                    marker.pose.orientation.w = 1
-                    rollout_markers.markers.append(marker)
-                    p += 1
-                
-        self.pub_rollout.publish(rollout_markers)
-        return
+   
        
        
     @staticmethod

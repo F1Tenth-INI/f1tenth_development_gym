@@ -39,7 +39,18 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
 
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument("--model-name", default="SAC_RCA1_0")
+    # Legacy model name (kept for backward compatibility).
+    parser.add_argument("--model-name", default="SAC_RCA1_0", help="(legacy) model name used as default save name if --save-model-name not provided")
+    parser.add_argument(
+        "--load-model-name",
+        default=None,
+        help=("Model name to load as a base for training. If omitted (None), the server will start training from scratch."),
+    )
+    parser.add_argument(
+        "--save-model-name",
+        default=None,
+        help=("Model name to save training progress to. If omitted, falls back to --model-name."),
+    )
     parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -197,10 +208,16 @@ def main() -> None:
     setattr(run_args, "forwarded_settings_args", settings_args)
     setattr(run_args, "settings_namespace", settings_namespace)
 
+    # Backwards-compatible handling: if save_model_name not provided, fall back to legacy model_name
+    if getattr(run_args, "save_model_name", None) is None:
+        run_args.save_model_name = run_args.model_name
+
     server = LearnerServer(
         host=run_args.host,
         port=run_args.port,
-        model_name=run_args.model_name,
+        # explicit load/save names (load may be None -> scratch)
+        load_model_name=run_args.load_model_name,
+        save_model_name=run_args.save_model_name,
         device=run_args.device,
         train_every_seconds=run_args.train_every_seconds,
         grad_steps=run_args.gradient_steps,
@@ -216,6 +233,42 @@ def main() -> None:
         asyncio.run(_run_with_optional_client(server, run_args))
     except KeyboardInterrupt:
         print("\n[server] KeyboardInterrupt received in run_training, exiting...")
+        run_completed = False
+    else:
+        # Normal completion of asyncio.run -> training/server terminated
+        run_completed = True
+    
+    # After the server has terminated normally, optionally run a single
+    # evaluation client using the trained model for inference. We only run
+    # this when training completed (not when interrupted by Ctrl-C).
+    if run_completed:
+        model_name = getattr(run_args, "save_model_name", None)
+        if model_name is not None:
+            eval_args = [
+                "--CONTROLLER",
+                "sac_agent",
+                "--SIMULATION_LENGTH",
+                "2000",
+                "--SAVE_RECORDINGS",
+                "True",
+                "--SAC_INFERENCE_MODEL_NAME",
+                str(model_name),
+                "--DATASET_NAME",                
+                str(model_name),
+            ]
+            print(f"[run_training] Launching evaluation client with model '{model_name}'")
+            try:
+                eval_proc = start_client_process(
+                    "run.py", forward_output=run_args.forward_client_output, extra_args=eval_args
+                )
+                if eval_proc is not None:
+                    # Wait for evaluation client to finish and report exit code
+                    ret = eval_proc.wait()
+                    print(f"[run_training] Evaluation client exited with code {ret}")
+                else:
+                    print("[run_training] Failed to start evaluation client")
+            except Exception as exc:  # pragma: no cover - defensive
+                print(f"[run_training] Error running evaluation client: {exc}")
 
 
 if __name__ == "__main__":

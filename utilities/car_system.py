@@ -93,8 +93,6 @@ class CarSystem:
         self.timesteps_on_current_raceline = 0
         self.waypoints_for_controller = self.waypoint_utils.next_waypoints
         
-        track_positions = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.waypoints)
-
         # Rendering
         self.render_utils = RenderUtils()
         self.render_utils.waypoints = self.waypoint_utils.waypoint_positions
@@ -271,6 +269,10 @@ class CarSystem:
         # TODO: Recording
         info = {
             "lap_times": self.laptimes,
+            "truncated": self.reward_calculator.truncated or next_obs['collision'],
+            "terminated": next_obs['terminated'],
+            "collision": next_obs['collision']
+            # "reward_difficulty": self.reward_calculator.difficulty
         }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)
@@ -280,6 +282,7 @@ class CarSystem:
             "truncated": self.reward_calculator.truncated or next_obs['collision'],
             "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'],
         })
+
         self.obs = next_obs
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
@@ -334,6 +337,7 @@ class CarSystem:
             next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
             next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
             car_state = car_state,
+            track_border_points = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.next_waypoints)
         )
         # self.render_utils.update_obstacles(obstacles)
 

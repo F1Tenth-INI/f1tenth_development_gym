@@ -287,7 +287,9 @@ class RLAgentPlanner(template_planner):
         border_distances_right = self.waypoint_utils.next_waypoints[:, WP_D_RIGHT_IDX]
         border_distances_left = self.waypoint_utils.next_waypoints[:, WP_D_LEFT_IDX]
         border_distances = np.concatenate([border_distances_right, border_distances_left])
-
+        
+        [border_points_left, border_points_right] = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
+        border_points = np.concatenate([border_points_right.flatten(), border_points_left.flatten()])
 
         # Get frenet coordinates
         s, d, e, k = self.waypoint_utils.frenet_coordinates
@@ -308,20 +310,12 @@ class RLAgentPlanner(template_planner):
         ], dtype=np.float32)
 
 
-        # last_states = np.array(self.state_history)[-4:]
-        # last_states_features = np.array([
-        #     last_states[:,LINEAR_VEL_X_IDX],
-        #     last_states[:,LINEAR_VEL_Y_IDX],
-        #     last_states[:,ANGULAR_VEL_Z_IDX],
-        #     last_states[:,STEERING_ANGLE_IDX],
-        # ], dtype=np.float32)
-        # last_states_features = last_states_features.reshape(-1)
-
         observation_array = np.concatenate([
             state_features, 
             curvatures, 
             # lidar, 
-            border_distances,
+            # border_distances,
+            border_points,
             last_actions, 
             [d], 
             [e]
@@ -332,7 +326,8 @@ class RLAgentPlanner(template_planner):
             [0.1, 1.0, 0.5, 1 / 0.4], 
             [1.0] * len(curvatures), 
             # [0.1] * len(lidar), 
-            [1.0] * len(border_distances),
+            # [1.0] * len(border_distances),
+            [0.2] * len(border_points),
             [1.0] * len(last_actions), 
             [0.5, 0.5]
             )) # Adjust normalization factors for each feature
