@@ -244,7 +244,6 @@ def run_data_generator(run_for_ML_Pipeline=False, record_path=None):
     predictor = PredictorWrapper()
     predictor.configure(
         batch_size=total_number_of_trajectories,
-        horizon=trajectory_length - 1,  # Number of Steps per Trajectory: the trajectory length include also initial state
         dt=config['dt'],
         computation_library=TensorFlowLibrary,
         predictor_specification="ODE_TF_default"

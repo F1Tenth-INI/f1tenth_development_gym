@@ -80,9 +80,13 @@ class RenderUtils:
     def __init__(self):
 
         self.draw_lidar_data = True
-        self.draw_position_history = True
-        self.draw_waypoints = True
+        self.draw_position_history = False
+        self.draw_waypoints = False
         self.draw_next_waypoints = True
+
+        self.draw_gt_history = True
+        self.draw_prior_history = True
+        self.draw_prior_full_history = True
 
         self.waypoint_visualization_color = (180, 180, 180)
         self.next_waypoint_visualization_color = (0, 127, 0)
@@ -96,6 +100,10 @@ class RenderUtils:
         self.obstacle_visualization_color = (255, 0, 0)
         self.track_border_visualization_color = (255, 0, 0)
 
+        self.gt_history_color = (0, 128, 255)      # blue-ish
+        self.prior_history_color = (255, 255, 255)  # white
+        self.prior_full_history_color = (0, 255, 255)  # cyan
+        
         self.label_dict = {}
         self.waypoints: Optional[np.ndarray] = None
         self.waypoints_alternative: Optional[np.ndarray] = None
@@ -114,6 +122,14 @@ class RenderUtils:
         # cache PointSizeGroup instances to avoid creating new groups each frame
         self._point_size_groups = {}
 
+        self.past_car_states_alternative = None
+        self.past_car_states_alternative_vertices = None
+        self.past_car_states_gt = None
+        self.past_car_states_gt_vertices = None
+        self.past_car_states_prior = None
+        self.past_car_states_prior_vertices = None
+        self.past_car_states_prior_full = None
+        self.past_car_states_prior_full_vertices = None
         
         self.reset()
 
@@ -169,7 +185,11 @@ class RenderUtils:
                emergency_slowdown_sprites=None,
                past_car_states_alternative=None,
                track_border_points=None,
+                gt_past_car_states=None,
+               prior_past_car_states=None,
+               prior_full_past_car_states=None,
                ):
+    
         if Settings.RENDER_MODE is None:
             return
 
@@ -198,7 +218,13 @@ class RenderUtils:
         if track_border_points is not None:
             self.track_border_points = track_border_points
 
+   
+        if Settings.RENDER_MODE is None: return
         
+
+        if gt_past_car_states is not None: self.past_car_states_gt = gt_past_car_states
+        if prior_past_car_states is not None: self.past_car_states_prior = prior_past_car_states
+        if prior_full_past_car_states is not None: self.past_car_states_prior_full = prior_full_past_car_states
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
@@ -376,9 +402,49 @@ class RenderUtils:
             scaled_points = RenderUtils.get_scaled_points(points)
             howmany = scaled_points.shape[0]
             scaled_points_flat = scaled_points.flatten()
-            point_size_group = PointSizeGroup(10)
+            point_size_group = PointSizeGroup(4)
             self.past_car_states_alternative_vertices = e.batch.add(howmany, GL_POINTS, point_size_group, ('v2f/stream', scaled_points_flat),
                                            ('c3B', [255, 255, 0] * howmany))
+
+        # NEW: Ground-truth past overlay (if enabled)
+        if self.draw_gt_history and (self.past_car_states_gt is not None):
+            if self.past_car_states_gt_vertices is not None:
+                self.past_car_states_gt_vertices.delete()
+            gt_pts = self.past_car_states_gt[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_gt = RenderUtils.get_scaled_points(gt_pts)
+            n_gt = scaled_gt.shape[0]
+            self.past_car_states_gt_vertices = e.batch.add(
+                n_gt, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_gt.flatten()),
+                ('c3B', self.gt_history_color * n_gt)
+            )
+
+        # NEW: Kinematic prior past overlay (if enabled)
+        if self.draw_prior_history and (self.past_car_states_prior is not None):
+            if self.past_car_states_prior_vertices is not None:
+                self.past_car_states_prior_vertices.delete()
+            pr_pts = self.past_car_states_prior[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_pr = RenderUtils.get_scaled_points(pr_pts)
+            n_pr = scaled_pr.shape[0]
+            self.past_car_states_prior_vertices = e.batch.add(
+                n_pr, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_pr.flatten()),
+                ('c3B', self.prior_history_color * n_pr)
+            )
+
+        # NEW: Whole-horizon anchored prior (cyan), controller cadence, oldest→newest
+        if self.draw_prior_full_history and (self.past_car_states_prior_full is not None):
+            if self.past_car_states_prior_full_vertices is not None:
+                self.past_car_states_prior_full_vertices.delete()
+            prf_pts = self.past_car_states_prior_full[:, POSE_X_IDX:POSE_Y_IDX+1]
+            scaled_prf = RenderUtils.get_scaled_points(prf_pts)
+            n_prf = scaled_prf.shape[0]
+            self.past_car_states_prior_full_vertices = e.batch.add(
+                n_prf, GL_POINTS, PointSizeGroup(4),
+                ('v2f/stream', scaled_prf.flatten()),
+                ('c3B', self.prior_full_history_color * n_prf)
+            )
+
     
         if self.draw_lidar_data:
             pts = _normalize_points(self.lidar_border_points)

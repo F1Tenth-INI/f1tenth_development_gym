@@ -445,6 +445,7 @@ class CarSystem:
             )
             
         if Settings.FORGE_HISTORY:
+            basic_dict = get_basic_data_dict(self)
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
@@ -679,7 +680,7 @@ def initialize_planner(controller: str):
 
 def if_mpc_define_cs_variables(planner):
     if hasattr(planner, 'mpc'): # MPC planner from Control_Toolkit_ASF
-        horizon = planner.mpc.predictor.horizon
+        horizon = planner.mpc.optimizer.mpc_horizon
         angular_control_dict = {"cs_a_{}".format(i): 0 for i in range(horizon)}
         translational_control_dict = {"cs_t_{}".format(i): 0 for i in range(horizon)}
         return angular_control_dict, translational_control_dict

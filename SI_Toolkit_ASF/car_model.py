@@ -66,11 +66,11 @@ def _pacejka_step_factory(lib, car_parameters, t_step):
         d_pos_y = v_x * lib.sin(psi) + v_y * lib.cos(psi)
         d_psi = psi_dot
         d_v_x = v_x_dot
-        d_v_y = 1 / m * (F_yr + F_yf) - v_x * psi_dot
+        d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
         # print d_v_y + v_x * psi_dot
         # Should be equal to IMUs a_y
 
-        d_psi_dot = 1 / I_z * (-lr * F_yr + lf * F_yf)
+        d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
 
         s_x = s_x + t_step * d_pos_x
         s_y = s_y + t_step * d_pos_y
@@ -97,12 +97,12 @@ class car_model:
             dt: float = 0.03,
             intermediate_steps=1,
             computation_lib = NumpyLibrary(),
-            variable_parameters=None,
             **kwargs
     ):
         self.lib = computation_lib
 
         self.car_parameters = VehicleParameters(car_parameter_file)
+    
 
         self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
         self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)
@@ -144,12 +144,6 @@ class car_model:
         self.intermediate_steps_float = float(intermediate_steps)
         self.t_step = float(self.dt / float(self.intermediate_steps))
 
-        self.variable_parameters = variable_parameters
-        if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
-            self.mu = self.variable_parameters.mu
-        else:
-            self.mu = self.lib.to_tensor(self.car_parameters.mu, self.lib.float32)
-
         self._ks_step = _ks_step_factory(self.lib, self.car_parameters, self.t_step)
         self._pacejka_step = _pacejka_step_factory(self.lib, self.car_parameters, self.t_step)
 
@@ -178,8 +172,7 @@ class car_model:
         self.model_of_car_dynamics = model_of_car_dynamics
 
     def change_friction_coefficient(self, friction_coefficient):
-        self.car_parameters.mu = friction_coefficient
-        self.set_model_of_car_dynamics(self.model_of_car_dynamics)
+        self.lib.assign(self.car_parameters.mu, self.lib.to_tensor(friction_coefficient, self.lib.float32))
 
     # Kinematic model: applicable for low speeds
     def _step_dynamics_ks(self, s, Q):
@@ -253,7 +246,6 @@ class car_model:
 
     def _step_dynamics_pacejka(self, s, Q):
 
-        mu = self.mu
         # Q: Control after PID (steering velocity: delta_dot, acceleration_x: v_x_dot)
 
         # State
@@ -278,7 +270,7 @@ class car_model:
              *self._pacejka_step(
                  s_x, s_y, delta,
                  v_x, v_y, psi, psi_dot,
-                 delta_dot, v_x_dot, mu,
+                 delta_dot, v_x_dot, self.car_parameters.mu,
              )
              ),
 
@@ -385,9 +377,7 @@ class car_model:
         accl = self.lib.where(condition, 0., accl)
 
         # Constraint longitudinal acceleration by motor power
-        # accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
-        a_min = self.lib.constant(self.car_parameters.a_min, t=self.lib.float32)
-        accl = self.lib.clip(accl, a_min, pos_limit)
+        accl = self.lib.clip(accl, self.car_parameters.a_min, pos_limit)
 
         # Constraint longitudinal acceleration by slipping
         max_acceleration = self.car_parameters.g * self.car_parameters.mu        

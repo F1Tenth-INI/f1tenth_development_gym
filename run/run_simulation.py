@@ -175,7 +175,7 @@ class RacingSimulation:
         recording_dict = {
                     'time': lambda: self.sim_time,
                     'sim_index': lambda: self.sim_index,
-                    'mu': lambda: self.vehicle_parameters_instance.mu,
+                    'mu': lambda: np.float32(self.vehicle_parameters_instance.mu),
         }
         
         # First planner settings
@@ -461,16 +461,32 @@ class RacingSimulation:
             x = e.cars[0].vertices[::2]
             y = e.cars[0].vertices[1::2]
             top, bottom, left, right = max(y), min(y), min(x), max(x)
-            
-            e.score_label.x = left
-            e.score_label.y = top - 700
-            e.left = left - 800
-            e.right = right + 800
-            e.top = top + 800
-            e.bottom = bottom - 800
-            
-            e.info_label.x = left - 150 
-            e.info_label.y = top +750
+
+            # --- Critical change: preserve current zoom (field of view),
+            #     only re-center the camera on the car's center.
+            cx = 0.5 * (left + right)
+            cy = 0.5 * (top + bottom)
+
+            # Keep whatever zoom the user set via mouse scroll:
+            half_w = 0.5 * e.zoomed_width
+            half_h = 0.5 * e.zoomed_height
+
+            e.left   = cx - half_w
+            e.right  = cx + half_w
+            e.bottom = cy - half_h
+            e.top    = cy + half_h
+
+            # Place labels relative to the current view so they don't drift.
+            # Using margins tied to the current view height keeps positions sensible under zoom.
+            margin = 0.875 * e.zoomed_height  # ≈ previous 700 when default scaling
+            e.score_label.x = e.left
+            e.score_label.y = e.top - margin
+
+            e.info_label.x = e.left - 150
+            e.info_label.y = e.top + (0.9375 * e.zoomed_height)  # ≈ previous +750
+            # ------------------------------------------------------------------
+
+            # Let the main driver draw its overlays
             main_driver = self.drivers[0]
             if hasattr(main_driver, 'render'):
                 main_driver.render(env_renderer)
@@ -556,16 +572,19 @@ class RacingSimulation:
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
             driver.set_car_state(self.state_recording[self.sim_index])
-            self.env.sim.agents[agent_index].state = driver.car_state
+            self.sim.agents[agent_index].state = driver.car_state  # was self.env.sim...
+            driver.car_state_noiseless = driver.car_state
         else:
-            car_state = self.sim.agents[agent_index].state 
-            car_state_with_noise = self.add_state_noise(car_state)
+            car_state_clean = self.sim.agents[agent_index].state
+            car_state_with_noise = self.add_state_noise(car_state_clean)
+
             driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
             
             # Pass simulation obsrvations to driver for IMU data access
             driver.sim_obs = self.obs
 
+            driver.car_state_noiseless = car_state_clean
 
     # Noise Level can now be set in Settings.py
     def add_state_noise(self, state):

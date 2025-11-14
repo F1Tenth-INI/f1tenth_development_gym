@@ -1,19 +1,17 @@
-from SI_Toolkit.load_and_normalize import add_derivatives_to_csv_files
+from SI_Toolkit.data_preprocessing import transform_dataset
 
-for folder in ['Test', 'Validate', 'Train']:
-    experiment_folder = '0_AL'
-    data_folder = 'Recordings_dungeon'
-    get_files_from = f'SI_Toolkit_ASF/Experiments/{experiment_folder}/{data_folder}/{folder}'
-    save_files_to = f'SI_Toolkit_ASF/Experiments/{experiment_folder}/{data_folder}_delta/{folder}'
-    variables_for_derivative = ['pose_x',
-                                'pose_y',
-                                'pose_theta',
-                                'pose_theta_sin',
-                                'pose_theta_cos',
-                                'linear_vel_x',
-                                'angular_vel_z',
-                                'slip_angle',
-                                'steering_angle']
-    derivative_algorithm = "backward_difference"
+get_files_from = 'SI_Toolkit_ASF/Experiments/04_08_RCA1_noise_reversed/Recordings/'
+save_files_to = get_files_from
+variables_for_derivative = ['pose_x',
+                            'pose_y',
+                            'pose_theta',
+                            'pose_theta_sin',
+                            'pose_theta_cos',
+                            'linear_vel_x',
+                            'angular_vel_z',
+                            'slip_angle',
+                            'steering_angle']
+derivative_algorithm = "single_difference"
 
-    add_derivatives_to_csv_files(get_files_from, save_files_to, variables_for_derivative, derivative_algorithm)
+transform_dataset(get_files_from, save_files_to, transformation='append_derivatives',
+                  variables_for_derivative=variables_for_derivative, derivative_algorithm=derivative_algorithm)

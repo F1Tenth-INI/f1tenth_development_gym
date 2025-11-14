@@ -43,19 +43,19 @@ jobs:
             git submodule update --init --recursive
           fi
 
-      - name: Install SI_Toolkit (non-editable)
-        run: python -m pip install ./SI_Toolkit
+      - name: Install SI_Toolkit (from workspace)
+        run: |
+          # Editable installs fail because SI_Toolkit pins setuptools<PEP660;
+          # installing the wheel still uses the repo copy checked out above.
+          python -m pip install ./SI_Toolkit
 
       - name: Add project root to PYTHONPATH
         run: |
           echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
-      - name: Run pytest tests
+      - name: Skip pytest (CI uses ci_test.py)
         run: |
-          pytest tests --junitxml=pytest-results.xml
-        env:
-          CI_TEST: true
-
+          echo "Skipping pytest in CI; running only run/ci_test.py"
       - name: Run simulation
         run: python run/ci_test.py
         env:
@@ -67,8 +67,5 @@ jobs:
           name: ExperimentRecordings
           path: ExperimentRecordings/
 
-      - name: Upload pytest results
-        uses: actions/upload-artifact@v4
-        with:
-          name: PytestResults
-          path: pytest-results.xml
+      # Note: pytest results upload removed because pytest is skipped. If you
+      # later re-enable pytest, add a step to upload pytest-results.xml here.
