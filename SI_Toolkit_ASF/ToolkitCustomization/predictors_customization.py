@@ -185,3 +185,11 @@ class predictor_output_augmentation:
 
 
         return output
+
+
+# Backwards-compatible exports used by external SI_Toolkit imports
+# Older code expects `STATE_VARIABLES` and `CONTROL_INPUTS` to be present.
+# Provide direct aliases to the newer names so `from ... import CONTROL_INPUTS, STATE_VARIABLES`
+# succeeds regardless of which naming is used.
+STATE_VARIABLES = STATE_VARIABLES_FOR_PREDICTOR
+CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
