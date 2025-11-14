@@ -23,8 +23,9 @@ class RewardCalculator:
         self.w_crash = 15
         self.w_progress = 1.0   # per meter of along-track progress
         self.w_lateral_error = 0.05   # per meter cross-track error penalty
-        self.w_d_steering = 1.5 # 2.5
+        self.w_d_steering = 1.5
         self.w_d_acceleration = 0.1
+        self.w_speed_cap = 0.0 # 0.3
         
       
         
@@ -105,6 +106,16 @@ class RewardCalculator:
         d_action_penality = - (self.w_d_steering * abs(d_action[0]) + self.w_d_acceleration * abs(d_action[1]))
         reward += d_action_penality
         
+        # Speed cap penalty
+        speed_cap_penalty = 0.0
+        
+        speed = car_state[LINEAR_VEL_X_IDX]
+        suggested_speed = waypoint_utils.next_waypoints[0, WP_VX_IDX]
+        if(speed > suggested_speed):
+            speed_cap_penalty = - self.w_speed_cap * (speed - suggested_speed) ** 2
+        reward += speed_cap_penalty
+        
+        
 
         # Spinning reward Penalize Spinning (Fixing Instability)
         spin_reward = 0.0
@@ -118,7 +129,6 @@ class RewardCalculator:
         reward += spin_reward
 
         # Penalize Being Stuck
-        speed = car_state[LINEAR_VEL_X_IDX]
         stuck_reward = 0.0
         if speed < 1.0:
             self.stuck_counter += 1
