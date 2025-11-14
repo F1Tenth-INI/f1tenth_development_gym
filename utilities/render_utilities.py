@@ -81,7 +81,7 @@ class RenderUtils:
 
         self.draw_lidar_data = True
         self.draw_position_history = False
-        self.draw_waypoints = False
+        self.draw_waypoints = True
         self.draw_next_waypoints = True
 
         self.draw_gt_history = True

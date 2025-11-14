@@ -456,6 +456,8 @@ class RacingSimulation:
     '''
     def render_callback(self, env_renderer):
         e = env_renderer
+        margin = 0.875 * e.zoomed_height  # ≈ previous 700 when default scaling
+
         if Settings.CAMERA_AUTO_FOLLOW:
             # update camera to follow car
             x = e.cars[0].vertices[::2]
@@ -478,18 +480,24 @@ class RacingSimulation:
 
             # Place labels relative to the current view so they don't drift.
             # Using margins tied to the current view height keeps positions sensible under zoom.
-            margin = 0.875 * e.zoomed_height  # ≈ previous 700 when default scaling
-            e.score_label.x = e.left
-            e.score_label.y = e.top - margin
-
-            e.info_label.x = e.left - 150
-            e.info_label.y = e.top + (0.9375 * e.zoomed_height)  # ≈ previous +750
             # ------------------------------------------------------------------
 
-            # Let the main driver draw its overlays
-            main_driver = self.drivers[0]
-            if hasattr(main_driver, 'render'):
-                main_driver.render(env_renderer)
+        
+
+        # Keep score label centered at the top of the current camera view
+        e.score_label.x = e.left + 0.5 * e.zoomed_width
+        e.score_label.y = e.top - margin
+
+        # Place info label at the top-left corner of the current view regardless of camera mode
+        padding_x = 0.05 * e.zoomed_width
+        padding_y = 0.05 * e.zoomed_height
+        e.info_label.x = e.left + padding_x
+        e.info_label.y = e.top - padding_y
+
+        # Let the main driver draw its overlays even if the camera is static
+        main_driver = self.drivers[0]
+        if hasattr(main_driver, 'render'):
+            main_driver.render(env_renderer)
 
     
     '''

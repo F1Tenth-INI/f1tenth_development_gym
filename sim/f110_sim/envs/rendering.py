@@ -130,7 +130,7 @@ class EnvRenderer(pyglet.window.Window):
                 font_size=22,
                 x=0,
                 y=0,
-                anchor_x='center',
+                anchor_x='left',
                 anchor_y='top',
                 width=1200,
                 align='left',
