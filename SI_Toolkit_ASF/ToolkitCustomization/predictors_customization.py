@@ -22,12 +22,15 @@ STATE_VARIABLES_FOR_PREDICTOR = np.sort([
 ])
 
 STATE_INDICES = {x: np.where(STATE_VARIABLES_FOR_PREDICTOR == x)[0][0] for x in STATE_VARIABLES_FOR_PREDICTOR}
+STATE_VARIABLES = STATE_VARIABLES_FOR_PREDICTOR
 
 CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
     'angular_control_calculated_1',
     'translational_control_calculated_1',
     # 'mu'  # Include it for brunton plot
 ])
+CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
+CONTROL_INPUTS_LEN = len(CONTROL_INPUTS_FOR_PREDICTOR)
 
 class next_state_predictor_ODE():
 

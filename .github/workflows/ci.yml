@@ -43,10 +43,11 @@ jobs:
             git submodule update --init --recursive
           fi
 
-      - name: Install SI_Toolkit (editable - use workspace copy)
+      - name: Install SI_Toolkit (from workspace)
         run: |
-          # Install in editable mode so CI uses the repository copy (matches local dev)
-          python -m pip install -e ./SI_Toolkit
+          # Editable installs fail because SI_Toolkit pins setuptools<PEP660;
+          # installing the wheel still uses the repo copy checked out above.
+          python -m pip install ./SI_Toolkit
 
       - name: Add project root to PYTHONPATH
         run: |
