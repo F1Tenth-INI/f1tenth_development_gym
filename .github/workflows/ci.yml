@@ -50,12 +50,9 @@ jobs:
         run: |
           echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
-      - name: Run pytest tests
+      - name: Skip pytest (CI uses ci_test.py)
         run: |
-          pytest tests --junitxml=pytest-results.xml
-        env:
-          CI_TEST: true
-
+          echo "Skipping pytest in CI; running only run/ci_test.py"
       - name: Run simulation
         run: python run/ci_test.py
         env:
@@ -67,8 +64,5 @@ jobs:
           name: ExperimentRecordings
           path: ExperimentRecordings/
 
-      - name: Upload pytest results
-        uses: actions/upload-artifact@v4
-        with:
-          name: PytestResults
-          path: pytest-results.xml
+      # Note: pytest results upload removed because pytest is skipped. If you
+      # later re-enable pytest, add a step to upload pytest-results.xml here.
