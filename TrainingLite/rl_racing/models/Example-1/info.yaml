@@ -1,0 +1,24 @@
+model_name: Example-1
+batch_size: 256
+buffer_size: 100000
+observation_space: 162
+action_space: 2
+gamma: 0.99
+tau: 0.005
+target_entropy: -2.0
+policy_type: SACPolicy
+actor_arch: "Actor(\n  (features_extractor): FlattenExtractor(\n    (flatten): Flatten(start_dim=1,\
+  \ end_dim=-1)\n  )\n  (latent_pi): Sequential(\n    (0): Linear(in_features=162,\
+  \ out_features=256, bias=True)\n    (1): Tanh()\n    (2): Linear(in_features=256,\
+  \ out_features=256, bias=True)\n    (3): Tanh()\n  )\n  (mu): Linear(in_features=256,\
+  \ out_features=2, bias=True)\n  (log_std): Linear(in_features=256, out_features=2,\
+  \ bias=True)\n)"
+critic_arch: "ContinuousCritic(\n  (features_extractor): FlattenExtractor(\n    (flatten):\
+  \ Flatten(start_dim=1, end_dim=-1)\n  )\n  (qf0): Sequential(\n    (0): Linear(in_features=164,\
+  \ out_features=256, bias=True)\n    (1): Tanh()\n    (2): Linear(in_features=256,\
+  \ out_features=256, bias=True)\n    (3): Tanh()\n    (4): Linear(in_features=256,\
+  \ out_features=1, bias=True)\n  )\n  (qf1): Sequential(\n    (0): Linear(in_features=164,\
+  \ out_features=256, bias=True)\n    (1): Tanh()\n    (2): Linear(in_features=256,\
+  \ out_features=256, bias=True)\n    (3): Tanh()\n    (4): Linear(in_features=256,\
+  \ out_features=1, bias=True)\n  )\n)"
+grad_steps: 256

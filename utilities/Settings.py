@@ -152,6 +152,8 @@ class Settings():
     PRINTING_ON = False
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
     
+    ## RL Settings
+    RL_CRASH_REWQARD_RAMPING = False
     
     
     ## Experiment Analysis Settings ##

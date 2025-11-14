@@ -74,6 +74,8 @@ Datasets/
 !TrainingLite/slip_prediction/models/GRU_Example
 !TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4
 
+!TrainingLite/rl_racing/models/Example-1
+
 AnalyseData/Desperate/*
 
 scripts/EulerCluster/out/*

@@ -23,8 +23,8 @@ class RewardCalculator:
         self.w_crash = 15
         self.w_progress = 1.0   # per meter of along-track progress
         self.w_lateral_error = 0.05   # per meter cross-track error penalty
-        self.w_d_steering = 0.0 # 2.5
-        self.w_d_acceleration = 0.05
+        self.w_d_steering = 1.5 # 2.5
+        self.w_d_acceleration = 0.1
         
       
         

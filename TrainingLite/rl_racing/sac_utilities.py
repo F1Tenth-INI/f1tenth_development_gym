@@ -45,7 +45,8 @@ class SacUtilities:
         [-1, -1, -1, -1] +
         [-1]*30 +
         # [0]*40 + 
-        [0.]*60 +
+        # [0.]*60 +
+        [-1] * 120 + 
         [-1]*6 +
         [-1]*2, dtype=np.float32)
     
@@ -53,7 +54,8 @@ class SacUtilities:
         [ 1,  1,  1,  1] +
         [ 1]*30 + 
         # [1]*40 + 
-        [1.0]*60 +
+        # [1.0]*60 +
+        [ 1] * 120 +
         [ 1]*6 + 
         [ 1]*2, dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
