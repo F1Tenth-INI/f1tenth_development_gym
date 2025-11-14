@@ -101,7 +101,8 @@ class car_model:
     ):
         self.lib = computation_lib
 
-        self.car_parameters = VehicleParameters(car_parameter_file, lib=self.lib)
+        self.car_parameters = VehicleParameters(car_parameter_file)
+    
 
         self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
         self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)

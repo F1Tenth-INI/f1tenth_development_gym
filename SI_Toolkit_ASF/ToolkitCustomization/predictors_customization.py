@@ -74,7 +74,8 @@ class next_state_predictor_ODE():
     def _step(self, s, Q):
 
         if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
-            self.lib.assign(self.params.mu, self.variable_parameters.mu)
+            # mu = self.lib.to_numpy(self.variable_parameters.mu, self.lib.float32)
+            self.params.mu = self.variable_parameters.mu
 
         if self.core_dynamics_only:
             s_next = self.env.step_dynamics_core(s, Q)
