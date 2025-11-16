@@ -13,7 +13,7 @@ class Settings():
 
 
     # Controller Settings
-    CONTROLLER = 'mpc' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
@@ -38,7 +38,7 @@ class Settings():
     SAVE_RECORDINGS = False
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = False
+    SAVE_VIDEOS = True #False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -73,7 +73,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 3000 # In sim timesteps: Length until the simulation is terminated
+    SIMULATION_LENGTH = 100000 #1_000_000 # In sim timesteps: Length until the simulation is terminated
 
 
     ## Noise ##
@@ -145,7 +145,7 @@ class Settings():
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -173,7 +173,8 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
-
+    
+    
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
     

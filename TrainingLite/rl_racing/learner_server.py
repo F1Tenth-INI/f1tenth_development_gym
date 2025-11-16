@@ -20,6 +20,166 @@ from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, Tra
 
 from utilities.Settings import Settings
 
+from utilities.Settings import Settings
+
+class CustomReplayBuffer(ReplayBuffer):
+    """Class to extend SB3 replaybuffer, to enable custom weighted sampling, and other additional helping functions"""
+    def __init__(self, *args, sample_weighting=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sample_weighting = sample_weighting
+
+    def sample(self, safe_batch_size: int, weight_func_for_test = None, env=None):
+        """custom sample function, if none then use default SB3"""
+
+        self.weight_func = weight_func_for_test
+
+        if self.weight_func is None:
+            return super().sample(batch_size=safe_batch_size, env=env)
+        
+        """Set weights, later this should be in settings?"""
+        #IDEA -> prioritize bad and difficult states -> far from line, large curve, large heading error
+        # large lateral vel (dont have this rn i think, but would be nice)
+        w_curve = 1.5 #TODO: im gonna ignore curvatures for now because the dimensions are a bit weird
+        w_d = 1.0
+        w_e = 0.8
+        
+        #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
+        #sac needs current obs and next obs, and next obs is not given yet at index self.pos
+        if self.full:
+            possible_inds = np.arange(self.buffer_size)
+            mask = possible_inds != self.pos #mask which would set the self.pos index as false
+            possible_inds = possible_inds[mask]
+        else:
+            possible_inds = np.arange(self.pos)
+
+
+        obs = self.observations[possible_inds, 0, :]
+
+        d = obs[:, -2]
+        e = obs[:, -1]
+        # curve = obs
+
+        w_vec = w_d * np.abs(d) + w_e * np.abs(e)
+
+        # Clamp extremely small weights (avoid zero prob)
+        w_vec = np.maximum(w_vec, 1e-6)
+
+        # ==== Final normalization ====
+        priority_p = w_vec / np.sum(w_vec)
+
+        length = len(possible_inds)
+        uniform_p = np.ones(length) / length
+
+        alpha = 0.4 #how strong to weight the priority weighting
+        #useful to keep learning stable and not too biased
+
+        p = alpha * priority_p + (1-alpha) * uniform_p
+
+        # print("custom sampling")
+        # print(priority_p)
+        # print(uniform_p)
+        # print(p)
+
+        # ---- SAFETY NORMALIZATION ---- -> maybe not completely all of this is necessary
+        p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
+
+        total = p.sum()
+        if total <= 0 or not np.isfinite(total):
+            p = np.ones_like(p) / len(p)
+        else:
+            p = p / total
+
+        batch_inds = np.random.choice(possible_inds, safe_batch_size, p=p)
+
+        print("im doing the sampling")
+        
+        return self._get_samples(batch_inds, env=env)
+
+    def sample_old(self, safe_batch_size: int, weight_func_for_test = None, env=None):
+        """custom sample function, if none then use default SB3"""
+
+        self.weight_func = weight_func_for_test
+
+        if self.weight_func is None:
+            return super().sample(batch_size=safe_batch_size, env=env)
+        
+        #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
+        #sac needs current obs and next obs, and next obs is not given yet at index self.pos
+        if self.full:
+            possible_inds = np.arange(self.buffer_size)
+            mask = possible_inds != self.pos #mask which would set the self.pos index as false
+            possible_inds = possible_inds[mask]
+        else:
+            possible_inds = np.arange(self.pos)
+
+        #TODO: adjust this such that self.replay_buffer.add has an extra parameter "weight", so that the weight
+        # does not have to be recalculated every time we want to sample, it just needs to be normalized once
+        # -> could be added into _ingest_episodes_into_replay(...)
+        # w_vec = np.zeros(self.buffer_size)
+        # rew_vec = np.zeros(self.buffer_size)
+        rew_scale = 1
+        #TODO: this scale should be settable
+
+        obs = self.observations[possible_inds, 0, :4]
+        #TODO: i should be able to scale each one seperately
+        w_vec = np.sum(np.abs(obs), axis=1)
+
+        # Normalised [0,1]
+        w_vec = (w_vec - np.min(w_vec))/np.ptp(w_vec)
+        #TODO: i think this one line makes it considerabely slower but im not sure
+
+        rew_vec = self.rewards[possible_inds, 0]
+                        
+            
+        # Normalised [0,1]
+        rew_vec = (rew_vec - np.min(rew_vec))/np.ptp(rew_vec)
+
+        rew_vec = rew_scale * rew_vec
+
+        # w_vec = (w_vec - np.min(w_vec))/np.ptp(w_vec)
+
+        # for idx, w in enumerate(w_vec):
+        #     print(abs(w - rew_vec[idx]))
+
+        w_vec = w_vec + rew_vec
+
+        # w_vec[self.pos] = 0 #make sure there is 0% chance to sample the self.pos index
+        #TODO: maybe handle this stuff differently with the self.pos
+
+        # print("did this work")
+        tot_w = w_vec.sum()
+        
+        if tot_w == 0:
+            print("somehow zero weight total")
+            length = len(possible_inds)
+            p = np.ones(length) / length
+            p[self.pos] = 0
+                
+        length = len(possible_inds)
+        uniform_p = np.ones(length) / length
+        uniform_p[self.pos] = 0
+        
+
+        priority_p = w_vec/tot_w
+
+        alpha = 0.3 #how strong to weight the priority weighting
+        #useful to keep learning stable and not too biased
+
+        p = alpha * priority_p + (1-alpha) * uniform_p
+       
+        # np.random(replay_buffer, safe_batch_size, p=p)
+        batch_inds = np.random.choice(possible_inds, safe_batch_size, p=p)
+        
+        return self._get_samples(batch_inds, env=env)
+    
+    def calculate_single_weight(self):
+        #TODO: it would be cool if i could have a weight directly stored in each replay buffer element so i never
+        # have to recalculate it, i only have to make sure prob is valid for the sample function
+        return None
+        
+
+        
+
 class LearnerServer:
     def __init__(
         self,
@@ -152,7 +312,8 @@ class LearnerServer:
         # Fresh replay buffer
         # self.replay_buffer = RewardBiasedReplayBuffer(
 
-        self.replay_buffer = ReplayBuffer(
+        """Nikita: this is where i changed it to CustomReplayBuffer"""
+        self.replay_buffer = CustomReplayBuffer(
             buffer_size=self.replay_capacity,
             observation_space=self.model.observation_space,
             action_space=self.model.action_space,
@@ -215,6 +376,7 @@ class LearnerServer:
                 # normalize obs like SB3 would during collection
                 obs = self._normalize_obs(obs)
                 next_obs = self._normalize_obs(next_obs)
+                # sampling_weight = self.single_weight(obs, action, next_obs, reward)
                 self.replay_buffer.add(
                     obs=obs,
                     next_obs=next_obs,
@@ -222,9 +384,48 @@ class LearnerServer:
                     reward=reward,
                     done=done,
                     infos={},  # could pass TimeLimit info here if you track it
+                    # sampling_weight = sampling_weight
                 )
                 n_added += 1
         return n_added
+    
+    # ---------- sample weighting ----------
+    # def single_weight(self, obs, action, next_obs, reward):
+    #     w = np.sum(np.abs(obs[:4]))
+    #     return 0
+    
+    # ---------- custom replay buffer sample ----------
+    def custom_buffer_sample(self, replay_buffer, safe_batch_size): #TODO: more custom parameters, bind them to settings.py
+        #IDEAS: higher sample weight for high speeds
+        #higher sample weights for high rewards?
+        #higher sample weight for crashes?
+
+        #TODO: find a way to extract state from the replay buffer
+        print("im in here")
+        # print(replay_buffer.observations[:4])
+        w_vec = []
+        for o in replay_buffer.observations:
+            w = sum(abs(o[0][:4]))
+            w_vec.append(w)
+            # print(o[0][:4])
+        print("did this work")
+        p = w_vec/(sum(w_vec))
+        # np.random(replay_buffer, safe_batch_size, p=p)
+        np.random.choice(replay_buffer.buffer_size, safe_batch_size, p=p)
+        # print(replay_buffer[1])
+        '''
+        IDEA of how-to: define a function that can give a weight w = f(element, importance of each state) to each buffer element
+        each element will then have prob P = w_i/sum_w
+        Then use np.random.choice
+        '''
+
+        """TODO: try to understand:
+                # Do not sample the element with index `self.pos` as the transitions is invalid
+                (we use only one array to store `obs` and `next_obs`)
+
+                ->  this is from the sb3 sampling fuction
+        """
+        return None
     
     def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
         """
@@ -327,7 +528,14 @@ class LearnerServer:
                     try:
                         # Reduce batch size to avoid OOM
                         safe_batch_size = min(batch_size, 4096)
-                        data = replay_buffer.sample(safe_batch_size)
+                        data = replay_buffer.sample(safe_batch_size, weight_func_for_test = 1)
+
+                        '''make a custom sample function here:
+                        #TODO: bind this to settings.py'''
+                        # data_testing = replay_buffer.sample(safe_batch_size, weight_func_for_test = 1)
+
+                        """TODO: compare data to data_testing"""
+
                         obs      = data.observations
                         actions  = data.actions
                         next_obs = data.next_observations
