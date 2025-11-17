@@ -244,6 +244,9 @@ class RaceCar(object):
             map_path (str): absolute path to the map yaml file
             map_ext (str): extension of the map image file
         """
+        if Settings.BLANK_MAP:
+            # Skip setting map - car will drive on completely blank map with no borders, no scans, no crashes
+            return
         RaceCar.scan_simulator.set_map(map_path, map_ext)
 
     def reset(self, initial_state):

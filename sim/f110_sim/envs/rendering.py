@@ -351,9 +351,13 @@ class EnvRenderer(pyglet.window.Window):
             None
         """
 
-        # if map and poses doesn't exist, raise exception
+        # if map and poses doesn't exist, raise exception (unless BLANK_MAP is enabled)
         if self.map_points is None:
-            raise Exception('Map not set for renderer.')
+            if Settings.BLANK_MAP:
+                # Initialize empty map points for blank map mode
+                self.map_points = np.empty((0, 3))
+            else:
+                raise Exception('Map not set for renderer.')
         if self.poses is None:
             raise Exception('Agent poses not updated for renderer.')
 
