@@ -174,6 +174,12 @@ class Settings():
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     
+    #SAC Sampling Weights
+    USE_CUSTOM_SAC_SAMPLING = True
+    SAC_WP_OFFSET_WEIGHT = 0.7
+    SAC_WP_HEADING_ERROR_WEIGHT = 1.5
+    SAC_REWARD_WEIGHT = 1.0
+    SAC_PRIORITY_FACTOR = 0.3
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

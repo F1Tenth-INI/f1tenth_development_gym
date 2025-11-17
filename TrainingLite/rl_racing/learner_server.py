@@ -27,21 +27,34 @@ class CustomReplayBuffer(ReplayBuffer):
     def __init__(self, *args, sample_weighting=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.sample_weighting = sample_weighting
+        self.w_d = Settings.SAC_WP_OFFSET_WEIGHT
+        self.w_e = Settings.SAC_WP_HEADING_ERROR_WEIGHT
+        self.reward_weight = Settings.SAC_REWARD_WEIGHT
+        self.alpha = Settings.SAC_PRIORITY_FACTOR
+        self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
+        
+        if self.custom_sampling:
+            print("Using custom SAC replay buffer sampling with weights:")
+            print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Priority factor: {self.alpha}")
 
-    def sample(self, safe_batch_size: int, weight_func_for_test = None, env=None):
+
+    def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""
 
-        self.weight_func = weight_func_for_test
+        # self.weight_func = weight_func_for_test
 
-        if self.weight_func is None:
+        if not self.custom_sampling:
             return super().sample(batch_size=safe_batch_size, env=env)
         
         """Set weights, later this should be in settings?"""
         #IDEA -> prioritize bad and difficult states -> far from line, large curve, large heading error
         # large lateral vel (dont have this rn i think, but would be nice)
-        w_curve = 1.5 #TODO: im gonna ignore curvatures for now because the dimensions are a bit weird
-        w_d = 1.0
-        w_e = 0.8
+        # w_curve = 1.5 #TODO: im gonna ignore curvatures for now because the dimensions are a bit weird
+        # w_d = 1.5
+        # w_e = 0.8
+
+        # alpha = 0.7 #how strong to weight the priority weighting
+        #useful to keep learning stable and not too biased
         
         #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
         #sac needs current obs and next obs, and next obs is not given yet at index self.pos
@@ -59,10 +72,11 @@ class CustomReplayBuffer(ReplayBuffer):
         e = obs[:, -1]
         # curve = obs
 
-        w_vec = w_d * np.abs(d) + w_e * np.abs(e)
+        w_vec = self.w_d * np.abs(d) + self.w_e * np.abs(e)
 
         # Clamp extremely small weights (avoid zero prob)
         w_vec = np.maximum(w_vec, 1e-6)
+        w_vec = np.minimum(w_vec, 1e3)
 
         # ==== Final normalization ====
         priority_p = w_vec / np.sum(w_vec)
@@ -70,15 +84,9 @@ class CustomReplayBuffer(ReplayBuffer):
         length = len(possible_inds)
         uniform_p = np.ones(length) / length
 
-        alpha = 0.4 #how strong to weight the priority weighting
-        #useful to keep learning stable and not too biased
+        p = self.alpha * priority_p + (1-self.alpha) * uniform_p
 
-        p = alpha * priority_p + (1-alpha) * uniform_p
 
-        # print("custom sampling")
-        # print(priority_p)
-        # print(uniform_p)
-        # print(p)
 
         # ---- SAFETY NORMALIZATION ---- -> maybe not completely all of this is necessary
         p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
@@ -89,9 +97,9 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             p = p / total
 
-        batch_inds = np.random.choice(possible_inds, safe_batch_size, p=p)
+        batch_inds = np.random.choice(possible_inds, size=safe_batch_size, p=p)
 
-        print("im doing the sampling")
+        # print("im doing the sampling")
         
         return self._get_samples(batch_inds, env=env)
 
@@ -323,6 +331,15 @@ class LearnerServer:
         )
         self.model.replay_buffer = self.replay_buffer
 
+        # Device diagnostics: verify model and replay buffer are on the correct device
+        print(f"[server] Device config: requested={self.device}")
+        print(f"[server] Model policy device: {next(self.model.policy.parameters()).device}")
+        if torch.cuda.is_available():
+            print(f"[server] CUDA available: True, cuda_device_count={torch.cuda.device_count()}, current_device={torch.cuda.current_device()}, device_name={torch.cuda.get_device_name()}")
+        else:
+            print(f"[server] CUDA available: False")
+        print(f"[server] Replay buffer device: {self.replay_buffer.device}")
+
         # Save model info
         info = {
             "grad_steps": self.grad_steps,
@@ -389,43 +406,6 @@ class LearnerServer:
                 n_added += 1
         return n_added
     
-    # ---------- sample weighting ----------
-    # def single_weight(self, obs, action, next_obs, reward):
-    #     w = np.sum(np.abs(obs[:4]))
-    #     return 0
-    
-    # ---------- custom replay buffer sample ----------
-    def custom_buffer_sample(self, replay_buffer, safe_batch_size): #TODO: more custom parameters, bind them to settings.py
-        #IDEAS: higher sample weight for high speeds
-        #higher sample weights for high rewards?
-        #higher sample weight for crashes?
-
-        #TODO: find a way to extract state from the replay buffer
-        print("im in here")
-        # print(replay_buffer.observations[:4])
-        w_vec = []
-        for o in replay_buffer.observations:
-            w = sum(abs(o[0][:4]))
-            w_vec.append(w)
-            # print(o[0][:4])
-        print("did this work")
-        p = w_vec/(sum(w_vec))
-        # np.random(replay_buffer, safe_batch_size, p=p)
-        np.random.choice(replay_buffer.buffer_size, safe_batch_size, p=p)
-        # print(replay_buffer[1])
-        '''
-        IDEA of how-to: define a function that can give a weight w = f(element, importance of each state) to each buffer element
-        each element will then have prob P = w_i/sum_w
-        Then use np.random.choice
-        '''
-
-        """TODO: try to understand:
-                # Do not sample the element with index `self.pos` as the transitions is invalid
-                (we use only one array to store `obs` and `next_obs`)
-
-                ->  this is from the sb3 sampling fuction
-        """
-        return None
     
     def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
         """
@@ -528,7 +508,7 @@ class LearnerServer:
                     try:
                         # Reduce batch size to avoid OOM
                         safe_batch_size = min(batch_size, 4096)
-                        data = replay_buffer.sample(safe_batch_size, weight_func_for_test = 1)
+                        data = replay_buffer.sample(safe_batch_size)
 
                         '''make a custom sample function here:
                         #TODO: bind this to settings.py'''
