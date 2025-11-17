@@ -87,3 +87,5 @@ ppo_models/*
 *.egg-info
 
 .github/instructions/python_instructions.instructions.md
+environment.yml
+cumulative_reward_components.png

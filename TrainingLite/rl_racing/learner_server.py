@@ -32,30 +32,46 @@ class CustomReplayBuffer(ReplayBuffer):
         self.reward_weight = Settings.SAC_REWARD_WEIGHT
         self.alpha = Settings.SAC_PRIORITY_FACTOR
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
+        # Initialize with small non-zero values to avoid zero-sum edge cases (DO I ACTUALLY NEED THIS?)
+        self._weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
         
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Priority factor: {self.alpha}")
 
+    def add(self, *args, **kwargs):
+        """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
+    
+        # --> actual weighting computation is only within this function
+        super().add(*args, **kwargs)
+
+        try:
+            idx = (self.pos - 1) % self.buffer_size
+        except Exception:
+            return
+
+        # Extract only the observation that was just added (at index idx)
+        obs = self.observations[idx, 0, :]
+
+        d = obs[-2]
+        e = obs[-1]
+
+        w = self.w_d * abs(d) + self.w_e * abs(e)
+        w = np.clip(w, 1e-6, 1e3)
+
+
+        self._weights[idx] = w
 
     def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""
+        #weights already calculated in add(), here we just normalize and sample
 
         # self.weight_func = weight_func_for_test
 
         if not self.custom_sampling:
             return super().sample(batch_size=safe_batch_size, env=env)
         
-        """Set weights, later this should be in settings?"""
-        #IDEA -> prioritize bad and difficult states -> far from line, large curve, large heading error
-        # large lateral vel (dont have this rn i think, but would be nice)
-        # w_curve = 1.5 #TODO: im gonna ignore curvatures for now because the dimensions are a bit weird
-        # w_d = 1.5
-        # w_e = 0.8
-
-        # alpha = 0.7 #how strong to weight the priority weighting
-        #useful to keep learning stable and not too biased
-        
+        #IDEA -> prioritize bad and difficult states -> far from line, large curve, large heading error 
         #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
         #sac needs current obs and next obs, and next obs is not given yet at index self.pos
         if self.full:
@@ -66,127 +82,33 @@ class CustomReplayBuffer(ReplayBuffer):
             possible_inds = np.arange(self.pos)
 
 
-        obs = self.observations[possible_inds, 0, :]
+        # Use stored per-transition weights for sampling instead of recomputing from obs
+        w_vec = self._weights[possible_inds].astype(np.float64)
 
-        d = obs[:, -2]
-        e = obs[:, -1]
-        # curve = obs
-
-        w_vec = self.w_d * np.abs(d) + self.w_e * np.abs(e)
-
-        # Clamp extremely small weights (avoid zero prob)
-        w_vec = np.maximum(w_vec, 1e-6)
-        w_vec = np.minimum(w_vec, 1e3)
+        # Clamp extremely small/large values
+        # w_vec = np.clip(w_vec, 1e-6, 1e3)
 
         # ==== Final normalization ====
-        priority_p = w_vec / np.sum(w_vec)
+        total_w = np.sum(w_vec)
+        if total_w <= 0 or not np.isfinite(total_w):
+            priority_p = np.ones_like(w_vec) / len(w_vec)
+        else:
+            priority_p = w_vec / total_w
 
         length = len(possible_inds)
         uniform_p = np.ones(length) / length
+        p = self.alpha * priority_p + (1.0 - self.alpha) * uniform_p
 
-        p = self.alpha * priority_p + (1-self.alpha) * uniform_p
-
-
-
-        # ---- SAFETY NORMALIZATION ---- -> maybe not completely all of this is necessary
+        # Safety normalization
         p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
-
-        total = p.sum()
-        if total <= 0 or not np.isfinite(total):
+        p_tot = p.sum()
+        if p_tot <= 0 or not np.isfinite(p_tot):
             p = np.ones_like(p) / len(p)
         else:
-            p = p / total
+            p = p / p_tot
 
         batch_inds = np.random.choice(possible_inds, size=safe_batch_size, p=p)
-
-        # print("im doing the sampling")
-        
         return self._get_samples(batch_inds, env=env)
-
-    def sample_old(self, safe_batch_size: int, weight_func_for_test = None, env=None):
-        """custom sample function, if none then use default SB3"""
-
-        self.weight_func = weight_func_for_test
-
-        if self.weight_func is None:
-            return super().sample(batch_size=safe_batch_size, env=env)
-        
-        #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
-        #sac needs current obs and next obs, and next obs is not given yet at index self.pos
-        if self.full:
-            possible_inds = np.arange(self.buffer_size)
-            mask = possible_inds != self.pos #mask which would set the self.pos index as false
-            possible_inds = possible_inds[mask]
-        else:
-            possible_inds = np.arange(self.pos)
-
-        #TODO: adjust this such that self.replay_buffer.add has an extra parameter "weight", so that the weight
-        # does not have to be recalculated every time we want to sample, it just needs to be normalized once
-        # -> could be added into _ingest_episodes_into_replay(...)
-        # w_vec = np.zeros(self.buffer_size)
-        # rew_vec = np.zeros(self.buffer_size)
-        rew_scale = 1
-        #TODO: this scale should be settable
-
-        obs = self.observations[possible_inds, 0, :4]
-        #TODO: i should be able to scale each one seperately
-        w_vec = np.sum(np.abs(obs), axis=1)
-
-        # Normalised [0,1]
-        w_vec = (w_vec - np.min(w_vec))/np.ptp(w_vec)
-        #TODO: i think this one line makes it considerabely slower but im not sure
-
-        rew_vec = self.rewards[possible_inds, 0]
-                        
-            
-        # Normalised [0,1]
-        rew_vec = (rew_vec - np.min(rew_vec))/np.ptp(rew_vec)
-
-        rew_vec = rew_scale * rew_vec
-
-        # w_vec = (w_vec - np.min(w_vec))/np.ptp(w_vec)
-
-        # for idx, w in enumerate(w_vec):
-        #     print(abs(w - rew_vec[idx]))
-
-        w_vec = w_vec + rew_vec
-
-        # w_vec[self.pos] = 0 #make sure there is 0% chance to sample the self.pos index
-        #TODO: maybe handle this stuff differently with the self.pos
-
-        # print("did this work")
-        tot_w = w_vec.sum()
-        
-        if tot_w == 0:
-            print("somehow zero weight total")
-            length = len(possible_inds)
-            p = np.ones(length) / length
-            p[self.pos] = 0
-                
-        length = len(possible_inds)
-        uniform_p = np.ones(length) / length
-        uniform_p[self.pos] = 0
-        
-
-        priority_p = w_vec/tot_w
-
-        alpha = 0.3 #how strong to weight the priority weighting
-        #useful to keep learning stable and not too biased
-
-        p = alpha * priority_p + (1-alpha) * uniform_p
-       
-        # np.random(replay_buffer, safe_batch_size, p=p)
-        batch_inds = np.random.choice(possible_inds, safe_batch_size, p=p)
-        
-        return self._get_samples(batch_inds, env=env)
-    
-    def calculate_single_weight(self):
-        #TODO: it would be cool if i could have a weight directly stored in each replay buffer element so i never
-        # have to recalculate it, i only have to make sure prob is valid for the sample function
-        return None
-        
-
-        
 
 class LearnerServer:
     def __init__(
