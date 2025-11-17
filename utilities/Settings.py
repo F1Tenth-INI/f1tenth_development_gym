@@ -176,10 +176,10 @@ class Settings():
     
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
-    SAC_WP_OFFSET_WEIGHT = 0.7
-    SAC_WP_HEADING_ERROR_WEIGHT = 1.5
+    SAC_WP_OFFSET_WEIGHT = 1.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 1.0
     SAC_REWARD_WEIGHT = 1.0
-    SAC_PRIORITY_FACTOR = 0.3
+    SAC_PRIORITY_FACTOR = 0.1
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

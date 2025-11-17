@@ -41,7 +41,6 @@ class CustomReplayBuffer(ReplayBuffer):
 
     def add(self, *args, **kwargs):
         """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
-    
         # --> actual weighting computation is only within this function
         super().add(*args, **kwargs)
 
@@ -50,23 +49,21 @@ class CustomReplayBuffer(ReplayBuffer):
         except Exception:
             return
 
-        # Extract only the observation that was just added (at index idx)
+        # Extract newest observation added by super().add()
         obs = self.observations[idx, 0, :]
 
+        #compute weight
         d = obs[-2]
         e = obs[-1]
 
         w = self.w_d * abs(d) + self.w_e * abs(e)
         w = np.clip(w, 1e-6, 1e3)
 
-
         self._weights[idx] = w
 
     def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""
         #weights already calculated in add(), here we just normalize and sample
-
-        # self.weight_func = weight_func_for_test
 
         if not self.custom_sampling:
             return super().sample(batch_size=safe_batch_size, env=env)
@@ -81,31 +78,28 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             possible_inds = np.arange(self.pos)
 
-
         # Use stored per-transition weights for sampling instead of recomputing from obs
         w_vec = self._weights[possible_inds].astype(np.float64)
 
-        # Clamp extremely small/large values
-        # w_vec = np.clip(w_vec, 1e-6, 1e3)
-
         # ==== Final normalization ====
-        total_w = np.sum(w_vec)
-        if total_w <= 0 or not np.isfinite(total_w):
-            priority_p = np.ones_like(w_vec) / len(w_vec)
-        else:
-            priority_p = w_vec / total_w
+        # total_w = np.sum(w_vec)
+        # if total_w <= 0 or not np.isfinite(total_w):
+        #     priority_p = np.ones_like(w_vec) / len(w_vec)
+        # else:
+        #     priority_p = w_vec / total_w
 
         length = len(possible_inds)
         uniform_p = np.ones(length) / length
-        p = self.alpha * priority_p + (1.0 - self.alpha) * uniform_p
+        p = self.alpha * w_vec + (1.0 - self.alpha) * uniform_p
 
         # Safety normalization
         p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
         p_tot = p.sum()
+
         if p_tot <= 0 or not np.isfinite(p_tot):
-            p = np.ones_like(p) / len(p)
+            p = np.ones_like(p) / length
         else:
-            p = p / p_tot
+            p /= p_tot
 
         batch_inds = np.random.choice(possible_inds, size=safe_batch_size, p=p)
         return self._get_samples(batch_inds, env=env)
