@@ -5,7 +5,8 @@ import time
 import datetime
 import os
 import zipfile
-import subprocess 
+import subprocess
+import numpy as np
 from utilities.EncodeDecodeEulerFlag import euler_index, decode_flag
 from itertools import product  # Enables Cartesian product iteration over multiple parameter lists
 
@@ -51,34 +52,44 @@ runs_with_obstacles = 0
 runs_without_obstacles = 1
 runs_with_oponents = 0
 
-# global_surface_friction_values = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
-global_surface_friction_values = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
-# global_surface_friction_for_controller_values = [0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1]
-global_surface_friction_for_controller_values = None  # If None, always same as global_surface_friction
+# Friction sampling configuration - UNIFORM DISTRIBUTION
+FRICTION_MIN = 0.4  # Minimum friction value (matching Train dataset)
+FRICTION_MAX = 1.1  # Maximum friction value (matching Train dataset)
+NUM_FRICTION_SAMPLES = 8  # Number of samples to generate across the range
+
+# Generate friction values using uniform sampling based on euler_index
+# This ensures reproducibility while using continuous distribution
+np.random.seed(euler_index)  # Use euler_index as seed for reproducibility
 
 reverse_direction_values = [False, True]
-
 global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 
-
-# expected_number_of_experiments = len(global_waypoint_velocity_factors) * len(global_surface_friction_values) * len(reverse_direction_values) * (runs_with_obstacles + runs_without_obstacles)
-# print(f"Expected number of experiments: {expected_number_of_experiments}")
-
-# Settings for tuning before recoriding
+# Settings for tuning before recording
 # Comment out during data collection
 # Settings.EXPERIMENT_LENGTH = 1000  
 # global_waypoint_velocity_factors = [1.0] 
-# global_surface_friction_values = [ 0.7 ]
+# FRICTION_MIN = 0.7
+# FRICTION_MAX = 0.7
+# NUM_FRICTION_SAMPLES = 1
 # Settings.RENDER_MODE = "human_fast"
 
-
 feature_A = global_waypoint_velocity_factors
-feature_B = global_surface_friction_values
+# For uniform sampling, we'll use NUM_FRICTION_SAMPLES as the number of different samples
+feature_B_size = NUM_FRICTION_SAMPLES
 
-index_A, index_B, index_C = decode_flag(euler_index, len(feature_A), len(feature_B))
+index_A, index_B, index_C = decode_flag(euler_index, len(feature_A), feature_B_size)
 
+# Sample velocity from discrete list
 global_waypoint_velocity_factors = [global_waypoint_velocity_factors[index_A]]
-global_surface_friction_values = [global_surface_friction_values[index_B]]
+
+# Sample friction uniformly from range
+# Use a deterministic seed based on index_B to ensure reproducibility
+friction_rng = np.random.RandomState(seed=euler_index * 1000 + index_B)
+sampled_friction = friction_rng.uniform(FRICTION_MIN, FRICTION_MAX)
+global_surface_friction_values = [sampled_friction]
+
+# Friction for controller is same as actual friction
+global_surface_friction_for_controller_values = None  # If None, always same as global_surface_friction
     
 
 # Save this file to the recordings for perfect reconstruction
