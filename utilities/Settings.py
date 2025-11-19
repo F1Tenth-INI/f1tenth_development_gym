@@ -11,12 +11,12 @@ class Settings():
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
-    BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
+    BLANK_MAP = True  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
     CONTROLLER = 'mpc' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
 
-    TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
@@ -78,7 +78,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
