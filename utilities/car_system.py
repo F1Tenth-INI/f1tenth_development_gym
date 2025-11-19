@@ -11,7 +11,11 @@ import os
 from utilities.Settings import Settings
 
 if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
-    from pynput import keyboard
+    try:
+        from pynput import keyboard
+    except ImportError:
+        # pynput not available (e.g., headless environment)
+        keyboard = None
 
 from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
@@ -548,7 +552,9 @@ class CarSystem:
             from pynput import keyboard
             listener = keyboard.Listener(on_press=self.on_press)
             listener.start()
-        except ImportError:
+        except (ImportError, Exception):
+            # pynput not available or failed to start (e.g., no X server)
+            print("Keyboard listener not available, starting recorder automatically")
             self.start_recorder()
         
            
