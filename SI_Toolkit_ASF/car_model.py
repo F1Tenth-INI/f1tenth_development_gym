@@ -214,7 +214,9 @@ class car_model:
         beta = s[:, self.SLIP_ANGLE_IDX]
         delta = s[:, self.STEERING_ANGLE_IDX]
 
-        delta_dot, v_x_dot = self.lib.unstack(Q, 2, 1)
+        # Use indexing instead of unstack to handle Q with variable dimensions (2 or 3 when mu is included)
+        delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]
+        v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]
 
         final_counter, *final_state = self.lib.loop(
             # ─── wrapper body_fn ──────────────────────────────────────────
@@ -489,7 +491,9 @@ class car_model:
     def pid(self, s, Q):
 
         # Control Input (desired speed, desired steering angle)
-        desired_angle, translational_control = self.lib.unstack(Q, 2, 1)
+        # Use indexing instead of unstack to handle Q with variable dimensions (2 or 3 when mu is included)
+        desired_angle = Q[:, self.ANGULAR_CONTROL_IDX]
+        translational_control = Q[:, self.TRANSLATIONAL_CONTROL_IDX]
 
         delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
         vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
