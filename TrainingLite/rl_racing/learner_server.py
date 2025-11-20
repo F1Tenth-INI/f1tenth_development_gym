@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, NamedTuple
 
 import numpy as np
 import torch
@@ -22,18 +22,22 @@ from utilities.Settings import Settings
 
 from utilities.Settings import Settings
 
+from stable_baselines3.common.type_aliases import ReplayBufferSamples
+
 class CustomReplayBuffer(ReplayBuffer):
     """Class to extend SB3 replaybuffer, to enable custom weighted sampling, and other additional helping functions"""
-    def __init__(self, *args, sample_weighting=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sample_weighting = sample_weighting
         self.w_d = Settings.SAC_WP_OFFSET_WEIGHT
         self.w_e = Settings.SAC_WP_HEADING_ERROR_WEIGHT
         self.reward_weight = Settings.SAC_REWARD_WEIGHT
         self.alpha = Settings.SAC_PRIORITY_FACTOR
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
+        self.beta = Settings.SAC_IMPORANCE_SAMPLING_CORRECTOR
         # Initialize with small non-zero values to avoid zero-sum edge cases (DO I ACTUALLY NEED THIS?)
-        self._weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
+        self.sample_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
+        self.importance_sampling_correctors = np.ones(self.buffer_size, dtype=np.float64)
+        self.batch_is_correctors = None
         
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
@@ -55,11 +59,16 @@ class CustomReplayBuffer(ReplayBuffer):
         #compute weight
         d = obs[-2]
         e = obs[-1]
+        rew = self.rewards[idx, 0] + 1
+        # print(rew)
 
-        w = self.w_d * abs(d) + self.w_e * abs(e)
+        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew
         w = np.clip(w, 1e-6, 1e3)
 
-        self._weights[idx] = w
+        self.sample_weights[idx] = w
+        
+
+        return
 
     def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""
@@ -79,7 +88,7 @@ class CustomReplayBuffer(ReplayBuffer):
             possible_inds = np.arange(self.pos)
 
         # Use stored per-transition weights for sampling instead of recomputing from obs
-        w_vec = self._weights[possible_inds].astype(np.float64)
+        w_vec = self.sample_weights[possible_inds].astype(np.float64)
 
         # ==== Final normalization ====
         # total_w = np.sum(w_vec)
@@ -102,7 +111,55 @@ class CustomReplayBuffer(ReplayBuffer):
             p /= p_tot
 
         batch_inds = np.random.choice(possible_inds, size=safe_batch_size, p=p)
+        
+        ###TODO: this is slow and inefficient
+        for idx in batch_inds:
+            if idx > self.pos:
+                self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx-1])) ** self.beta
+            else:
+                self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx])) ** self.beta
+        
+        self.batch_is_correctors = self.importance_sampling_correctors[batch_inds]
+        self.batch_is_correctors = self.batch_is_correctors.reshape(-1, 1).astype(np.float32)
         return self._get_samples(batch_inds, env=env)
+    
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
+        # Sample randomly the env idx
+        env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
+
+        if self.optimize_memory_usage:
+            next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
+        else:
+            next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
+
+        data = (
+            self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
+            self.actions[batch_inds, env_indices, :],
+            next_obs,
+            # Only use dones that are not due to timeouts
+            # deactivated by default (timeouts is initialized as an array of False)
+            (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
+            self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+        )
+        return WeightedReplayBufferSamples(*tuple(map(self.to_torch, data)), 
+                                           is_weights = torch.as_tensor(self.batch_is_correctors))
+    
+class WeightedReplayBufferSamples(NamedTuple):
+    observations: torch.Tensor
+    actions: torch.Tensor
+    next_observations: torch.Tensor
+    dones: torch.Tensor
+    rewards: torch.Tensor
+    is_weights: torch.Tensor
+    # For n-step replay buffer
+    discounts: Optional[torch.Tensor] = None
+
+
+# class WeightedReplayBufferSamples(ReplayBufferSamples):
+#     def __init__(self, *args, is_weights=None):
+#         super().__init__(*args)
+#         self.is_weights = is_weights
+
 
 class LearnerServer:
     def __init__(
@@ -426,19 +483,16 @@ class LearnerServer:
                         safe_batch_size = min(batch_size, 4096)
                         data = replay_buffer.sample(safe_batch_size)
 
-                        '''make a custom sample function here:
-                        #TODO: bind this to settings.py'''
-                        # data_testing = replay_buffer.sample(safe_batch_size, weight_func_for_test = 1)
-
-                        """TODO: compare data to data_testing"""
-
                         obs      = data.observations
                         actions  = data.actions
                         next_obs = data.next_observations
                         rewards  = data.rewards  # shape handling below
                         dones    = data.dones
-                   
 
+                        #TODO: Have the IS sampling weights be returned here
+                        is_weights = data.is_weights
+                        # print("IS WEIGHTS WORKED?????")
+                        # print(is_weights)
                         # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
 
                         # Critic update
@@ -457,7 +511,10 @@ class LearnerServer:
                         # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
 
                         current_q1, current_q2 = critic(obs, actions)
-                        critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
+                        ###Nikita: this is my critic loss!
+                        critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
+                                       + (is_weights * ((current_q2 - target_q).pow(2))).mean())
+                        # critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
                         critic_optimizer.zero_grad()
                         critic_loss.backward()
                         critic_optimizer.step()
@@ -468,7 +525,9 @@ class LearnerServer:
                         new_actions, log_prob = actor.action_log_prob(obs)
                         q1_new, q2_new = critic(obs, new_actions)
                         q_new = torch.min(q1_new, q2_new)
-                        actor_loss = (ent_coef * log_prob - q_new).mean()
+                        ####Nikita: this is my actor loss
+                        actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
+                        # actor_loss = (ent_coef * log_prob - q_new).mean()
                         actor_optimizer.zero_grad()
                         actor_loss.backward()
                         actor_optimizer.step()

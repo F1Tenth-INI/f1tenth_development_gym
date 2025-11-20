@@ -144,7 +144,7 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
@@ -176,10 +176,11 @@ class Settings():
     
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
-    SAC_WP_OFFSET_WEIGHT = 1.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 1.0
-    SAC_REWARD_WEIGHT = 1.0
-    SAC_PRIORITY_FACTOR = 0.1
+    SAC_WP_OFFSET_WEIGHT = 0.4
+    SAC_WP_HEADING_ERROR_WEIGHT = 0.5
+    SAC_REWARD_WEIGHT = 3.0
+    SAC_PRIORITY_FACTOR = 0.4
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.2
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
