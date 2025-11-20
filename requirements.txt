@@ -25,8 +25,8 @@ gymnasium==1.2.0
 idna @ file:///croot/idna_1714398848350/work
 imageio==2.37.0
 iniconfig==2.1.0
-jax==0.4.38
-jaxlib==0.4.38
+jax==0.4.13
+jaxlib==0.4.13
 Jinja2 @ file:///croot/jinja2_1741710844255/work
 kiwisolver==1.4.9
 lazy_loader==0.4
@@ -37,7 +37,7 @@ matplotlib==3.10.5
 mkl-service==2.4.0
 mkl_fft @ file:///io/mkl313/mkl_fft_1730824109137/work
 mkl_random @ file:///io/mkl313/mkl_random_1730823916628/work
-ml_dtypes==0.5.3
+ml_dtypes==0.2.0
 mpmath @ file:///croot/mpmath_1690848262763/work
 msgpack==1.1.1
 networkx @ file:///croot/networkx_1737039604450/work
