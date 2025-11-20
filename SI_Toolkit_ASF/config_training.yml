@@ -1,71 +1,31 @@
 library: "TF" # TF or Pytorch
 modeling:
   NET_NAME: "GRU-128H1-128H2-128H3"
+  SPECIAL_RNN:
+    TYPE: 'special'  # 'standard' or 'special' (special = combine mask/gated/delta)
+    # Masking (applies to GRU/LSTM output only; recurrence uses full state)
+    MASK_PERCENT: 0  # Percentage of units to mask at output (0-100)
+    # Delta-network regularization (encourage sparse state changes)
+    DELTA_L1_COEFF: 0.0  # L1 penalty coefficient on ||h_t - h_{t-1}||
+    DELTA_L0_COEFF: 0.0  # L0 hard-concrete penalty on ||h_t - h_{t-1}|| (more principled sparsity)
+    DELTA_L0_SCALE: 1.0  # Scale factor for mapping delta magnitudes to [0,1] for L0 penalty
+    DELTA_THETA_X: 0.0   # Threshold on |Δx| for delta execution (0 disables)
+    DELTA_THETA_H: 0.0   # Threshold on |Δh| for delta execution (0 disables)
+    # Dynamic gating (thresholded updates with L1 sparsity on gate)
+    GATE_L1_COEFF: 0.0   # L1 penalty coefficient on gate scores (encourages sparsity)
+    GATE_L0_COEFF: 0.0   # L0 hard-concrete penalty on gate scores (more principled sparsity)
+    GATE_THRESHOLD: 0.0  # Hard threshold for gate activation (units below threshold don't update)
+    PENALIZE_UPDATE_GATE_OPEN: false  # true: penalize (1-z) for GRU or i for LSTM; false: reverse
+    # L0 hard-concrete distribution parameters (Louizos et al., 2018)
+    L0_BETA: 0.6666666667  # Beta parameter for hard-concrete distribution (default: 2/3)
+    L0_GAMMA: -0.1         # Gamma parameter (lower stretch bound, default: -0.1)
+    L0_ZETA: 1.1           # Zeta parameter (upper stretch bound, default: 1.1)
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/04_08_RCA1_noise/" # Path where the experiments data is stored
-  DATA_FOLDER: "Recordings"
-
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/" # Path where the experiments data is stored
+  DATA_FOLDER:                    'Recordings'
 training_default:
-  AUGMENT_DATA: False
-
-  ## translation_invariant_variables: ['pose_x', 'pose_y']
-  translation_invariant_variables: []
-
-  state_inputs: []
-
-  control_inputs: [
-      "WYPT_REL_X(30)",
-      "WYPT_REL_Y(30)",
-      "WYPT_VX(30)",
-      "angular_vel_z",
-      "linear_vel_x",
-      "linear_vel_y",
-      "steering_angle",
-      # "mu",
-      # "angular_control_calculated_-1",
-      # "translational_control_calculated_-1",
-    ]
-
-  
-
-  # state_inputs: []
-  # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
-
-  setpoint_inputs: []
-  outputs:
-    ["angular_control_calculated", "translational_control_calculated"] # "mu"
-
-  EPOCHS: 5
-  BATCH_SIZE: 16
-  SEED: 1873
-  LR:
-    INITIAL: 1.0e-3
-    REDUCE_LR_ON_PLATEAU: True
-    ACTIVATED: True
-    DECREASE_FACTOR: 0.316 # Factor to reduce learning rate by (0.316 = sqrt(0.1))
-    PATIENCE: 1
-    MINIMAL: 1.0e-5
-    MIN_DELTA: 0.00
-  VALIDATE_ALSO_ON_TRAINING_SET: False
-
-  WASH_OUT_LEN: 20
-  POST_WASH_OUT_LEN: 300
-  ON_FLY_DATA_GENERATION: False
-  NORMALIZE: True
-  SHIFT_LABELS: 0 # for k, as a label to row i is taken row i+k
-  USE_NNI: False # Decide if you want to use NNI package
-  CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
-
-  ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
-  # Depending on number of Lidar points listed in state input, an even distribution of input scans between the two bounds is selected and fed to the network.
-  #ToDo instead of listing all Lidar Points, one just writes how many and the state input vector is generated automatically
-  upper_bound: 880
-  lower_bound: 200
-  PLOT_WEIGHTS_DISTRIBUTION: false # Calculate histograms of weights and biases and activations, take long time
-
-training_nn_physical_model:
   #### For training closed loop dynamics model:
   state_inputs:
     [
@@ -90,7 +50,6 @@ training_nn_physical_model:
       "D_slip_angle",
       "D_steering_angle",
     ]
-  translation_invariant_variables: []
 
   # Lidar data points (nr of points: 40)
   # lidar_data      : [ 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
@@ -106,100 +65,103 @@ training_nn_physical_model:
   # inputs = ['position', 'positionD', 'angle_sin', 'angle_cos', 'angleD']
   # outputs = inputs_list
 
-  state_inputs: []
+#  state_inputs: []
+#
+#  control_inputs: [
+#      # 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
+#      # 'LIDAR_0340', 'LIDAR_0365', 'LIDAR_0390', 'LIDAR_0415', 'LIDAR_0440', 'LIDAR_0465', 'LIDAR_0490', 'LIDAR_0515', 'LIDAR_0540', 'LIDAR_0565', 'LIDAR_0590', 'LIDAR_0615',
+#      # 'LIDAR_0640', 'LIDAR_0665', 'LIDAR_0690', 'LIDAR_0715', 'LIDAR_0740', 'LIDAR_0765', 'LIDAR_0790', 'LIDAR_0815', 'LIDAR_0840', 'LIDAR_0865', 'LIDAR_0890', 'LIDAR_0915', 'LIDAR_0940', 'LIDAR_0965', 'LIDAR_0990', 'LIDAR_1015',
+#      "WYPT_REL_X_00", "WYPT_REL_X_01", "WYPT_REL_X_02", "WYPT_REL_X_03", "WYPT_REL_X_04", "WYPT_REL_X_05", "WYPT_REL_X_06", "WYPT_REL_X_07", "WYPT_REL_X_08", "WYPT_REL_X_09", "WYPT_REL_X_10", "WYPT_REL_X_11", "WYPT_REL_X_12", "WYPT_REL_X_13", "WYPT_REL_X_14",
+#      "WYPT_REL_Y_00", "WYPT_REL_Y_01", "WYPT_REL_Y_02", "WYPT_REL_Y_03", "WYPT_REL_Y_04", "WYPT_REL_Y_05", "WYPT_REL_Y_06", "WYPT_REL_Y_07", "WYPT_REL_Y_08", "WYPT_REL_Y_09", "WYPT_REL_Y_10", "WYPT_REL_Y_11", "WYPT_REL_Y_12", "WYPT_REL_Y_13", "WYPT_REL_Y_14",
+#      "WYPT_VX_00", "WYPT_VX_01", "WYPT_VX_02", "WYPT_VX_03", "WYPT_VX_04", "WYPT_VX_05", "WYPT_VX_06", "WYPT_VX_07", "WYPT_VX_08", "WYPT_VX_09", "WYPT_VX_10", "WYPT_VX_11", "WYPT_VX_12", "WYPT_VX_13", "WYPT_VX_14",
+#      # 'v_y',
+#      'angular_vel_z',
+#      'linear_vel_x',
+#      # 'slip_angle',
+#      'steering_angle'
+#    ]
+#
+#  # state_inputs: []
+#  # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
+#
+#  outputs: ["angular_control_calculated", "translational_control_calculated"] # "mu"
 
-  control_inputs: [
-      # 'LIDAR_0040', 'LIDAR_0065', 'LIDAR_0090', 'LIDAR_0115', 'LIDAR_0140', 'LIDAR_0165', 'LIDAR_0190', 'LIDAR_0215', 'LIDAR_0240', 'LIDAR_0265', 'LIDAR_0290', 'LIDAR_0315',
-      # 'LIDAR_0340', 'LIDAR_0365', 'LIDAR_0390', 'LIDAR_0415', 'LIDAR_0440', 'LIDAR_0465', 'LIDAR_0490', 'LIDAR_0515', 'LIDAR_0540', 'LIDAR_0565', 'LIDAR_0590', 'LIDAR_0615',
-      # 'LIDAR_0640', 'LIDAR_0665', 'LIDAR_0690', 'LIDAR_0715', 'LIDAR_0740', 'LIDAR_0765', 'LIDAR_0790', 'LIDAR_0815', 'LIDAR_0840', 'LIDAR_0865', 'LIDAR_0890', 'LIDAR_0915', 'LIDAR_0940', 'LIDAR_0965', 'LIDAR_0990', 'LIDAR_1015',
-      "WYPT_REL_X_00", "WYPT_REL_X_01", "WYPT_REL_X_02", "WYPT_REL_X_03", "WYPT_REL_X_04", "WYPT_REL_X_05", "WYPT_REL_X_06", "WYPT_REL_X_07", "WYPT_REL_X_08", "WYPT_REL_X_09", "WYPT_REL_X_10", "WYPT_REL_X_11", "WYPT_REL_X_12", "WYPT_REL_X_13", "WYPT_REL_X_14",
-      "WYPT_REL_Y_00", "WYPT_REL_Y_01", "WYPT_REL_Y_02", "WYPT_REL_Y_03", "WYPT_REL_Y_04", "WYPT_REL_Y_05", "WYPT_REL_Y_06", "WYPT_REL_Y_07", "WYPT_REL_Y_08", "WYPT_REL_Y_09", "WYPT_REL_Y_10", "WYPT_REL_Y_11", "WYPT_REL_Y_12", "WYPT_REL_Y_13", "WYPT_REL_Y_14",
-      "WYPT_VX_00", "WYPT_VX_01", "WYPT_VX_02", "WYPT_VX_03", "WYPT_VX_04", "WYPT_VX_05", "WYPT_VX_06", "WYPT_VX_07", "WYPT_VX_08", "WYPT_VX_09", "WYPT_VX_10", "WYPT_VX_11", "WYPT_VX_12", "WYPT_VX_13", "WYPT_VX_14",
-      # 'v_y',
-      'angular_vel_z',
-      'linear_vel_x',
-      # 'slip_angle',
-      'steering_angle'
-    ]
-
-  # state_inputs: []
-  # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
-
-  setpoint_inputs: []
-  outputs: ["angular_control_calculated", "translational_control_calculated"] # "mu"
-
-  EPOCHS: 5
+  EPOCHS: 100
   BATCH_SIZE: 8
   SEED: 1873
   LR:
     INITIAL: 1.0e-3
     REDUCE_LR_ON_PLATEAU: True
-    ACTIVATED: True
-    DECREASE_FACTOR: 0.316 # Factor to reduce learning rate by (0.316 = sqrt(0.1))
-    PATIENCE: 1
     MINIMAL: 1.0e-5
+    PATIENCE: 1
+    DECREASE_FACTOR: 0.316 # Factor to reduce learning rate by (0.316 = sqrt(0.1))
     MIN_DELTA: 0.00
   LOSS_MODE: 'squared'  # 'squared', 'squared_with_clipping', 'absolute', 'absolute_with_clipping'
-  VALIDATE_ALSO_ON_TRAINING_SET: False
-
   WASH_OUT_LEN: 20
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True
-  SHIFT_LABELS: 4 # for k, as a label to row i is taken row i+k
-  USE_NNI: False # Decide if you want to use NNI package
-  CONSTRUCT_NETWORK: "with cells" # Matters only for Pytorch
-
-  REDUCE_LR_ON_PLATEAU:
-    ACTIVATED: True
-    FACTOR: 0.316 # Factor to reduce learning rate by (0.316 = sqrt(0.1))
-    PATIENCE: 1
-    MIN_LR: 1.0e-5
-    MIN_DELTA: 0.00
-
-  ### Lidar Data: from 0 to 1080 on 270 Degrees (4 ranges per degree). Example; scan exactly 180 Degrees by setting lower_bound=180 and upper_bound=900.
-  # Depending on number of Lidar points listed in state input, an even distribution of input scans between the two bounds is selected and fed to the network.
-  #ToDo instead of listing all Lidar Points, one just writes how many and the state input vector is generated automatically
-  upper_bound: 880
-  lower_bound: 200
+  SHIFT_LABELS: 0  # for k, as a label to row i is taken row i+k
+  USE_NNI: False  # Decide if you want to use NNI package
+  CONSTRUCT_NETWORK: 'with cells'  # Matters only for Pytorch; 'with cells' or 'with modules'
+  VALIDATE_ALSO_ON_TRAINING_SET: false
+  PLOT_WEIGHTS_DISTRIBUTION: false # CalculTFate histograms of weights and biases and activations, take long time
 
 CONFIG_SERIES_MODIFICATION:
   MODE: 'None' # 'None' 'train_for_random_vertical_angle_shift'
   NOISE_LEVEL:
-    FEATURES: 0
+    FEATURES: 0.0
 
-REGULARIZATION:
-  ACTIVATED: False
+REGULARIZATION:   # Implemented only for TF, no regularization for Pytorch
+  ACTIVATED: false
+  KERNEL:  # For all layers
+    l1: 0.01
+    l2: 0.01
+  BIAS:  # For all layers
+    l1: 0.01
+    l2: 0.01
+  ACTIVITY:  # Not for last layer, this has activity regularization set to 0
+    l1: 0.00
+    l2: 0.00
+  ACTIVITY_LAST: # Not for last layer, this has activity regularization set to 0
+    l1: 0.0
+    l2: 0.01
+
+
 QUANTIZATION: # Not implemented yet
-  ACTIVATED: False
+  ACTIVATED: false
+  QUANTIZATION_DATASET: 'ap_fixed<12,2>'  # 'float' or ap_fixed<x,y> # Corresponds to <bits, integer+1> of qkeras # This is input & output quantisation of the network
   ACTIVATION:
-    bits: 6
+    bits: 12
   KERNEL:
-    bits: 11
-    integer: 6
+    bits: 12
+    integer: 3
     symmetric: True
   BIAS:
-    bits: 11
-    integer: 6
+    bits: 12
+    integer: 3
     symmetric: True
   RECURRENT:
-    bits: 11
-    integer: 6
+    bits: 12
+    integer: 3
     symmetric: True
+
 PRUNING: # TF only for the moment
-  ACTIVATED: False
+  ACTIVATED: false
   PRUNING_PARAMS:
-    PRUNING_SCHEDULE: "CONSTANT_SPARSITY"
+    PRUNING_SCHEDULE: 'CONSTANT_SPARSITY'
   PRUNING_SCHEDULES:
     CONSTANT_SPARSITY:
       target_sparsity: 0.75
-      begin_step_in_epochs: 1.0 # fraction of epoch allowed
+      target_sparsity_last_layer: 0.0
+      begin_step_in_epochs: 1.0  # fraction of epoch allowed
       end_step_in_training_fraction: 1.0
       frequency_per_epoch: 100.0 # fraction of epoch allowed
     POLYNOMIAL_DECAY:
       initial_sparsity: 0.0
       final_sparsity: 0.75
-      begin_step_in_epochs: 1.0 # fraction of epoch allowed
+      final_sparsity_last_layer: 0.0
+      begin_step_in_epochs: 1.0  # fraction of epoch allowed
       end_step_in_training_fraction: 0.8
       power: 3.0
       frequency_per_epoch: 1000 # fraction of epoch allowed
