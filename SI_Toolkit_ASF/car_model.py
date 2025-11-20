@@ -103,6 +103,8 @@ class car_model:
 
         self.car_parameters = VehicleParameters(car_parameter_file)
     
+        # Convert all car parameters to tensors/variables for computation
+        self._convert_parameters_to_tensors()
 
         self.num_actions = self.lib.to_tensor(self.num_actions, self.lib.int32)
         self.num_states = self.lib.to_tensor(self.num_states, self.lib.int32)
@@ -147,6 +149,26 @@ class car_model:
         self._ks_step = _ks_step_factory(self.lib, self.car_parameters, self.t_step)
         self._pacejka_step = _pacejka_step_factory(self.lib, self.car_parameters, self.t_step)
 
+    def _convert_parameters_to_tensors(self):
+        """
+        Convert all numerical car parameters to tensors/variables for computation library compatibility.
+        This ensures parameters can be used in tensor operations (TensorFlow, PyTorch, etc.)
+        """
+        # Get all parameter names from the VehicleParameters class annotations
+        param_names = list(VehicleParameters.__annotations__.keys())
+        
+        for param_name in param_names:
+            param_value = getattr(self.car_parameters, param_name)
+            
+            # Convert scalar numeric values to variables (allows runtime updates)
+            if isinstance(param_value, (int, float)):
+                setattr(self.car_parameters, param_name, 
+                       self.lib.to_variable(param_value, self.lib.float32))
+            
+            # Convert lists to tensors (constant, not variable)
+            elif isinstance(param_value, list):
+                setattr(self.car_parameters, param_name, 
+                       self.lib.to_tensor(param_value, self.lib.float32))
 
     # region Various dynamical models for a car
 

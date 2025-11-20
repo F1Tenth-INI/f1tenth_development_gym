@@ -67,7 +67,7 @@ class RewardCalculator:
         s, d, e, k = waypoint_utils.frenet_coordinates
 
 
-        # Crash / Leave track penalty 
+        # Crash / Leave virtual track penalty 
         crash_penalty = 0
 
         wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
@@ -76,7 +76,8 @@ class RewardCalculator:
         if leave_bounds or crash:
             crash_penalty = -self.w_crash
             reward += crash_penalty
-            self.truncated = True
+            if Settings.TRUNCATE_ON_LEAVE_TRACK:
+                self.truncated = True
 
 
         # Progress along the raceline ( Frenet s coordinate ) [meters]
