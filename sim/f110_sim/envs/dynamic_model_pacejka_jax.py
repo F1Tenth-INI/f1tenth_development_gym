@@ -101,6 +101,15 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         # Compute lateral forces using Pacejka's formula
         Fy_f = mu * F_zf * D_f * jnp.sin(C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
         Fy_r = mu * F_zr * D_r * jnp.sin(C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
+
+
+        # Kinematic blending for low speeds
+        low_speed_threshold, high_speed_threshold = 0.5, 1.0
+        weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        weight = jnp.clip(weight, 0.0, 1.0)
+
+        Fy_f *= weight
+        Fy_r *= weight
         
         # # 3. Curve resistance (tire scrub during cornering)
         # # Additional rolling resistance due to lateral forces
@@ -126,10 +135,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         psi = psi + dt_sub * d_psi
         psi_dot = psi_dot + dt_sub * d_psi_dot
 
-        # Kinematic blending for low speeds
-        low_speed_threshold, high_speed_threshold = 0.5, 3.0
-        weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
-        weight = jnp.clip(weight, 0.0, 1.0)
+  
 
         # Simple kinematic model for low speeds
         l_wb = lf + lr  # Use correct wheelbase
