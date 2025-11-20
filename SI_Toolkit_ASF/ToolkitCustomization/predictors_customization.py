@@ -97,7 +97,9 @@ class predictor_output_augmentation:
 
         self.lib = lib
 
-        outputs_after_integration = [(x[2:] if x[:2] == 'D_' else x) for x in net_info.outputs]
+        import re
+        # Strip D_ prefix and time suffixes (e.g., _-1) from outputs
+        outputs_after_integration = np.array([re.sub(r'_-?\d+$', '', x[2:]) for x in net_info.outputs])
         self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
         indices_augmentation = []
         features_augmentation = []
