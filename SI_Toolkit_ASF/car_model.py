@@ -5,6 +5,7 @@ from utilities.car_files.vehicle_parameters import VehicleParameters
 from SI_Toolkit.computation_library import NumpyLibrary
 
 from utilities.state_utilities import *
+from SI_Toolkit_ASF.ToolkitCustomization.predictors_customization import CONTROL_INDICES
 
 
 def _ks_step_factory(lib, car_parameters, t_step):
@@ -214,9 +215,9 @@ class car_model:
         beta = s[:, self.SLIP_ANGLE_IDX]
         delta = s[:, self.STEERING_ANGLE_IDX]
 
-        # Use indexing instead of unstack to handle Q with variable dimensions (2 or 3 when mu is included)
-        delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]
-        v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]
+        # Q here has already been processed by pid() and has 2 columns: [delta_dot, v_x_dot]
+        delta_dot = Q[:, 0]
+        v_x_dot = Q[:, 1]
 
         final_counter, *final_state = self.lib.loop(
             # ─── wrapper body_fn ──────────────────────────────────────────
@@ -280,8 +281,10 @@ class car_model:
         v_y = s[:, self.LINEAR_VEL_Y_IDX]  # Lateral velocity    
         psi = s[:,self.POSE_THETA_IDX]  # Yaw Angle
         psi_dot = s[:, self.ANGULAR_VEL_Z_IDX]  # Yaw Rate
-        delta_dot = Q[:, self.ANGULAR_CONTROL_IDX]  # steering angle velocity of front wheels
-        v_x_dot = Q[:, self.TRANSLATIONAL_CONTROL_IDX]  # longitudinal acceleration
+        
+        # Q here has already been processed by pid() and has 2 columns: [delta_dot, v_x_dot]
+        delta_dot = Q[:, 0]
+        v_x_dot = Q[:, 1]
 
         # compile-aware loop as above
         final_counter, *final_state = self.lib.loop(
@@ -491,9 +494,14 @@ class car_model:
     def pid(self, s, Q):
 
         # Control Input (desired speed, desired steering angle)
-        # Use indexing instead of unstack to handle Q with variable dimensions (2 or 3 when mu is included)
-        desired_angle = Q[:, self.ANGULAR_CONTROL_IDX]
-        translational_control = Q[:, self.TRANSLATIONAL_CONTROL_IDX]
+        # Use named indices from CONTROL_INDICES for clarity and maintainability
+        desired_angle = Q[:, CONTROL_INDICES['angular_control']]
+        translational_control = Q[:, CONTROL_INDICES['translational_control']]
+        
+        # Update friction coefficient if mu is present
+        if 'mu' in CONTROL_INDICES:
+            mu_from_Q = Q[:, CONTROL_INDICES['mu']]
+            self.lib.assign(self.car_parameters.mu, mu_from_Q[0])
 
         delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
         vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity

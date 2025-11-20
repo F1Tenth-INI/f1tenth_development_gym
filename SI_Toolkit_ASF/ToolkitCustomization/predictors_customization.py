@@ -32,6 +32,9 @@ CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
 CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
 CONTROL_INPUTS_LEN = len(CONTROL_INPUTS_FOR_PREDICTOR)
 
+# Create indices dictionary for control inputs (similar to STATE_INDICES)
+CONTROL_INDICES = {x: np.where(CONTROL_INPUTS_FOR_PREDICTOR == x)[0][0] for x in CONTROL_INPUTS_FOR_PREDICTOR}
+
 class next_state_predictor_ODE():
 
     def __init__(self,
