@@ -49,7 +49,7 @@ if Settings.FORGE_HISTORY: # will import TF
 
 class CarSystem:
     
-    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}):
+    def __init__(self, controller=None, save_recording = None, recorder_dict={}):
 
         self.time = 0.0
         self.time_increment = Settings.TIMESTEP_CONTROL
@@ -57,7 +57,7 @@ class CarSystem:
         # Settings
         self.plot_lidar_data = False
         self.draw_lidar_data = True
-        self.save_recordings = save_recording
+        self.save_recordings = save_recording if save_recording is not None else Settings.SAVE_RECORDINGS
         self.lidar_visualization_color = (255, 0, 255)
         self.lidar_utils = LidarHelper()
         self.laptimes = []
@@ -180,8 +180,10 @@ class CarSystem:
         # self.init_recorder_and_start(recorder_dict=recorder_dict)
         self.init_recorder(recorder_dict=recorder_dict)
         
-        if(not Settings.ROS_BRIDGE):
-            self.start_recorder()
+        # Note: Recorder is started explicitly in run_simulation.py init_drivers() after full initialization
+        # Premature start here can cause recording to fail if data dependencies aren't ready yet
+        # if(not Settings.ROS_BRIDGE):
+        #     self.start_recorder()
 
     def reset(self):
         self.car_state = None
@@ -561,11 +563,9 @@ class CarSystem:
 
     def start_recorder(self):
         if self.recorder is not None:
-            # print(f"Starting recorder for {self.controller_name}")
             self.recorder.start_csv_recording()
         else:
             pass
-            # print("No recorder to start - recorder is None")
 
     
     def add_control_noise(self, control):

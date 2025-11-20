@@ -54,7 +54,7 @@ class Recorder:
         return self.data_manager.starting_recording
 
     def start_csv_recording(self, time_limited_recording=False):
-        if self.recording_started:
+        if self.recording_started and (self.recording_running or self.starting_recording):
             return
         
         self.recording_started = True
