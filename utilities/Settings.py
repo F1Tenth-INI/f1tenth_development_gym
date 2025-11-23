@@ -169,18 +169,21 @@ class Settings():
     ### Other Settings ###
     ROS_BRIDGE = False # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
-    DISABLE_GPU = True # Disable GPU usage for TF
+    DISABLE_GPU = False #True # Disable GPU usage for TF
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
-    SAC_WP_OFFSET_WEIGHT = 0.4
-    SAC_WP_HEADING_ERROR_WEIGHT = 0.5
+
+    SAC_WP_OFFSET_WEIGHT = 0.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 0.0
     SAC_REWARD_WEIGHT = 3.0
-    SAC_PRIORITY_FACTOR = 0.4
-    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.2
+    SAC_SPEED_WEIGHT = 1.0
+
+    SAC_PRIORITY_FACTOR = 0.0
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.0
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

@@ -60,14 +60,16 @@ class CustomReplayBuffer(ReplayBuffer):
         d = obs[-2]
         e = obs[-1]
         rew = self.rewards[idx, 0] + 1
+
+        #velx = obs[0] and vely = obs[1]
+        vel = np.sqrt(obs[0]**2 + obs[1]**2)
+        vel = (1/(1-e)) * vel #we only care about speed into the right direction
         # print(rew)
 
-        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew
+        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.reward_weight * vel
         w = np.clip(w, 1e-6, 1e3)
 
         self.sample_weights[idx] = w
-        
-
         return
 
     def sample(self, safe_batch_size: int, env=None):
@@ -99,6 +101,7 @@ class CustomReplayBuffer(ReplayBuffer):
 
         length = len(possible_inds)
         uniform_p = np.ones(length) / length
+        
         p = self.alpha * w_vec + (1.0 - self.alpha) * uniform_p
 
         # Safety normalization
@@ -142,7 +145,7 @@ class CustomReplayBuffer(ReplayBuffer):
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
         )
         return WeightedReplayBufferSamples(*tuple(map(self.to_torch, data)), 
-                                           is_weights = torch.as_tensor(self.batch_is_correctors))
+                                           is_weights = self.to_torch(self.batch_is_correctors))
     
 class WeightedReplayBufferSamples(NamedTuple):
     observations: torch.Tensor
