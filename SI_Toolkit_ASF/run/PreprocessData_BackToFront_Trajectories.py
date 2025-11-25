@@ -37,11 +37,6 @@ dataset_sampling_dt = 0.02  # Sampling time step (seconds)
 verbose = False  # Set to True for detailed diagnostic output
 max_batch_size = 512  # Fixed batch size for predictor reuse (increase if you have larger datasets)
 
-# Mu randomization (optional)
-randomize_mu = True  # Set to True to replace mu with random values for each trajectory
-mu_range = (0.3, 1.1)  # Range for random mu sampling (min, max)
-random_seed = 1  # Random seed for reproducibility (None = use file name hash)
-
 # =============================================================================
 # COMMAND LINE ARGUMENTS (optional)
 # =============================================================================
