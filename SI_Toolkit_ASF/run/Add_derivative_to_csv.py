@@ -14,4 +14,5 @@ variables_for_derivative = ['pose_x',
 derivative_algorithm = "single_difference"
 
 transform_dataset(get_files_from, save_files_to, transformation='append_derivatives',
+                  split_by_column='experiment_index',
                   variables_for_derivative=variables_for_derivative, derivative_algorithm=derivative_algorithm)
