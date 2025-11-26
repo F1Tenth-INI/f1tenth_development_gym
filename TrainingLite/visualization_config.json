@@ -1,0 +1,8 @@
+{
+  "csv_file_path": "/Users/Florian/Documents/INI/F1TENTH/f1tenth_development_gym/TrainingLite/dynamic_residual_jax/training_data/2025-10-10_02-08-52_Recording1_0_IPZ8_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None__training_data.csv",
+  "start_index": 1000,
+  "end_index": 1500,
+  "horizon_steps": 50,
+  "steering_delay_steps": 0,
+  "acceleration_delay_steps": 0
+}

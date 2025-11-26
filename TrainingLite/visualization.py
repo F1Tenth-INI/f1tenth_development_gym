@@ -19,6 +19,7 @@ Date: August 13, 2025
 
 import os
 import sys
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -74,9 +75,13 @@ class StateComparisonVisualizer:
         
         # Data storage
         self.data = None
+        self.csv_file_path = None  # Store the path to the loaded CSV file
         self.time_column = 'time'
         self.state_columns = list(STATE_VARIABLES)
         self.control_columns = [STEERING_CONTROL_COLUMN, ACCELERATION_CONTROL_COLUMN]
+        
+        # Config file path
+        self.config_file_path = os.path.join(os.path.dirname(__file__), 'visualization_config.json')
         
         # Visualization parameters
         self.start_index = 0
@@ -112,6 +117,9 @@ class StateComparisonVisualizer:
         self.state_indices = STATE_INDICES
         
         self.setup_ui()
+        
+        # Load config file if it exists
+        self.load_config()
         
         # Bind keyboard shortcuts
         self.root.bind('<Command-s>', lambda event: self.save_plot())
@@ -209,8 +217,64 @@ class StateComparisonVisualizer:
         if self.slider_update_timer is not None:
             self.root.after_cancel(self.slider_update_timer)
         
+        # Save config before closing
+        self.save_config()
+        
         # Close the window
         self.root.destroy()
+    
+    def load_config(self):
+        """Load configuration from JSON file."""
+        if not os.path.exists(self.config_file_path):
+            return
+        try:
+            with open(self.config_file_path, 'r') as f:
+                config = json.load(f)
+            
+            # Load CSV file
+            csv_path = config.get('csv_file_path', '')
+            if csv_path and os.path.exists(csv_path):
+                self.data = pd.read_csv(csv_path, comment='#')
+                self.csv_file_path = csv_path
+                self.file_label.config(text=f"Loaded: {os.path.basename(csv_path)}")
+                available_states = [col for col in self.state_columns if col in self.data.columns]
+                self.state_combo['values'] = available_states
+                if available_states:
+                    self.state_var.set(available_states[0])
+            
+            # Load settings
+            self.start_index = config.get('start_index', 0)
+            self.end_index = config.get('end_index', None)
+            self.start_index_var.set(str(self.start_index))
+            self.end_index_var.set(str(self.end_index) if self.end_index is not None else "")
+            self.horizon_var.set(str(config.get('horizon_steps', 50)))
+            self.steering_delay_var.set(str(config.get('steering_delay_steps', 2)))
+            self.acceleration_delay_var.set(str(config.get('acceleration_delay_steps', 2)))
+            
+            if self.data is not None and hasattr(self, 'comparison_slider'):
+                self.update_comparison_slider_range()
+                self.plot_state()
+        except Exception as e:
+            print(f"Could not load config: {e}")
+    
+    def save_config(self):
+        """Save current configuration to JSON file."""
+        try:
+            def safe_int(var, default):
+                val = var.get().strip()
+                return int(val) if val and val.isdigit() else default
+            
+            with open(self.config_file_path, 'w') as f:
+                json.dump({
+                    'csv_file_path': self.csv_file_path or '',
+                    'start_index': self.start_index,
+                    'end_index': self.end_index,
+                    'horizon_steps': safe_int(self.horizon_var, 50),
+                    'steering_delay_steps': safe_int(self.steering_delay_var, 2),
+                    'acceleration_delay_steps': safe_int(self.acceleration_delay_var, 2),
+                }, f, indent=2)
+        except Exception as e:
+            print(f"Could not save config: {e}")
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -435,6 +499,7 @@ class StateComparisonVisualizer:
             try:
                 # Read CSV, skipping comment lines
                 self.data = pd.read_csv(file_path, comment='#')
+                self.csv_file_path = file_path  # Store the file path
                 
                 # Update file label
                 filename = os.path.basename(file_path)
@@ -459,6 +524,9 @@ class StateComparisonVisualizer:
                     
                 # Plot initial state
                 self.plot_state()
+                
+                # Save config after loading CSV
+                self.save_config()
                 
                 messagebox.showinfo("Success", 
                                   f"Loaded {len(self.data)} data points from {filename}")
@@ -604,6 +672,8 @@ class StateComparisonVisualizer:
         """Handle horizon value change."""
         # Update comparison slider range when horizon changes
         self.update_comparison_slider_range()
+        # Save config after horizon changes
+        self.save_config()
     
     def on_steering_delay_changed(self, event=None):
         """Handle steering delay value change."""
@@ -614,13 +684,17 @@ class StateComparisonVisualizer:
                 if delay_val < 0:
                     messagebox.showwarning("Warning", "Steering delay should be non-negative (>= 0)")
                     self.steering_delay_var.set("0")
+                    self.save_config()
                     return
                 elif delay_val > 100:  # Reasonable upper limit
                     messagebox.showwarning("Warning", "Steering delay seems very large. Are you sure?")
+                # Save config after valid delay change
+                self.save_config()
         except ValueError:
             if self.steering_delay_var.get().strip():  # Only show error for non-empty invalid input
                 messagebox.showerror("Error", "Steering delay must be a non-negative integer")
                 self.steering_delay_var.set("0")
+                self.save_config()
                 return
     
     def on_acceleration_delay_changed(self, event=None):
@@ -632,13 +706,17 @@ class StateComparisonVisualizer:
                 if delay_val < 0:
                     messagebox.showwarning("Warning", "Acceleration delay should be non-negative (>= 0)")
                     self.acceleration_delay_var.set("0")
+                    self.save_config()
                     return
                 elif delay_val > 100:  # Reasonable upper limit
                     messagebox.showwarning("Warning", "Acceleration delay seems very large. Are you sure?")
+                # Save config after valid delay change
+                self.save_config()
         except ValueError:
             if self.acceleration_delay_var.get().strip():  # Only show error for non-empty invalid input
                 messagebox.showerror("Error", "Acceleration delay must be a non-negative integer")
                 self.acceleration_delay_var.set("0")
+                self.save_config()
                 return
         
         # Clear existing comparison data when control delay changes
@@ -952,6 +1030,9 @@ class StateComparisonVisualizer:
             
             # Update comparison slider range based on current data range and horizon
             self.update_comparison_slider_range()
+            
+            # Save config after updating data range
+            self.save_config()
             
             self.plot_state()
             
@@ -1556,37 +1637,45 @@ class StateComparisonVisualizer:
         
     def run(self):
         """Start the application."""
-        # Set specific recording file to auto-load
-        default_csv = os.path.join(os.path.dirname(__file__), '..', 'ExperimentRecordings', 
-                                  '2025-09-15_04-49-49_Recording1_0_IPZ7_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv')
-        if os.path.exists(default_csv):
-            # Auto-load specific recording file
-            try:
-                self.data = pd.read_csv(default_csv, comment='#')
-                filename = os.path.basename(default_csv)
-                self.file_label.config(text=f"Loaded: {filename} (auto)")
-                
-                # Set up initial state
-                available_states = [col for col in self.state_columns if col in self.data.columns]
-                self.state_combo['values'] = available_states
-                if available_states:
-                    self.state_var.set(available_states[1])  # Start with linear_vel_x
+        # Only auto-load if no CSV was loaded from config
+        if self.data is None:
+            # Set specific recording file to auto-load
+            default_csv = os.path.join(os.path.dirname(__file__), '..', 'ExperimentRecordings', 
+                                      '2025-09-15_04-49-49_Recording1_0_IPZ7_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv')
+            if os.path.exists(default_csv):
+                # Auto-load specific recording file
+                try:
+                    self.data = pd.read_csv(default_csv, comment='#')
+                    self.csv_file_path = default_csv  # Store the file path
+                    filename = os.path.basename(default_csv)
+                    self.file_label.config(text=f"Loaded: {filename} (auto)")
                     
-                # Set default model options
-                self.model_var.set(list(self.available_models.values())[0])
-                self.params_var.set(list(self.available_car_params.values())[0])
-                
-                # Initialize data range with default values
-                self.start_index = 0
-                self.end_index = min(500, len(self.data))  # Default range 0-500
-                
-                # Update comparison slider range
-                if hasattr(self, 'comparison_slider'):
-                    self.update_comparison_slider_range()
-                
-                self.plot_state()
-            except Exception as e:
-                print(f"Could not auto-load specific recording CSV: {e}")
+                    # Set up initial state
+                    available_states = [col for col in self.state_columns if col in self.data.columns]
+                    self.state_combo['values'] = available_states
+                    if available_states:
+                        self.state_var.set(available_states[1])  # Start with linear_vel_x
+                        
+                    # Set default model options
+                    self.model_var.set(list(self.available_models.values())[0])
+                    self.params_var.set(list(self.available_car_params.values())[0])
+                    
+                    # Initialize data range with default values
+                    self.start_index = 0
+                    self.end_index = min(500, len(self.data))  # Default range 0-500
+                    self.start_index_var.set("0")
+                    self.end_index_var.set(str(self.end_index))
+                    
+                    # Update comparison slider range
+                    if hasattr(self, 'comparison_slider'):
+                        self.update_comparison_slider_range()
+                    
+                    # Save config after auto-loading
+                    self.save_config()
+                    
+                    self.plot_state()
+                except Exception as e:
+                    print(f"Could not auto-load specific recording CSV: {e}")
                 
         self.root.mainloop()
 
