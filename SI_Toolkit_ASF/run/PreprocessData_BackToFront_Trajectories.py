@@ -37,6 +37,11 @@ dataset_sampling_dt = 0.02  # Sampling time step (seconds)
 verbose = False  # Set to True for detailed diagnostic output
 max_batch_size = 512  # Fixed batch size for predictor reuse (increase if you have larger datasets)
 
+# Control parameter randomization (optional)
+randomize_param = 'mu'  # Name of control parameter to randomize (e.g., 'mu'). Set to None to disable
+param_range = (0.3, 1.1)  # Range for random parameter sampling (min, max)
+random_seed = 1  # Random seed for reproducibility (None = use file name hash)
+
 # =============================================================================
 # COMMAND LINE ARGUMENTS (optional)
 # =============================================================================
@@ -104,10 +109,10 @@ if __name__ == '__main__':
     print(f"Forward predictor: {forward_predictor_specification}")
     print(f"Horizon: {test_horizon}")
     print(f"Max batch size: {max_batch_size}")
-    if randomize_mu:
-        print(f"Mu randomization: ENABLED (range: {mu_range})")
+    if randomize_param is not None:
+        print(f"Parameter randomization: '{randomize_param}' (range: {param_range})")
     else:
-        print(f"Mu randomization: DISABLED")
+        print(f"Parameter randomization: DISABLED")
     print("="*80)
     
     # Create predictors once for reuse across all files
@@ -135,8 +140,8 @@ if __name__ == '__main__':
         max_batch_size=max_batch_size,
         predictor=backward_predictor,
         forward_predictor=forward_predictor,
-        randomize_mu=randomize_mu,
-        mu_range=mu_range,
+        randomize_param=randomize_param,
+        param_range=param_range,
         random_seed=random_seed,
     )
     
