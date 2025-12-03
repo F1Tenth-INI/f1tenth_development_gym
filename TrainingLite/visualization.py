@@ -293,8 +293,21 @@ class StateComparisonVisualizer:
         
     def setup_control_panel(self, parent):
         """Setup the control panel with file loading and options."""
+        # Collapse button for all control panels - make it smaller
+        collapse_button_frame = ttk.Frame(parent)
+        collapse_button_frame.pack(side=tk.LEFT, fill=tk.Y, padx=2)
+        
+        self.control_panels_collapsed = tk.BooleanVar(value=False)
+        self.collapse_all_button = ttk.Button(collapse_button_frame, text="▼", width=2,
+                                              command=self.toggle_all_control_panels)
+        self.collapse_all_button.pack(pady=2)
+        
+        # Container frame for all control panels - this is what we'll hide/show
+        self.control_panels_container = ttk.Frame(parent)
+        self.control_panels_container.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        
         # File loading section
-        file_frame = ttk.LabelFrame(parent, text="Data Loading")
+        file_frame = ttk.LabelFrame(self.control_panels_container, text="Data Loading")
         file_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         ttk.Button(file_frame, text="Load CSV File", 
@@ -319,7 +332,7 @@ class StateComparisonVisualizer:
                   command=self.update_data_range, style='Large.TButton').pack(pady=2)
         
         # State selection
-        state_frame = ttk.LabelFrame(parent, text="State Selection")
+        state_frame = ttk.LabelFrame(self.control_panels_container, text="State Selection")
         state_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         ttk.Label(state_frame, text="Select State:", style='Bold.TLabel').pack()
@@ -335,8 +348,13 @@ class StateComparisonVisualizer:
                        variable=self.show_controls,
                        command=self.on_show_controls_toggled, style='Large.TCheckbutton').pack(pady=2)
         
+        self.show_delta_state = tk.BooleanVar(value=False)
+        ttk.Checkbutton(state_frame, text="Show Delta State Plot",
+                       variable=self.show_delta_state,
+                       command=self.on_show_delta_state_toggled, style='Large.TCheckbutton').pack(pady=2)
+        
         # Model Comparison options
-        comparison_frame = ttk.LabelFrame(parent, text="Model Comparison")
+        comparison_frame = ttk.LabelFrame(self.control_panels_container, text="Model Comparison")
         comparison_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         self.enable_comparison = tk.BooleanVar(value=True)  # Default enabled
@@ -368,7 +386,7 @@ class StateComparisonVisualizer:
         horizon_entry.bind('<KeyRelease>', self.on_horizon_changed)
         
         # Settings frame
-        settings_frame = ttk.LabelFrame(parent, text="Settings")
+        settings_frame = ttk.LabelFrame(self.control_panels_container, text="Settings")
         settings_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         ttk.Label(settings_frame, text="Steering Delay Steps:", style='Bold.TLabel').pack()
@@ -403,7 +421,7 @@ class StateComparisonVisualizer:
                        command=self.on_show_all_comparisons_toggled, style='Large.TCheckbutton').pack(pady=2)
         
         # Metrics display section
-        metrics_frame = ttk.LabelFrame(parent, text="Error Metrics")
+        metrics_frame = ttk.LabelFrame(self.control_panels_container, text="Error Metrics")
         metrics_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
         # Create labels for metrics display with larger fonts
@@ -430,6 +448,19 @@ class StateComparisonVisualizer:
                                       state='readonly', width=8, style='Large.TCombobox')
         font_size_combo.pack(anchor='w', pady=2)
         font_size_combo.bind('<<ComboboxSelected>>', self.on_font_size_changed)
+    
+    def toggle_all_control_panels(self):
+        """Toggle the collapse state of all control panel frames."""
+        if self.control_panels_collapsed.get():
+            # Expand: show all control panels
+            self.control_panels_container.pack(side=tk.LEFT, fill=tk.Y, padx=5)
+            self.collapse_all_button.config(text="▼")
+            self.control_panels_collapsed.set(False)
+        else:
+            # Collapse: hide all control panels
+            self.control_panels_container.pack_forget()
+            self.collapse_all_button.config(text="▶")
+            self.control_panels_collapsed.set(True)
         
     def setup_plot_area(self, parent):
         """Setup the plotting area."""
@@ -460,6 +491,7 @@ class StateComparisonVisualizer:
             # Initially create just the main plot (single subplot)
             self.ax = self.fig.add_subplot(111)  # Full-size single plot
             self.ax_controls = None  # Will be created when needed
+            self.ax_delta = None  # Will be created when needed
             
             # Adjust layout
             self.fig.tight_layout(pad=2.0)
@@ -539,43 +571,67 @@ class StateComparisonVisualizer:
         """Handle state selection change."""
         self.plot_state()
         
+    def _update_plot_layout(self):
+        """Update the plot layout based on which plots are enabled."""
+        if self.fig is None or self.canvas is None:
+            return
+        
+        # Store current axis limits to preserve zoom/pan state
+        xlim = self.ax.get_xlim() if self.ax is not None else None
+        ylim = self.ax.get_ylim() if self.ax is not None else None
+        
+        # Clear the entire figure
+        self.fig.clear()
+        
+        show_controls = self.show_controls.get()
+        show_delta = self.show_delta_state.get()
+        
+        if show_controls and show_delta:
+            # Three plots: main, delta, controls
+            self.ax = self.fig.add_subplot(311)
+            self.ax_delta = self.fig.add_subplot(312, sharex=self.ax)
+            self.ax_controls = self.fig.add_subplot(313, sharex=self.ax)
+        elif show_controls:
+            # Two plots: main, controls
+            self.ax = self.fig.add_subplot(211)
+            self.ax_controls = self.fig.add_subplot(212, sharex=self.ax)
+            self.ax_delta = None
+        elif show_delta:
+            # Two plots: main, delta
+            self.ax = self.fig.add_subplot(211)
+            self.ax_delta = self.fig.add_subplot(212, sharex=self.ax)
+            self.ax_controls = None
+        else:
+            # Single plot: main only
+            self.ax = self.fig.add_subplot(111)
+            self.ax_controls = None
+            self.ax_delta = None
+        
+        # Restore axis limits if they existed
+        if xlim is not None and self.ax is not None:
+            self.ax.set_xlim(xlim)
+        if ylim is not None and self.ax is not None:
+            self.ax.set_ylim(ylim)
+        
+        # Reconnect navigation events to new axes
+        if hasattr(self, 'fig') and self.fig.canvas is not None:
+            self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+            self.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
+            self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+            self.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
+        
+        # Adjust layout and redraw
+        self.fig.tight_layout(pad=2.0)
+        self.canvas.draw()
+    
     def on_show_controls_toggled(self):
         """Handle show controls checkbox toggle."""
-        if self.fig is not None and self.canvas is not None:
-            # Store current axis limits to preserve zoom/pan state
-            xlim = self.ax.get_xlim() if self.ax is not None else None
-            ylim = self.ax.get_ylim() if self.ax is not None else None
-            
-            # Clear the entire figure
-            self.fig.clear()
-            
-            if self.show_controls.get():
-                # Create subplot layout (main + control)
-                self.ax = self.fig.add_subplot(211)  # Main plot (top)
-                self.ax_controls = self.fig.add_subplot(212, sharex=self.ax)  # Control plot (bottom)
-            else:
-                # Create single plot layout (main only)
-                self.ax = self.fig.add_subplot(111)  # Full-size single plot
-                self.ax_controls = None
-            
-            # Restore axis limits if they existed
-            if xlim is not None and self.ax is not None:
-                self.ax.set_xlim(xlim)
-            if ylim is not None and self.ax is not None:
-                self.ax.set_ylim(ylim)
-            
-            # Reconnect navigation events to new axes
-            if hasattr(self, 'fig') and self.fig.canvas is not None:
-                self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
-                self.fig.canvas.mpl_connect('button_press_event', self.on_button_press)
-                self.fig.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
-                self.fig.canvas.mpl_connect('button_release_event', self.on_button_release)
-            
-            # Adjust layout and redraw
-            self.fig.tight_layout(pad=2.0)
-            self.canvas.draw()
-            
-        # Replot the data with the new layout
+        self._update_plot_layout()
+        self.plot_state()
+    
+    def on_show_delta_state_toggled(self):
+        """Handle show delta state checkbox toggle."""
+        self._update_plot_layout()
         self.plot_state()
         
     def on_show_all_comparisons_toggled(self):
@@ -870,6 +926,11 @@ class StateComparisonVisualizer:
         else:
             self.ax.set_xlim(start_idx, end_idx - 1)
         
+        # Plot delta state if enabled
+        if (hasattr(self, 'ax_delta') and self.ax_delta is not None and 
+            self.show_delta_state.get()):
+            self.plot_delta_state(start_idx, end_idx, time_data, selected_state)
+        
         # Plot controls if enabled
         if (hasattr(self, 'ax_controls') and self.ax_controls is not None and 
             self.show_controls.get()):
@@ -907,24 +968,175 @@ class StateComparisonVisualizer:
                 alpha_base = 0.4
             cmap = None
             
+        # Convert time_data to numpy array if it's a pandas Series
+        if hasattr(time_data, 'iloc'):
+            time_data = time_data.values
+        elif hasattr(time_data, 'to_numpy'):
+            time_data = time_data.to_numpy()
+        time_data = np.asarray(time_data)
+        
         # Plot prediction as segments with gradient
-        for i in range(len(prediction_data) - 1):
-            # Calculate color based on position in horizon (0 to 1)
-            color_position = i / max(1, len(prediction_data) - 1)
+        if len(prediction_data) == 1:
+            # Special case: horizon=1, plot single point
+            if cmap is not None:
+                color = cmap(0.0)
+            else:
+                color = start_color
+            alpha = alpha_base
+            self.ax.plot(time_data[0], prediction_data[0], 
+                       'o', color=color, markersize=3, alpha=alpha,
+                       label=label)
+        else:
+            # Normal case: plot segments with gradient
+            for i in range(len(prediction_data) - 1):
+                # Calculate color based on position in horizon (0 to 1)
+                color_position = i / max(1, len(prediction_data) - 1)
+                
+                if cmap is not None:
+                    color = cmap(color_position)
+                else:
+                    # Simple interpolation fallback
+                    color = start_color * (1 - color_position) + end_color * color_position
+                    
+                # Calculate alpha that decreases over horizon
+                alpha = alpha_base * (1.0 - 0.3 * color_position)  # Fade from full alpha to 70% alpha
+                
+                # Plot segment as dots
+                self.ax.plot(time_data[i:i+2], prediction_data[i:i+2], 
+                           'o', color=color, markersize=3, alpha=alpha,
+                           label=label if i == 0 else None)
+    
+    def plot_delta_state(self, start_idx, end_idx, time_data, selected_state):
+        """Plot delta (difference between consecutive states) for ground truth and predictions."""
+        if self.ax_delta is None or self.data is None:
+            return
+        
+        self.ax_delta.clear()
+        
+        # Check if we have a pre-computed delta column
+        delta_col = f'delta_state_{selected_state}'
+        if delta_col in self.data.columns:
+            # Use pre-computed delta column
+            delta_gt = self.data[delta_col].iloc[start_idx:end_idx-1].values
+            delta_time = time_data.iloc[:-1].values if hasattr(time_data, 'iloc') else time_data[:-1]
+        else:
+            # Calculate delta for ground truth: delta[i] = state[i+1] - state[i]
+            state_data = self.data[selected_state].iloc[start_idx:end_idx].values
+            if len(state_data) > 1:
+                if selected_state == 'pose_theta':
+                    # Handle angular wrap-around for pose_theta (radians)
+                    delta_raw = np.diff(state_data)
+                    delta_gt = np.arctan2(np.sin(delta_raw), np.cos(delta_raw))
+                else:
+                    delta_gt = np.diff(state_data)
+                delta_time = time_data.iloc[:-1].values if hasattr(time_data, 'iloc') else time_data[:-1]
+            else:
+                delta_gt = np.array([])
+                delta_time = np.array([])
+        
+        if len(delta_gt) > 0:
+            self.ax_delta.plot(delta_time, delta_gt, 'k-', label='Ground Truth Delta', linewidth=2)
+        
+        # Plot delta for predictions if comparison is enabled
+        if self.enable_comparison.get() and hasattr(self, 'comparison_data_dict') and self.comparison_data_dict:
+            # Get comparison indices to plot
+            if hasattr(self, 'show_all_comparisons') and self.show_all_comparisons.get():
+                comp_indices = [(idx, data) for idx, data in self.comparison_data_dict.items() 
+                               if start_idx <= idx < end_idx and selected_state in data]
+            else:
+                comp_start_idx = self.comparison_start_var.get() if hasattr(self, 'comparison_start_var') else 0
+                if comp_start_idx in self.comparison_data_dict and selected_state in self.comparison_data_dict[comp_start_idx]:
+                    comp_indices = [(comp_start_idx, self.comparison_data_dict[comp_start_idx])]
+                else:
+                    comp_indices = []
+            
+            # Plot each comparison
+            for comp_count, (comp_start_idx, comparison_data) in enumerate(comp_indices):
+                prediction = np.array(comparison_data[selected_state])
+                if len(prediction) > 1:
+                    # Handle angular wrap-around for pose_theta (radians)
+                    if selected_state == 'pose_theta':
+                        delta_raw = np.diff(prediction)
+                        delta_pred = np.arctan2(np.sin(delta_raw), np.cos(delta_raw))
+                    else:
+                        delta_pred = np.diff(prediction)
+                    horizon = len(prediction)
+                    
+                    # Generate time data
+                    if self.time_column in self.data.columns:
+                        if comp_start_idx + horizon <= len(self.data):
+                            comp_time = self.data[self.time_column].iloc[comp_start_idx:comp_start_idx + horizon]
+                        else:
+                            available_time = self.data[self.time_column].iloc[comp_start_idx:]
+                            dt = self.get_timestep()
+                            missing_steps = horizon - len(available_time)
+                            if len(available_time) > 0:
+                                last_time = available_time.iloc[-1]
+                                extra_time = np.arange(1, missing_steps + 1) * dt + last_time
+                                comp_time = np.concatenate([available_time.to_numpy(), extra_time])
+                            else:
+                                comp_time = np.arange(comp_start_idx, comp_start_idx + horizon) * dt
+                    else:
+                        dt = self.get_timestep()
+                        comp_time = np.arange(comp_start_idx, comp_start_idx + horizon) * dt
+                    
+                    # Time for delta (one less point)
+                    delta_pred_time = comp_time.iloc[:-1].values if hasattr(comp_time, 'iloc') else comp_time[:-1]
+                    
+                    # Plot with gradient
+                    label = 'Model Prediction Delta (Full Horizon)' if comp_count == 0 and len(comp_indices) > 1 else 'Model Prediction Delta'
+                    self.plot_delta_prediction_with_gradient(delta_pred_time, delta_pred, comp_count, len(delta_pred), label if comp_count == 0 else None)
+        
+        self.ax_delta.set_xlabel('Time (s)' if self.time_column in self.data.columns else 'Step')
+        self.ax_delta.set_ylabel(f'Δ {selected_state.replace("_", " ").title()}')
+        self.ax_delta.set_title(f'Delta State: {selected_state}')
+        self.ax_delta.legend()
+        self.ax_delta.grid(True, alpha=0.3)
+        
+        # Set x-axis limits to match main plot
+        if self.time_column in self.data.columns:
+            x_min = self.data[self.time_column].iloc[start_idx]
+            x_max = self.data[self.time_column].iloc[end_idx - 1] if end_idx <= len(self.data) else self.data[self.time_column].iloc[-1]
+            self.ax_delta.set_xlim(x_min, x_max)
+        else:
+            self.ax_delta.set_xlim(start_idx, end_idx - 1)
+    
+    def plot_delta_prediction_with_gradient(self, time_data, delta_data, trajectory_index, horizon, label=None):
+        """Plot delta prediction with color gradient over horizon."""
+        if self.ax_delta is None:
+            return
+        
+        try:
+            from matplotlib.colors import LinearSegmentedColormap
+            colors = ["#5200F5", "#FF00BF", "#FF0000"]
+            alpha_base = 0.4
+            cmap = LinearSegmentedColormap.from_list("gradient", colors, N=100)
+        except ImportError:
+            if trajectory_index == 0:
+                start_color = np.array([1.0, 0.4, 0.4])
+                end_color = np.array([0.5, 0.0, 0.0])
+                alpha_base = 0.8
+            else:
+                start_color = np.array([1.0, 0.6, 0.0])
+                end_color = np.array([0.5, 0.3, 0.1])
+                alpha_base = 0.4
+            cmap = None
+        
+        # Plot delta as segments with gradient
+        for i in range(len(delta_data) - 1):
+            color_position = i / max(1, len(delta_data) - 1)
             
             if cmap is not None:
                 color = cmap(color_position)
             else:
-                # Simple interpolation fallback
                 color = start_color * (1 - color_position) + end_color * color_position
-                
-            # Calculate alpha that decreases over horizon
-            alpha = alpha_base * (1.0 - 0.3 * color_position)  # Fade from full alpha to 70% alpha
+            
+            alpha = alpha_base * (1.0 - 0.3 * color_position)
             
             # Plot segment as dots
-            self.ax.plot(time_data[i:i+2], prediction_data[i:i+2], 
-                       'o', color=color, markersize=3, alpha=alpha,
-                       label=label if i == 0 else None)
+            self.ax_delta.plot(time_data[i:i+2], delta_data[i:i+2], 
+                             'o', color=color, markersize=3, alpha=alpha,
+                             label=label if i == 0 else None)
         
     def plot_controls(self, start_idx, end_idx, time_data):
         """Plot control inputs (steering and acceleration) in the control subplot."""
