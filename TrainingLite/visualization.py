@@ -116,6 +116,17 @@ class StateComparisonVisualizer:
         # Use centralized state mapping from utilities
         self.state_indices = STATE_INDICES
         
+        # List of selected additional data columns to plot
+        self.selected_other_data = []  # List of column names
+        
+        # Reference to twin axis for additional data (for clearing)
+        self.ax_other = None
+        
+        # Color cycle for additional data plots (distinct colors)
+        self.other_data_colors = ['#008000', '#FF00FF', '#0000FF', '#FFA500', '#00CED1', 
+                                  '#9400D3', '#FFD700', '#FF1493', '#00FF00', '#8A2BE2',
+                                  '#DC143C', '#20B2AA', '#FF6347', '#7B68EE', '#00FA9A']
+        
         self.setup_ui()
         
         # Load config file if it exists
@@ -241,6 +252,16 @@ class StateComparisonVisualizer:
                 self.state_combo['values'] = available_states
                 if available_states:
                     self.state_var.set(available_states[0])
+                
+                # Update other data combo box with all CSV columns
+                all_columns = list(self.data.columns)
+                if hasattr(self, 'other_data_combo'):
+                    self.other_data_combo['values'] = all_columns
+                    self.other_data_var.set("")  # Reset to empty (default)
+                
+                # Enable reload button
+                if hasattr(self, 'reload_button'):
+                    self.reload_button.config(state='normal')
             
             # Load settings
             self.start_index = config.get('start_index', 0)
@@ -310,8 +331,17 @@ class StateComparisonVisualizer:
         file_frame = ttk.LabelFrame(self.control_panels_container, text="Data Loading")
         file_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5)
         
-        ttk.Button(file_frame, text="Load CSV File", 
-                  command=self.load_csv_file, style='Large.TButton').pack(pady=2)
+        # Button frame for load and reload buttons
+        button_frame = ttk.Frame(file_frame)
+        button_frame.pack(pady=2)
+        
+        ttk.Button(button_frame, text="Load CSV File", 
+                  command=self.load_csv_file, style='Large.TButton').pack(side=tk.LEFT, padx=2)
+        
+        self.reload_button = ttk.Button(button_frame, text="Reload", 
+                                        command=self.reload_csv_file, style='Large.TButton')
+        self.reload_button.pack(side=tk.LEFT, padx=2)
+        self.reload_button.config(state='disabled')  # Disabled until a file is loaded
         
         self.file_label = ttk.Label(file_frame, text="No file loaded", 
                                    wraplength=200, style='Large.TLabel')
@@ -342,6 +372,39 @@ class StateComparisonVisualizer:
                                        style='Large.TCombobox')
         self.state_combo.pack(pady=2)
         self.state_combo.bind('<<ComboboxSelected>>', self.on_state_changed)
+        
+        ttk.Label(state_frame, text="Select Other Data:", style='Bold.TLabel').pack()
+        self.other_data_var = tk.StringVar()
+        self.other_data_combo = ttk.Combobox(state_frame, textvariable=self.other_data_var,
+                                            values=[], state='readonly',
+                                            style='Large.TCombobox')
+        self.other_data_combo.pack(pady=2)
+        self.other_data_combo.bind('<<ComboboxSelected>>', self.on_other_data_changed)
+        
+        # Frame for selected items list and clear button
+        other_data_list_frame = ttk.Frame(state_frame)
+        other_data_list_frame.pack(pady=2, fill=tk.BOTH, expand=True)
+        
+        ttk.Label(other_data_list_frame, text="Selected:", style='Bold.TLabel').pack(anchor='w')
+        
+        # Listbox to show selected items (with scrollbar if needed)
+        listbox_frame = ttk.Frame(other_data_list_frame)
+        listbox_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.other_data_listbox = tk.Listbox(listbox_frame, height=4, yscrollcommand=scrollbar.set,
+                                             font=self.large_font if hasattr(self, 'large_font') and self.large_font else None)
+        self.other_data_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.other_data_listbox.yview)
+        
+        # Bind double-click to remove item
+        self.other_data_listbox.bind('<Double-Button-1>', self.on_other_data_remove)
+        
+        # Clear button
+        ttk.Button(other_data_list_frame, text="Clear All", 
+                  command=self.clear_other_data, style='Large.TButton').pack(pady=2)
         
         self.show_controls = tk.BooleanVar(value=False)
         ttk.Checkbutton(state_frame, text="Show Control Plots",
@@ -544,6 +607,16 @@ class StateComparisonVisualizer:
                 if available_states:
                     self.state_var.set(available_states[0])
                 
+                # Update other data combo box with all CSV columns
+                all_columns = list(self.data.columns)
+                self.other_data_combo['values'] = all_columns
+                # Reset to empty (default)
+                self.other_data_var.set("")
+                # Clear selected additional data list when loading new CSV
+                self.selected_other_data = []
+                if hasattr(self, 'other_data_listbox'):
+                    self.update_other_data_listbox()
+                
                 # Reset data range with default values
                 self.start_index = 0
                 self.end_index = min(500, len(self.data))  # Default range 0-500
@@ -554,6 +627,10 @@ class StateComparisonVisualizer:
                 if hasattr(self, 'comparison_slider'):
                     self.update_comparison_slider_range()
                     
+                # Enable reload button
+                if hasattr(self, 'reload_button'):
+                    self.reload_button.config(state='normal')
+                
                 # Plot initial state
                 self.plot_state()
                 
@@ -565,10 +642,98 @@ class StateComparisonVisualizer:
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load CSV file: {str(e)}")
+    
+    def reload_csv_file(self):
+        """Reload the currently loaded CSV file."""
+        if not self.csv_file_path or not os.path.exists(self.csv_file_path):
+            messagebox.showerror("Error", "No file loaded or file no longer exists.")
+            return
+        
+        try:
+            # Read CSV, skipping comment lines
+            self.data = pd.read_csv(self.csv_file_path, comment='#')
+            
+            # Update file label
+            filename = os.path.basename(self.csv_file_path)
+            self.file_label.config(text=f"Reloaded: {filename}")
+            
+            # Update state combo box with available columns
+            available_states = [col for col in self.state_columns if col in self.data.columns]
+            self.state_combo['values'] = available_states
+            
+            if available_states:
+                # Try to keep current selection if it still exists, otherwise use first available
+                current_state = self.state_var.get()
+                if current_state in available_states:
+                    self.state_var.set(current_state)
+                else:
+                    self.state_var.set(available_states[0])
+            
+            # Update other data combo box with all CSV columns
+            all_columns = list(self.data.columns)
+            self.other_data_combo['values'] = all_columns
+            
+            # Keep selected other data items if they still exist in the new data
+            self.selected_other_data = [item for item in self.selected_other_data 
+                                       if item in all_columns]
+            if hasattr(self, 'other_data_listbox'):
+                self.update_other_data_listbox()
+            
+            # Update comparison slider range
+            if hasattr(self, 'comparison_slider'):
+                self.update_comparison_slider_range()
+            
+            # Plot current state
+            self.plot_state()
+            
+            # Save config after reloading CSV
+            self.save_config()
+            
+            messagebox.showinfo("Success", 
+                              f"Reloaded {len(self.data)} data points from {filename}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to reload CSV file: {str(e)}")
                 
     
     def on_state_changed(self, event=None):
         """Handle state selection change."""
+        self.plot_state()
+    
+    def on_other_data_changed(self, event=None):
+        """Handle other data selection change - add to list if not already present."""
+        selected = self.other_data_var.get()
+        if selected and selected.strip() and selected not in self.selected_other_data:
+            # Check if column exists in data
+            if hasattr(self, 'data') and self.data is not None and selected in self.data.columns:
+                self.selected_other_data.append(selected)
+                self.update_other_data_listbox()
+                # Reset dropdown selection
+                self.other_data_var.set("")
+                self.plot_state()
+    
+    def update_other_data_listbox(self):
+        """Update the listbox to show currently selected additional data items."""
+        if hasattr(self, 'other_data_listbox'):
+            self.other_data_listbox.delete(0, tk.END)
+            for item in self.selected_other_data:
+                self.other_data_listbox.insert(tk.END, item)
+    
+    def on_other_data_remove(self, event=None):
+        """Remove the selected item from the list when double-clicked."""
+        if hasattr(self, 'other_data_listbox'):
+            selection = self.other_data_listbox.curselection()
+            if selection:
+                idx = selection[0]
+                if 0 <= idx < len(self.selected_other_data):
+                    self.selected_other_data.pop(idx)
+                    self.update_other_data_listbox()
+                    self.plot_state()
+    
+    def clear_other_data(self):
+        """Clear all selected additional data items."""
+        self.selected_other_data = []
+        self.update_other_data_listbox()
         self.plot_state()
         
     def _update_plot_layout(self):
@@ -814,6 +979,15 @@ class StateComparisonVisualizer:
             
         self.ax.clear()
         
+        # Clear and remove any existing twin axis for additional data
+        if hasattr(self, 'ax_other') and self.ax_other is not None:
+            try:
+                self.ax_other.clear()
+                self.ax_other.remove()
+            except:
+                pass
+            self.ax_other = None
+        
         # Get data range
         start_idx = self.start_index
         end_idx = self.end_index if self.end_index is not None else len(self.data)
@@ -912,10 +1086,61 @@ class StateComparisonVisualizer:
         else:
             print(f"Comparison not enabled or no data: enabled={self.enable_comparison.get()}, has_dict={hasattr(self, 'comparison_data_dict')}, dict_empty={not self.comparison_data_dict if hasattr(self, 'comparison_data_dict') else 'N/A'}")
         
+        # Plot other data items from the list (on twin y-axis with different colors)
+        self.ax_other = None
+        if hasattr(self, 'selected_other_data') and self.selected_other_data:
+            # Create a single twin y-axis for all additional data items
+            self.ax_other = self.ax.twinx()
+            
+            # Plot all selected items with different colors
+            ylabels = []
+            for idx, selected_other_data in enumerate(self.selected_other_data):
+                if selected_other_data and selected_other_data.strip() and selected_other_data in self.data.columns:
+                    other_data_values = self.data[selected_other_data].iloc[start_idx:end_idx]
+                    
+                    # Get color from color cycle
+                    color = self.other_data_colors[idx % len(self.other_data_colors)]
+                    
+                    # Plot with unique color
+                    self.ax_other.plot(time_data, other_data_values, '-', color=color, 
+                                label=f'{selected_other_data}', linewidth=2, alpha=0.7)
+                    ylabels.append(selected_other_data.replace('_', ' ').title())
+            
+            # Set ylabel to show all selected items (comma-separated)
+            if ylabels:
+                self.ax_other.set_ylabel(' / '.join(ylabels), color='gray')
+                self.ax_other.tick_params(axis='y', labelcolor='gray')
+        
         self.ax.set_xlabel('Time (s)' if self.time_column in self.data.columns else 'Step')
         self.ax.set_ylabel(selected_state.replace('_', ' ').title())
         self.ax.set_title(f'State Comparison: {selected_state}')
-        self.ax.legend()
+        
+        # Clear any existing legend before creating a new one
+        if self.ax.get_legend() is not None:
+            self.ax.get_legend().remove()
+        
+        # Create combined legend if we have other data
+        if self.ax_other is not None:
+            lines1, labels1 = self.ax.get_legend_handles_labels()
+            lines2, labels2 = self.ax_other.get_legend_handles_labels()
+            # Combine all lines and labels
+            all_lines = lines1 + lines2
+            all_labels = labels1 + labels2
+            # Remove duplicates while preserving order (in case of duplicates)
+            seen_labels = set()
+            unique_lines = []
+            unique_labels = []
+            for line, label in zip(all_lines, all_labels):
+                if label not in seen_labels:
+                    seen_labels.add(label)
+                    unique_lines.append(line)
+                    unique_labels.append(label)
+            # Create legend with all items
+            self.ax.legend(unique_lines, unique_labels, loc='upper left', frameon=True, fancybox=True, shadow=True)
+        else:
+            # Create legend with just the main plot items
+            self.ax.legend(loc='upper left', frameon=True, fancybox=True, shadow=True)
+        
         self.ax.grid(True, alpha=0.3)
         
         # Set axis limits to respect the current data range
@@ -923,8 +1148,14 @@ class StateComparisonVisualizer:
             x_min = self.data[self.time_column].iloc[start_idx]
             x_max = self.data[self.time_column].iloc[end_idx - 1] if end_idx <= len(self.data) else self.data[self.time_column].iloc[-1]
             self.ax.set_xlim(x_min, x_max)
+            # Also set x-axis limits for twin axis if it exists
+            if self.ax_other is not None:
+                self.ax_other.set_xlim(x_min, x_max)
         else:
             self.ax.set_xlim(start_idx, end_idx - 1)
+            # Also set x-axis limits for twin axis if it exists
+            if self.ax_other is not None:
+                self.ax_other.set_xlim(start_idx, end_idx - 1)
         
         # Plot delta state if enabled
         if (hasattr(self, 'ax_delta') and self.ax_delta is not None and 
@@ -1867,6 +2098,16 @@ class StateComparisonVisualizer:
                     self.state_combo['values'] = available_states
                     if available_states:
                         self.state_var.set(available_states[1])  # Start with linear_vel_x
+                    
+                    # Update other data combo box with all CSV columns
+                    all_columns = list(self.data.columns)
+                    if hasattr(self, 'other_data_combo'):
+                        self.other_data_combo['values'] = all_columns
+                        self.other_data_var.set("")  # Reset to empty (default)
+                    # Clear selected additional data list when auto-loading CSV
+                    self.selected_other_data = []
+                    if hasattr(self, 'other_data_listbox'):
+                        self.update_other_data_listbox()
                         
                     # Set default model options
                     self.model_var.set(list(self.available_models.values())[0])
@@ -1881,6 +2122,10 @@ class StateComparisonVisualizer:
                     # Update comparison slider range
                     if hasattr(self, 'comparison_slider'):
                         self.update_comparison_slider_range()
+                    
+                    # Enable reload button
+                    if hasattr(self, 'reload_button'):
+                        self.reload_button.config(state='normal')
                     
                     # Save config after auto-loading
                     self.save_config()
