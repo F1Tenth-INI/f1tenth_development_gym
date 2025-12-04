@@ -2,7 +2,7 @@
 import os
 import sys
 
-from pyparsing import deque
+from collections import deque
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
 
@@ -64,6 +64,8 @@ class RewardCalculator:
 
         # Get variables
         crash = obs.get('collision', False)
+        interruption = obs.get('interrupted', False)
+        
         s, d, e, k = waypoint_utils.frenet_coordinates
 
 
@@ -73,7 +75,7 @@ class RewardCalculator:
         wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
-        if leave_bounds or crash:
+        if leave_bounds or crash or interruption:
             crash_penalty = -self.w_crash
             reward += crash_penalty
             if Settings.TRUNCATE_ON_LEAVE_TRACK:
