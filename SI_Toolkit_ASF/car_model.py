@@ -149,6 +149,11 @@ class car_model:
 
         self._ks_step = _ks_step_factory(self.lib, self.car_parameters, self.t_step)
         self._pacejka_step = _pacejka_step_factory(self.lib, self.car_parameters, self.t_step)
+        
+        # Per-trajectory mu for batch processing
+        # Initialized to scalar car_parameters.mu (broadcasts automatically in dynamics)
+        # Updated by pid() to per-trajectory values when mu is in control input
+        self._current_mu_batch = self.car_parameters.mu
 
     def _convert_parameters_to_tensors(self):
         """
@@ -285,6 +290,12 @@ class car_model:
         # Q here has already been processed by pid() and has 2 columns: [delta_dot, v_x_dot]
         delta_dot = Q[:, 0]
         v_x_dot = Q[:, 1]
+        
+        # Use _current_mu_batch for friction coefficient
+        # - Initialized to scalar car_parameters.mu in __init__ (broadcasts automatically)
+        # - Updated to per-trajectory batch tensor by pid() when mu is in control input
+        # - No Python conditionals here to ensure tf.function compatibility
+        mu = self._current_mu_batch
 
         # compile-aware loop as above
         final_counter, *final_state = self.lib.loop(
@@ -292,12 +303,12 @@ class car_model:
             lambda counter,
                    s_x, s_y, delta,
                    v_x, v_y, psi, psi_dot:
-            # increment the counter, then splice in pacejka_step’s return
+            # increment the counter, then splice in pacejka_step's return
             (counter + 1,
              *self._pacejka_step(
                  s_x, s_y, delta,
                  v_x, v_y, psi, psi_dot,
-                 delta_dot, v_x_dot, self.car_parameters.mu,
+                 delta_dot, v_x_dot, mu,
              )
              ),
 
@@ -498,10 +509,21 @@ class car_model:
         desired_angle = Q[:, CONTROL_INDICES['angular_control']]
         translational_control = Q[:, CONTROL_INDICES['translational_control']]
         
-        # Update friction coefficient if mu is present
+        # Update friction coefficient for dynamics
+        # Always set _current_mu_batch as a tensor to avoid Python conditionals in dynamics
+        # (Python conditionals are evaluated at trace time, not runtime, which breaks tf.function)
         if 'mu' in CONTROL_INDICES:
+            # Per-trajectory mu from control input
             mu_from_Q = Q[:, CONTROL_INDICES['mu']]
-            self.lib.assign(self.car_parameters.mu, mu_from_Q[0])
+            self._current_mu_batch = mu_from_Q  # Store full batch for dynamics
+            self.lib.assign(self.car_parameters.mu, mu_from_Q[0])  # Keep backward compat for scalar access
+        else:
+            # Broadcast scalar mu to batch size for consistent tensor shape
+            batch_size = self.lib.shape(Q)[0]
+            self._current_mu_batch = self.lib.tile(
+                self.lib.reshape(self.car_parameters.mu, [1]), 
+                [batch_size]
+            )
 
         delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
         vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
