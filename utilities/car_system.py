@@ -44,8 +44,8 @@ from utilities.LapAnalyzer import LapAnalyzer
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
 
-if Settings.FORGE_HISTORY: # will import TF
-    from utilities.HistoryForger import HistoryForger
+if Settings.FORGE_HISTORY:
+    from utilities.BackwardPredictor import BackwardPredictor
 
 class CarSystem:
     
@@ -172,8 +172,9 @@ class CarSystem:
                     
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
+        self.backward_predictor = None
         if Settings.FORGE_HISTORY:
-            self.history_forger = HistoryForger()
+            self.backward_predictor = BackwardPredictor()
 
        
         # Recorder
@@ -441,8 +442,15 @@ class CarSystem:
             self.update_render_utils()
         self.lap_analyzer.update(nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index, time_now = self.time, distance_to_raceline = self.waypoint_utils.current_distance_to_raceline)
 
-        if Settings.FORGE_HISTORY:
-            self.history_forger.feed_planner_forged_history(self.car_state, self.lidar_utils.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
+        if self.backward_predictor is not None:
+            self.backward_predictor.feed_planner_forged_history(
+                self.car_state,
+                self.lidar_utils.all_lidar_ranges,
+                self.waypoint_utils,
+                self.planner,
+                self.render_utils,
+                Settings.INTERPOLATE_LOCA_WP,
+            )
         if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
             self.state_metric_calculator.calculate_metrics(
                 current_state=self.car_state,
@@ -450,9 +458,9 @@ class CarSystem:
                 updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
             )
             
-        if Settings.FORGE_HISTORY:
+        if self.backward_predictor is not None:
             basic_dict = get_basic_data_dict(self)
-            basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
+            basic_dict.update({'forged_history_applied': lambda: self.backward_predictor.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
             # Process IMU data before recording
@@ -511,10 +519,10 @@ class CarSystem:
             # Add data from outside the car stysem
             self.recorder.dict_data_to_save_basic.update(recorder_dict)
        
-            if Settings.FORGE_HISTORY:
+            if self.backward_predictor is not None:
                 self.recorder.dict_data_to_save_basic.update(
                     {
-                        'forged_history_applied': lambda: self.history_forger.forged_history_applied,
+                        'forged_history_applied': lambda: self.backward_predictor.forged_history_applied,
                     }
                 )
             if Settings.SAVE_STATE_METRICS:
