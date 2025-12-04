@@ -19,3 +19,11 @@ test_start_idx: 0  # Indicates starting point from which data from test file sho
 test_hls: false
 
 forward_from_all_horizons: true
+
+# Parameter sweep for Brunton test (optional)
+# When enabled, predictions are computed for multiple parameter values and a slider appears in GUI
+param_sweep:
+  enabled: true
+  param_name: 'mu'        # Control input to vary (must be in CONTROL_INPUTS_FOR_PREDICTOR)
+  param_range: [0.1, 1.1] # [min, max]
+  param_step: 0.2         # Step size (yields 9 values: 0.3, 0.4, ..., 1.1)
