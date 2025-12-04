@@ -152,6 +152,7 @@ class CarSystem:
         self.tuner_connector = None
 
         self.emergency_slowdown = EmergencySlowdown()
+        self.backward_history_provider: Optional[BackwardTrajectoryProvider] = None
 
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
