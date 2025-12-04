@@ -34,6 +34,10 @@ predictors:
     model_name:
     intermediate_steps: 2
 
+  backward_optimizer_default:
+    predictor_type: "backward_optimizer"
+    model_name:
+
   # ADD YOUR PREDICTORS BELOW
 
   I_love_control:

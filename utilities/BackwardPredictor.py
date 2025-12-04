@@ -1,6 +1,9 @@
-# HistoryForger.py
+# BackwardPredictor.py
+#
+# Optimizer-based backward trajectory predictor aligned with the predictor API.
 
 import os
+import time
 import numpy as np
 
 from utilities.waypoint_utils import get_nearest_waypoint
@@ -17,17 +20,17 @@ FORGE_AT_CONTROLLER_RATE = True
 
 START_AFTER_X_STEPS = HISTORY_LENGTH
 
-# HistoryForger.py (top-level constants)
-WINDOW_SIZE         = 15
-OVERLAP             = 10
-SMOOTHING_WINDOW    = None
-SMOOTHING_OVERLAP   = 15
+WINDOW_SIZE = 15
+OVERLAP = 10
+SMOOTHING_WINDOW = None
+SMOOTHING_OVERLAP = 15
 
 
 # ---- Online ID Diagnostics --------------------------------------------------
 
 def _angle_wrap_diff_np(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.arctan2(np.sin(a - b), np.cos(a - b))
+
 
 def _scaled_rmse_curve(pred: np.ndarray, gt: np.ndarray, state_std: np.ndarray) -> np.ndarray:
     """
@@ -37,11 +40,11 @@ def _scaled_rmse_curve(pred: np.ndarray, gt: np.ndarray, state_std: np.ndarray) 
     from utilities.InverseDynamics import KEEP_IDX, POSE_THETA_IDX
 
     pred = pred.copy()
-    gt   = gt.copy()
+    gt = gt.copy()
 
     # Wrapped heading error; sin/cos excluded by KEEP_IDX anyway
     pred[:, POSE_THETA_IDX] = np.unwrap(pred[:, POSE_THETA_IDX])
-    gt[:,   POSE_THETA_IDX] = np.unwrap(gt[:,   POSE_THETA_IDX])
+    gt[:, POSE_THETA_IDX] = np.unwrap(gt[:, POSE_THETA_IDX])
     ang_err = _angle_wrap_diff_np(pred[:, POSE_THETA_IDX], gt[:, POSE_THETA_IDX])
 
     dif = pred - gt
@@ -62,21 +65,34 @@ def _scaled_rmse_curve(pred: np.ndarray, gt: np.ndarray, state_std: np.ndarray) 
         rmse[finite_rows] = np.sqrt(np.mean(Zf * Zf, axis=1)).astype(np.float32)
     return rmse
 
-def _curve_head_tail_stats(curve: np.ndarray) -> tuple[float,float,float]:
+
+def _curve_head_tail_stats(curve: np.ndarray) -> tuple[float, float, float]:
     """
     Returns (mean, head_mean, tail_mean) with head/tail = first/last 25%.
     """
     L = int(curve.shape[0])
     if L == 0: return float('nan'), float('nan'), float('nan')
     k = max(1, L // 4)
-    mean_all  = float(np.nanmean(curve)) if np.any(np.isfinite(curve))          else float('nan')
-    mean_head = float(np.nanmean(curve[:k])) if np.any(np.isfinite(curve[:k]))  else float('nan')
+    mean_all = float(np.nanmean(curve)) if np.any(np.isfinite(curve)) else float('nan')
+    mean_head = float(np.nanmean(curve[:k])) if np.any(np.isfinite(curve[:k])) else float('nan')
     mean_tail = float(np.nanmean(curve[-k:])) if np.any(np.isfinite(curve[-k:])) else float('nan')
     return mean_all, mean_head, mean_tail
 
 
+# Backward compatibility alias
+HistoryForger = None  # Will be set after class definition
 
-class HistoryForger:
+
+class BackwardPredictor:
+    """
+    Optimizer-based backward trajectory predictor.
+
+    Follows the predictor API pattern:
+      - configure(batch_size, dt, ...) to set up parameters
+      - predict(initial_state, controls) to get backward states
+      - update(controls, state) to feed online history
+    """
+
     def __init__(self):
         self.previous_control_inputs = []
         self.previous_measured_states = []  # Only for debugging if needed
@@ -110,6 +126,9 @@ class HistoryForger:
         self.forged_history_applied = False
         self.counter = 0
 
+        self.mode = getattr(Settings, "FORGED_HISTORY_MODE", "optimizer")
+        self.uses_network_predictions = self.mode in ("network", "hybrid")
+
         # --- Diagnostics / logging (env-controlled) ---
         self.diag_every_n = int(os.getenv("ID_DIAG_EVERY_N", "25"))  # print every N calls
 
@@ -119,13 +138,16 @@ class HistoryForger:
         self._diag_counter = 0
         self._diag_csv_header_written = False
         self._diag_last = {}  # last stats snapshot
+        self._diag_total_calls = 0
+        self._diag_success_calls = 0
+        self._diag_fail_calls = 0
+        self._diag_last_duration_ms = 0.0
+        self._diag_last_reason = ""
 
         # --- For optional rendering overlays (controller cadence, oldest→newest) ---
-        self._last_gt_past = None      # np.ndarray [H,10]
-        self._last_prior_past = None   # np.ndarray [H,10]
+        self._last_gt_past = None  # np.ndarray [H,10]
+        self._last_prior_past = None  # np.ndarray [H,10]
         self._last_prior_full_newest_first = None  # [T+1,10], whole horizon, 0 == x_T, newest→older
-
-
 
     def update_control_history(self, u):
         self.counter += 1
@@ -172,17 +194,18 @@ class HistoryForger:
         by running inverse dynamics backward. Returns None if not enough data
         or no convergence.
         """
+        started_at = time.time()
         if self.counter < START_AFTER_X_STEPS:
             self._last_gt_past = None
             self._last_prior_past = None
-            return None
+            return self._finalize_return(False, started_at, reason="warmup")
 
         required_length = HISTORY_LENGTH * timesteps_per_controller_update
         if len(self.previous_control_inputs) < required_length:
             self.forged_history_applied = False
             self._last_gt_past = None
             self._last_prior_past = None
-            return None
+            return self._finalize_return(False, started_at, reason="insufficient_controls")
 
         controls = np.array(self.previous_control_inputs, dtype=np.float32)[-required_length:]
 
@@ -347,14 +370,14 @@ class HistoryForger:
 
         if not np.all(converged_flags):
             self.forged_history_applied = False
-            return None
+            return self._finalize_return(False, started_at, reason="not_converged")
 
         # --- Prior used during optimization (already assembled newest→older inside refiner) ---
         try:
             prior_all = getattr(self.refiner, "_last_prior_newest_first", None)  # [T+1,10] newest→older
             if prior_all is not None and isinstance(prior_all, np.ndarray):
-                prior_at_ctrl = prior_all[::self.out_stride_ctrl, :]   # sample at controller boundaries
-                prior_past_backwards = prior_at_ctrl[1:, :]            # drop current
+                prior_at_ctrl = prior_all[::self.out_stride_ctrl, :]  # sample at controller boundaries
+                prior_past_backwards = prior_at_ctrl[1:, :]  # drop current
                 self._last_prior_past = prior_past_backwards[::-1, :].astype(np.float32)  # oldest→newest
             else:
                 self._last_prior_past = None
@@ -408,7 +431,7 @@ class HistoryForger:
         nearest_waypoints = next_waypoints_including_ignored[:, waypoint_utils.ignore_steps:]
 
         self.forged_history_applied = True
-        return past_states, nearest_waypoints
+        return self._finalize_return(True, started_at, (past_states, nearest_waypoints), reason="ok")
 
     def feed_planner_forged_history(self, car_state, ranges, waypoint_utils, planner, render_utils, interpolate_local_wp):
         """
@@ -436,6 +459,99 @@ class HistoryForger:
                 prior_past_car_states=self._last_prior_past,
                 prior_full_past_car_states=self._last_prior_full_past,
             )
+            return True
 
         else:
             print("Not enough data for forging history.")
+            return False
+
+    def _log_forge_diag(self, success: bool, duration_s: float, reason: str) -> None:
+        self._diag_total_calls += 1
+        if success:
+            self._diag_success_calls += 1
+        else:
+            self._diag_fail_calls += 1
+        self._diag_last_duration_ms = duration_s * 1000.0
+        self._diag_last_reason = reason or ("ok" if success else "unknown")
+
+        if self.diag_every_n > 0 and (self._diag_total_calls % self.diag_every_n == 0):
+            success_rate = self._diag_success_calls / max(1, self._diag_total_calls)
+            print(
+                "[BackwardPredictor] "
+                f"mode={self.mode} calls={self._diag_total_calls} "
+                f"success={self._diag_success_calls} "
+                f"rate={success_rate * 100:.0f}% "
+                f"last={self._diag_last_duration_ms:.1f}ms "
+                f"reason={self._diag_last_reason}"
+            )
+
+    def _finalize_return(self, success: bool, started_at: float, payload=None, reason: str = ""):
+        duration_s = time.time() - started_at
+        self._log_forge_diag(success, duration_s, reason)
+        if success:
+            return payload
+        return None
+
+    # ---- Predictor API methods ----
+
+    def configure(self, batch_size: int = 1, dt: float = None, **kwargs):
+        """
+        Configure predictor parameters (predictor API).
+
+        For the optimizer-based backward predictor, batch_size is always 1.
+        dt defaults to the controller timestep if not provided.
+        """
+        self.batch_size = batch_size
+        if dt is not None:
+            self.dt = dt
+        else:
+            self.dt = self.dt_ctrl
+
+    def predict(self, initial_state: np.ndarray, controls: np.ndarray) -> np.ndarray:
+        """
+        Predict backward trajectory from initial_state using controls (predictor API).
+
+        Args:
+            initial_state: Current state [state_dim] or [1, state_dim]
+            controls: Control history [horizon, control_dim], oldest to newest
+
+        Returns:
+            Backward states [horizon, state_dim], oldest to newest, or None if failed
+        """
+        # Ensure initial_state is 2D [1, state_dim]
+        if initial_state.ndim == 1:
+            initial_state = initial_state[None, :]
+
+        # Warm once
+        self._warm_once(initial_state, controls)
+
+        # Run optimizer refinement
+        states_all, converged_flags, _ = self.refiner.refine_stats(initial_state, controls)
+
+        if not np.all(converged_flags):
+            return None
+
+        # states_all[0] is current, states_all[1:] are older
+        states_at_ctrl = states_all[::self.out_stride_ctrl, :]
+        past_states_backwards = states_at_ctrl[1:, :]
+        past_states = past_states_backwards[::-1, :].astype(np.float32)  # oldest→newest
+
+        return past_states
+
+    def update(self, controls: np.ndarray, state: np.ndarray):
+        """
+        Update internal history buffers (predictor API).
+
+        Args:
+            controls: Control input [control_dim] or [1, control_dim]
+            state: Current state [state_dim]
+        """
+        # Flatten if needed
+        if controls.ndim > 1:
+            controls = controls.flatten()
+        self.update_control_history(controls)
+        self.update_state_history(state)
+
+
+# Backward compatibility alias
+HistoryForger = BackwardPredictor
