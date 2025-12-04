@@ -257,6 +257,7 @@ class RacingSimulation:
         driver_obs['imu'] = self.obs['imus'][driver_index]
         driver_obs['collision'] = True if self.obs['collisions'][0] else False
         driver_obs['terminated'] = self.obs['terminated']
+        driver_obs['interrupted'] = False
         driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
 
         if driver_obs['done']:
