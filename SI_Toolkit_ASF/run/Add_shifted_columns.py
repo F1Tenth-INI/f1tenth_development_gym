@@ -8,5 +8,6 @@ variables_to_shift = ['translational_control_calculated', 'angular_control_calcu
 indices_by_which_to_shift = [1]
 
 transform_dataset(get_files_from, save_files_to, transformation='add_shifted_columns',
+                    split_on_column='experiment_index',
                     variables_to_shift=variables_to_shift, indices_by_which_to_shift=indices_by_which_to_shift)
  
