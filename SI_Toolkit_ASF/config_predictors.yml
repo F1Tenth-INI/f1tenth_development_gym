@@ -38,6 +38,11 @@ predictors:
     predictor_type: "backward_optimizer"
     model_name:
 
+  data_integrator_default:
+    predictor_type: "data_integrator"
+    model_name:
+    computation_library_name: "Numpy"  # One of "Numpy", "TF", "Pytorch"
+
   # ADD YOUR PREDICTORS BELOW
 
   I_love_control:
