@@ -507,13 +507,16 @@ class BackwardPredictor:
         else:
             self.dt = self.dt_ctrl
 
-    def predict(self, initial_state: np.ndarray, controls: np.ndarray) -> np.ndarray:
+    def predict(self, initial_state: np.ndarray, controls: np.ndarray, 
+                X_init: np.ndarray = None) -> np.ndarray:
         """
         Predict backward trajectory from initial_state using controls (predictor API).
 
         Args:
             initial_state: Current state [state_dim] or [1, state_dim]
             controls: Control history [horizon, control_dim], oldest to newest
+            X_init: Optional initial trajectory guess [horizon, state_dim], oldest→newest.
+                    If provided, uses the simpler TrajectoryRefiner with this as seed.
 
         Returns:
             Backward states [horizon, state_dim], oldest to newest, or None if failed
@@ -525,7 +528,11 @@ class BackwardPredictor:
         # Warm once
         self._warm_once(initial_state, controls)
 
-        # Run optimizer refinement
+        if X_init is not None:
+            # Use direct TrajectoryRefiner with neural prior as seed
+            return self._predict_with_init(initial_state, controls, X_init)
+
+        # Run optimizer refinement (progressive windowing)
         states_all, converged_flags, _ = self.refiner.refine_stats(initial_state, controls)
 
         if not np.all(converged_flags):
@@ -536,6 +543,41 @@ class BackwardPredictor:
         past_states_backwards = states_at_ctrl[1:, :]
         past_states = past_states_backwards[::-1, :].astype(np.float32)  # oldest→newest
 
+        return past_states
+
+    def _predict_with_init(self, initial_state: np.ndarray, controls: np.ndarray, 
+                           X_init: np.ndarray) -> np.ndarray:
+        """
+        Predict using TrajectoryRefiner directly with neural network output as seed.
+        
+        Args:
+            initial_state: Current state [1, state_dim]
+            controls: Control history [horizon, control_dim], oldest→newest
+            X_init: Neural network trajectory [horizon, state_dim], oldest→newest
+            
+        Returns:
+            Refined backward states [horizon, state_dim], oldest→newest, or None if failed
+        """
+        # Convert X_init from oldest→newest to newest→older (what refiner expects)
+        X_init_newest_first = X_init[::-1, :]  # [horizon, state_dim] newest→older
+        
+        # TrajectoryRefiner expects controls in oldest→newest order (same as input)
+        states_out, flags = self.refiner.refiner.inverse_entire_trajectory(
+            x_T=initial_state,
+            Q=controls,
+            X_init=X_init_newest_first,
+            compute_flags=True
+        )
+        
+        # Check convergence (all flags should be True)
+        if not np.all(flags):
+            return None
+        
+        # states_out is [horizon+1, state_dim] newest→older (includes initial state)
+        # Drop initial state and reverse to oldest→newest
+        past_states_newest_first = states_out[1:, :]  # [horizon, state_dim] newest→older
+        past_states = past_states_newest_first[::-1, :].astype(np.float32)  # oldest→newest
+        
         return past_states
 
     def update(self, controls: np.ndarray, state: np.ndarray):
