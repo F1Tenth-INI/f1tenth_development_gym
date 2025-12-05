@@ -29,7 +29,7 @@ CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
     # 'translational_control_-2',
     'angular_control',
     'translational_control',
-    'mu'  # Include it for brunton plot
+    # 'mu'  # Include it for brunton plot
 ])
 CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
 CONTROL_INPUTS_LEN = len(CONTROL_INPUTS_FOR_PREDICTOR)
