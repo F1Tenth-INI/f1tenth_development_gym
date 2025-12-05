@@ -14,9 +14,9 @@ class Settings():
     BLANK_MAP = True  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'mpc' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
 
-    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_CONTROL = 0.01    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
@@ -36,7 +36,7 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
     SAVE_VIDEOS = False
@@ -68,7 +68,7 @@ class Settings():
     
     MAX_CRASH_REPETITIONS = 10000000
     
-    TRUNCATE_ON_LEAVE_TRACK = True
+    TRUNCATE_ON_LEAVE_TRACK = False
     RESET_ON_DONE = True  # Reset the environment when done
     RESPAWN_ON_RESET = False  # If True, respawn to state N timesteps ago instead of complete reset
     RESPAWN_SETBACK_TIMESTEPS = 50  # Number of timesteps to go back when respawning
@@ -165,6 +165,7 @@ class Settings():
     
     ## Forged history settings 
     FORGE_HISTORY = False # Forge history of friction values
+    FORGED_HISTORY_MODE = "hybrid"  # Set here; options: optimizer, network, hybrid, off
     SAVE_STATE_METRICS = False # Save state metrics for analysis
     FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICTION
 

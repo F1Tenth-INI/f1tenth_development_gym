@@ -53,7 +53,7 @@ runs_without_obstacles = 1
 runs_with_oponents = 0
 
 # Friction sampling configuration - UNIFORM DISTRIBUTION
-FRICTION_MIN = 0.4  # Minimum friction value (matching Train dataset)
+FRICTION_MIN = 0.3  # Minimum friction value (matching Train dataset)
 FRICTION_MAX = 1.1  # Maximum friction value (matching Train dataset)
 NUM_FRICTION_SAMPLES = 8  # Number of samples to generate across the range
 

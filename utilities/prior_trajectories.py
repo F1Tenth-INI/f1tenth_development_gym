@@ -81,8 +81,8 @@ class ZeroMotionPrior:
 
 
 # Hardcoded predictor parameters (adjust to your project)
-_NEURAL_MODEL_NAME = "Dense-8IN-128H1-128H2-8OUT-0"         # e.g. "models/car/backprop_net"
-_NEURAL_PATH_TO_MODELS = "SI_Toolkit_ASF/Experiments/04_08_RCA1_noise_reversed/Models"    # folder containing the model file
+_NEURAL_MODEL_NAME = "Dense-9IN-32H1-32H2-8OUT-0"         # e.g. "models/car/backprop_net"
+_NEURAL_PATH_TO_MODELS = "SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/Models"    # folder containing the model file
 _NEURAL_DT = 0.02                            # seconds; must match the net if rnn
 _NEURAL_BATCH_SIZE = 1                       # hardcoded as requested
 

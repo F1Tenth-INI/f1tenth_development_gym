@@ -21,11 +21,11 @@ import argparse
 # =============================================================================
 
 # Input files
-get_files_from_folder_root = './SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/Recordings/Test/'
+get_files_from_folder_root = './SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/Recordings/'
 get_file_name = None  # Only used if no index is provided
 
 # Output folder
-save_files_to = './SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/Recordings/BackToFront/'
+save_files_to = './SI_Toolkit_ASF/Experiments/Experiments_19_11_2025_BackToFront/Recordings/'
 
 # Predictor specifications
 backward_predictor_specification = 'Dense-9IN-32H1-32H2-8OUT-1'

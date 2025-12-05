@@ -1,4 +1,7 @@
-predictors_specifications_testing: ['S:./SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/Models/LSTM-94IN-64H1-64H2-64H3-2OUT-1'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
+predictors_specifications_testing: ['ODE']
+#predictors_specifications_testing: ['B:Dense-9IN-32H1-32H2-8OUT-0;ODE','B:Dense-9IN-32H1-32H2-8OUT-1;ODE','B:Dense-9IN-64H1-64H2-8OUT-0;ODE'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
+# B:Dense-9IN-32H1-32H2-8OUT-1;ODE  - Neural network backward predictor with ODE forward
+# B:BP;ODE                          - Optimizer-based backward predictor with ODE forward
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)
 # It can be a names of networks or GPs e.g. 'GRU-6IN-32H1-32H2-5OUT-0' to be used for test
@@ -8,12 +11,11 @@ predictors_specifications_testing: ['S:./SI_Toolkit_ASF/Experiments/Experiments_
 # Where multiple ODE models are available, one can specify the name after colon e.g. ["ODE_TF:simple", "ODE:st"]
 # In this case name from predictor_config is getting overwritten
 
-test_file: '2025-03-06_19-05-07_Experiments_03_03_2025_noiseless_31_RCA1_mpc_50Hz_vel_0.9587470169980914_noise_c[0.1, 0.1]_mu_0.35847586018134053_mu_control_0.35847586018134053__096.csv'
+test_file: '2025-12-04_17-34-46_Experiments_04_12_2025_7_RCA1_mpc_50Hz_vel_0.5_noise_c[0.1, 0.1]_mu_0.6357468398931725_mu_c_0.6357468398931725_.csv'
+path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiments_04_12_2025/Recordings/Test/'
 
-path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiments_03_03_2025/Recordings/Test/'
-
-test_len: 'max'
-test_max_horizon: 50  # Indicates prediction horizon for testing
+test_len: 200
+test_max_horizon: 20  # Indicates prediction horizon for testing
 test_start_idx: 0  # Indicates starting point from which data from test file should be taken
 
 test_hls: false
@@ -23,7 +25,7 @@ forward_from_all_horizons: true
 # Parameter sweep for Brunton test (optional)
 # When enabled, predictions are computed for multiple parameter values and a slider appears in GUI
 param_sweep:
-  enabled: true
+  enabled: false
   param_name: 'mu'        # Control input to vary (must be in CONTROL_INPUTS_FOR_PREDICTOR)
   param_range: [0.1, 1.1] # [min, max]
   param_step: 0.2         # Step size (yields 9 values: 0.3, 0.4, ..., 1.1)

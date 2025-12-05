@@ -36,7 +36,7 @@ CPU_DEVICE = "/device:CPU:0"
 
 XLA_REFINE = bool(int(os.getenv('ID_USE_XLA', '0')))
 
-ID_PRIOR_KIND = os.getenv("ID_PRIOR_KIND", "nn")  # NEW
+ID_PRIOR_KIND = os.getenv("ID_PRIOR_KIND", "kinematic")  # Use kinematic prior by default (neural requires matching control dims)
 
 
 

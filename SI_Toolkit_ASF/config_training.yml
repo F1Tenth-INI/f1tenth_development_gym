@@ -1,6 +1,6 @@
 library: "TF" # TF or Pytorch
 modeling:
-  NET_NAME: "GRU-128H1-128H2-128H3"
+  NET_NAME: "Dense-64H1-64H2"
   SPECIAL_RNN:
     TYPE: 'special'  # 'standard' or 'special' (special = combine mask/gated/delta)
     # Masking (applies to GRU/LSTM output only; recurrence uses full state)
@@ -23,14 +23,12 @@ modeling:
 paths:
   # PATH HAS TO END WITH A SOLIDUS ("/") CHARACTER
   path_to_experiment: ""
-  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_19_11_2025/" # Path where the experiments data is stored
+  PATH_TO_EXPERIMENT_FOLDERS: "./SI_Toolkit_ASF/Experiments/Experiments_19_11_2025_BackToFront/" # Path where the experiments data is stored
   DATA_FOLDER:                    'Recordings'
 training_default:
   #### For training closed loop dynamics model:
   state_inputs:
     [
-      "pose_x",
-      "pose_y",
       "pose_theta_cos",
       "pose_theta_sin",
       "linear_vel_x",
@@ -38,8 +36,16 @@ training_default:
       "slip_angle",
       "steering_angle",
     ]
-  control_inputs: ["translational_control", "angular_control"]
+  control_inputs: ["translational_control", "angular_control", "mu"]
   outputs:
+#    [
+#      "pose_theta_cos",
+#      "pose_theta_sin",
+#      "linear_vel_x",
+#      "angular_vel_z",
+#      "slip_angle",
+#      "steering_angle",
+#    ]
     [
       "D_pose_theta_cos",
       "D_pose_theta_sin",
@@ -85,19 +91,20 @@ training_default:
 #  # control_inputs: lidar_data + waypoints_x + waypoints_y + waypoints_vx + vel_and_angle
 #
 #  outputs: ["angular_control_calculated", "translational_control_calculated"] # "mu"
+  setpoint_inputs: []
 
   EPOCHS: 100
-  BATCH_SIZE: 8
+  BATCH_SIZE: 64
   SEED: 1873
   LR:
-    INITIAL: 1.0e-3
+    INITIAL: 2.0e-3
     REDUCE_LR_ON_PLATEAU: True
     MINIMAL: 1.0e-5
     PATIENCE: 1
     DECREASE_FACTOR: 0.316 # Factor to reduce learning rate by (0.316 = sqrt(0.1))
     MIN_DELTA: 0.00
   LOSS_MODE: 'squared'  # 'squared', 'squared_with_clipping', 'absolute', 'absolute_with_clipping'
-  WASH_OUT_LEN: 20
+  WASH_OUT_LEN: 0
   POST_WASH_OUT_LEN: 1
   ON_FLY_DATA_GENERATION: False
   NORMALIZE: True

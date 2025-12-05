@@ -8,7 +8,7 @@ predictors:
   neural_default:
     predictor_type: "neural"
     model_name: "Dense-10IN-64H1-128H2-64H3-8OUT-0"
-    path_to_model: "./SI_Toolkit_ASF/Experiments/Tutorial/Models/"
+    path_to_model: "./SI_Toolkit_ASF/Experiments/Experiments_19_11_2025_BackToFront/Models/"
     update_before_predicting: True
   neural_flo:
     predictor_type: "neural"
@@ -27,7 +27,7 @@ predictors:
   ODE_default:
     predictor_type: "ODE"
     model_name:
-    intermediate_steps: 10
+    intermediate_steps: 1
     computation_library_name: "TF" # One of "Numpy", "TF", "Pytorch".
   ODE_TF_default:
     predictor_type: "ODE"
