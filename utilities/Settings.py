@@ -177,13 +177,13 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
-    SAC_WP_OFFSET_WEIGHT = 0.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 0.0
+    SAC_WP_OFFSET_WEIGHT = 0.5
+    SAC_WP_HEADING_ERROR_WEIGHT = 0.5
     SAC_REWARD_WEIGHT = 3.0
     SAC_SPEED_WEIGHT = 1.0
 
-    SAC_PRIORITY_FACTOR = 0.0
-    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.0
+    SAC_PRIORITY_FACTOR = 0.6   #p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.75 # corrects the introduced bias from prioritized sampling
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

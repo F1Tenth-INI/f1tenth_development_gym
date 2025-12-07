@@ -35,9 +35,17 @@ class CustomReplayBuffer(ReplayBuffer):
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
         self.beta = Settings.SAC_IMPORANCE_SAMPLING_CORRECTOR
         # Initialize with small non-zero values to avoid zero-sum edge cases (DO I ACTUALLY NEED THIS?)
-        self.sample_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
+        self.state_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
         self.importance_sampling_correctors = np.ones(self.buffer_size, dtype=np.float64)
         self.batch_is_correctors = None
+
+        self.state_to_TD_ratio = 0.5 #if 0, only TD error based priorities
+
+        self.TD_weights = np.zeros(self.buffer_size, dtype=np.float64)
+        self.new_weight_priority = 1.0
+
+        self.current_sampled_inds = None #indexes of the data which was just sampled in last sample() call
+
         
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
@@ -48,10 +56,15 @@ class CustomReplayBuffer(ReplayBuffer):
         # --> actual weighting computation is only within this function
         super().add(*args, **kwargs)
 
+        #handle special pos index for SB3
         try:
             idx = (self.pos - 1) % self.buffer_size
         except Exception:
             return
+        
+        #set to max samplepriority for newest transitions
+        #TODO: option to have this be able to be set in settings
+        self.TD_weights[idx] = self.new_weight_priority
 
         # Extract newest observation added by super().add()
         obs = self.observations[idx, 0, :]
@@ -63,13 +76,23 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #velx = obs[0] and vely = obs[1]
         vel = np.sqrt(obs[0]**2 + obs[1]**2)
-        vel = (1/(1-e)) * vel #we only care about speed into the right direction
+        # vel = (1/(1-e)) * vel #we only care about speed into the right direction
+        vel = (1 - min(e, 0.9)) * vel #we only care about speed into the right direction
         # print(rew)
 
         w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.reward_weight * vel
         w = np.clip(w, 1e-6, 1e3)
 
-        self.sample_weights[idx] = w
+        self.state_weights[idx] = w
+
+        return
+    
+    def update_TD_priorities(self, TD_update_inds: np.ndarray, TD_update_priorities: np.ndarray):
+        self.TD_weights[TD_update_inds] = TD_update_priorities
+
+        #get newest max prio values for new transitions
+        self.new_weight_priority = max(self.new_weight_priority, TD_update_priorities.max())
+
         return
 
     def sample(self, safe_batch_size: int, env=None):
@@ -89,8 +112,17 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             possible_inds = np.arange(self.pos)
 
+        length = len(possible_inds)
+        uniform_p = np.ones(length) / length
+
         # Use stored per-transition weights for sampling instead of recomputing from obs
-        w_vec = self.sample_weights[possible_inds].astype(np.float64)
+        w_vec = self.state_weights[possible_inds].astype(np.float64)
+
+        """TD error based priorities"""
+        TD_vec = self.TD_weights[possible_inds].astype(np.float64)
+
+        combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
+        
 
         # ==== Final normalization ====
         # total_w = np.sum(w_vec)
@@ -99,13 +131,13 @@ class CustomReplayBuffer(ReplayBuffer):
         # else:
         #     priority_p = w_vec / total_w
 
-        length = len(possible_inds)
-        uniform_p = np.ones(length) / length
-        
-        p = self.alpha * w_vec + (1.0 - self.alpha) * uniform_p
+        #power law blend with uniform distribution
+        p = combined_weight ** self.alpha
+
+        # p = self.alpha * combined_weight + (1.0 - self.alpha) * uniform_p
 
         # Safety normalization
-        p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
+        # p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
         p_tot = p.sum()
 
         if p_tot <= 0 or not np.isfinite(p_tot):
@@ -113,17 +145,34 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             p /= p_tot
 
-        batch_inds = np.random.choice(possible_inds, size=safe_batch_size, p=p)
+        sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p)
+
+        #map the sampled indices back to the possible_inds
+        batch_inds = possible_inds[sampled_p_index]
+
+        #set all the is_weights
+        sample_probs = p[sampled_p_index]
+        is_weights = (1 / (length * sample_probs)) ** self.beta
+        is_weights = is_weights / is_weights.max()
+
+        self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
+
+        self.current_sampled_inds = batch_inds
+
+        # self.importance_sampling_correctors[batch_inds] = is_weights
+
+        # self.current_sampled_inds = batch_inds
         
-        ###TODO: this is slow and inefficient
-        for idx in batch_inds:
-            if idx > self.pos:
-                self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx-1])) ** self.beta
-            else:
-                self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx])) ** self.beta
+        # ###TODO: this is slow and inefficient
+        # for idx in batch_inds:
+        #     if idx > self.pos:
+        #         self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx-1])) ** self.beta
+        #     else:
+        #         self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx])) ** self.beta
         
-        self.batch_is_correctors = self.importance_sampling_correctors[batch_inds]
-        self.batch_is_correctors = self.batch_is_correctors.reshape(-1, 1).astype(np.float32)
+        # self.batch_is_correctors = self.importance_sampling_correctors[batch_inds]
+        
+        # self.batch_is_correctors = self.batch_is_correctors.reshape(-1, 1).astype(np.float32)
         return self._get_samples(batch_inds, env=env)
     
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
@@ -494,6 +543,7 @@ class LearnerServer:
 
                         #TODO: Have the IS sampling weights be returned here
                         is_weights = data.is_weights
+
                         # print("IS WEIGHTS WORKED?????")
                         # print(is_weights)
                         # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
@@ -514,6 +564,19 @@ class LearnerServer:
                         # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
 
                         current_q1, current_q2 = critic(obs, actions)
+
+                        #get TD-error
+                        with torch.no_grad():
+                            #target_q already contains the entropy term and is a correct formulation of the TD target
+                            # -> TD-error = TD_target - current_q
+                            TD_error_1 = torch.abs(target_q - current_q1)
+                            TD_error_2 = torch.abs(target_q - current_q2)
+                            TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0).cpu().numpy().flatten()
+
+                            TD_update_priorities += 1e-6 
+                            
+                            replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+
                         ###Nikita: this is my critic loss!
                         critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
                                        + (is_weights * ((current_q2 - target_q).pow(2))).mean())
