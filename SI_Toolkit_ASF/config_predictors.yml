@@ -29,10 +29,14 @@ predictors:
     model_name:
     intermediate_steps: 1
     computation_library_name: "TF" # One of "Numpy", "TF", "Pytorch".
+    control_inputs: ['angular_control', 'translational_control']
+    state_variables: ['angular_vel_z', 'linear_vel_x', 'linear_vel_y', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
   ODE_TF_default:
     predictor_type: "ODE"
     model_name:
     intermediate_steps: 2
+    control_inputs: ['angular_control', 'translational_control']
+    state_variables: ['angular_vel_z', 'linear_vel_x', 'linear_vel_y', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
 
   backward_optimizer_default:
     predictor_type: "backward_optimizer"
@@ -55,3 +59,5 @@ predictors:
     predictor_type: "ODE"
     model_name:
     intermediate_steps: 10
+    control_inputs: ['angular_control', 'translational_control']
+    state_variables: ['angular_vel_z', 'linear_vel_x', 'linear_vel_y', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']

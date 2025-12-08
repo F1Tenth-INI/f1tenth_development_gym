@@ -5,7 +5,6 @@ from utilities.car_files.vehicle_parameters import VehicleParameters
 from SI_Toolkit.computation_library import NumpyLibrary
 
 from utilities.state_utilities import *
-from SI_Toolkit_ASF.ToolkitCustomization.predictors_customization import CONTROL_INDICES
 
 
 def _ks_step_factory(lib, car_parameters, t_step):
@@ -153,7 +152,7 @@ class car_model:
         # Per-trajectory mu for batch processing
         # Initialized to scalar car_parameters.mu (broadcasts automatically in dynamics)
         # Updated by pid() to per-trajectory values when mu is in control input
-        self._current_mu_batch = self.car_parameters.mu
+        self._mu = self.car_parameters.mu
 
     def _convert_parameters_to_tensors(self):
         """
@@ -291,11 +290,11 @@ class car_model:
         delta_dot = Q[:, 0]
         v_x_dot = Q[:, 1]
         
-        # Use _current_mu_batch for friction coefficient
+        # Use _mu for friction coefficient
         # - Initialized to scalar car_parameters.mu in __init__ (broadcasts automatically)
         # - Updated to per-trajectory batch tensor by pid() when mu is in control input
         # - No Python conditionals here to ensure tf.function compatibility
-        mu = self._current_mu_batch
+        mu = self._mu
 
         # compile-aware loop as above
         final_counter, *final_state = self.lib.loop(
@@ -508,22 +507,6 @@ class car_model:
         # Use named indices from CONTROL_INDICES for clarity and maintainability
         desired_angle = Q[:, CONTROL_INDICES['angular_control']]
         translational_control = Q[:, CONTROL_INDICES['translational_control']]
-        
-        # Update friction coefficient for dynamics
-        # Always set _current_mu_batch as a tensor to avoid Python conditionals in dynamics
-        # (Python conditionals are evaluated at trace time, not runtime, which breaks tf.function)
-        if 'mu' in CONTROL_INDICES:
-            # Per-trajectory mu from control input
-            mu_from_Q = Q[:, CONTROL_INDICES['mu']]
-            self._current_mu_batch = mu_from_Q  # Store full batch for dynamics
-            self.lib.assign(self.car_parameters.mu, mu_from_Q[0])  # Keep backward compat for scalar access
-        else:
-            # Broadcast scalar mu to batch size for consistent tensor shape
-            batch_size = self.lib.shape(Q)[0]
-            self._current_mu_batch = self.lib.tile(
-                self.lib.reshape(self.car_parameters.mu, [1]), 
-                [batch_size]
-            )
 
         delta = s[:, self.STEERING_ANGLE_IDX]  # Front Wheel steering angle
         vel_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
@@ -536,8 +519,7 @@ class car_model:
         Q_pid = self.lib.stack([delta_dot, vel_x_dot], axis=1)
 
         return Q_pid
-
-
+    
     def apply_constrains(self, s, Q_pid):
 
         delta = s[:, self.STEERING_ANGLE_IDX]  # Front wheels steering angle

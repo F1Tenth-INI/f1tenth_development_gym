@@ -1,6 +1,8 @@
 import numpy as np
+import re
 
 from utilities.Settings import Settings
+from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES, CONTROL_INPUTS
 
 from SI_Toolkit.computation_library import NumpyLibrary
 
@@ -8,32 +10,7 @@ environment_name = Settings.ENVIRONMENT_NAME
 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS
 car_parameter_file = Settings.CONTROLLER_CAR_PARAMETER_FILE
 
-STATE_VARIABLES_FOR_PREDICTOR = np.sort([
-    'angular_vel_z',  # x5: yaw rate
-    'linear_vel_x',  # x3: velocity in x direction
-    'linear_vel_y',  # x6: velocity in y direction
-    'pose_theta',  # x4: yaw angle
-    'pose_theta_cos',
-    'pose_theta_sin',
-    'pose_x',  # x0: x position in global coordinates
-    'pose_y',  # x1: y position in global coordinates
-    'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
-    'steering_angle'  # x2: steering angle of front wheels
-])
 
-STATE_INDICES = {x: np.where(STATE_VARIABLES_FOR_PREDICTOR == x)[0][0] for x in STATE_VARIABLES_FOR_PREDICTOR}
-STATE_VARIABLES = STATE_VARIABLES_FOR_PREDICTOR
-
-CONTROL_INPUTS_FOR_PREDICTOR = np.sort([
-    'angular_control',
-    'translational_control',
-    # 'mu'  # Include it for brunton plot
-])
-CONTROL_INPUTS = CONTROL_INPUTS_FOR_PREDICTOR
-CONTROL_INPUTS_LEN = len(CONTROL_INPUTS_FOR_PREDICTOR)
-
-# Create indices dictionary for control inputs (similar to STATE_INDICES)
-CONTROL_INDICES = {x: np.where(CONTROL_INPUTS_FOR_PREDICTOR == x)[0][0] for x in CONTROL_INPUTS_FOR_PREDICTOR}
 
 class next_state_predictor_ODE():
 
@@ -43,6 +20,8 @@ class next_state_predictor_ODE():
                  lib,
                  batch_size=1,
                  variable_parameters=None,
+                 control_inputs=None,
+                 state_variables=None,
                  disable_individual_compilation=False,
                  **kwargs,
                  ):
@@ -50,6 +29,27 @@ class next_state_predictor_ODE():
         self.intermediate_steps = int(intermediate_steps)
         self.t_step = float(dt / float(self.intermediate_steps))
         self.variable_parameters = variable_parameters
+
+        # State variables (from config_predictors.yml)
+        if state_variables is None:
+            raise ValueError("state_variables must be provided (define in config_predictors.yml)")
+        self.state_variables = np.array(state_variables)
+        self.state_indices = {x: i for i, x in enumerate(self.state_variables)}
+
+        # Control inputs (from config_predictors.yml)
+        if control_inputs is None:
+            raise ValueError("control_inputs must be provided (define in config_predictors.yml)")
+        self.control_inputs = np.array(control_inputs)
+        self.control_indices = {x: i for i, x in enumerate(self.control_inputs)}
+        self.num_control_inputs = len(self.control_inputs)
+        
+        # Check if mu is in control inputs and pre-compute all indices
+        self.mu_from_control_input = 'mu' in self.control_indices
+        if self.mu_from_control_input:
+            self.mu_control_idx = self.control_indices['mu']
+            # Pre-compute base control indices (handles time-suffixed names like 'angular_control_-4')
+            self.angular_control_idx = self._get_control_idx('angular_control')
+            self.translational_control_idx = self._get_control_idx('translational_control')
 
         if "core_dynamics_only" in kwargs and kwargs["core_dynamics_only"] is True:
             self.core_dynamics_only = True
@@ -78,17 +78,34 @@ class next_state_predictor_ODE():
             self.step = CompileAdaptive(self._step)
 
     def _step(self, s, Q):
-
-        if self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
-            # mu = self.lib.to_numpy(self.variable_parameters.mu, self.lib.float32)
-            self.params.mu = self.variable_parameters.mu
+        # Handle mu from different sources (indices pre-computed in __init__)
+        if self.mu_from_control_input:
+            # mu from control inputs (e.g., CSV for Brunton test)
+            self.env._mu = Q[:, self.mu_control_idx]
+            # Extract only base controls for car_model (using pre-computed indices)
+            Q_for_car = self.lib.stack([Q[:, self.angular_control_idx], Q[:, self.translational_control_idx]], axis=1)
+        elif self.variable_parameters is not None and hasattr(self.variable_parameters, 'mu'):
+            # mu from MPC variable_parameters
+            self.env._mu = self.variable_parameters.mu
+            Q_for_car = Q
+        else:
+            Q_for_car = Q
 
         if self.core_dynamics_only:
-            s_next = self.env.step_dynamics_core(s, Q)
+            s_next = self.env.step_dynamics_core(s, Q_for_car)
         else:
-            s_next = self.env.step_dynamics(s, Q)
+            s_next = self.env.step_dynamics(s, Q_for_car)
 
         return s_next
+
+def _get_control_idx(self, base_name):
+    """Get index for control, handling time-suffixed names like 'angular_control_-4'."""
+    if base_name in self.control_indices:
+        return self.control_indices[base_name]
+    for key in self.control_indices:
+        if base_name in key:
+            return self.control_indices[key]
+    raise KeyError(f"Control '{base_name}' not found in control_inputs: {list(self.control_indices.keys())}")
 
 
 
@@ -97,7 +114,6 @@ class predictor_output_augmentation:
 
         self.lib = lib
 
-        import re
         # Strip D_ prefix and time suffixes (e.g., _-1) from outputs
         outputs_after_integration = np.array([re.sub(r'_-?\d+$', '', x[2:]) for x in net_info.outputs])
         self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
