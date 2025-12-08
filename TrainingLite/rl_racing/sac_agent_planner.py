@@ -317,8 +317,8 @@ class RLAgentPlanner(template_planner):
             # border_distances,
             border_points,
             last_actions, 
-            [d], 
-            [e]
+            [d, e], 
+            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
         ]).astype(np.float32)
 
         # match env normalization
@@ -329,7 +329,8 @@ class RLAgentPlanner(template_planner):
             # [1.0] * len(border_distances),
             [0.2] * len(border_points),
             [1.0] * len(last_actions), 
-            [0.5, 0.5]
+            [0.5, 0.5],
+            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
             )) # Adjust normalization factors for each feature
         
         # SAC Training loop
