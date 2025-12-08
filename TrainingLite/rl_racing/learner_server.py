@@ -50,6 +50,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
+        self.max_utd = 4.0  # max updates per data point
 
         # Settings
         self.learning_starts = learning_starts
@@ -280,7 +281,7 @@ class LearnerServer:
 
             # Calculate trainign steps per sample
             current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
-            if current_udt > 10.:
+            if current_udt > self.max_utd:
                 print(f"[server] UDT too high ({current_udt:.4f}), skipping training this round. total_weight_updates={self.total_weight_updates}, total_actor_timesteps={self.total_actor_timesteps}")
                 await asyncio.sleep(1)
                 continue  # skip training if UDT is already high
