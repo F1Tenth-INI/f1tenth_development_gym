@@ -122,6 +122,9 @@ class StateComparisonVisualizer:
         # Reference to twin axis for additional data (for clearing)
         self.ax_other = None
         
+        # Sync scales for state and additional data
+        self.sync_scales = tk.BooleanVar(value=False)
+        
         # Color cycle for additional data plots (distinct colors)
         self.other_data_colors = ['#008000', '#FF00FF', '#0000FF', '#FFA500', '#00CED1', 
                                   '#9400D3', '#FFD700', '#FF1493', '#00FF00', '#8A2BE2',
@@ -405,6 +408,11 @@ class StateComparisonVisualizer:
         # Clear button
         ttk.Button(other_data_list_frame, text="Clear All", 
                   command=self.clear_other_data, style='Large.TButton').pack(pady=2)
+        
+        # Sync scales checkbox
+        ttk.Checkbutton(other_data_list_frame, text="Sync Scales",
+                       variable=self.sync_scales,
+                       command=self.on_sync_scales_toggled, style='Large.TCheckbutton').pack(pady=2)
         
         self.show_controls = tk.BooleanVar(value=False)
         ttk.Checkbutton(state_frame, text="Show Control Plots",
@@ -734,6 +742,10 @@ class StateComparisonVisualizer:
         """Clear all selected additional data items."""
         self.selected_other_data = []
         self.update_other_data_listbox()
+    
+    def on_sync_scales_toggled(self):
+        """Handle sync scales checkbox toggle."""
+        self.plot_state()
         self.plot_state()
         
     def _update_plot_layout(self):
@@ -1156,6 +1168,18 @@ class StateComparisonVisualizer:
             # Also set x-axis limits for twin axis if it exists
             if self.ax_other is not None:
                 self.ax_other.set_xlim(start_idx, end_idx - 1)
+        
+        # Sync y-axis scales if enabled
+        if self.sync_scales.get() and self.ax_other is not None:
+            # Get the y-limits from both axes
+            ylim_main = self.ax.get_ylim()
+            ylim_other = self.ax_other.get_ylim()
+            # Use the wider range to ensure all data is visible
+            y_min = min(ylim_main[0], ylim_other[0])
+            y_max = max(ylim_main[1], ylim_other[1])
+            # Apply the same limits to both axes
+            self.ax.set_ylim(y_min, y_max)
+            self.ax_other.set_ylim(y_min, y_max)
         
         # Plot delta state if enabled
         if (hasattr(self, 'ax_delta') and self.ax_delta is not None and 
