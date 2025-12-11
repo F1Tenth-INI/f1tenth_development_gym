@@ -98,14 +98,14 @@ class next_state_predictor_ODE():
 
         return s_next
 
-def _get_control_idx(self, base_name):
-    """Get index for control, handling time-suffixed names like 'angular_control_-4'."""
-    if base_name in self.control_indices:
-        return self.control_indices[base_name]
-    for key in self.control_indices:
-        if base_name in key:
-            return self.control_indices[key]
-    raise KeyError(f"Control '{base_name}' not found in control_inputs: {list(self.control_indices.keys())}")
+    def _get_control_idx(self, base_name):
+        """Get index for control, handling time-suffixed names like 'angular_control_-4'."""
+        if base_name in self.control_indices:
+            return self.control_indices[base_name]
+        for key in self.control_indices:
+            if base_name in key:
+                return self.control_indices[key]
+        raise KeyError(f"Control '{base_name}' not found in control_inputs: {list(self.control_indices.keys())}")
 
 
 
