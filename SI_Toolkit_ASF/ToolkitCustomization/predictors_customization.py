@@ -119,30 +119,31 @@ class predictor_output_augmentation:
         self.outputs_after_integration_indices = {key: value for value, key in enumerate(outputs_after_integration)}
         indices_augmentation = []
         features_augmentation = []
-        if 'angular_vel_z' not in outputs_after_integration:
+        # Only augment with features that exist in STATE_INDICES (defensive checks)
+        if 'angular_vel_z' not in outputs_after_integration and 'angular_vel_z' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['angular_vel_z'])
             features_augmentation.append('angular_vel_z')
-        if 'linear_vel_x' not in outputs_after_integration:
+        if 'linear_vel_x' not in outputs_after_integration and 'linear_vel_x' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['linear_vel_x'])
             features_augmentation.append('linear_vel_x')
-        if 'linear_vel_y' not in outputs_after_integration and 'linear_vel_y' in STATE_INDICES.keys():  # Quadruped only
+        if 'linear_vel_y' not in outputs_after_integration and 'linear_vel_y' in STATE_INDICES:  # Quadruped only
             indices_augmentation.append(STATE_INDICES['linear_vel_y'])
             features_augmentation.append('linear_vel_y')
 
-        if 'pose_theta' not in outputs_after_integration and 'pose_theta_sin' in outputs_after_integration and 'pose_theta_cos' in outputs_after_integration:
+        if 'pose_theta' not in outputs_after_integration and 'pose_theta_sin' in outputs_after_integration and 'pose_theta_cos' in outputs_after_integration and 'pose_theta' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['pose_theta'])
             features_augmentation.append('pose_theta')
-        if 'pose_theta_sin' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
+        if 'pose_theta_sin' not in outputs_after_integration and 'pose_theta' in outputs_after_integration and 'pose_theta_sin' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['pose_theta_sin'])
             features_augmentation.append('pose_theta_sin')
-        if 'pose_theta_cos' not in outputs_after_integration and 'pose_theta' in outputs_after_integration:
+        if 'pose_theta_cos' not in outputs_after_integration and 'pose_theta' in outputs_after_integration and 'pose_theta_cos' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['pose_theta_cos'])
             features_augmentation.append('pose_theta_cos')
 
-        if 'slip_angle' not in outputs_after_integration:
+        if 'slip_angle' not in outputs_after_integration and 'slip_angle' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['slip_angle'])
             features_augmentation.append('slip_angle')
-        if 'steering_angle' not in outputs_after_integration:
+        if 'steering_angle' not in outputs_after_integration and 'steering_angle' in STATE_INDICES:
             indices_augmentation.append(STATE_INDICES['steering_angle'])
             features_augmentation.append('steering_angle')
 
