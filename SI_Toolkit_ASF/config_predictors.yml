@@ -31,6 +31,17 @@ predictors:
     computation_library_name: "TF" # One of "Numpy", "TF", "Pytorch".
     control_inputs: ['angular_control', 'translational_control']
     state_variables: ['angular_vel_z', 'linear_vel_x', 'linear_vel_y', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
+  
+  # ODE with mu as control input (for back-to-front predictions with neural network)
+  ODE_with_mu:
+    predictor_type: "ODE"
+    model_name:
+    intermediate_steps: 1
+    computation_library_name: "TF"
+    control_inputs: ['angular_control', 'translational_control', 'mu']
+    # Full 10-state vector (alphabetically sorted as expected by car_model)
+    # NN output is augmented to 10 states before passing to ODE
+    state_variables: ['angular_vel_z', 'linear_vel_x', 'linear_vel_y', 'pose_theta', 'pose_theta_cos', 'pose_theta_sin', 'pose_x', 'pose_y', 'slip_angle', 'steering_angle']
   ODE_TF_default:
     predictor_type: "ODE"
     model_name:
