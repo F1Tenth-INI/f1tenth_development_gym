@@ -28,17 +28,17 @@ from tkinter import ttk, filedialog, messagebox
 import jax.numpy as jnp
 from typing import Dict, List, Optional, Tuple
 
-# Configure matplotlib for normal plot fonts
+# Configure matplotlib for readable plot fonts on high-DPI displays
 import matplotlib
 matplotlib.rcParams['figure.dpi'] = 100
 matplotlib.rcParams['savefig.dpi'] = 300
-matplotlib.rcParams['font.size'] = 12  # Normal plot font size
-matplotlib.rcParams['axes.titlesize'] = 14  # Normal plot title size
-matplotlib.rcParams['axes.labelsize'] = 12  # Normal plot label size
-matplotlib.rcParams['xtick.labelsize'] = 10  # Normal tick label size
-matplotlib.rcParams['ytick.labelsize'] = 10  # Normal tick label size
-matplotlib.rcParams['legend.fontsize'] = 11  # Normal legend size
-matplotlib.rcParams['figure.titlesize'] = 16  # Normal figure title size
+matplotlib.rcParams['font.size'] = 24  # Base plot font size
+matplotlib.rcParams['axes.titlesize'] = 28  # Plot title size
+matplotlib.rcParams['axes.labelsize'] = 24  # Plot label size
+matplotlib.rcParams['xtick.labelsize'] = 20  # Tick label size
+matplotlib.rcParams['ytick.labelsize'] = 20  # Tick label size
+matplotlib.rcParams['legend.fontsize'] = 22  # Legend size
+matplotlib.rcParams['figure.titlesize'] = 30  # Figure title size
 
 # Add the parent directories to path to import simulation modules
 current_dir = os.path.dirname(__file__)
@@ -101,9 +101,16 @@ class StateComparisonVisualizer:
         self.available_models = {
             'pacejka': 'Pure Pacejka Model',
             'pacejka_custom': 'Pacejka Model with Customization',
-            'pacejka_residual': 'Pacejka Model with Residuals',
             'direct': 'Direct Dynamics Neural Network',
+            'residual': 'Residual Dynamics Model',
         }
+        
+        # Residual dynamics model (lazy loaded)
+        self.residual_model = None
+        self._residual_model_loaded = False
+
+        # Wider selectors so long option text remains visible in the dropdown
+        self.selector_width_chars = 32
         
         # Available car parameter files - automatically detect all YAML files
         self.available_car_params = {}
@@ -152,21 +159,21 @@ class StateComparisonVisualizer:
             # Calculate scaling factor (assuming 96 DPI as baseline)
             scale_factor = max(1.0, dpi / 96.0)
             
-            # Normal scaling for plots, but keep UI scaling
+            # Apply scaling for plots on high-DPI displays
             if scale_factor > 1.2:  # Only scale for high DPI displays
                 # Moderate scaling for plot readability
-                plot_scale = max(1.2, scale_factor * 0.8)  # Moderate scaling for plots
+                plot_scale = max(1.3, scale_factor * 0.85)  # Moderate scaling for plots
                 
                 matplotlib.rcParams['figure.dpi'] = int(100 * plot_scale)
-                matplotlib.rcParams['font.size'] = int(12 * plot_scale)
-                matplotlib.rcParams['axes.titlesize'] = int(14 * plot_scale)
-                matplotlib.rcParams['axes.labelsize'] = int(12 * plot_scale)
-                matplotlib.rcParams['xtick.labelsize'] = int(10 * plot_scale)
-                matplotlib.rcParams['ytick.labelsize'] = int(10 * plot_scale)
-                matplotlib.rcParams['legend.fontsize'] = int(11 * plot_scale)
-                matplotlib.rcParams['figure.titlesize'] = int(16 * plot_scale)
+                matplotlib.rcParams['font.size'] = int(24 * plot_scale)
+                matplotlib.rcParams['axes.titlesize'] = int(28 * plot_scale)
+                matplotlib.rcParams['axes.labelsize'] = int(24 * plot_scale)
+                matplotlib.rcParams['xtick.labelsize'] = int(20 * plot_scale)
+                matplotlib.rcParams['ytick.labelsize'] = int(20 * plot_scale)
+                matplotlib.rcParams['legend.fontsize'] = int(22 * plot_scale)
+                matplotlib.rcParams['figure.titlesize'] = int(30 * plot_scale)
                 
-                print(f"Moderate plot scaling applied (DPI: {dpi:.1f}). Plot scale: {plot_scale:.1f}x")
+                print(f"High-DPI plot scaling applied (DPI: {dpi:.1f}). Plot scale: {plot_scale:.1f}x")
             
             # Set tkinter scaling for better text rendering
             try:
@@ -176,46 +183,52 @@ class StateComparisonVisualizer:
                 
         except Exception as e:
             print(f"Could not detect DPI scaling: {e}")
-            # Use normal default fonts for plots
-            matplotlib.rcParams['font.size'] = 12
-            matplotlib.rcParams['axes.titlesize'] = 14
-            matplotlib.rcParams['axes.labelsize'] = 12
-            matplotlib.rcParams['xtick.labelsize'] = 10
-            matplotlib.rcParams['ytick.labelsize'] = 10
-            matplotlib.rcParams['legend.fontsize'] = 11
-            matplotlib.rcParams['figure.titlesize'] = 16
+            # Use larger default fonts for plots
+            matplotlib.rcParams['font.size'] = 24
+            matplotlib.rcParams['axes.titlesize'] = 28
+            matplotlib.rcParams['axes.labelsize'] = 24
+            matplotlib.rcParams['xtick.labelsize'] = 20
+            matplotlib.rcParams['ytick.labelsize'] = 20
+            matplotlib.rcParams['legend.fontsize'] = 22
+            matplotlib.rcParams['figure.titlesize'] = 30
     
     def setup_ui_fonts(self):
         """Setup much larger fonts for the UI control panel."""
         try:
             import tkinter.font as tkFont
             
-            # Create much larger custom fonts
-            self.large_font = tkFont.Font(family="Arial", size=14, weight="normal")
-            self.large_bold_font = tkFont.Font(family="Arial", size=14, weight="bold")
-            self.button_font = tkFont.Font(family="Arial", size=13, weight="normal")
-            self.metrics_font = tkFont.Font(family="Arial", size=13, weight="bold")
+            # Create large 24pt fonts for all UI elements
+            self.large_font = tkFont.Font(family="Arial", size=24, weight="normal")
+            self.large_bold_font = tkFont.Font(family="Arial", size=24, weight="bold")
+            self.button_font = tkFont.Font(family="Arial", size=24, weight="normal")
+            self.metrics_font = tkFont.Font(family="Arial", size=24, weight="bold")
             
             # Configure ttk styles with much larger fonts
             style = ttk.Style()
             
-            # Configure all styles with larger fonts
+            # Configure all styles with larger fonts and padding
             style.configure('Large.TLabel', font=self.large_font)
             style.configure('Bold.TLabel', font=self.large_bold_font)
-            style.configure('Large.TButton', font=self.button_font)
-            style.configure('Large.TEntry', font=self.large_font)
-            style.configure('Large.TCombobox', font=self.large_font)
+            style.configure('Large.TButton', font=self.button_font, padding=(10, 10))
+            style.configure('Large.TEntry', font=self.large_font, padding=10)
+            style.configure('Large.TCombobox', font=self.large_font, padding=10)
             style.configure('Large.TCheckbutton', font=self.large_font)
             
-            # Set default fonts for all ttk widgets
+            # Set default fonts and padding for all ttk widgets
             style.configure('TLabel', font=self.large_font)
-            style.configure('TButton', font=self.button_font)
-            style.configure('TEntry', font=self.large_font)
-            style.configure('TCombobox', font=self.large_font)
+            style.configure('TButton', font=self.button_font, padding=(10, 10))
+            style.configure('TEntry', font=self.large_font, padding=10)
+            style.configure('TCombobox', font=self.large_font, padding=10)
             style.configure('TCheckbutton', font=self.large_font)
             style.configure('TLabelFrame', font=self.large_bold_font)
             
-            print("Large UI fonts configured (14pt base, 13pt buttons)")
+            # Configure combobox dropdown list to have larger font
+            self.root.option_add('*TCombobox*Listbox.font', self.large_font)
+            # Also configure the dropdown height
+            style.map('TCombobox', fieldbackground=[('readonly', 'white')])
+            style.map('Large.TCombobox', fieldbackground=[('readonly', 'white')])
+            
+            print("Large UI fonts configured (24pt for all elements)")
             
         except Exception as e:
             print(f"Could not configure UI fonts: {e}")
@@ -372,6 +385,7 @@ class StateComparisonVisualizer:
         self.state_var = tk.StringVar()
         self.state_combo = ttk.Combobox(state_frame, textvariable=self.state_var,
                                        values=self.state_columns, state='readonly',
+                                       width=self.selector_width_chars,
                                        style='Large.TCombobox')
         self.state_combo.pack(pady=2)
         self.state_combo.bind('<<ComboboxSelected>>', self.on_state_changed)
@@ -380,6 +394,7 @@ class StateComparisonVisualizer:
         self.other_data_var = tk.StringVar()
         self.other_data_combo = ttk.Combobox(state_frame, textvariable=self.other_data_var,
                                             values=[], state='readonly',
+                                            width=self.selector_width_chars,
                                             style='Large.TCombobox')
         self.other_data_combo.pack(pady=2)
         self.other_data_combo.bind('<<ComboboxSelected>>', self.on_other_data_changed)
@@ -437,7 +452,8 @@ class StateComparisonVisualizer:
         self.model_var = tk.StringVar()
         self.model_combo = ttk.Combobox(comparison_frame, textvariable=self.model_var,
                                        values=list(self.available_models.values()),
-                                       state='readonly', style='Large.TCombobox')
+                                       state='readonly', width=self.selector_width_chars,
+                                       style='Large.TCombobox')
         self.model_combo.pack(pady=2)
         self.model_combo.bind('<<ComboboxSelected>>', self.on_model_changed)
         
@@ -445,7 +461,8 @@ class StateComparisonVisualizer:
         self.params_var = tk.StringVar()
         self.params_combo = ttk.Combobox(comparison_frame, textvariable=self.params_var,
                                         values=list(self.available_car_params.values()),
-                                        state='readonly', style='Large.TCombobox')
+                                        state='readonly', width=self.selector_width_chars,
+                                        style='Large.TCombobox')
         self.params_combo.pack(pady=2)
         self.params_combo.bind('<<ComboboxSelected>>', self.on_params_changed)
         
@@ -516,7 +533,8 @@ class StateComparisonVisualizer:
         self.font_size_var = tk.StringVar(value="12")  # Default to normal size
         font_size_combo = ttk.Combobox(metrics_frame, textvariable=self.font_size_var,
                                       values=["8", "10", "12", "14", "16", "18", "20"], 
-                                      state='readonly', width=8, style='Large.TCombobox')
+                                      state='readonly', width=self.selector_width_chars,
+                                      style='Large.TCombobox')
         font_size_combo.pack(anchor='w', pady=2)
         font_size_combo.bind('<<ComboboxSelected>>', self.on_font_size_changed)
     
@@ -544,15 +562,18 @@ class StateComparisonVisualizer:
             slider_frame = ttk.Frame(parent)
             slider_frame.pack(side=tk.TOP, fill=tk.X, pady=2)
             
-            ttk.Label(slider_frame, text="Comparison Start Index:").pack(side=tk.LEFT)
+            ttk.Label(slider_frame, text="Comparison Start Index:", style='Large.TLabel').pack(side=tk.LEFT)
             self.comparison_start_var = tk.IntVar(value=0)
             self.comparison_slider = tk.Scale(slider_frame, from_=0, to=0, 
                                             variable=self.comparison_start_var,
                                             orient=tk.HORIZONTAL, length=400,
+                                            font=self.large_font if hasattr(self, 'large_font') and self.large_font else ('Arial', 24),
+                                            width=30,  # Make slider wider/taller
+                                            sliderlength=40,  # Make slider thumb larger
                                             command=self.on_comparison_slider_changed)
             self.comparison_slider.pack(side=tk.LEFT, padx=10, fill=tk.X, expand=True)
             
-            self.comparison_index_label = ttk.Label(slider_frame, text="Index: 0")
+            self.comparison_index_label = ttk.Label(slider_frame, text="Index: 0", style='Large.TLabel')
             self.comparison_index_label.pack(side=tk.RIGHT, padx=5)
             
             # Create figure with zoom/pan capabilities and proper DPI
@@ -1728,6 +1749,9 @@ class StateComparisonVisualizer:
             initial_state = self.extract_initial_state_at_index(start_index)
             control_sequence = self.extract_control_sequence_at_index(start_index, horizon)
             
+            # Store start_index for residual model to extract history
+            self._current_start_index = start_index
+            
             # Get timestep from data
             dt = self.get_timestep()
             
@@ -1761,6 +1785,34 @@ class StateComparisonVisualizer:
                     model_type='pacejka_custom',
                     intermediate_steps=4
                 )
+            elif model_name == 'residual':
+                # Lazy load residual model
+                if not self._residual_model_loaded:
+                    try:
+                        sys.path.append(os.path.join(parent_dir, 'TrainingLite', 'dynamic_residual_jax'))
+                        from dynamics_model_residual import DynamicsModelResidual
+                        self.residual_model = DynamicsModelResidual()
+                        self._residual_model_loaded = True
+                    except Exception as e:
+                        print(f"Failed to load residual model: {e}")
+                        return None
+                
+                # Set history if available
+                if hasattr(self, '_current_start_index') and self.data is not None and self._current_start_index >= 10:
+                    start_idx = self._current_start_index
+                    state_history = np.array([self.extract_initial_state_at_index(start_idx - 10 + i) for i in range(10)])
+                    control_history = np.array([self.extract_control_sequence_at_index(start_idx - 10 + i, 1)[0] for i in range(10)])
+                    self.residual_model.set_history(state_history, control_history)
+                
+                # Autoregressive prediction
+                predicted_states = []
+                current_state = np.array(initial_state)
+                for i in range(horizon):
+                    control = control_sequence[i] if control_sequence.ndim == 2 else control_sequence
+                    current_state = self.residual_model.predict(current_state, control)
+                    predicted_states.append(np.array(current_state))
+                
+                return np.array(predicted_states)
             else:
                 print(f"Unknown model: {model_name}")
                 return None

@@ -141,3 +141,31 @@ def alpha_beta_filter(data, alpha=0.1):
         filtered[i] = prediction + alpha * residual
     
     return filtered
+
+
+def moving_average_zero_phase(data, window_size=5):
+    """
+    Zero-phase moving average filter (no delay in the middle of the signal).
+    
+    window_size should be odd: 3,5,7,...
+    """
+    assert window_size % 2 == 1, "window_size must be odd"
+    n = len(data)
+    half = window_size // 2
+    out = [0.0] * n
+
+    # Simple edge handling: extend the signal with edge values
+    extended = ([data[0]] * half) + list(data) + ([data[-1]] * half)
+
+    # Precompute cumulative sum for speed
+    cumsum = [0.0]
+    for x in extended:
+        cumsum.append(cumsum[-1] + float(x))
+
+    for i in range(n):
+        start = i
+        end = i + window_size
+        window_sum = cumsum[end] - cumsum[start]
+        out[i] = window_sum / window_size
+
+    return out
