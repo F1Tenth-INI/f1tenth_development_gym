@@ -42,6 +42,14 @@ randomize_param = 'mu'  # Name of control parameter to randomize (e.g., 'mu'). S
 param_range = (0.3, 1.1)  # Range for random parameter sampling (min, max)
 random_seed = 1  # Random seed for reproducibility (None = use file name hash)
 
+# Error score computation (for DAGGER-like sampling)
+# Compares backward (NN) vs forward (ODE) trajectories using NN output features
+compute_error_score = True
+
+# Normalization info for error score (set to None to use raw values)
+# Error score = L∞ over features of (L2 over time for each normalized feature)
+normalization_info_path = './SI_Toolkit_ASF/Experiments/Experiments_05_12_2025/NormalizationInfo/NI_2025-12-10_14-52-18.csv'
+
 # =============================================================================
 # COMMAND LINE ARGUMENTS (optional)
 # =============================================================================
@@ -98,6 +106,7 @@ else:
 # =============================================================================
 
 if __name__ == '__main__':
+    import pandas as pd
     from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
     
     print("="*80)
@@ -109,6 +118,20 @@ if __name__ == '__main__':
     print(f"Forward predictor: {forward_predictor_specification}")
     print(f"Horizon: {test_horizon}")
     print(f"Max batch size: {max_batch_size}")
+    print(f"Compute error score: {compute_error_score}")
+    
+    # Load normalization info
+    normalization_info = None
+    if normalization_info_path and os.path.exists(normalization_info_path):
+        try:
+            normalization_info = pd.read_csv(normalization_info_path, index_col=0, comment='#')
+            print(f"Normalization: {normalization_info_path}")
+            print("  Error = L∞ over features of (L2 over time for each normalized feature)")
+        except Exception as e:
+            print(f"Warning: Could not load normalization info: {e}")
+    else:
+        print("Normalization: None (using raw values)")
+    
     if randomize_param is not None:
         print(f"Parameter randomization: '{randomize_param}' (range: {param_range})")
     else:
@@ -143,6 +166,8 @@ if __name__ == '__main__':
         randomize_param=randomize_param,
         param_range=param_range,
         random_seed=random_seed,
+        compute_error_score=compute_error_score,
+        normalization_info=normalization_info,
     )
     
     print("\n" + "="*80)
