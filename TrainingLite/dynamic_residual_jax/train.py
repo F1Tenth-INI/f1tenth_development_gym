@@ -31,6 +31,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 
+INPUT_COLS = ['linear_vel_x', 'angular_control_executed', 'translational_control_executed']
+OUTPUT_COLS = ['residual_delta_linear_vel_x_0']
+
 
 def load_data(csv_path: str) -> pd.DataFrame:
     """Load training data CSV file."""
@@ -55,15 +58,12 @@ def create_sequences(df: pd.DataFrame, sequence_length: int = 5) -> Tuple[np.nda
     """
 
     
-    input_cols = [
-        'linear_vel_x', 'angular_control_executed', 'translational_control_executed'
-    ]
+    # Define input and output of the NN
+    input_cols = INPUT_COLS
+    output_cols = OUTPUT_COLS
     
-    # Target column (pick from global config)
-    output_cols = ['residual_delta_linear_vel_x_0']
-    
-    # Extract data
-    targets = df[output_cols].values.astype(np.float32).reshape(-1, 1)
+    # Extract data (supports multiple outputs)
+    targets = df[output_cols].values.astype(np.float32)
     
     # Create sequences
     sequences = []
@@ -74,10 +74,10 @@ def create_sequences(df: pd.DataFrame, sequence_length: int = 5) -> Tuple[np.nda
         past_inputs = df[input_cols].values[i - sequence_length:i] 
         
         sequences.append(past_inputs)
-        target_sequences.append(targets[i])  # Target is the residual at current timestep
+        target_sequences.append(targets[i])  # Target is the residual(s) at current timestep
     
-    X = np.array(sequences, dtype=np.float32)  # (N, sequence_length, 12)
-    y = np.array(target_sequences, dtype=np.float32)  # (N, 1)
+    X = np.array(sequences, dtype=np.float32)  # (N, sequence_length, input_dim)
+    y = np.array(target_sequences, dtype=np.float32)  # (N, output_dim)
     
     print(f"Created {len(X)} sequences of length {sequence_length}")
     print(f"Input shape: {X.shape}, Target shape: {y.shape}")
@@ -501,14 +501,15 @@ def main():
     X, y = create_sequences(df, sequence_length=sequence_length)
     
     # Split into train/validation
-    # X_train, X_val, y_train, y_val = train_test_split(
-    #     X, y, test_size=test_size, random_state=seed, shuffle=False
-    # )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=test_size, random_state=seed, shuffle=True
+    )
 
-    n = len(X)
-    split = int(0.6 * n)
-    X_train, X_val = X[:split], X[split:]
-    y_train, y_val = y[:split], y[split:]
+    # Alternative manual split without shuffling
+    # n = len(X)
+    # split = int(0.6 * n)
+    # X_train, X_val = X[:split], X[split:]
+    # y_train, y_val = y[:split], y[split:]
 
     print(f"\nTrain set: {len(X_train)} samples")
     print(f"Validation set: {len(X_val)} samples")

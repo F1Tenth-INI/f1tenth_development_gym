@@ -53,6 +53,11 @@ from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES
 
+# Import residual dynamics model
+sys.path.append(os.path.join(parent_dir, 'TrainingLite', 'dynamic_residual_jax'))
+from dynamics_model_residual import DynamicsModelResidual
+    
+
 # Control column names - change these if CSV column names change
 STEERING_CONTROL_COLUMN = 'angular_control_executed'
 ACCELERATION_CONTROL_COLUMN = 'translational_control_executed'
@@ -93,9 +98,6 @@ class StateComparisonVisualizer:
         self.slider_update_timer = None
         self.slider_update_delay = 300  # milliseconds to wait after slider stops moving
         
-        # Residual dynamics (loaded dynamically)
-        self.residual_dynamics = None
-        self.residual_functions_loaded = False
         
         # Available car models
         self.available_models = {
@@ -105,10 +107,12 @@ class StateComparisonVisualizer:
             'residual': 'Residual Dynamics Model',
         }
         
-        # Residual dynamics model (lazy loaded)
-        self.residual_model = None
+        # Preload models
+        
+        # Residual model loading flag
         self._residual_model_loaded = False
-
+        self.residual_model = DynamicsModelResidual()
+        
         # Wider selectors so long option text remains visible in the dropdown
         self.selector_width_chars = 32
         
@@ -1786,17 +1790,7 @@ class StateComparisonVisualizer:
                     intermediate_steps=4
                 )
             elif model_name == 'residual':
-                # Lazy load residual model
-                if not self._residual_model_loaded:
-                    try:
-                        sys.path.append(os.path.join(parent_dir, 'TrainingLite', 'dynamic_residual_jax'))
-                        from dynamics_model_residual import DynamicsModelResidual
-                        self.residual_model = DynamicsModelResidual()
-                        self._residual_model_loaded = True
-                    except Exception as e:
-                        print(f"Failed to load residual model: {e}")
-                        return None
-                
+               
                 # Set history if available
                 if hasattr(self, '_current_start_index') and self.data is not None and self._current_start_index >= 10:
                     start_idx = self._current_start_index

@@ -146,63 +146,42 @@ def filter_deltas(df: pd.DataFrame) -> pd.DataFrame:
 def add_predictions(df: pd.DataFrame) -> pd.DataFrame:
             
     car_params = VehicleParameters()
-    
-    horizon = 1
-    
+        
     for index, row in df.iterrows():
         # Extract necessary data from the dataframe row
         state = car_state_from_row(row)
         control = control_from_row(row)
         
-        # Gather the next 10 control inputs for horizon
-        next_controls = []
-        for i in range(horizon):
-            if index + i < len(df):
-                next_row = df.iloc[index + i]
-                next_control = control_from_row(next_row)
-                next_controls.append(next_control)
-            else:
-                next_controls.append(control)  # Repeat last control if at end
-      
-        
         # Simulate next state
         next_states = car_steps_sequential_jax(
             s0=np.array(state),
-            Q_sequence=np.array(next_controls),
+            Q_sequence=np.array([control]),
             car_params=car_params.to_np_array(),
             dt=0.04,
-            horizon=horizon,
+            horizon=1,
             model_type='pacejka',
             intermediate_steps=1
         )
         
-        # next_state = next_states[0]
+        next_state = next_states[-1]
         # Append simulated data to lists
         for i, var in enumerate(STATE_VARIABLES):
-            for j in range(horizon):
-                df.at[index + j, f'predicted_{var}_{j}'] = next_states[j, i]
-            df[f'predicted_{var}_{j}'].shift(1)
+            df.at[index, f'predicted_{var}_0'] = next_state[i]
+            df.at[index, f'predicted_delta_{var}_0'] = (next_state[i] - state[i]) / 0.04  # Placeholder, will be computed later
             
-    return df
-
-def add_prediction_deltas(df: pd.DataFrame) -> pd.DataFrame:
-    horizon = 1
-    for index, row in df.iterrows():
-        for var in {'linear_vel_x'}:
-            for j in range(horizon):
-                if index + j < len(df):
-                    delta = df.at[index + j, f'predicted_{var}_{j}'] - df.at[index, var]
-                    df.at[index, f'predicted_delta_{var}_{j}'] = delta / (0.04 * (j + 1))
-                else:
-                    df.at[index, f'predicted_delta_{var}_{j}'] = 0.0
+        # Now the predicted next_state and plredicted_delta is still on the same line as the actual state and control. Needs to be on the next line.
+        df[f'predicted_{var}_0'] = df[f'predicted_{var}_0'].shift(1)
+        df[f'predicted_delta_{var}_0'] = df[f'predicted_delta_{var}_0'].shift(1)
+            
     return df
 
 
 def calculate_residuals(df: pd.DataFrame) -> pd.DataFrame:
-    for var in ['delta_linear_vel_x']:
+    for var in ['delta_angular_vel_z', 'delta_linear_vel_x', 'delta_linear_vel_y']:
         for j in range(1):  # horizon
             predicted_col = f'predicted_{var}_{j}'
             if predicted_col in df.columns:
+                # Residual is the difference between ctual delta and the predicted delta
                 df[f'residual_{var}_{j}'] = df[var] - df[predicted_col]
     return df
 
@@ -222,7 +201,6 @@ if __name__ == "__main__":
     df = add_state_deltas(df)
     df = filter_deltas(df)
     df = add_predictions(df)
-    df = add_prediction_deltas(df)
     df = calculate_residuals(df)
     
     # Save dataframe

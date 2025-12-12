@@ -87,3 +87,6 @@ ppo_models/*
 *.egg-info
 
 .github/instructions/python_instructions.instructions.md
+
+TrainingLite/dynamic_residual_jax/training_data
+TrainingLite/dynamic_residual_jax/data_analysis
