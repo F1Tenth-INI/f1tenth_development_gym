@@ -24,32 +24,48 @@ from utilities.Settings import Settings
 
 from stable_baselines3.common.type_aliases import ReplayBufferSamples
 
+from dataclasses import dataclass
+
+@dataclass
+class PriorityWeights:
+    w_d: float
+    w_e: float
+    reward_weight: float
+    velocity_weight: float
+    alpha: float
+    beta: float
+
+
 class CustomReplayBuffer(ReplayBuffer):
     """Class to extend SB3 replaybuffer, to enable custom weighted sampling, and other additional helping functions"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.w_d = Settings.SAC_WP_OFFSET_WEIGHT
+        self.w_d = Settings.SAC_WP_OFFSET_WEIGHT #should i have all my weights in a dict or is this bad?
         self.w_e = Settings.SAC_WP_HEADING_ERROR_WEIGHT
         self.reward_weight = Settings.SAC_REWARD_WEIGHT
+        self.velocity_weight = Settings.SAC_VELOCITY_WEIGHT
         self.alpha = Settings.SAC_PRIORITY_FACTOR
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
         self.beta = Settings.SAC_IMPORANCE_SAMPLING_CORRECTOR
-        # Initialize with small non-zero values to avoid zero-sum edge cases (DO I ACTUALLY NEED THIS?)
-        self.state_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6
+        self.initial_beta = self.beta
+        self.beta_end = 1.0
+        self.beta_annealing_horizon = Settings.SAC_BETA_ANNEALING_RATIO * Settings.SIMULATION_LENGTH
+        self.state_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6 # Initialize with small non-zero values to avoid zero-sum edge cases
         self.importance_sampling_correctors = np.ones(self.buffer_size, dtype=np.float64)
         self.batch_is_correctors = None
 
-        self.state_to_TD_ratio = 0.5 #if 0, only TD error based priorities
+        self.state_to_TD_ratio = Settings.SAC_STATE_TO_TD_RATIO #if 0, only TD error based priorities
 
         self.TD_weights = np.zeros(self.buffer_size, dtype=np.float64)
         self.new_weight_priority = 1.0
+        self.dynamic_importance_sampling_corrector = Settings.SAC_DYNAMIC_IS_CORRECTOR
 
         self.current_sampled_inds = None #indexes of the data which was just sampled in last sample() call
 
         
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
-            print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Priority factor: {self.alpha}")
+            print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
 
     def add(self, *args, **kwargs):
         """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
@@ -80,7 +96,7 @@ class CustomReplayBuffer(ReplayBuffer):
         vel = (1 - min(e, 0.9)) * vel #we only care about speed into the right direction
         # print(rew)
 
-        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.reward_weight * vel
+        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.velocity_weight * vel
         w = np.clip(w, 1e-6, 1e3)
 
         self.state_weights[idx] = w
@@ -122,14 +138,6 @@ class CustomReplayBuffer(ReplayBuffer):
         TD_vec = self.TD_weights[possible_inds].astype(np.float64)
 
         combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
-        
-
-        # ==== Final normalization ====
-        # total_w = np.sum(w_vec)
-        # if total_w <= 0 or not np.isfinite(total_w):
-        #     priority_p = np.ones_like(w_vec) / len(w_vec)
-        # else:
-        #     priority_p = w_vec / total_w
 
         #power law blend with uniform distribution
         p = combined_weight ** self.alpha
@@ -154,6 +162,9 @@ class CustomReplayBuffer(ReplayBuffer):
         sample_probs = p[sampled_p_index]
         is_weights = (1 / (length * sample_probs)) ** self.beta
         is_weights = is_weights / is_weights.max()
+
+        #print("the current beta is:" + str(self.beta))
+
 
         self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
 
@@ -496,6 +507,7 @@ class LearnerServer:
                 print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
                 await asyncio.sleep(self.train_every_seconds)
                 continue
+
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)
@@ -520,6 +532,11 @@ class LearnerServer:
                 target_entropy = self.model.target_entropy
                 log_ent_coef = getattr(self.model, "log_ent_coef", None)
                 ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
+
+                if self.replay_buffer.dynamic_importance_sampling_corrector:
+                    progress = min(1, self.total_actor_timesteps / self.replay_buffer.beta_annealing_horizon)
+                    self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
+                    print("Beta has been updated to: " + str(self.replay_buffer.beta))
                                 
                 for step in range(grad_steps):
                     # Check termination flag periodically during training (every 10 steps)

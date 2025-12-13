@@ -180,10 +180,13 @@ class Settings():
     SAC_WP_OFFSET_WEIGHT = 0.5
     SAC_WP_HEADING_ERROR_WEIGHT = 0.5
     SAC_REWARD_WEIGHT = 3.0
-    SAC_SPEED_WEIGHT = 1.0
+    SAC_VELOCITY_WEIGHT = 1.0
 
-    SAC_PRIORITY_FACTOR = 0.6   #p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
-    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.75 # corrects the introduced bias from prioritized sampling
+    SAC_PRIORITY_FACTOR = 0.6   #0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.6 # -> beta, corrects the introduced bias from prioritized sampling
+    SAC_DYNAMIC_IS_CORRECTOR = True
+    SAC_BETA_ANNEALING_RATIO = 0.3 #at how much % of total agent timesteps should beta have grown to 1.0
+    SAC_STATE_TO_TD_RATIO = 0 #if 0, only TD error based priorities
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
