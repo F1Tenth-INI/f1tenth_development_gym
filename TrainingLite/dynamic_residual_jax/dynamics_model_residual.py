@@ -4,8 +4,11 @@ from utilities.state_utilities import *
 from predictor import Predictor
 import numpy as np
 import jax.numpy as jnp
-
+import time
 import os
+
+from train import INPUT_COLS, OUTPUT_COLS
+
 class DynamicsModelResidual:
     def __init__(self):
         self.car_params = VehicleParameters().to_np_array()
@@ -29,6 +32,7 @@ class DynamicsModelResidual:
         self.control_history = control_history
 
     def predict(self, state, control):
+        
 
         # Update history
         self.state_history = np.roll(self.state_history, shift=-1, axis=0)
@@ -43,8 +47,10 @@ class DynamicsModelResidual:
         input_sequence[:, 2] = self.control_history[:, 1]  # translational_control_executed
 
         # Predict residual
+        
+        current_time = time.time()
         predicted_residual = self.predictor.predict(input_sequence)
-        predicted_residual = float(np.array(predicted_residual).item())
+        print(f"Time : {time.time() - current_time:.6f} seconds")
 
         # Run base dynamics
         # Convert to JAX arrays and reshape control to (horizon, 2)
@@ -55,11 +61,15 @@ class DynamicsModelResidual:
         else:
             control_sequence = control_jax
         
+        
         next_states = car_steps_sequential_jax(state_jax, control_sequence, self.car_params, self.dt, self.horizon)
+
+        
         next_state = next_states[-1]
 
         # Apply residual correction to linear_vel_x
-        next_state = next_state.at[LINEAR_VEL_X_IDX].add(predicted_residual * self.dt)
+        # next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(predicted_residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * self.dt)
+        next_state = next_state.at[LINEAR_VEL_X_IDX].add(predicted_residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')][0] * self.dt)
 
         return next_state
 

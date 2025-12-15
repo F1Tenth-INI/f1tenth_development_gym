@@ -78,10 +78,23 @@ def filter_imu_data(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
        
-def filter_v_x(df: pd.DataFrame) -> pd.DataFrame:
+def filter_states(df: pd.DataFrame) -> pd.DataFrame:
+    
+    # angular_vel_z
+    angular_vel_z_data = df['angular_vel_z'].tolist()
+    angular_vel_z_filtered = moving_average_zero_phase(angular_vel_z_data, window_size=5)
+    df['angular_vel_z'] = angular_vel_z_filtered
+    
+    #linear_vel_x
     linear_vel_x_data = df['linear_vel_x'].tolist()
     linear_vel_x_filtered = moving_average_zero_phase(linear_vel_x_data, window_size=7)
     df['linear_vel_x'] = linear_vel_x_filtered
+    
+    # linear_vel_y
+    linear_vel_y_data = df['linear_vel_y'].tolist()
+    linear_vel_y_filtered = moving_average_zero_phase(linear_vel_y_data, window_size=7)
+    df['linear_vel_y'] = linear_vel_y_filtered
+    
     return df
 
        
@@ -137,7 +150,7 @@ def add_state_deltas(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_deltas(df: pd.DataFrame) -> pd.DataFrame:
-    for var in ['linear_vel_x']:
+    for var in ['linear_vel_x', 'linear_vel_y', 'angular_vel_z']:
         delta_var_data = df[f'delta_{var}'].tolist()
         delta_var_filtered = moving_average_zero_phase(delta_var_data, window_size=7)
         df[f'delta_{var}'] = delta_var_filtered
@@ -197,7 +210,7 @@ if __name__ == "__main__":
     df = cleanup(df)
     df = add_simulated_imu_data(df)
     df = filter_imu_data(df)
-    df = filter_v_x(df)
+    df = filter_states(df)
     df = add_state_deltas(df)
     df = filter_deltas(df)
     df = add_predictions(df)

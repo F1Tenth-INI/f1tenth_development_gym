@@ -32,7 +32,8 @@ if project_root not in sys.path:
 
 
 INPUT_COLS = ['linear_vel_x', 'angular_control_executed', 'translational_control_executed']
-OUTPUT_COLS = ['residual_delta_linear_vel_x_0']
+OUTPUT_COLS = ['residual_delta_linear_vel_x_0' ]
+# OUTPUT_COLS = ['residual_delta_angular_vel_z_0', 'residual_delta_linear_vel_x_0', 'residual_delta_linear_vel_y_0']
 
 
 def load_data(csv_path: str) -> pd.DataFrame:
@@ -252,7 +253,7 @@ def train_model(X_train: np.ndarray, y_train: np.ndarray,
     
     # Input dimension: sequence_length * (state_dim + control_dim) = 5 * 12 = 60
     input_dim = X_train.shape[1] * X_train.shape[2]
-    output_dim = 1
+    output_dim = y_train.shape[1]
     
     print(f"\nInitializing model...")
     print(f"Input dimension: {input_dim}")
@@ -552,32 +553,50 @@ def main():
     y_eval_pred = y_eval_pred_norm * y_std_jax + y_mean_jax
     df_eval = df_eval.iloc[sequence_length:]  # Align with sequences
     df_eval = df_eval.reset_index(drop=True)
-    
-    # Save three predictions: actual, predicted (denormalized), and normalized
-    df_eval['actual_residual_delta_linear_vel_x_0'] = y_eval.flatten()
-    df_eval['predicted_residual_delta_linear_vel_x_0'] = np.array(y_eval_pred).flatten()
-    df_eval['predicted_residual_normalized'] = np.array(y_eval_pred_norm).flatten()
-    
-    # Calculate prediction error
-    prediction_error = np.array(y_eval_pred).flatten() - y_eval.flatten()
-    df_eval['prediction_error'] = prediction_error
-    
-    # Calculate absolute error
-    df_eval['absolute_error'] = np.abs(prediction_error)
-    
-    df_eval['corrected_delta_linear_vel_x_0'] = df_eval['predicted_delta_linear_vel_x_0'] + df_eval['predicted_residual_delta_linear_vel_x_0']
+
+    # Handle multiple outputs generically
+    y_eval_np = np.array(y_eval)
+    y_eval_pred_np = np.array(y_eval_pred)
+    y_eval_pred_norm_np = np.array(y_eval_pred_norm)
+    prediction_errors = {}
+    absolute_errors = {}
+
+    for idx, col in enumerate(OUTPUT_COLS):
+        actual_col = f"actual_{col}"
+        pred_col = f"predicted_{col}"
+        pred_norm_col = f"predicted_normalized_{col}"
+
+        df_eval[actual_col] = y_eval_np[:, idx]
+        df_eval[pred_col] = y_eval_pred_np[:, idx]
+        df_eval[pred_norm_col] = y_eval_pred_norm_np[:, idx]
+
+        # Errors per output
+        err = df_eval[pred_col] - df_eval[actual_col]
+        abs_err = np.abs(err)
+        err_col = f"{col}_error"
+        abs_err_col = f"{col}_abs_error"
+        df_eval[err_col] = err
+        df_eval[abs_err_col] = abs_err
+        prediction_errors[col] = err
+        absolute_errors[col] = abs_err
+
+        # If a base prediction column exists, create corrected value
+        base_col_guess = col.replace("residual_", "")
+        base_pred_col = f"predicted_{base_col_guess}"
+        if base_pred_col in df_eval.columns:
+            corrected_col = f"corrected_{base_col_guess}"
+            df_eval[corrected_col] = df_eval[base_pred_col] + df_eval[pred_col]
     
     eval_output_path = os.path.join(model_dir, "evaluation_with_predictions.csv")
     df_eval.to_csv(eval_output_path, index=False)
     print(f"Saved evaluation predictions to: {eval_output_path}")
     
-    # Print evaluation statistics
+    # Print evaluation statistics per output
     print(f"\nEvaluation Statistics:")
-    print(f"  Mean prediction error: {np.mean(prediction_error):.6f}")
-    print(f"  Std prediction error: {np.std(prediction_error):.6f}")
-    print(f"  Mean absolute error: {np.mean(np.abs(prediction_error)):.6f}")
-    print(f"  Max absolute error: {np.max(np.abs(prediction_error)):.6f}")
-    print(f"  Columns saved: actual_residual_delta_linear_vel_x_0, predicted_residual_delta_linear_vel_x_0, predicted_residual_normalized, prediction_error, absolute_error")
+    for col in OUTPUT_COLS:
+        err = prediction_errors[col]
+        abs_err = absolute_errors[col]
+        print(f"  [{col}] Mean error: {np.mean(err):.6f}, Std: {np.std(err):.6f}, Mean abs: {np.mean(abs_err):.6f}, Max abs: {np.max(abs_err):.6f}")
 
 
         

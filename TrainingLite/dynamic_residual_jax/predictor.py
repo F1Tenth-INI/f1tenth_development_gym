@@ -86,9 +86,6 @@ class Predictor:
             output = np.array(output_norm) * self.y_std + self.y_mean
         else:
             output = np.array(output_norm)
-        
-        # Return single value if single input was provided
-        if output.shape[0] == 1:
-            return output[0]
+    
         return output
 
