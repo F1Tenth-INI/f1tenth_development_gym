@@ -111,7 +111,7 @@ class StateComparisonVisualizer:
         
         # Residual model loading flag
         self._residual_model_loaded = False
-        self.residual_model = DynamicsModelResidual()
+        self.residual_model = DynamicsModelResidual(dt=0.04)
         
         # Wider selectors so long option text remains visible in the dropdown
         self.selector_width_chars = 32

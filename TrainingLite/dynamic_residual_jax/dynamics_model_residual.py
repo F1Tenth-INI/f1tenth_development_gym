@@ -5,7 +5,7 @@ import sys
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(script_dir)
 
-from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
+from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import *
 from predictor import Predictor, predictor_forward_jit
@@ -18,9 +18,9 @@ import time
 from train import INPUT_COLS, OUTPUT_COLS
 
 class DynamicsModelResidual:
-    def __init__(self):
+    def __init__(self, dt=0.01):
         self.car_params = VehicleParameters().to_np_array()
-        self.dt = 0.04
+        self.dt = dt
         self.horizon = 1
         self.history_length = 10
         # Load residual neural network model
@@ -61,10 +61,69 @@ class DynamicsModelResidual:
             self.history_length, self.dt
         )
         
-    def predict(self, state, control):
-        """Non-JIT wrapper for single step prediction."""
-        next_states = self.predict_sequence(state, control[None, :])
-        return next_states[0]
+    def predict(self, state, control, dt=None, update_history=False):
+        """Single step prediction without full rollout.
+        
+        Args:
+            state: current state
+            control: control input
+            dt: time step (uses self.dt if None)
+            update_history: if True, update internal history buffers (should be False when called from JIT)
+        """
+        # Use provided dt or fall back to instance dt
+        if dt is None:
+            dt = self.dt
+        
+        # Get predictor params
+        predictor_params = self.predictor.get_params_jax()
+        norm_params = self.predictor.get_norm_params_jax()
+        
+        # Convert to JAX arrays
+        state_jax = jnp.array(state)
+        control_jax = jnp.array(control)
+        state_history_jax = jnp.array(self.state_history)
+        control_history_jax = jnp.array(self.control_history)
+        car_params_jax = jnp.array(self.car_params)
+        
+        # Single step prediction (returns next_state and updated histories)
+        next_state, new_state_history, new_control_history = predict_single_step_jax(
+            state_jax, control_jax,
+            state_history_jax, control_history_jax,
+            predictor_params, norm_params, car_params_jax,
+            dt
+        )
+        
+        # Always update history (now done in JAX, so it's traceable)
+        if update_history:
+            self.state_history = np.array(new_state_history)
+            self.control_history = np.array(new_control_history)
+        
+        return next_state
+
+
+@partial(jax.jit, static_argnames=["dt"])
+def predict_single_step_jax(state, control, state_history, control_history,
+                            predictor_params, norm_params, car_params, dt):
+    """JIT-compiled single step prediction with history update."""
+    # Build predictor input from history
+    input_seq = jnp.stack([state_history[:, LINEAR_VEL_X_IDX], control_history[:, 0], control_history[:, 1]], axis=-1)
+    
+    # Predict residual
+    residual = predictor_forward_jit(input_seq[None, :, :], predictor_params, norm_params)[0]
+    
+    # Base dynamics (use pacejka model directly, no circular dependency)
+    next_state = car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1)
+    
+    # Apply residual
+    next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
+    
+    # Update history (in JAX, for tracing compatibility)
+    new_state_history = jnp.roll(state_history, -1, axis=0)
+    new_state_history = new_state_history.at[-1, :].set(state)
+    new_control_history = jnp.roll(control_history, -1, axis=0)
+    new_control_history = new_control_history.at[-1, :].set(control)
+    
+    return next_state, new_state_history, new_control_history
 
 
 @partial(jax.jit, static_argnames=["history_length", "dt"])
@@ -84,8 +143,8 @@ def predict_sequence_jax(initial_state, control_sequence, state_history, control
         input_seq = jnp.stack([sh[:, LINEAR_VEL_X_IDX], ch[:, 0], ch[:, 1]], axis=-1)
         # Predict residual
         residual = predictor_forward_jit(input_seq[None, :, :], predictor_params, norm_params)[0]
-        # Base dynamics
-        next_state = car_steps_sequential_jax(state, control[None, :], car_params, dt, 1)[-1]
+        # Base dynamics (use pacejka model directly, no circular dependency)
+        next_state = car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1)
         # Apply residual
         next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
         return (next_state, sh, ch), next_state

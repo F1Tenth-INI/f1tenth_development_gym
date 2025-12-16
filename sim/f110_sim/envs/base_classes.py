@@ -111,7 +111,7 @@ class RaceCar(object):
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka', 'residual']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
         self.state = np.zeros((StateIndices.number_of_states, ))
@@ -145,7 +145,7 @@ class RaceCar(object):
             import jax.numpy as jnp
             self.step_dynamics = car_dynamics_pacejka_jax
             u = np.array([0,0])
-            
+
             car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
             self.car_params_array = car_params.to_np_array()
             
@@ -155,6 +155,11 @@ class RaceCar(object):
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
             self.state = np.array(new_state)   
+            
+        if self.ode_implementation == 'residual':
+            from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
+            self.dynamic_model = DynamicsModelResidual(dt=0.01)
+            
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -374,6 +379,16 @@ class RaceCar(object):
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
             self.state = np.array(new_state)   
+            
+        elif self.ode_implementation == 'residual':
+            import jax.numpy as jnp
+            u = np.array([desired_steering_angle, desired_speed])
+            # Convert to JAX arrays and back to numpy
+            jax_state = jnp.array(self.state)
+            jax_u = jnp.array(u)
+            new_state_residual = self.dynamic_model.predict(jax_state, jax_u, update_history=True)
+            self.state = np.array(new_state_residual)
+            
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")

@@ -29,7 +29,7 @@ Key insight: Use consistent timestep during gradient optimization to avoid disco
 but evaluate final costs with variable timestep to match MPPI's planning horizon.
 This preserves RPGD's planning capability while maintaining smooth gradients.
 """
-
+MODEL_TYPE = 'residual'  # Use residual model for dynamics
 class RPGDPlanner(template_planner):
 
     def __init__(self):
@@ -217,11 +217,11 @@ class RPGDPlanner(template_planner):
             self._update_trajectory_ages()
             
             # Compute optimal trajectory for visualization (using constant dt)
-            optimal_traj = car_steps_sequential_jax(s, Q_sequence, self.car_params_jax, self.dt, self.horizon, model_type='pacejka')
+            optimal_traj = car_steps_sequential_jax(s, Q_sequence, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE)
             
             # Batch rollout using vmap over car_steps_sequential_jax
             batch_rollout_fn = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
-                s_single, Q_single, self.car_params_jax, self.dt, self.horizon, model_type='pacejka'
+                s_single, Q_single, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE
             ))
             state_batch_sequence = batch_rollout_fn(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence)
 
@@ -575,7 +575,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with constant timestep (use literal value for static compilation)
-        trajectory = car_steps_sequential_jax(state, Q_full, car_params, 0.02, horizon=horizon, model_type='pacejka')
+        trajectory = car_steps_sequential_jax(state, Q_full, car_params, 0.02, horizon=horizon, model_type=MODEL_TYPE)
         # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
                                          intra_horizon_smoothness_weight,
@@ -617,7 +617,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
-        trajectory = car_steps_sequential_jax(state, Q_plan, car_params, 0.02, horizon=horizon, model_type='pacejka')
+        trajectory = car_steps_sequential_jax(state, Q_plan, car_params, 0.02, horizon=horizon, model_type=MODEL_TYPE)
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 

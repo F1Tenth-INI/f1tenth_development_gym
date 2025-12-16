@@ -1,7 +1,9 @@
+from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
 from .dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
 from functools import partial
 import jax
 
+residual_model = DynamicsModelResidual()
 
 @partial(jax.jit, static_argnames=["intermediate_steps"])
 def car_dynamics_pacejka_jax_with_customization(state, control, car_params, dt, intermediate_steps=1):
@@ -35,7 +37,9 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     
     elif model_type == 'pacejka_custom':
         dynamics_fn = lambda s, c: car_dynamics_pacejka_jax_with_customization(s, c, car_params, dt, intermediate_steps)
-        
+    
+    elif model_type == 'residual':
+        dynamics_fn = lambda s, c: residual_model.predict(s, c, dt=dt)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     
