@@ -1791,20 +1791,17 @@ class StateComparisonVisualizer:
                 )
             elif model_name == 'residual':
                
-                # Set history if available
+                # Set history
                 if hasattr(self, '_current_start_index') and self.data is not None and self._current_start_index >= 10:
                     start_idx = self._current_start_index
                     state_history = np.array([self.extract_initial_state_at_index(start_idx - 10 + i) for i in range(10)])
                     control_history = np.array([self.extract_control_sequence_at_index(start_idx - 10 + i, 1)[0] for i in range(10)])
                     self.residual_model.set_history(state_history, control_history)
                 
-                # Autoregressive prediction
-                predicted_states = []
-                current_state = np.array(initial_state)
-                for i in range(horizon):
-                    control = control_sequence[i] if control_sequence.ndim == 2 else control_sequence
-                    current_state = self.residual_model.predict(current_state, control)
-                    predicted_states.append(np.array(current_state))
+                # SHould be (horizon, 2)
+                control_seq = control_sequence[:horizon]
+                # sequence prediction
+                predicted_states = self.residual_model.predict_sequence(initial_state, control_seq)
                 
                 return np.array(predicted_states)
             else:

@@ -1,11 +1,19 @@
+import os
+import sys
+
+# Add path this files parent directory to sys.path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(script_dir)
+
 from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import *
-from predictor import Predictor
+from predictor import Predictor, predictor_forward_jit
 import numpy as np
 import jax.numpy as jnp
+import jax
+from functools import partial
 import time
-import os
 
 from train import INPUT_COLS, OUTPUT_COLS
 
@@ -20,65 +28,70 @@ class DynamicsModelResidual:
         model_dir = os.path.join(script_dir, 'models')
         self.predictor = Predictor(model_dir)
 
-
         # Init rolling window of state and control history
         self.state_history = np.zeros((self.history_length, 10), dtype=np.float32)
         self.control_history = np.zeros((self.history_length, 2), dtype=np.float32)
-        # self.state_history = 10 * [10 * [0.0]]
-        # self.control_history = 10 * [2 * [0.0]]
+
 
     def set_history(self, state_history, control_history):
         self.state_history = state_history
         self.control_history = control_history
 
+
+    def predict_sequence(self, initial_state, control_sequence, initial_state_history=None, initial_control_history=None):
+        """JIT-compiled sequence prediction using jax.lax.scan."""
+        # Get predictor params once
+        predictor_params = self.predictor.get_params_jax()
+        norm_params = self.predictor.get_norm_params_jax()
+        
+        # Convert to JAX arrays
+        initial_state_jax = jnp.array(initial_state)
+        control_sequence_jax = jnp.array(control_sequence)
+        
+        # Use provided history or default to instance history
+      
+        state_history_jax = jnp.array(self.state_history) 
+        control_history_jax = jnp.array(self.control_history)
+        car_params_jax = jnp.array(self.car_params)
+        
+        return predict_sequence_jax(
+            initial_state_jax, control_sequence_jax,
+            state_history_jax, control_history_jax,
+            predictor_params, norm_params, car_params_jax,
+            self.history_length, self.dt
+        )
+        
     def predict(self, state, control):
-        
+        """Non-JIT wrapper for single step prediction."""
+        next_states = self.predict_sequence(state, control[None, :])
+        return next_states[0]
 
-        # Update history
-        self.state_history = np.roll(self.state_history, shift=-1, axis=0)
-        self.control_history = np.roll(self.control_history, shift=-1, axis=0)
-        self.state_history[-1] = state
-        self.control_history[-1] = control
 
-        # Build input sequence for predictor: (10, 3) - [linear_vel_x, angular_control, translational_control]
-        input_sequence = np.zeros((self.history_length, 3), dtype=np.float32)
-        input_sequence[:, 0] = self.state_history[:, LINEAR_VEL_X_IDX]  # linear_vel_x
-        input_sequence[:, 1] = self.control_history[:, 0]  # angular_control_executed
-        input_sequence[:, 2] = self.control_history[:, 1]  # translational_control_executed
-
+@partial(jax.jit, static_argnames=["history_length", "dt"])
+def predict_sequence_jax(initial_state, control_sequence, state_history, control_history,
+                         predictor_params, norm_params, car_params, history_length, dt):
+    """JIT-compiled sequence prediction."""
+    carry = (initial_state, state_history, control_history)
+    
+    def step(carry, control):
+        state, sh, ch = carry
+        # Update history - do operations separately to avoid shape issues
+        sh_rolled = jnp.roll(sh, -1, axis=0)
+        sh = sh_rolled.at[-1, :].set(state)
+        ch_rolled = jnp.roll(ch, -1, axis=0)
+        ch = ch_rolled.at[-1, :].set(control)
+        # Build predictor input
+        input_seq = jnp.stack([sh[:, LINEAR_VEL_X_IDX], ch[:, 0], ch[:, 1]], axis=-1)
         # Predict residual
-        
-        current_time = time.time()
-        predicted_residual = self.predictor.predict(input_sequence)
-        print(f"Time : {time.time() - current_time:.6f} seconds")
-
-        # Run base dynamics
-        # Convert to JAX arrays and reshape control to (horizon, 2)
-        state_jax = jnp.array(state)
-        control_jax = jnp.array(control)
-        if control_jax.ndim == 1:
-            control_sequence = control_jax[None, :]  # Reshape (2,) to (1, 2)
-        else:
-            control_sequence = control_jax
-        
-        
-        next_states = car_steps_sequential_jax(state_jax, control_sequence, self.car_params, self.dt, self.horizon)
-
-        
-        next_state = next_states[-1]
-
-        # Apply residual correction to linear_vel_x
-        # next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(predicted_residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * self.dt)
-        next_state = next_state.at[LINEAR_VEL_X_IDX].add(predicted_residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')][0] * self.dt)
-
-        return next_state
-
-    def predict_sequence(self, state_sequence, control_sequence):
-        next_states = []
-        for state, control in zip(state_sequence, control_sequence):
-            next_state = self.predict(state, control)
-            next_states.append(next_state)
-        return next_states
+        residual = predictor_forward_jit(input_seq[None, :, :], predictor_params, norm_params)[0]
+        # Base dynamics
+        next_state = car_steps_sequential_jax(state, control[None, :], car_params, dt, 1)[-1]
+        # Apply residual
+        next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
+        return (next_state, sh, ch), next_state
+    
+    _, trajectory = jax.lax.scan(step, carry, control_sequence)
+    return trajectory
 
 
 
@@ -88,13 +101,12 @@ if __name__ == "__main__":
     dynamics_model_residual = DynamicsModelResidual()
     state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
     control = np.array([0.0, 0.0], dtype=np.float32)
-    next_state = dynamics_model_residual.predict(state, control)
-    print(next_state)
 
 
-    # Test sequence prediction
-    state_sequence = [state] * 10
-    control_sequence = [control] * 10
-    next_states = dynamics_model_residual.predict_sequence(state_sequence, control_sequence)
+    # Test sequence prediction with JIT
+    control_sequence = np.array([control] * 10)  # Shape: (10, 2)
+    next_states = dynamics_model_residual.predict_sequence(state, control_sequence)
     print(next_states)
+
+
 

@@ -2,6 +2,8 @@ import os
 import pickle
 import numpy as np
 import jax.numpy as jnp
+import jax
+from functools import partial
 from typing import Union
 
 
@@ -54,7 +56,29 @@ class Predictor:
         x = jnp.dot(x, output_params['W']) + output_params['b']
         return x
     
-    def predict(self, input: Union[np.ndarray, jnp.ndarray]) -> np.ndarray:
+    def get_params_jax(self):
+        """Get predictor parameters as JAX-compatible structures."""
+        predictor_params_jax = {}
+        for key, value in self.params.items():
+            if isinstance(value, dict):
+                predictor_params_jax[key] = {
+                    k: jnp.array(v) for k, v in value.items()
+                }
+            else:
+                predictor_params_jax[key] = jnp.array(value)
+        return predictor_params_jax
+    
+    def get_norm_params_jax(self):
+        """Get normalization parameters as JAX-compatible structures."""
+        return {
+            'X_mean': jnp.array(self.X_mean),
+            'X_std': jnp.array(self.X_std),
+            'y_mean': jnp.array(self.y_mean),
+            'y_std': jnp.array(self.y_std),
+            'normalize_output': self.normalize_output
+        }
+    
+    def predict(self, input: jnp.ndarray) -> jnp.ndarray:
         """
         Predict residual given input sequence.
         
@@ -65,27 +89,44 @@ class Predictor:
         Returns:
             Predicted residual as numpy array
         """
-        # Convert to numpy if needed
-        if isinstance(input, jnp.ndarray):
-            input = np.array(input)
-        
-        # Ensure 3D shape: (batch_size, sequence_length, features)
-        if len(input.shape) == 2:
+        input = jnp.array(input)
+        if input.ndim == 2:
             input = input[np.newaxis, :]
-        
-        # Normalize input
-        input_flat = input.reshape(input.shape[0], -1)
-        input_norm = (input_flat - self.X_mean) / self.X_std
-        input_norm = input_norm.reshape(input.shape)
-        
-        # Forward pass
-        output_norm = self._forward(jnp.array(input_norm))
-        
-        # Denormalize output if needed
-        if self.normalize_output:
-            output = np.array(output_norm) * self.y_std + self.y_mean
-        else:
-            output = np.array(output_norm)
+        predictor_params = self.get_params_jax()
+        norm_params = self.get_norm_params_jax()
+        return predictor_forward_jit(input, predictor_params, norm_params)
     
-        return output
+
+
+
+# JIT-compatible forward function
+@partial(jax.jit)
+def predictor_forward_jit(x: jnp.ndarray, predictor_params: dict, norm_params: dict) -> jnp.ndarray:
+    """JIT-compatible forward pass through the predictor network."""
+    # Flatten input if needed: (batch_size, history_length, features) -> (batch_size, history_length * features)
+    if len(x.shape) > 2:
+        x = x.reshape(x.shape[0], -1)
+    
+    # Normalize input
+    input_norm = (x - norm_params['X_mean']) / norm_params['X_std']
+    
+    # Get number of hidden layers
+    layer_keys = [k for k in predictor_params.keys() if k.startswith('layer_')]
+    num_layers = len(layer_keys)
+    
+    # Hidden layers
+    for i in range(num_layers):
+        layer_params = predictor_params[f'layer_{i}']
+        input_norm = jnp.dot(input_norm, layer_params['W']) + layer_params['b']
+        input_norm = jnp.tanh(input_norm)
+    
+    # Output layer
+    output_params = predictor_params['output']
+    output_norm = jnp.dot(input_norm, output_params['W']) + output_params['b']
+    
+    # Denormalize output 
+    output = output_norm * norm_params['y_std'] + norm_params['y_mean']
+
+    
+    return output
 
