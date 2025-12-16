@@ -155,17 +155,16 @@ class WaypointDataManager:
     def create_backup_if_needed(self):
         backup_path = self.path_to_waypoints.replace(".csv", "_backup.csv")
         if not os.path.exists(backup_path):
-            with open(self.path_to_waypoints, 'r') as original_file:
-                with open(backup_path, 'w') as backup_file:
-                    backup_file.write(original_file.read())
+            # Read the original data, skipping comment lines, and write with proper headers
+            data = pd.read_csv(self.path_to_waypoints, comment="#")
+            data.to_csv(backup_path, index=False, float_format="%.6f")
             upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp_backup.csv"))
-
 
         backup_path = self.path_to_waypoints_reverse.replace(".csv", "_backup_reverse.csv")
         if not os.path.exists(backup_path):
-            with open(self.path_to_waypoints_reverse, 'r') as original_file:
-                with open(backup_path, 'w') as backup_file:
-                    backup_file.write(original_file.read())
+            # Read the original data, skipping comment lines, and write with proper headers
+            data = pd.read_csv(self.path_to_waypoints_reverse, comment="#")
+            data.to_csv(backup_path, index=False, float_format="%.6f")
             upload_to_remote_via_sftp(backup_path, os.path.join(REMOTE_MAP_DIR, self.settings.MAP_NAME, self.settings.MAP_NAME + "_wp_backup_reverse.csv"))
 
     def undo(self):
