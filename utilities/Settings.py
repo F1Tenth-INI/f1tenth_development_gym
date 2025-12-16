@@ -49,7 +49,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = False
+    CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -126,7 +126,7 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.5
 
-    RELOAD_WP_IN_BACKGROUND = False # If True, waypoints are reloaded in a separate thread
+    RELOAD_WP_IN_BACKGROUND = True  # If True, waypoints are reloaded in a separate thread
 
     
     ## MPC Controller ##
