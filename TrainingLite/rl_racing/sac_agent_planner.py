@@ -25,6 +25,14 @@ import csv
 import os
 import sys
 
+# Configure unbuffered output for immediate print statements (important for ROS nodes)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)
+else:
+    # Fallback for older Python versions
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, line_buffering=True)
+
 from typing import Optional, Dict, Any, Deque
 from collections import deque
 import numpy as np
@@ -105,8 +113,6 @@ class RLAgentPlanner(template_planner):
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         self.warmup_action = np.array([0.0, 0.30], dtype=np.float32)  # slight forward
-        # scale from policy space to sim units
-        self.accel_scale = 3.0   # bump to e.g. 5.0 or 10.0 if you need more oomph
 
         # no VecNormalize in this setup
         self.vec_normalize = None
@@ -136,6 +142,9 @@ class RLAgentPlanner(template_planner):
         self.transition_logger = TransitionLogger()
         self.save_transitions = False
 
+        self.autonomous_driving = True
+        self.control_index = 0
+
         self.reset()
 
 
@@ -146,6 +155,7 @@ class RLAgentPlanner(template_planner):
         self.state_history.extend([np.zeros(10) for _ in range(10)])
         
         self.transition_logger.clear()
+        self.control_index = 0
 
         self.prev_obs_raw = None
         self.prev_action = None
@@ -157,6 +167,9 @@ class RLAgentPlanner(template_planner):
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
 
+        if not self.autonomous_driving:
+            return self._fallback_action()
+        
         # pull latest weights if any
         if self.training_mode or self.inference_model_name is None:
             sd = self.client.pop_latest_state_dict()
@@ -207,7 +220,7 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue.append(action)
         self.state_history.append(self.car_state)
         
-
+        self.control_index += 1
         return self.angular_control, self.translational_control
 
 
@@ -216,6 +229,9 @@ class RLAgentPlanner(template_planner):
         reward = driver_obs['reward']
         done = driver_obs['done']
         info = driver_obs['info']
+
+        # if(done and self.autonomous_driving):
+        #     print(f"DONE CALLED.")
 
         """Called by env AFTER stepping. Pass the obs returned by env.step"""
         if self.prev_obs_raw is None or self.prev_action is None:
@@ -236,20 +252,26 @@ class RLAgentPlanner(template_planner):
         if self.save_transitions:
             self.transition_logger.log(transition)
 
-        if done:
+        # print(self.control_index)
+        if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
             if self.save_transitions:
                 self.transition_logger.save_csv()
-            if self.training_mode:
+            if self.training_mode and self.autonomous_driving:
                 try:
-                    self.client.send_transition_batch(self._episode)
-                    total_reward = sum(t["reward"] for t in self._episode)
-                    # print(f"[RLAgentPlanner] Sent episode with {len(self._episode)} transitions. Total reward: {total_reward}")
+                    if len(self._episode) > 1:
+                        self.client.send_transition_batch(self._episode)
+                        total_reward = sum(t["reward"] for t in self._episode)
+                        print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
+                    
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send episode: {e}")
                 finally:
                     self._episode = []
+                    self.control_index = 0
                     self.prev_obs_raw = None
                     self.prev_action = None
+            else:
+                print(f"[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
@@ -319,6 +341,7 @@ class RLAgentPlanner(template_planner):
             last_actions, 
             [d], 
             [e]
+            ,[Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
         ]).astype(np.float32)
 
         # match env normalization
@@ -330,6 +353,7 @@ class RLAgentPlanner(template_planner):
             [0.2] * len(border_points),
             [1.0] * len(last_actions), 
             [0.5, 0.5]
+            , [1]
             )) # Adjust normalization factors for each feature
         
         # SAC Training loop
