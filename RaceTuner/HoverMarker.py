@@ -45,18 +45,30 @@ class HoverMarker:
                 self.planted_markers_speed_viz.append(marker_speed_viz)
 
     def reconnect_markers(self):
-        # Remove existing markers
-        if hasattr(self, 'hover_marker_main'):
-            self.hover_marker_main.remove()
-        if self.hover_marker_speed:
-            self.hover_marker_speed.remove()
+        # Remove existing markers safely
+        def safe_remove(artist):
+            """Safely remove an artist, handling cases where remove() fails."""
+            try:
+                artist.remove()
+            except (NotImplementedError, ValueError):
+                # If remove() fails, try to remove from axes lines list
+                try:
+                    if artist in artist.axes.lines:
+                        artist.axes.lines.remove(artist)
+                except (AttributeError, ValueError):
+                    pass  # Artist already removed or not in lines
+
+        if hasattr(self, 'hover_marker_main') and self.hover_marker_main is not None:
+            safe_remove(self.hover_marker_main)
+        if hasattr(self, 'hover_marker_speed') and self.hover_marker_speed is not None:
+            safe_remove(self.hover_marker_speed)
 
         if hasattr(self, 'planted_markers_viz'):
             for marker in self.planted_markers_viz:
-                marker.remove()
+                safe_remove(marker)
         if hasattr(self, 'planted_markers_speed_viz'):
             for marker in self.planted_markers_speed_viz:
-                marker.remove()
+                safe_remove(marker)
 
         # Recreate markers
         self.create_markers()
@@ -177,18 +189,29 @@ class HoverMarker:
         Removes the most recently planted marker from the list.
         Reverts the hover marker's color to the previous color in the color cycle.
         """
+        def safe_remove(artist):
+            """Safely remove an artist, handling cases where remove() fails."""
+            try:
+                artist.remove()
+            except (NotImplementedError, ValueError):
+                try:
+                    if artist in artist.axes.lines:
+                        artist.axes.lines.remove(artist)
+                except (AttributeError, ValueError):
+                    pass
+
         if self.planted_markers:
             self.planted_markers.pop()
 
             # Remove the corresponding visualization from the main axis
             if self.planted_markers_viz:
                 marker_viz = self.planted_markers_viz.pop()
-                marker_viz.remove()
+                safe_remove(marker_viz)
 
             # Remove the corresponding visualization from the speed axis if available
             if self.ax2 and self.planted_markers_speed_viz:
                 marker_speed_viz = self.planted_markers_speed_viz.pop()
-                marker_speed_viz.remove()
+                safe_remove(marker_speed_viz)
 
             # Decrement the hover_color_idx to go back to the previous color
             self.hover_color_idx = (self.hover_color_idx - 1) % len(self.color_cycle)
