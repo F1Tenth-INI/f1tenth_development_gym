@@ -131,6 +131,7 @@ class CarSystem:
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
         # Other utilities
+        self.tuner_connector = None  # Initialize before potential assignment
         if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             self.launch_tuner_connector()
 
@@ -146,10 +147,6 @@ class CarSystem:
 
 
         self.savse_recording = save_recording
-
-      
-
-        self.tuner_connector = None
 
         self.emergency_slowdown = EmergencySlowdown()
         self.backward_history_provider: Optional[BackwardTrajectoryProvider] = None
