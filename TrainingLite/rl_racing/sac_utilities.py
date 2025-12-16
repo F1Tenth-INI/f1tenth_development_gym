@@ -3,7 +3,7 @@ import pandas as pd
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from pyparsing import deque
+from collections import deque
 import io
 import torch
 from stable_baselines3 import SAC
@@ -48,8 +48,8 @@ class SacUtilities:
         # [0.]*60 +
         [-1] * 120 + 
         [-1]*6 +
-        [-1]*2 +
-         [0] * 1
+        [-1]*2 
+        + [0] * 1
         ,dtype=np.float32)
     
     obs_high = np.array(
@@ -59,9 +59,9 @@ class SacUtilities:
         # [1.0]*60 +
         [ 1] * 120 +
         [ 1]*6 + 
-        [ 1]* 2 +  
-         [0] * 1
-        , dtype=np.float32)
+        [ 1]*2
+        + [0] * 1
+        ,dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
