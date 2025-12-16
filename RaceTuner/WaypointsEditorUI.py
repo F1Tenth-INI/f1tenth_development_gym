@@ -624,7 +624,9 @@ class WaypointEditorUI:
             self.car_x = car_state.get('car_x')
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global') #* self.decrease_wpts_resolution_factor
+            idx_global = car_state.get('idx_global')
+            # Scale idx_global to full resolution (simulation uses reduced waypoints)
+            self.car_wpt_idx = idx_global * self.decrease_wpts_resolution_factor if idx_global is not None else None
             self.time = car_state.get('time')
 
             if self.car_wpt_idx is not None and self.time is not None:
