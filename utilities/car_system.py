@@ -443,6 +443,17 @@ class CarSystem:
             self.update_render_utils()
         self.lap_analyzer.update(nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index, time_now = self.time, distance_to_raceline = self.waypoint_utils.current_distance_to_raceline)
 
+        # Send car state to RaceTuner if connected
+        if self.tuner_connector is not None:
+            tuner_state = {
+                'car_x': float(self.car_state[POSE_X_IDX]),
+                'car_y': float(self.car_state[POSE_Y_IDX]),
+                'car_v': float(self.car_state[LINEAR_VEL_X_IDX]),
+                'idx_global': int(self.waypoint_utils.nearest_waypoint_index) if self.waypoint_utils.nearest_waypoint_index is not None else 0,
+                'time': float(self.time),
+            }
+            self.tuner_connector.update_car_state(tuner_state)
+
         if self.backward_predictor is not None:
             self.backward_predictor.feed_planner_forged_history(
                 self.car_state,
