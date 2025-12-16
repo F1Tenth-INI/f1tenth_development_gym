@@ -12,14 +12,26 @@
 library: "TF" # Only TF supported for autoregressive training
 
 modeling:
-  # Use the Custom module format: Custom-<ModuleClassName>
-  # Available classes in AutoregressiveNeural_module.py:
-  #   - AutoregressiveDense (default 64-64 architecture)
-  #   - AutoregressiveDense64H1_64H2 (explicit 64-64)
+  # ============================================================================
+  # OPTION 1: Train a NEW network from scratch with autoregressive training
+  # ============================================================================
+  # Format: Custom-<ClassName>
+  # Available classes:
+  #   - AutoregressiveDense64H1_64H2 (64-64 hidden layers)
   #   - AutoregressiveDense128H1_128H2 (128-128)
   #   - AutoregressiveDense64H1_128H2_64H3 (64-128-64)
   #   - AutoregressiveDense32H1_64H2_32H3 (32-64-32)
   NET_NAME: "Custom-AutoregressiveDense64H1_64H2"
+  
+  # ============================================================================
+  # OPTION 2: Fine-tune an EXISTING pretrained network 
+  # ============================================================================
+  # Format: Custom-AutoregressivePretrained-<YourPretrainedModelName>
+  # Example:
+  # NET_NAME: "Custom-AutoregressivePretrained-Dense-9IN-64H1-64H2-8OUT-0"
+  #
+  # The pretrained model will be loaded from PATH_TO_EXPERIMENT_FOLDERS/Models/
+  # ============================================================================
   
   SPECIAL_RNN:
     TYPE: 'standard'

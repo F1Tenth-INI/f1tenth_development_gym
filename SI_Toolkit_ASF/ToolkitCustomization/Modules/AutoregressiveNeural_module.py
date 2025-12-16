@@ -30,7 +30,7 @@ from SI_Toolkit.Functions.General.Normalising import (
     get_denormalization_function,
     get_scaling_function_for_output_of_differential_network,
 )
-from SI_Toolkit.Functions.General.Initialization import get_norm_info_for_net
+from SI_Toolkit.Functions.General.Initialization import get_norm_info_for_net, get_net
 from SI_Toolkit.Predictors.autoregression import autoregression_loop, differential_model_autoregression_helper
 
 # Default base network architecture if not specified in module name
@@ -378,4 +378,277 @@ class AutoregressiveDense32H1_64H2_32H3(AutoregressiveDense):
     def __init__(self, time_series_length, batch_size, net_info, name=None, **kwargs):
         super().__init__(time_series_length, batch_size, net_info,
                         base_net_name="Dense-32H1-64H2-32H3", name=name, **kwargs)
+
+
+class AutoregressivePretrained(tf.keras.Model):
+    """
+    Wraps an existing pretrained network for autoregressive fine-tuning.
+    
+    This class loads a pretrained network and wraps it with an autoregression 
+    loop for trajectory-based training.
+    
+    Usage in config_training.yml - encode pretrained model name in NET_NAME:
+        modeling:
+            # Format: Custom-AutoregressivePretrained-<pretrained_model_name>
+            NET_NAME: "Custom-AutoregressivePretrained-Dense-9IN-64H1-64H2-8OUT-0"
+        training_default:
+            POST_WASH_OUT_LEN: 20  # Trajectory horizon
+    
+    The pretrained model will be loaded from PATH_TO_EXPERIMENT_FOLDERS/Models/
+    """
+    
+    def __init__(self, time_series_length, batch_size, net_info, name=None, **kwargs):
+        super().__init__(**kwargs)
+        
+        self.lib = TensorFlowLibrary()
+        self.batch_size = batch_size
+        self.horizon = time_series_length
+        self.original_net_info = net_info
+        
+        # Get timestep from Settings or default
+        try:
+            from utilities.Settings import Settings
+            self.dt = Settings.TIMESTEP_PLANNER
+        except (ImportError, AttributeError):
+            self.dt = 0.02
+            print(f"[AutoregressivePretrained] Using default dt={self.dt}s")
+        
+        # Extract pretrained model name from net_info.net_name
+        # Expected format: "Custom-AutoregressivePretrained-<pretrained_model_name>"
+        # or just the pretrained model name passed directly
+        pretrained_model_name = self._extract_pretrained_model_name(net_info)
+                
+        if pretrained_model_name is None:
+            raise ValueError(
+                "No pretrained model specified. Use NET_NAME format:\n"
+                "  NET_NAME: 'Custom-AutoregressivePretrained-Dense-9IN-64H1-64H2-8OUT-0'\n"
+                "Where 'Dense-9IN-64H1-64H2-8OUT-0' is your pretrained model name."
+            )
+        
+        print(f"[AutoregressivePretrained] Loading pretrained model: {pretrained_model_name}")
+    
+    def _extract_pretrained_model_name(self, net_info):
+        """Extract pretrained model name from net_info.net_name or other sources."""
+        pretrained_model_name = None
+        
+        # Source 1: Parse from net_name (format: "Custom-AutoregressivePretrained-<model_name>")
+        if hasattr(net_info, 'net_name') and net_info.net_name:
+            net_name = net_info.net_name
+            # Check for format: Custom-AutoregressivePretrained-ModelName
+            prefix = "AutoregressivePretrained-"
+            if prefix in net_name:
+                # Extract everything after "AutoregressivePretrained-"
+                idx = net_name.index(prefix) + len(prefix)
+                pretrained_model_name = net_name[idx:]
+                if pretrained_model_name:
+                    return pretrained_model_name
+        
+        # Source 2: net_info attribute (if set programmatically)
+        if hasattr(net_info, 'pretrained_model') and net_info.pretrained_model:
+            return net_info.pretrained_model
+        
+        # Source 3: Check if parent_net_name is set (from previous training)
+        if hasattr(net_info, 'parent_net_name'):
+            if net_info.parent_net_name and net_info.parent_net_name != 'Network trained from scratch':
+                return net_info.parent_net_name
+        
+        return None
+        
+        # Load the pretrained network
+        self._load_pretrained_network(net_info, pretrained_model_name)
+        
+        # Check if this is a differential network
+        self.differential_network = any('D_' in out for out in net_info.outputs)
+        
+        # Setup input/output mapping
+        self._setup_input_output_mapping(net_info)
+        
+        # Setup autoregression loop
+        self._setup_autoregression(net_info)
+        
+        # Setup normalization
+        self._setup_normalization(net_info)
+        
+    def _load_pretrained_network(self, net_info, pretrained_model_name):
+        """Load the pretrained network."""
+        from types import SimpleNamespace
+        
+        # Create args for get_net
+        a = SimpleNamespace()
+        a.net_name = pretrained_model_name
+        a.path_to_models = net_info.path_to_models if hasattr(net_info, 'path_to_models') else None
+        a.wash_out_len = 0
+        a.post_wash_out_len = 1  # Single step for the base network
+        
+        # Try to load the pretrained network
+        try:
+            self.base_net, loaded_net_info = get_net(
+                a,
+                time_series_length=1,
+                batch_size=None,
+                stateful=False,
+                remove_redundant_dimensions=True,
+            )
+            
+            # Use the loaded network's normalization info
+            if hasattr(loaded_net_info, 'path_to_normalization_info'):
+                net_info.path_to_normalization_info = loaded_net_info.path_to_normalization_info
+            
+            # Store base network info
+            self.base_net_info = loaded_net_info
+            self.base_net_name = pretrained_model_name
+            
+            print(f"[AutoregressivePretrained] Loaded pretrained network: {loaded_net_info.net_full_name}")
+            print(f"[AutoregressivePretrained] Inputs: {loaded_net_info.inputs}")
+            print(f"[AutoregressivePretrained] Outputs: {loaded_net_info.outputs}")
+            
+            # Update net_info with loaded network's inputs/outputs
+            net_info.inputs = loaded_net_info.inputs
+            net_info.outputs = loaded_net_info.outputs
+            
+        except Exception as e:
+            raise ValueError(f"Failed to load pretrained model '{pretrained_model_name}': {e}")
+    
+    def _setup_input_output_mapping(self, net_info):
+        """Identify which inputs are states vs controls."""
+        self.all_inputs = net_info.inputs
+        self.all_outputs = net_info.outputs
+        
+        def strip_suffix(name):
+            return re.sub(r'_-?\d+$', '', name)
+        
+        if self.differential_network:
+            self.state_variables = [strip_suffix(x[2:]) if x.startswith('D_') else strip_suffix(x) 
+                                    for x in self.all_outputs]
+        else:
+            self.state_variables = [strip_suffix(x) for x in self.all_outputs]
+        
+        self.control_inputs = []
+        self.state_inputs = []
+        for inp in self.all_inputs:
+            base_name = strip_suffix(inp)
+            if base_name in self.state_variables:
+                self.state_inputs.append(inp)
+            else:
+                self.control_inputs.append(inp)
+        
+        self.num_controls = len(self.control_inputs)
+        self.num_state_inputs = len(self.state_inputs)
+        self.num_outputs = len(self.all_outputs)
+        
+        self.control_indices = [self.all_inputs.index(c) for c in self.control_inputs]
+        self.state_indices = [self.all_inputs.index(s) for s in self.state_inputs]
+        
+        print(f"[AutoregressivePretrained] Controls ({self.num_controls}): {self.control_inputs}")
+        print(f"[AutoregressivePretrained] State inputs ({self.num_state_inputs}): {self.state_inputs}")
+        
+    def _setup_autoregression(self, net_info):
+        """Setup the autoregression loop."""
+        # Get normalization info
+        try:
+            self.normalization_info = get_norm_info_for_net(net_info, copy_files=False)
+        except Exception:
+            self.normalization_info = None
+        
+        if self.differential_network:
+            self.dmah = differential_model_autoregression_helper(
+                inputs=net_info.inputs,
+                outputs=net_info.outputs,
+                normalization_info=self.normalization_info,
+                dt=self.dt,
+                lib=self.lib,
+                state_variables=np.array(self.state_variables),
+            )
+        else:
+            self.dmah = None
+        
+        # Create wrapper for shape conversion
+        def model_wrapper(x):
+            x_squeezed = tf.squeeze(x, axis=1)
+            output = self.base_net(x_squeezed)
+            return output
+            
+        self.AL = autoregression_loop(
+            model=model_wrapper,
+            model_inputs_len=len(net_info.inputs),
+            model_outputs_len=len(net_info.outputs),
+            lib=self.lib,
+            differential_model_autoregression_helper_instance=self.dmah,
+        )
+        
+    def _setup_normalization(self, net_info):
+        """Setup normalization functions."""
+        if self.normalization_info is not None:
+            strip_suffix = lambda name: re.sub(r'_-?\d+$', '', name)
+            
+            self.normalize_state = get_normalization_function(
+                self.normalization_info,
+                [strip_suffix(s) for s in self.state_inputs],
+                self.lib
+            )
+            self.normalize_control = get_normalization_function(
+                self.normalization_info,
+                [strip_suffix(c) for c in self.control_inputs],
+                self.lib
+            )
+            
+            if self.differential_network:
+                output_names = [strip_suffix(x[2:]) if x.startswith('D_') else strip_suffix(x) 
+                               for x in self.all_outputs]
+            else:
+                output_names = [strip_suffix(x) for x in self.all_outputs]
+            self.denormalize_output = get_denormalization_function(
+                self.normalization_info,
+                output_names,
+                self.lib
+            )
+        else:
+            self.normalize_state = lambda x: x
+            self.normalize_control = lambda x: x
+            self.denormalize_output = lambda x: x
+            
+    def call(self, x, training=None, mask=None):
+        """Forward pass: run autoregressive prediction."""
+        batch_size = tf.shape(x)[0]
+        
+        state_indices_tf = tf.constant(self.state_indices, dtype=tf.int32)
+        initial_state = tf.gather(x[:, 0, :], state_indices_tf, axis=1)
+        
+        control_indices_tf = tf.constant(self.control_indices, dtype=tf.int32)
+        control_sequence = tf.gather(x, control_indices_tf, axis=2)
+        
+        model_initial_input = initial_state
+        
+        if self.differential_network and self.dmah is not None:
+            dm_state_list = []
+            for out_var in self.state_variables:
+                found = False
+                for i, inp in enumerate(self.state_inputs):
+                    inp_base = re.sub(r'_-?\d+$', '', inp)
+                    if inp_base == out_var:
+                        dm_state_list.append(initial_state[:, i:i+1])
+                        found = True
+                        break
+                if not found:
+                    dm_state_list.append(tf.zeros([batch_size, 1], dtype=initial_state.dtype))
+            dm_state_init = tf.concat(dm_state_list, axis=1)
+        else:
+            dm_state_init = None
+            
+        outputs = self.AL.run(
+            initial_input=model_initial_input,
+            external_input_left=control_sequence,
+            dm_state_init=dm_state_init,
+        )
+        
+        return outputs
+    
+    def save(self, filepath, overwrite=True, save_format=None, **kwargs):
+        self.base_net.save(filepath, overwrite=overwrite, save_format=save_format, **kwargs)
+        
+    def save_weights(self, filepath, overwrite=True, save_format=None, **kwargs):
+        self.base_net.save_weights(filepath, overwrite=overwrite, save_format=save_format, **kwargs)
+        
+    def load_weights(self, filepath, **kwargs):
+        self.base_net.load_weights(filepath, **kwargs)
 
