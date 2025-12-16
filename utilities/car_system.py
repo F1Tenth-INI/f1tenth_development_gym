@@ -184,7 +184,7 @@ class CarSystem:
         self.laptimes = []
 
         self.control_index = 0
-        
+
         self.control_history = []
         self.car_state_history = []
         self.lidar_utils.reset()
@@ -275,21 +275,21 @@ class CarSystem:
         }
 
         self.reward = self.reward_calculator._calculate_reward(self, next_obs)
-        
+
         next_obs.update({
             "reward": self.reward,
             "info": info,
             "truncated": self.reward_calculator.truncated or next_obs['collision'],
             "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'] or next_obs['interrupted'] or next_obs['done'],
         })
-        
+
 
 
         self.obs = next_obs
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
             self.planner.on_step_end(self.obs)
-        
+
         if next_obs['done']:
             self.reward_calculator.reset()
 
@@ -442,8 +442,25 @@ class CarSystem:
             self.update_render_utils()
         self.lap_analyzer.update(nearest_waypoint_index = self.waypoint_utils.nearest_waypoint_index, time_now = self.time, distance_to_raceline = self.waypoint_utils.current_distance_to_raceline)
 
-        if Settings.FORGE_HISTORY:
-            self.history_forger.feed_planner_forged_history(self.car_state, self.lidar_utils.all_lidar_ranges, self.waypoint_utils, self.planner, self.render_utils, Settings.INTERPOLATE_LOCA_WP)
+        # Send car state to RaceTuner if connected
+        if self.tuner_connector is not None:
+            tuner_state = {
+                'car_x': float(self.car_state[POSE_X_IDX]),
+                'car_y': float(self.car_state[POSE_Y_IDX]),
+                'car_v': float(self.car_state[LINEAR_VEL_X_IDX]),
+                'idx_global': int(self.waypoint_utils.nearest_waypoint_index) if self.waypoint_utils.nearest_waypoint_index is not None else 0,
+                'time': float(self.time),
+            }
+            self.tuner_connector.update_car_state(tuner_state)
+        if self.backward_predictor is not None:
+            self.backward_predictor.feed_planner_forged_history(
+                self.car_state,
+                self.lidar_utils.all_lidar_ranges,
+                self.waypoint_utils,
+                self.planner,
+                self.render_utils,
+                Settings.INTERPOLATE_LOCA_WP,
+            )
         if Settings.SAVE_STATE_METRICS and hasattr(self, 'state_metric_calculator'):
             self.state_metric_calculator.calculate_metrics(
                 current_state=self.car_state,
