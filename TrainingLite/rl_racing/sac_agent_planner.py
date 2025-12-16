@@ -339,9 +339,8 @@ class RLAgentPlanner(template_planner):
             # border_distances,
             border_points,
             last_actions, 
-            [d], 
-            [e]
-            ,[Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
+            [d, e], 
+            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
         ]).astype(np.float32)
 
         # match env normalization
