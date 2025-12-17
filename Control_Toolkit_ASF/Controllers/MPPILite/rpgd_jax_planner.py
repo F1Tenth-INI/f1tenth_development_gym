@@ -14,10 +14,11 @@ from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
 
+T_CONTROL = 0.04  # Control timestep
 """
 RPGD Planner Optimizations for Performance:
 
-1. Maintained original horizon (50 steps: 30@0.02s + 20@0.02s like MPPI)
+1. Maintained original horizon (50 steps: 30@T_CONTROLs + 20@T_CONTROLs like MPPI)
 2. Hybrid timestep approach: consistent dt for gradient optimization, variable dt for evaluation
 3. Eliminated redundant cost calculations (was computing costs twice per gradient step)
 4. Removed expensive CPU-GPU transfers for Adam refinement
@@ -75,13 +76,13 @@ class RPGDPlanner(template_planner):
         self.translational_control = 0
         self.control_index = 0
 
-        self.dt = 0.02
+        self.dt = T_CONTROL
         self.batch_size = 8  # Rollouts
-        self.horizon = 75  
+        self.horizon = 30  
         
         # RPGD specific parameters 
         self.elite_size = 6  # opt_keep_k_ratio
-        self.gradient_steps = 5  # More: Better convergence, but slower
+        self.gradient_steps = 10  # More: Better convergence, but slower
         self.resampling_freq = 5 
         
         self.rollout_trajectories = None  # Store trajectories for rendering
@@ -504,10 +505,10 @@ def compute_waypoint_distance_jax(state, waypoints):
 def cost_function_jax(state, control, waypoints):
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
     angular_control_cost = jnp.abs(control[0]) * 0.1
-    translational_control_cost = jnp.abs(control[1]) * 0.1
+    translational_control_cost = jnp.abs(control[1]) * 0.0
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]
-    speed_cost = 0.25 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
+    speed_cost = 10.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
     
     # Add quadratic penalty for large angular controls to discourage extreme values
     angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
@@ -530,7 +531,7 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints,
     # Individual step smoothness costs
     step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
     step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
-    step_smoothness_costs = step_angular_smoothness + step_translational_smoothness
+    step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
     
     # Add individual smoothness penalties to corresponding cost elements
     total_costs = standard_costs.at[1:].add(step_smoothness_costs)
@@ -575,7 +576,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with constant timestep (use literal value for static compilation)
-        trajectory = car_steps_sequential_jax(state, Q_full, car_params, 0.02, horizon=horizon, model_type=MODEL_TYPE)
+        trajectory = car_steps_sequential_jax(state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE)
         # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
                                          intra_horizon_smoothness_weight,
@@ -617,7 +618,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
-        trajectory = car_steps_sequential_jax(state, Q_plan, car_params, 0.02, horizon=horizon, model_type=MODEL_TYPE)
+        trajectory = car_steps_sequential_jax(state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE)
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
