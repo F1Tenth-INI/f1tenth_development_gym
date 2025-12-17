@@ -1,0 +1,12 @@
+float32 x
+float32 y
+float32 v_x
+float32 v_y
+float32 steering_angle
+float32 yaw
+float32 yaw_rate
+float32 pitch
+float32 pitch_rate
+float32 roll
+float32 roll_rate
+float32[11] variance

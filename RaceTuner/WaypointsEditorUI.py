@@ -108,6 +108,50 @@ class WaypointEditorUI:
         self.history_scatter = None
         self.history_speed_scatter = None
 
+        # For local idx_global computation (physical car via ROS2)
+        self._last_waypoint_idx = 0
+
+    def _compute_nearest_waypoint(self, car_x, car_y):
+        """
+        Compute nearest waypoint index from car position.
+        Used as fallback when idx_global is not provided (e.g., physical car via ROS2).
+
+        Uses optimized local search starting from last known index.
+        """
+        wm = self.waypoint_manager
+        if wm.x is None or wm.y is None:
+            return None
+
+        n_waypoints = len(wm.x)
+
+        # Optimized search: check nearby waypoints first (within ±50 of last index)
+        search_radius = 50
+        start_idx = max(0, self._last_waypoint_idx - search_radius)
+        end_idx = min(n_waypoints, self._last_waypoint_idx + search_radius)
+
+        # Search in the local window first
+        local_indices = np.arange(start_idx, end_idx)
+        if len(local_indices) > 0:
+            local_distances = (
+                (wm.x[local_indices] - car_x) ** 2 +
+                (wm.y[local_indices] - car_y) ** 2
+            )
+            local_min_idx = local_indices[np.argmin(local_distances)]
+            local_min_dist = local_distances.min()
+        else:
+            local_min_dist = float('inf')
+            local_min_idx = 0
+
+        # If car might have jumped (e.g., lap completion), do a full search
+        if local_min_dist > 25.0:  # 5m squared threshold
+            all_distances = (wm.x - car_x) ** 2 + (wm.y - car_y) ** 2
+            nearest_idx = int(np.argmin(all_distances))
+        else:
+            nearest_idx = int(local_min_idx)
+
+        self._last_waypoint_idx = nearest_idx
+        return nearest_idx
+
     def load_image_background(self, grayscale=True):
         img = self.map_config.load_map_image(grayscale=grayscale)
         yaml_data = self.map_config.load_map_config()
@@ -624,7 +668,17 @@ class WaypointEditorUI:
             self.car_x = car_state.get('car_x')
             self.car_y = car_state.get('car_y')
             self.car_v = car_state.get('car_v')
-            self.car_wpt_idx = car_state.get('idx_global') #* self.decrease_wpts_resolution_factor
+            idx_global = car_state.get('idx_global')
+
+            if idx_global is not None:
+                # Simulation provides idx_global - scale to full resolution
+                self.car_wpt_idx = idx_global * self.decrease_wpts_resolution_factor
+            elif self.car_x is not None and self.car_y is not None:
+                # Physical car (ROS2) - compute idx_global locally from position
+                self.car_wpt_idx = self._compute_nearest_waypoint(self.car_x, self.car_y)
+            else:
+                self.car_wpt_idx = None
+
             self.time = car_state.get('time')
 
             if self.car_wpt_idx is not None and self.time is not None:
