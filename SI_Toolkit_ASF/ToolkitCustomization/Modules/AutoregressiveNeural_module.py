@@ -84,6 +84,7 @@ class AutoregressiveBase(tf.keras.Model):
         """
         Setup autoregression components.
         Uses same logic as predictor_autoregressive_neural.
+        Pre-computes all indices as TF constants for graph efficiency.
         """
         # Check if differential network (outputs start with D_)
         self.differential_network = any('D_' in out for out in net_info.outputs)
@@ -112,6 +113,28 @@ class AutoregressiveBase(tf.keras.Model):
         self.control_indices = [list(net_info.inputs).index(c) for c in self.control_inputs]
         self.state_indices = [list(net_info.inputs).index(s) for s in self.state_inputs]
         
+        # Pre-compute indices as TF constants for graph efficiency
+        self._state_indices_tf = tf.constant(self.state_indices, dtype=tf.int32)
+        self._control_indices_tf = tf.constant(self.control_indices, dtype=tf.int32)
+        
+        # Pre-compute dm_state mapping: for each output state variable, 
+        # find index in state_inputs or -1 if not found (will be zero-padded)
+        if self.differential_network:
+            dm_state_mapping = []
+            state_inputs_base = [strip_suffix(inp) for inp in self.state_inputs]
+            for out_var in self.state_variables:
+                if out_var in state_inputs_base:
+                    dm_state_mapping.append(state_inputs_base.index(out_var))
+                else:
+                    dm_state_mapping.append(-1)  # Sentinel for zero-padding
+            self._dm_state_mapping = dm_state_mapping
+            self._dm_state_has_missing = any(m == -1 for m in dm_state_mapping)
+            # Pre-compute gather indices for known state variables
+            self._dm_known_indices = tf.constant(
+                [m for m in dm_state_mapping if m != -1], dtype=tf.int32
+            )
+            self._dm_missing_count = sum(1 for m in dm_state_mapping if m == -1)
+        
         print(f"[{self.__class__.__name__}] Controls ({len(self.control_inputs)}): {self.control_inputs}")
         print(f"[{self.__class__.__name__}] State inputs ({len(self.state_inputs)}): {self.state_inputs}")
         print(f"[{self.__class__.__name__}] State variables: {self.state_variables}")
@@ -138,16 +161,17 @@ class AutoregressiveBase(tf.keras.Model):
             self.base_net_expects_time_dim = False
         
         # Create model wrapper for autoregression loop
-        def model_wrapper(x):
-            # x comes in as [batch, 1, features] from autoregression_loop
-            if self.base_net_expects_time_dim:
-                output = self.base_net(x)
-                if len(output.shape) == 3:
-                    output = tf.squeeze(output, axis=1)
-            else:
-                x_squeezed = tf.squeeze(x, axis=1)
-                output = self.base_net(x_squeezed)
-            return output
+        # Capture the flag as a Python bool to avoid graph issues
+        expects_time_dim = self.base_net_expects_time_dim
+        base_net = self.base_net
+        
+        if expects_time_dim:
+            def model_wrapper(x):
+                output = base_net(x)
+                return tf.squeeze(output, axis=1) if len(output.shape) == 3 else output
+        else:
+            def model_wrapper(x):
+                return base_net(tf.squeeze(x, axis=1))
         
         # Create autoregression loop (same as predictor)
         self.AL = autoregression_loop(
@@ -161,6 +185,7 @@ class AutoregressiveBase(tf.keras.Model):
     def call(self, x, training=None, mask=None):
         """
         Forward pass: run autoregressive prediction.
+        Optimized for graph compilation - no Python loops or re.sub calls.
         
         Args:
             x: Input tensor [batch, horizon, num_inputs]
@@ -168,32 +193,44 @@ class AutoregressiveBase(tf.keras.Model):
         Returns:
             outputs: Tensor [batch, horizon, num_outputs]
         """
-        batch_size = tf.shape(x)[0]
-        
-        # Extract initial state from first timestep
-        state_indices_tf = tf.constant(self.state_indices, dtype=tf.int32)
-        initial_state = tf.gather(x[:, 0, :], state_indices_tf, axis=1)
+        # Extract initial state from first timestep (using pre-computed indices)
+        initial_state = tf.gather(x[:, 0, :], self._state_indices_tf, axis=1)
         
         # Extract control inputs for all timesteps  
-        control_indices_tf = tf.constant(self.control_indices, dtype=tf.int32)
-        control_sequence = tf.gather(x, control_indices_tf, axis=2)
+        control_sequence = tf.gather(x, self._control_indices_tf, axis=2)
         
-        # Prepare dm_state for differential models
+        # Prepare dm_state for differential models (vectorized, no Python loops)
         dm_state_init = None
         if self.differential_network and self.dmah is not None:
-            dm_state_list = []
-            for out_var in self.state_variables:
-                found = False
-                for i, inp in enumerate(self.state_inputs):
-                    inp_base = re.sub(r'_-?\d+$', '', inp)
-                    if inp_base == out_var:
-                        dm_state_list.append(initial_state[:, i:i+1])
-                        found = True
-                        break
-                if not found:
-                    # Output not in inputs (e.g., pose_x, pose_y) - initialize to zero
-                    dm_state_list.append(tf.zeros([batch_size, 1], dtype=initial_state.dtype))
-            dm_state_init = tf.concat(dm_state_list, axis=1)
+            if self._dm_state_has_missing:
+                # Build dm_state by gathering known values and inserting zeros for missing
+                # This is done using tf.tensor_scatter_nd_update for efficiency
+                batch_size = tf.shape(initial_state)[0]
+                num_outputs = len(self.state_variables)
+                
+                # Start with zeros
+                dm_state_init = tf.zeros([batch_size, num_outputs], dtype=initial_state.dtype)
+                
+                # Gather known values
+                if len(self._dm_known_indices) > 0:
+                    known_values = tf.gather(initial_state, self._dm_known_indices, axis=1)
+                    # Find positions where we need to insert known values
+                    insert_indices = tf.constant(
+                        [[i] for i, m in enumerate(self._dm_state_mapping) if m != -1], 
+                        dtype=tf.int32
+                    )
+                    # Use transpose to update columns
+                    dm_state_init = tf.transpose(
+                        tf.tensor_scatter_nd_update(
+                            tf.transpose(dm_state_init),
+                            insert_indices,
+                            tf.transpose(known_values)
+                        )
+                    )
+            else:
+                # All state variables are in inputs - simple gather
+                dm_state_mapping_tf = tf.constant(self._dm_state_mapping, dtype=tf.int32)
+                dm_state_init = tf.gather(initial_state, dm_state_mapping_tf, axis=1)
         
         # Run autoregression loop
         outputs = self.AL.run(
