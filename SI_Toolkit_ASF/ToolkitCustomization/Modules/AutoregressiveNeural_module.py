@@ -66,6 +66,17 @@ class AutoregressiveBase(tf.keras.Model):
         # Subclasses must set self.base_net before calling _setup_autoregression
         self._create_or_load_network(net_info)
         
+        # Set net_type to the base network type so it can be loaded standalone after training
+        # This overrides the "Custom" type set by the module loader
+        net_info.net_type = self._get_base_net_type()
+        
+        # Set net_name to base network architecture for proper saving
+        # This ensures the saved model can be loaded as a standalone Dense network
+        base_net_name = self._get_base_net_name()
+        if base_net_name:
+            net_info.net_name = base_net_name
+            print(f"[{self.__class__.__name__}] Base network name for saving: {base_net_name}")
+        
         # Load normalization info
         try:
             self.normalization_info = get_norm_info_for_net(net_info, copy_files=False)
@@ -79,6 +90,14 @@ class AutoregressiveBase(tf.keras.Model):
     def _create_or_load_network(self, net_info):
         """Override in subclasses to create or load the base network."""
         raise NotImplementedError("Subclasses must implement _create_or_load_network")
+    
+    def _get_base_net_type(self):
+        """Return the type of the base network (e.g., 'Dense', 'GRU') for standalone loading."""
+        return "Dense"  # Default, override in subclasses if needed
+    
+    def _get_base_net_name(self):
+        """Return the base network name for saving (e.g., 'Dense-64H1-64H2')."""
+        return None  # Override in subclasses
     
     def _setup_autoregression(self, net_info):
         """
@@ -289,6 +308,13 @@ class AutoregressiveDense(AutoregressiveBase):
         ))
         
         print(f"[{self.__class__.__name__}] Created network with hidden layers {self.architecture}")
+    
+    def _get_base_net_name(self):
+        """Return base network name like 'Dense-64H1-64H2'."""
+        parts = ["Dense"]
+        for i, units in enumerate(self.architecture):
+            parts.append(f"{units}H{i+1}")
+        return "-".join(parts)
 
 
 class AutoregressivePretrained(AutoregressiveBase):
@@ -422,7 +448,30 @@ class AutoregressivePretrained(AutoregressiveBase):
         self.base_net.add(tf.keras.layers.Dense(units=outputs_len, activation='linear', name='layers_output'))
         self.base_net.load_weights(weights_path)
         
+        # Store architecture for _get_base_net_name
+        self._h_sizes = h_sizes
+        
         print(f"[{self.__class__.__name__}] Built model: {inputs_len}IN -> {h_sizes} -> {outputs_len}OUT")
+    
+    def _get_base_net_name(self):
+        """Return the base network name - strip the version suffix from pretrained name."""
+        # For pretrained models like "Dense-9IN-64H1-64H2-8OUT-0", 
+        # return "Dense-64H1-64H2" (architecture without IN/OUT counts and version)
+        parts = self.pretrained_model_name.split('-')
+        
+        # Extract architecture parts (Dense, hidden layers)
+        result_parts = []
+        for part in parts:
+            if part == 'Dense':
+                result_parts.append(part)
+            elif any(part.endswith(f'H{i}') for i in range(1, 6)):
+                result_parts.append(part)
+        
+        if result_parts:
+            return "-".join(result_parts)
+        
+        # Fallback: just use the pretrained name
+        return self.pretrained_model_name
 
 
 # =============================================================================
