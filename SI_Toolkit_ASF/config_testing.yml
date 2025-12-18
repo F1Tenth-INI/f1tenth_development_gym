@@ -17,6 +17,7 @@ path_to_testfile: './SI_Toolkit_ASF/Experiments/Experiments_04_12_2025/Recording
 test_len: 200
 test_max_horizon: 20  # Indicates prediction horizon for testing
 test_start_idx: 0  # Indicates starting point from which data from test file should be taken
+test_stride: 10  # Calculate only every n-th trajectory (1 = all, 10 = every 10th). Speeds up testing.
 
 test_hls: false
 
