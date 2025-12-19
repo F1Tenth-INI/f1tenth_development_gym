@@ -179,6 +179,12 @@ class StateAugmenter:
         if 'pose_theta_cos' in self.input_features:
             self.index_pose_theta_cos = self.lib.to_tensor(self.input_indices['pose_theta_cos'], self.lib.int32)
         
+        # Pre-compute indices for linear_vel_y reconstruction from slip_angle and v_x
+        self.can_compute_linear_vel_y = ('slip_angle' in self.input_features and 'linear_vel_x' in self.input_features)
+        if self.can_compute_linear_vel_y:
+            self.index_slip_angle = self.lib.to_tensor(self.input_indices['slip_angle'], self.lib.int32)
+            self.index_linear_vel_x = self.lib.to_tensor(self.input_indices['linear_vel_x'], self.lib.int32)
+        
         # Set up compilation
         if disable_individual_compilation or self.lib.lib == 'Numpy':
             self.augment = self._augment
@@ -213,7 +219,16 @@ class StateAugmenter:
             output = self.lib.concat([output, linear_vel_x], axis=-1)
         
         if 'linear_vel_y' in self.features_augmentation:
-            linear_vel_y = self.lib.zeros_like(states[:, :, -1:])
+            # Compute from slip_angle and v_x if available: v_y = tan(beta) * v_x
+            if self.can_compute_linear_vel_y:
+                v_x = states[..., self.index_linear_vel_x]
+                beta = states[..., self.index_slip_angle]
+                # Avoid division issues when v_x is near zero
+                v_x_safe = self.lib.where(self.lib.abs(v_x) < 1.0e-3, 
+                                          self.lib.to_tensor(1.0e-3, v_x.dtype), v_x)
+                linear_vel_y = (self.lib.tan(beta) * v_x_safe)[:, :, self.lib.newaxis]
+            else:
+                linear_vel_y = self.lib.zeros_like(states[:, :, -1:])
             output = self.lib.concat([output, linear_vel_y], axis=-1)
         
         if 'pose_theta' in self.features_augmentation:
@@ -290,9 +305,20 @@ class StateAugmenter:
                 if verbose:
                     print(f"    Added pose_theta_cos = cos(theta) at index {target_idx}")
             elif feat == 'linear_vel_y':
-                augmented[:, :, target_idx] = 0.0
-                if verbose:
-                    print(f"    Added linear_vel_y = 0 at index {target_idx}")
+                # Compute from slip_angle and linear_vel_x if available: v_y = tan(beta) * v_x
+                # This is critical for Pacejka dynamics which use v_y directly.
+                if 'slip_angle' in self.input_indices and 'linear_vel_x' in self.input_indices:
+                    v_x = states[:, :, self.input_indices['linear_vel_x']]
+                    beta = states[:, :, self.input_indices['slip_angle']]
+                    # Avoid division issues when v_x is near zero
+                    v_x_safe = np.where(np.abs(v_x) < 1.0e-3, 1.0e-3, v_x)
+                    augmented[:, :, target_idx] = np.tan(beta) * v_x_safe
+                    if verbose:
+                        print(f"    Added linear_vel_y = tan(slip_angle) * v_x at index {target_idx}")
+                else:
+                    augmented[:, :, target_idx] = 0.0
+                    if verbose:
+                        print(f"    Added linear_vel_y = 0 at index {target_idx} (slip_angle or v_x unavailable)")
             else:
                 augmented[:, :, target_idx] = 0.0
                 if verbose:
