@@ -168,6 +168,12 @@ class Settings():
     FORGED_HISTORY_MODE = "hybrid"  # Set here; options: optimizer, network, hybrid, off
     SAVE_STATE_METRICS = False # Save state metrics for analysis
     FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICTION
+    
+    # Backward optimizer options (for mu sensitivity study)
+    OPTIMIZER_USE_CONTINUATION = True  # Gradually reduce regularization to find correct basin
+    OPTIMIZER_CONTINUATION_STAGES = 5  # Number of continuation stages
+    OPTIMIZER_SPREAD_ANCHOR_ERROR = True  # Spread anchor error so endpoint matches exactly
+    OPTIMIZER_USE_GT_REFERENCE = True  # Use ground truth trajectory as regularization reference
 
     
     ### Other Settings ###
