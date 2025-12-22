@@ -18,9 +18,9 @@ Settings.RECORDING_INDEX = euler_index
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA1'
+Settings.MAP_NAME = 'RCA2'
 
-Settings.EXPERIMENT_LENGTH = 2000
+Settings.EXPERIMENT_LENGTH = 6000
 
 # Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
 # Settings.NOISE_LEVEL_ANGULAR_CONTROL = 0.3  # ftg: 0.05  # mppi: 3.0
@@ -29,7 +29,7 @@ Settings.EXPERIMENT_LENGTH = 2000
 
 # Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.0]
 # Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-Settings.NOISE_LEVEL_CONTROL = [0.1, 0.1]  # noise level [angular, translational]
+Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0]  # noise level [angular, translational]
 Settings.CONTROL_NOISE_DURATION = 30  # Number of timesteps for which the control noise is applied
 
 
@@ -42,7 +42,7 @@ Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DAT
 
 # Dont touch:
 Settings.CONTROLLER = 'mpc'
-Settings.RENDER_MODE = None
+Settings.RENDER_MODE = 'human_fast'
 Settings.SAVE_RECORDINGS = True 
 Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_CSV = False
@@ -53,16 +53,20 @@ runs_without_obstacles = 1
 runs_with_oponents = 0
 
 # Friction sampling configuration - UNIFORM DISTRIBUTION
-FRICTION_MIN = 0.3  # Minimum friction value (matching Train dataset)
-FRICTION_MAX = 1.1  # Maximum friction value (matching Train dataset)
-NUM_FRICTION_SAMPLES = 8  # Number of samples to generate across the range
+# FRICTION_MIN = 0.3  # Minimum friction value (matching Train dataset)
+# FRICTION_MAX = 1.1  # Maximum friction value (matching Train dataset)
+# NUM_FRICTION_SAMPLES = 8  # Number of samples to generate across the range
+
+# Friction sampling configuration - DISCRETE LIST (indexed via euler_index)
+FRICTION_VALUES = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0, 1.05, 1.1]
+NUM_FRICTION_SAMPLES = len(FRICTION_VALUES)
 
 # Generate friction values using uniform sampling based on euler_index
 # This ensures reproducibility while using continuous distribution
 np.random.seed(euler_index)  # Use euler_index as seed for reproducibility
 
-reverse_direction_values = [False, True]
-global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
+reverse_direction_values = [False]
+global_waypoint_velocity_factors = [1.0]
 
 # Settings for tuning before recording
 # Comment out during data collection
@@ -74,6 +78,7 @@ global_waypoint_velocity_factors = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 # Settings.RENDER_MODE = "human_fast"
 
 feature_A = global_waypoint_velocity_factors
+# For discrete sampling, we'll use the number of discrete friction values
 # For uniform sampling, we'll use NUM_FRICTION_SAMPLES as the number of different samples
 feature_B_size = NUM_FRICTION_SAMPLES
 
@@ -84,9 +89,10 @@ global_waypoint_velocity_factors = [global_waypoint_velocity_factors[index_A]]
 
 # Sample friction uniformly from range
 # Use a deterministic seed based on index_B to ensure reproducibility
-friction_rng = np.random.RandomState(seed=euler_index * 1000 + index_B)
-sampled_friction = friction_rng.uniform(FRICTION_MIN, FRICTION_MAX)
-global_surface_friction_values = [sampled_friction]
+# friction_rng = np.random.RandomState(seed=euler_index * 1000 + index_B)
+# sampled_friction = friction_rng.uniform(FRICTION_MIN, FRICTION_MAX)
+# global_surface_friction_values = [sampled_friction]
+global_surface_friction_values = [FRICTION_VALUES[index_B]]
 
 # Friction for controller is same as actual friction
 global_surface_friction_for_controller_values = None  # If None, always same as global_surface_friction
