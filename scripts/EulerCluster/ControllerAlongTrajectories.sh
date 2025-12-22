@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --array=1-756            # Create an array job with task IDs 1-756
+#SBATCH --array=0-16             # Create an array job with task IDs 0-16 (17 jobs: 1 velocity × 17 friction values)
 #SBATCH --mem-per-cpu=2G         # Request memory per CPU
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
 #SBATCH --time=2:00:00           # Set the maximum job time
