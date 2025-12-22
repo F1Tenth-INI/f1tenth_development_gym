@@ -4,7 +4,6 @@ Command-line entry point for launching the learner server training loop.
 example usage:
 
 python TrainingLite/rl_racing/run_training.py --model-name ServerClientTest1 --RENDER_MODE human_fast --MAP_NAME RCA2
-
 """
 
 from __future__ import annotations
@@ -18,6 +17,15 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import torch
+
+# ### 1. IMPORT SETTINGS (Required to apply overrides)
+# Depending on your folder structure, ensure this import points to your Settings file
+try:
+    from utilities.Settings import Settings
+except ImportError:
+    # Fallback if running from root without module install
+    sys.path.append(os.getcwd())
+    from utilities.Settings import Settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if PROJECT_ROOT.exists():
@@ -80,7 +88,15 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
             "(output forwarding is enabled by default)"
         ),
     )
-   
+
+    # ### 2. ADD SWEEP ARGUMENTS HERE
+    # These match the flags sent by your bash script
+    parser.add_argument("--USE_CUSTOM_SAC_SAMPLING", type=str, default="True", help="Enable custom sampling")
+    parser.add_argument("--alpha", type=float, default=None, help="Override SAC_PRIORITY_FACTOR")
+    parser.add_argument("--beta_start", type=float, default=None, help="Override SAC_IMPORANCE_SAMPLING_CORRECTOR")
+    parser.add_argument("--td_ratio", type=float, default=None, help="Override SAC_STATE_TO_TD_RATIO")
+    parser.add_argument("--SIMULATION_LENGTH", type=int, default=400000, help="Total training steps")
+    
     known_args, remaining = parser.parse_known_args(argv)
     return known_args, remaining
 
@@ -203,6 +219,25 @@ async def _run_with_optional_client(server: LearnerServer, args: argparse.Namesp
 
 def main() -> None:
     run_args, settings_args = parse_args()
+
+    #TODO: check if needed
+    settings_args.extend(["--SIMULATION_LENGTH", str(run_args.SIMULATION_LENGTH)])
+    settings_args.extend(["--USE_CUSTOM_SAC_SAMPLING", str(run_args.USE_CUSTOM_SAC_SAMPLING)])
+
+    # PER Parameter Overrides
+    if run_args.alpha is not None:
+        Settings.SAC_PRIORITY_FACTOR = run_args.alpha
+        print(f"[run_training] Override: Alpha set to {run_args.alpha}")
+        
+    if run_args.beta_start is not None:
+        Settings.SAC_IMPORANCE_SAMPLING_CORRECTOR = run_args.beta_start
+        print(f"[run_training] Override: Beta Start set to {run_args.beta_start}")
+        
+    if run_args.td_ratio is not None:
+        Settings.SAC_STATE_TO_TD_RATIO = run_args.td_ratio
+        print(f"[run_training] Override: TD Ratio set to {run_args.td_ratio}")
+
+    
     settings_namespace = parse_settings_overrides(settings_args)
 
     setattr(run_args, "forwarded_settings_args", settings_args)
@@ -228,6 +263,20 @@ def main() -> None:
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
     )
+
+    #TODO: check if needed
+    if server.replay_buffer is not None:
+        if run_args.alpha is not None:
+            server.replay_buffer.alpha = run_args.alpha
+        if run_args.beta_start is not None:
+            server.replay_buffer.initial_beta = run_args.beta_start
+            server.replay_buffer.beta = run_args.beta_start
+        if run_args.td_ratio is not None:
+            server.replay_buffer.state_to_TD_ratio = run_args.td_ratio
+            
+        # Ensure annealing horizon uses the new simulation length
+        ratio = getattr(Settings, 'SAC_BETA_ANNEALING_RATIO', 0.75)
+        server.replay_buffer.beta_annealing_horizon = ratio * run_args.SIMULATION_LENGTH
 
     try:
         asyncio.run(_run_with_optional_client(server, run_args))
@@ -256,6 +305,11 @@ def main() -> None:
                 "--DATASET_NAME",                
                 str(model_name),
             ]
+
+            # ensure test lap uses same map as the training
+            if hasattr(run_args.settings_namespace, 'MAP_NAME'):
+                eval_args.extend(["--MAP_NAME", str(run_args.settings_namespace.MAP_NAME)])
+
             print(f"[run_training] Launching evaluation client with model '{model_name}'")
             try:
                 eval_proc = start_client_process(
@@ -273,4 +327,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

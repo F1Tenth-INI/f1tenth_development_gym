@@ -5,6 +5,8 @@ import os
 import subprocess
 from typing import List, Optional, NamedTuple
 
+import argparse
+
 import numpy as np
 import torch
 from stable_baselines3 import SAC
@@ -17,8 +19,6 @@ import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper
-
-from utilities.Settings import Settings
 
 from utilities.Settings import Settings
 
@@ -62,6 +62,12 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.current_sampled_inds = None #indexes of the data which was just sampled in last sample() call
 
+        self.clip_weights = Settings.SAC_CLIP_WEIGHTS
+
+
+        ###FOR DEBUGGING
+        self.counter = 0
+
         
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
@@ -88,7 +94,8 @@ class CustomReplayBuffer(ReplayBuffer):
         #compute weight
         d = obs[-2]
         e = obs[-1]
-        rew = self.rewards[idx, 0] + 1
+        # rew = self.rewards[idx, 0] + 1
+        rew = abs(self.rewards[idx, 0]) #both positive and negative rewards contain lots of information
 
         #velx = obs[0] and vely = obs[1]
         vel = np.sqrt(obs[0]**2 + obs[1]**2)
@@ -99,8 +106,11 @@ class CustomReplayBuffer(ReplayBuffer):
         w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.velocity_weight * vel
         w = np.clip(w, 1e-6, 1e3)
 
-        self.state_weights[idx] = w
+        if self.clip_weights:
+            w = np.clip(w, -1, 1)
 
+        self.state_weights[idx] = w
+        
         return
     
     def update_TD_priorities(self, TD_update_inds: np.ndarray, TD_update_priorities: np.ndarray):
@@ -139,6 +149,36 @@ class CustomReplayBuffer(ReplayBuffer):
 
         combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
 
+        # Squish priorities logarithmically to dampen outliers while preserving rank
+        combined_weight = np.log1p(combined_weight)
+
+        """"""""""""""""""""""""""""""""""""""""""""""""
+        """DEBUG DEBUG DEBUG"""
+
+        if self.counter % 1000 == 0:
+            test_idx = np.random.choice(length, size=1)[0]
+            print("--- Debug Info ---")
+            # print("idx: " + str(test_idx))
+            # print("w: " + str(w_vec[test_idx]))
+            # uni_p = 1.0 / max(1, self.size())
+            # print("TD_vec: " + str(TD_vec[test_idx]))
+            # print("combined weight: " + str(combined_weight[test_idx]))
+            # print("uniform sampling prob: " + str(uni_p))
+            print("maximum combined weight: " + str(combined_weight.max()))
+            print("minimum combined weight: " + str(combined_weight.min()))
+
+            # Find who is holding this static max value
+            max_weight_idx_in_possible = np.argmax(combined_weight)
+            max_weight_val = combined_weight[max_weight_idx_in_possible]
+            actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
+
+            print(f"--- Max Weight Debug ---")
+            print(f"Max Weight: {max_weight_val}")
+            print(f"Held by Buffer Index: {actual_buffer_idx}")
+
+        """"""""""""""""""""""""""""""""""""""""""""""""
+        """DEBUG DEBUG DEBUG"""
+
         #power law blend with uniform distribution
         p = combined_weight ** self.alpha
 
@@ -157,6 +197,23 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #map the sampled indices back to the possible_inds
         batch_inds = possible_inds[sampled_p_index]
+
+
+        """"""""""""""""""""""""""""""""""""""""""""""""
+        """DEBUG DEBUG DEBUG"""
+
+        # if self.counter % 1000 == 0:
+        #     # Check if this index was just sampled
+        #     if actual_buffer_idx in batch_inds:
+        #         print(f"✅ ALERT: The Max Weight Index {actual_buffer_idx} WAS SAMPLED this batch!")
+        #     else:
+        #         print(f"❌ The Max Weight Index {actual_buffer_idx} was NOT sampled.")
+
+            
+        self.counter += 1
+
+        """"""""""""""""""""""""""""""""""""""""""""""""
+        """DEBUG DEBUG DEBUG"""
 
         #set all the is_weights
         sample_probs = p[sampled_p_index]
@@ -187,6 +244,20 @@ class CustomReplayBuffer(ReplayBuffer):
         return self._get_samples(batch_inds, env=env)
     
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
+        
+        if not self.custom_sampling:
+            samples = super()._get_samples(batch_inds, env=env)
+            is_weights = torch.ones((len(batch_inds), 1), device=samples.observations.device)   
+            #TODO: i dont like this way of doing it
+            return WeightedReplayBufferSamples(
+                observations=samples.observations,
+                actions=samples.actions,
+                next_observations=samples.next_observations,
+                dones=samples.dones,
+                rewards=samples.rewards,
+                is_weights=is_weights)  
+        
+
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
@@ -365,6 +436,7 @@ class LearnerServer:
             optimize_memory_usage=True,
             handle_timeout_termination=False,
         )
+
         self.model.replay_buffer = self.replay_buffer
 
         # Device diagnostics: verify model and replay buffer are on the correct device
@@ -480,6 +552,14 @@ class LearnerServer:
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
         while True:
+            # Custom stopping logic for bash, doesnt always stop normally...
+            if Settings.EXTENDED_AUTO_STOP and self.total_actor_timesteps > Settings.SIMULATION_LENGTH and len(self._clients) == 0:
+                print("[server] All clients disconnected. Assuming simulation finished. Shutting down.")
+                async with self._terminate_lock:
+                    self._should_terminate = True
+                return
+            
+
             # Check termination flag at the start of each iteration
             async with self._terminate_lock:
                 if self._should_terminate:
@@ -494,6 +574,20 @@ class LearnerServer:
             if( n_added > 0 ):
                 print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
+                
+            # =================================================================
+            # NEW: Auto-Shutdown Check
+            # =================================================================
+            if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH:
+                print(f"[server] Training Goal Reached! ({self.total_actor_timesteps}/{Settings.SIMULATION_LENGTH} steps). Initiating Shutdown.")
+                
+                # Signal the monitor loop to close the server
+                async with self._terminate_lock:
+                    self._should_terminate = True
+                
+                # Break out of the training loop immediately
+                return
+            # =================================================================
 
             # Calculate trainign steps per sample
             current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
@@ -539,12 +633,15 @@ class LearnerServer:
                     print("Beta has been updated to: " + str(self.replay_buffer.beta))
                                 
                 for step in range(grad_steps):
-                    # Check termination flag periodically during training (every 10 steps)
+                    
                     if step % 10 == 0:
+                        await asyncio.sleep(0.01)
                         async with self._terminate_lock:
+                            # print("CHECKING TERMINATION AT STEP " + str(step))
                             if self._should_terminate:
+                                # print("SHOULD TERMINATE FLAG DETECTED DURING TRAINING")
                                 print(f"[server] Training interrupted at step {step}/{grad_steps} due to termination request")
-                                break
+                                return
                     
                     then = time.time()
                     try:
@@ -583,16 +680,22 @@ class LearnerServer:
                         current_q1, current_q2 = critic(obs, actions)
 
                         #get TD-error
-                        with torch.no_grad():
-                            #target_q already contains the entropy term and is a correct formulation of the TD target
-                            # -> TD-error = TD_target - current_q
-                            TD_error_1 = torch.abs(target_q - current_q1)
-                            TD_error_2 = torch.abs(target_q - current_q2)
-                            TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0).cpu().numpy().flatten()
+                        if self.replay_buffer.custom_sampling:
+                            with torch.no_grad():
+                                #target_q already contains the entropy term and is a correct formulation of the TD target
+                                # -> TD-error = TD_target - current_q
+                                TD_error_1 = torch.abs(target_q - current_q1)
+                                TD_error_2 = torch.abs(target_q - current_q2)
+                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0).cpu().numpy().flatten()
 
-                            TD_update_priorities += 1e-6 
-                            
-                            replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+                                # TD_update_priorities = torch.min(TD_error_1, TD_error_2).cpu().numpy().flatten()
+
+                                TD_update_priorities += 1e-6
+                                
+                                if self.clip_weights:
+                                    TD_update_priorities = np.clip(TD_update_priorities, -1, 1)
+                                
+                                replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
                         ###Nikita: this is my critic loss!
                         critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
