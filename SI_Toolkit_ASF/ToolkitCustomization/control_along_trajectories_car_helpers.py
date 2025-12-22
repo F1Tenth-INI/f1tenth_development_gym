@@ -18,6 +18,8 @@ class PlannerAsController:
         self.planner = initialize_planner(controller_name)
         self.lidar_utils = LidarHelper()
         self.waypoint_utils = WaypointUtils()
+        # Backwards-compatible alias: some code paths expect `self.LIDAR`.
+        self.LIDAR = self.lidar_utils
         if hasattr(self.planner, 'lidar_utils'):
             self.planner.lidar_utils = self.lidar_utils
         if hasattr(self.planner, 'waypoint_utils'):
@@ -32,12 +34,31 @@ class PlannerAsController:
         if hasattr(self.planner, 'mpc'):
             self.planner.mu = updated_attributes['mu']
 
-        obstacles = np.array([])
+        # Keep planner state in sync with the recorded trajectory sample.
+        if hasattr(self.planner, 'car_state'):
+            self.planner.car_state = np.array(s, dtype=np.float64)
+        if time is not None and hasattr(self.planner, 'time'):
+            self.planner.time = time
+
         self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']
-        lidar_at_proper_indices = np.zeros((1080,), dtype=np.float32)
-        lidar_at_proper_indices[self.LIDAR.processed_scan_indices] = updated_attributes['lidar']
-        self.LIDAR.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
-        new_controls = self.planner.process_observation(self.LIDAR, s)
+        lidar_in = np.asarray(updated_attributes['lidar'], dtype=np.float32)
+        # Accept either:
+        # - full scan of length 1080 (already indexed)
+        # - processed-only scan of length len(processed_scan_indices)
+        if lidar_in.shape[0] == self.LIDAR.num_scans_total:
+            lidar_full = lidar_in
+        elif lidar_in.shape[0] == len(self.LIDAR.processed_scan_indices):
+            lidar_full = np.zeros((self.LIDAR.num_scans_total,), dtype=np.float32)
+            lidar_full[self.LIDAR.processed_scan_indices] = lidar_in
+        else:
+            raise ValueError(
+                f"Unexpected lidar length {lidar_in.shape[0]}; expected {self.LIDAR.num_scans_total} "
+                f"(full) or {len(self.LIDAR.processed_scan_indices)} (processed-only)."
+            )
+
+        self.LIDAR.update_ranges(lidar_full, np.array(s, dtype=np.float64))
+        # Match `CarSystem` behavior: planners read required inputs from their bound utils/state.
+        new_controls = self.planner.process_observation()
 
         return new_controls
 
@@ -134,12 +155,12 @@ def get_waypoints_from_dataset(df):
             max_index = idx_num
 
     # --------------------------------------------------
-    # Initialize the 3D array of shape (n, m, 8) with zeros.
-    #   n = len(df)         (rows/time steps)
-    #   m = max_index       (largest waypoint index)
-    #   8 = channels        (only 3 used: X, Y, VX)
+    # Initialize the 3D array of shape (n, m, 10) with zeros.
+    # The controller stack expects waypoints shaped like `WaypointUtils.next_waypoints`,
+    # i.e. (LOOK_AHEAD_STEPS, 10) with indices defined in `utilities/waypoint_utils.py`.
+    # We typically only have X/Y/VX recorded, so other channels stay at 0.
     # --------------------------------------------------
-    all_waypoints = np.zeros((len(df), max_index+1, 8), dtype=np.float32)
+    all_waypoints = np.zeros((len(df), max_index + 1, 10), dtype=np.float32)
 
     # --------------------------------------------------
     # Prepare a mapping from the axis type ('X','Y','VX') to
@@ -149,7 +170,7 @@ def get_waypoints_from_dataset(df):
     channel_map = {
         'X': WP_X_IDX,
         'Y': WP_Y_IDX,
-        'VX': WP_VX_IDX
+        'VX': WP_VX_IDX,
     }
 
     # --------------------------------------------------

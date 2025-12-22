@@ -36,7 +36,7 @@ get_file_name = None  # Only used when `get_files_from_folder_root` is a folder 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
 # - for single-file input: can be a folder OR a full output CSV path
-save_files_to = './Mu_tests_mpc/2025-12-22_13-57-47_Experiments_22_12_2025_0_RCA2_mpc_100Hz_vel_1.0_noise_c[0.0, 0.0]_mu_0.3_mu_c_0.3_.csv'
+save_files_to = './Mu_tests_mpc_new/'
 
 controller_config = {
     "controller_name": "mpc",
