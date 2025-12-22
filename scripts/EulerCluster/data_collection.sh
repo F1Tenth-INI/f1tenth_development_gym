@@ -1,8 +1,7 @@
 #!/bin/bash
-#SBATCH --array=0-335           # 0-55 indices × 6 repetitions = 336 jobs (for ~672 files)
-                                 # For single sweep: use --array=0-55 (produces 112 files)
+#SBATCH --array=0-16             # 17 jobs: 1 velocity × 17 friction values
 #SBATCH --cpus-per-task=1        # Assign the required number of CPUs per task
-#SBATCH --mem-per-cpu=3G        # Request memory per CPU
+#SBATCH --mem-per-cpu=3G         # Request memory per CPU
 #SBATCH --time=2:00:00           # Set the maximum job time
 #SBATCH --output=./scripts/EulerCluster/out/slurm-%A_%a.out   # Output file
 
@@ -15,10 +14,8 @@ conda activate f1t
 export PYTHONPATH=$HOME/f1tenth_development_gym:$PYTHONPATH
 cd $HOME/f1tenth_development_gym/
 
-# Map array task ID to euler_index (0-55) using modulo
-# This allows multiple repetitions: 0-335 maps to 0-55 six times
-EULER_INDEX=$((SLURM_ARRAY_TASK_ID % 56))
-
 # Run the Python script with the euler index
-python run/data_collection.py -i $EULER_INDEX
+# For repetitions, use --array=0-N where N = (17 × num_reps - 1) and uncomment modulo line:
+# EULER_INDEX=$((SLURM_ARRAY_TASK_ID % 17))
+python run/data_collection.py -i $SLURM_ARRAY_TASK_ID
 
