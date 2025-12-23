@@ -39,25 +39,19 @@ import argparse
 # When `--secondary_experiment_index` is provided (e.g. 7 -> "007"), the script will
 # pick exactly one file matching `*_<idx>.csv` inside the folder.
 # ======================================================================================
-get_files_from_folder_root = './Mu_tests/2025-12-22_13-57-47_Experiments_22_12_2025_0_RCA2_mpc_100Hz_vel_1.0_noise_c[0.0, 0.0]_mu_0.3_mu_c_0.3_.csv'  # folder OR a single CSV path
-get_file_name = None  # Only used when `get_files_from_folder_root` is a folder and no index is provided
+DEFAULT_INPUT_ROOT = './Mu_sens_test/'  # folder OR a single CSV path
+DEFAULT_OUTPUT_ROOT = './Mu_sens_test_mpc_cf/'  # folder for outputs
+DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
 # - for single-file input: can be a folder OR a full output CSV path
-save_files_to = './Mu_tests_mpc_new/'
+#
+# The default output is a folder; output filenames follow the input filenames.
 
-controller_config = {
-    "controller_name": "mpc",
-    "state_components": 'state',
-    "environment_attributes_dict": {  # keys are names used by controller, values the csv column names
-        "lidar": "lidar",
-        "next_waypoints": "next_waypoints",
-        # Evaluate control for a whole vector of mu values at each row:
-        # creates output columns like *_mu_0p3, *_mu_0p35, ... *_mu_1p1
-        "mu": "mu_regular_grid_0.3_1.1_0.05",
-    },
-}
+DEFAULT_MU_MIN = 0.3
+DEFAULT_MU_MAX = 1.1
+DEFAULT_MU_STEP = 0.05
 
 controller_output_variable_name = ['angular_control_mpc', 'translational_control_mpc']
 
@@ -101,6 +95,30 @@ def args_fun():
 
 
 formatted_index = args_fun()
+
+get_files_from_folder_root = DEFAULT_INPUT_ROOT
+save_files_to = DEFAULT_OUTPUT_ROOT
+get_file_name = DEFAULT_FILE_NAME
+
+mu_min = float(DEFAULT_MU_MIN)
+mu_max = float(DEFAULT_MU_MAX)
+mu_step = float(DEFAULT_MU_STEP)
+if mu_step <= 0:
+    raise ValueError(f"DEFAULT_MU_STEP must be > 0, got {mu_step}")
+if mu_max < mu_min:
+    raise ValueError(f"DEFAULT_MU_MAX must be >= DEFAULT_MU_MIN, got mu_min={mu_min}, mu_max={mu_max}")
+
+controller_config = {
+    "controller_name": "mpc",
+    "state_components": 'state',
+    "environment_attributes_dict": {  # keys are names used by controller, values the df column names
+        "lidar": "lidar",
+        "next_waypoints": "next_waypoints",
+        # Evaluate control for a whole vector of mu values at each row:
+        # creates output columns like *_mu_0p3, *_mu_0p35, ... *_mu_1p1
+        "mu": f"mu_regular_grid_{mu_min}_{mu_max}_{mu_step}",
+    },
+}
 
 def _is_csv_path(p: str) -> bool:
     return isinstance(p, str) and p.lower().endswith('.csv')
