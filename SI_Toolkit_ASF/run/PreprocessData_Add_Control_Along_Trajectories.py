@@ -1,10 +1,19 @@
 """
-This script calculate the control signal along the prerecorded trajectories.
+This script calculates the control signal along prerecorded trajectories.
 There need to be no relationship between the controller with which the trajectories were recorded
 and the controller which is used here to calculate the control signal.
 
 In Pycharm to get the progress bars display correctly you need to set
 "Emulate terminal in output console" in the run configuration.
+
+=== COUNTERFACTUAL TRAJECTORY MODE ===
+Set COUNTERFACTUAL_ENABLED = True to enable counterfactual trajectory analysis. This mode:
+1. Uses backward predictor to reconstruct alternative trajectories for various parameter values
+2. Feeds counterfactual histories to stateful controllers to test behavior
+3. Supports multi-rate: fine dt for dynamics, coarse DT for controller
+4. Supports output stride: process every N-th timestep
+
+Configure options in COUNTERFACTUAL_CONFIG dictionary.
 
 """
 
@@ -52,9 +61,27 @@ controller_config = {
 
 controller_output_variable_name = ['angular_control_mpc', 'translational_control_mpc']
 
+# ======================================================================================
+# COUNTERFACTUAL TRAJECTORY MODE CONFIGURATION (hardcoded)
+# ======================================================================================
+COUNTERFACTUAL_ENABLED = False  # Set True to enable counterfactual trajectory analysis
+COUNTERFACTUAL_CONFIG = {
+    'parameter_name': 'mu',        # Name of the parameter to vary (e.g., 'mu', 'mass', 'inertia')
+    'parameter_values': None,      # List of values to test, e.g. [0.3, 0.5, 0.7, 0.9]. None = auto
+    'horizon_fine': 200,           # Horizon (timesteps) for backward predictor at fine dt
+    'controller_dt': None,         # Controller timestep (seconds). None = use data dt (no subsampling)
+    'output_stride': 1,            # Process every N-th timestep to reduce output size
+    'traj_weight': 0.1,            # Weight for trajectory regularization
+    'run_tests_only': False,       # Run alignment tests only (no processing)
+    'verbose': False,              # Print verbose debug info
+}
+
 
 def args_fun():
-    parser = argparse.ArgumentParser(description='Generate Car data.', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description='Calculate control signal along prerecorded trajectories.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument('-i', '--secondary_experiment_index', default=-1, type=int,
                         help='Additional index to the experiment folder (ML Pipeline mode) or file (otherwise) name. -1 to skip.')
 
@@ -150,15 +177,93 @@ get_files_from, save_dir, rename_after = _resolve_io_paths(
 control_limits = (control_limits_low, control_limits_high),
 
 if __name__ == '__main__':
-    transform_dataset(get_files_from, save_dir,
-                      transformation='add_control_along_trajectories',
-                      controller_config=controller_config,
-                      controller_creator=controller_creator,
-                      df_modifier=df_modifier,
-                      controller_output_variable_name=controller_output_variable_name,
-                      integration_num_evals=4,
-                      save_output_only=False,
-                      )
+    
+    # === COUNTERFACTUAL TRAJECTORY MODE ===
+    if COUNTERFACTUAL_ENABLED or COUNTERFACTUAL_CONFIG.get('run_tests_only', False):
+        from SI_Toolkit.General.counterfactual_trajectory_helpers import (
+            add_control_with_counterfactual_trajectories,
+            run_alignment_tests,
+        )
+        
+        cfg = COUNTERFACTUAL_CONFIG
+        param_name = cfg.get('parameter_name', 'mu')
+        
+        print("\n" + "=" * 60)
+        print("COUNTERFACTUAL TRAJECTORY MODE")
+        print("=" * 60)
+        print(f"  Parameter: {param_name}")
+        print(f"  Input: {get_files_from}")
+        print(f"  Output: {save_dir}")
+        print(f"  Horizon (fine): {cfg['horizon_fine']} timesteps")
+        print(f"  Controller dt: {cfg['controller_dt']}")
+        print(f"  Output stride: {cfg['output_stride']}")
+        print(f"  Trajectory weight: {cfg['traj_weight']}")
+        print(f"  Parameter values: {cfg['parameter_values'] or 'auto'}")
+        
+        if cfg.get('run_tests_only', False):
+            # Test-only mode: load one file and run alignment tests
+            import pandas as pd
+            test_file = get_files_from
+            if os.path.isdir(test_file):
+                csv_files = glob.glob(os.path.join(test_file, '*.csv'))
+                if csv_files:
+                    test_file = csv_files[0]
+                else:
+                    raise FileNotFoundError(f"No CSV files found in {test_file}")
+            
+            print(f"\n=== Running alignment tests on: {test_file} ===")
+            df = pd.read_csv(test_file)
+            
+            # Get dt from file
+            from SI_Toolkit.load_and_normalize import get_sampling_interval_from_datafile
+            dt = get_sampling_interval_from_datafile(df, test_file) or 0.01
+            
+            results = run_alignment_tests(
+                df,
+                horizon_fine=cfg['horizon_fine'],
+                dt=dt,
+                controller_dt=cfg['controller_dt'],
+                parameter_name=param_name,
+                verbose=cfg.get('verbose', False) or True,
+            )
+            
+            if results['all_passed']:
+                print("\n✓ ALL ALIGNMENT TESTS PASSED")
+            else:
+                print("\n✗ SOME TESTS FAILED")
+            exit(0)
+        
+        # Full counterfactual trajectory processing
+        transform_dataset(
+            get_files_from, save_dir,
+            transformation=add_control_with_counterfactual_trajectories,
+            controller_config=controller_config,
+            controller_creator=controller_creator,
+            df_modifier=df_modifier,
+            controller_output_variable_name=controller_output_variable_name,
+            # Counterfactual trajectory options from config
+            parameter_name=param_name,
+            parameter_values=cfg['parameter_values'],
+            horizon_fine=cfg['horizon_fine'],
+            controller_dt=cfg['controller_dt'],
+            output_stride=cfg['output_stride'],
+            traj_weight=cfg['traj_weight'],
+            continuation=True,
+            verbose=cfg.get('verbose', False),
+            run_verification=True,
+        )
+    
+    # === STANDARD MODE ===
+    else:
+        transform_dataset(get_files_from, save_dir,
+                          transformation='add_control_along_trajectories',
+                          controller_config=controller_config,
+                          controller_creator=controller_creator,
+                          df_modifier=df_modifier,
+                          controller_output_variable_name=controller_output_variable_name,
+                          integration_num_evals=4,
+                          save_output_only=False,
+                          )
 
     # Optional rename if user provided a full output CSV path for single-file processing.
     if rename_after is not None:
