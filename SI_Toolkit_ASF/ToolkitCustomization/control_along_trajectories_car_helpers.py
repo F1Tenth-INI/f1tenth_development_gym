@@ -27,7 +27,14 @@ class PlannerAsController:
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
     def reset(self):
-        pass
+        # Reset internal state to improve solver stability when re-running a trajectory
+        # (e.g. when evaluating the same trajectory for multiple mu values).
+        if hasattr(self.lidar_utils, 'reset'):
+            self.lidar_utils.reset()
+        if hasattr(self.waypoint_utils, 'reset'):
+            self.waypoint_utils.reset()
+        if hasattr(self.planner, 'reset'):
+            self.planner.reset()
 
     def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, TensorType]" = {}):
 

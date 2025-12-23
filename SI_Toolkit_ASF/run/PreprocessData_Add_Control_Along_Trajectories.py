@@ -280,6 +280,9 @@ if __name__ == '__main__':
                           df_modifier=df_modifier,
                           controller_output_variable_name=controller_output_variable_name,
                           integration_num_evals=4,
+                          # For mu_regular_grid_* evaluation: run full trajectory per mu to improve MPC convergence.
+                          regular_grid_eval_order='by_grid',
+                          regular_grid_reset_between_values=True,
                           save_output_only=False,
                           )
 
