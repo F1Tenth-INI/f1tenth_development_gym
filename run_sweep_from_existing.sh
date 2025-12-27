@@ -9,11 +9,12 @@
 # BETAS=(0.4 0.6)
 # RATIOS=(0.0 0.25 0.5)
 
-ALPHAS=(0.3 0.6 0.8)
+ALPHAS=(0.8 0.6 0.0)
 BETAS=(0.4)
-RATIOS=(0.0 0.3 0.6)
+RATIOS=(0.0)
 
 SOURCE_MODEL="Example-1"
+SOURCE_MODEL_SHORT="Ex1"
 NEW_MAP_NAME="hangar16"
 # ALPHAS=(0.8)
 # BETAS=(0.4 0.6)
@@ -24,7 +25,7 @@ for alpha in "${ALPHAS[@]}"; do
   for beta in "${BETAS[@]}"; do
     for ratio in "${RATIOS[@]}"; do
       
-      MODEL_NAME="Sweep_Clip_1Anneal_${SOURCE_MODEL}_A${alpha}_B${beta}_R${ratio}"
+      MODEL_NAME="Sweep_lap_debug_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}"
       
       echo "=================================================="
       echo " STARTING: $MODEL_NAME"

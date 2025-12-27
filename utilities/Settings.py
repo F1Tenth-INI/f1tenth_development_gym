@@ -182,7 +182,7 @@ class Settings():
     SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.2   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_BETA_ANNEALING_RATIO = 1 #at how much % of total agent timesteps should beta have grown to 1.0
@@ -191,6 +191,8 @@ class Settings():
     SAC_CLIP_WEIGHTS = True
 
     EXTENDED_AUTO_STOP = True
+
+    SAC_RANK_BASED_SAMPLING = True
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

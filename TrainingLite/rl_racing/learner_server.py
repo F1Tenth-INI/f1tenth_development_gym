@@ -64,6 +64,8 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.clip_weights = Settings.SAC_CLIP_WEIGHTS
 
+        self.rank_based_sampling = Settings.SAC_RANK_BASED_SAMPLING
+
 
         ###FOR DEBUGGING
         self.counter = 0
@@ -152,11 +154,23 @@ class CustomReplayBuffer(ReplayBuffer):
         # Squish priorities logarithmically to dampen outliers while preserving rank
         combined_weight = np.log1p(combined_weight)
 
+        if self.rank_based_sampling:
+            sorted_inds = np.argsort(-combined_weight) #highest to lowest
+            ranks = np.arange(1, length + 1)
+            p = ranks ** -self.alpha
+        else:
+            p = combined_weight ** self.alpha
+            
+        p_tot = p.sum()
+        if p_tot <= 0 or not np.isfinite(p_tot):
+            p = np.ones_like(p) / length
+        else:
+            p /= p_tot
         """"""""""""""""""""""""""""""""""""""""""""""""
         """DEBUG DEBUG DEBUG"""
 
         if self.counter % 1000 == 0:
-            test_idx = np.random.choice(length, size=1)[0]
+            # test_idx = np.random.choice(length, size=1)[0]
             print("--- Debug Info ---")
             # print("idx: " + str(test_idx))
             # print("w: " + str(w_vec[test_idx]))
@@ -164,39 +178,32 @@ class CustomReplayBuffer(ReplayBuffer):
             # print("TD_vec: " + str(TD_vec[test_idx]))
             # print("combined weight: " + str(combined_weight[test_idx]))
             # print("uniform sampling prob: " + str(uni_p))
-            print("maximum combined weight: " + str(combined_weight.max()))
-            print("minimum combined weight: " + str(combined_weight.min()))
+            print("max weight: " + str(combined_weight.max()))
+            print("min weight: " + str(combined_weight.min()))
 
-            # Find who is holding this static max value
-            max_weight_idx_in_possible = np.argmax(combined_weight)
-            max_weight_val = combined_weight[max_weight_idx_in_possible]
-            actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
+            print("max prob: " + str(p.max()))
+            print("min prob: " + str(p.min()))
 
-            print(f"--- Max Weight Debug ---")
-            print(f"Max Weight: {max_weight_val}")
-            print(f"Held by Buffer Index: {actual_buffer_idx}")
+            # # Find who is holding this static max value
+            # max_weight_idx_in_possible = np.argmax(combined_weight)
+            # max_weight_val = combined_weight[max_weight_idx_in_possible]
+            # actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
+
+            # print(f"--- Max Weight Debug ---")
+            # print(f"Max Weight: {max_weight_val}")
+            # print(f"Held by Buffer Index: {actual_buffer_idx}")
 
         """"""""""""""""""""""""""""""""""""""""""""""""
         """DEBUG DEBUG DEBUG"""
 
-        #power law blend with uniform distribution
-        p = combined_weight ** self.alpha
-
-        # p = self.alpha * combined_weight + (1.0 - self.alpha) * uniform_p
-
-        # Safety normalization
-        # p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
-        p_tot = p.sum()
-
-        if p_tot <= 0 or not np.isfinite(p_tot):
-            p = np.ones_like(p) / length
-        else:
-            p /= p_tot
-
+        #TODO: do i want replace or not? :/
         sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p)
-
-        #map the sampled indices back to the possible_inds
-        batch_inds = possible_inds[sampled_p_index]
+        
+        if self.rank_based_sampling:
+            batch_inds = sorted_inds[sampled_p_index]
+        else:
+            #map the sampled indices back to the possible_inds
+            batch_inds = possible_inds[sampled_p_index]
 
 
         """"""""""""""""""""""""""""""""""""""""""""""""
@@ -692,7 +699,7 @@ class LearnerServer:
 
                                 TD_update_priorities += 1e-6
                                 
-                                if self.clip_weights:
+                                if replay_buffer.clip_weights:
                                     TD_update_priorities = np.clip(TD_update_priorities, -1, 1)
                                 
                                 replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
@@ -764,6 +771,7 @@ class LearnerServer:
                 }
                 print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 if(len(episodes) > 0):
+                    print(log_dict)
                     self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
 
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())

@@ -307,8 +307,10 @@ def main() -> None:
             ]
 
             # ensure test lap uses same map as the training
-            if hasattr(run_args.settings_namespace, 'MAP_NAME'):
-                eval_args.extend(["--MAP_NAME", str(run_args.settings_namespace.MAP_NAME)])
+            map_name = getattr(run_args.settings_namespace, 'MAP_NAME', None)
+
+            if map_name is not None:
+                eval_args.extend(["--MAP_NAME", str(map_name)])
 
             print(f"[run_training] Launching evaluation client with model '{model_name}'")
             try:
