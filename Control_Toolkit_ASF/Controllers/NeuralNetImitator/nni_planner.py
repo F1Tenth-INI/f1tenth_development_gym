@@ -115,9 +115,9 @@ class NeuralNetImitatorPlanner(template_planner):
         net_output = self.nni.step(input_data)
         
         if net_output.shape[2] == 3:
-            self.angular_control = net_output[0, 0, 0]
-            fricition = net_output[0, 0, 1]
-            self.translational_control = net_output[0, 0, 2]
+            self.angular_control = np.float32(net_output[0, 0, 0])
+            fricition = np.float32(net_output[0, 0, 1])
+            self.translational_control = np.float32(net_output[0, 0, 2])
 
             # Estimate friction over a period of time (AVERAGE_WINDOW)
             if len(self.friction_estimate) < Settings.AVERAGE_WINDOW:
@@ -131,8 +131,8 @@ class NeuralNetImitatorPlanner(template_planner):
             # self.render_utils.set_label_dict({'5: friction_estimated': self.friction,})
             # print("Estimated friction: ", self.friction)
         else:
-            self.angular_control = net_output[0, 0, 0]
-            self.translational_control = net_output[0, 0, 1]
+            self.angular_control = np.float32(net_output[0, 0, 0])
+            self.translational_control = np.float32(net_output[0, 0, 1])
         
         # Accelerate at the beginning "Schupf" (St model explodes for small velocity) -> must come after loading of waypoints otherwise they aren't saved
         if self.simulation_index < Settings.ACCELERATION_TIME:
@@ -140,7 +140,7 @@ class NeuralNetImitatorPlanner(template_planner):
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             self.angular_control = 0
 
-        self.control_history.append((self.angular_control, self.translational_control))
+        self.control_history.append((np.float32(self.angular_control), np.float32(self.translational_control)))
 
         
         return self.angular_control, self.translational_control
