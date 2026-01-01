@@ -14,10 +14,10 @@ class Settings():
     BLANK_MAP = True  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'neural' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
 
-    TIMESTEP_CONTROL = 0.01    # Multiple of 0.01; how often to recalculate control input
-    TIMESTEP_SIM = 0.01       # Dont touch.
+    TIMESTEP_CONTROL = 0.02    # Multiple of 0.01; how often to recalculate control input
+    TIMESTEP_SIM = 0.02       # Dont touch.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -75,7 +75,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
+    EXPERIMENT_MAX_LENGTH = 3000  # In sim timesteps: Length until the simulation is reset
     SIMULATION_LENGTH = 3000 # In sim timesteps: Length until the simulation is terminated
 
 
