@@ -19,11 +19,14 @@ Configure options in COUNTERFACTUAL_CONFIG dictionary.
 
 import os
 import glob
+
 from SI_Toolkit.data_preprocessing import transform_dataset
 
 from utilities.state_utilities import control_limits_low, control_limits_high
+from utilities.Settings import Settings
 from SI_Toolkit_ASF.ToolkitCustomization.control_along_trajectories_car_helpers import controller_creator, df_modifier
 import argparse
+import pandas as pd
 
 # ======================================================================================
 # INPUT / OUTPUT (hardcoded; no CLI flags except --secondary_experiment_index as below)
@@ -39,12 +42,19 @@ import argparse
 # When `--secondary_experiment_index` is provided (e.g. 7 -> "007"), the script will
 # pick exactly one file matching `*_<idx>.csv` inside the folder.
 # ======================================================================================
-DEFAULT_INPUT_ROOT = './Mu_sens_test/'  # folder OR a single CSV path
-DEFAULT_OUTPUT_ROOT = './Mu_sens_test_mpc_cf/'  # folder for outputs
+# Default paths for quick verification runs (can be edited as needed).
+DEFAULT_INPUT_ROOT = '/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/ExperimentRecordings/2026-01-01_14-12-37_Recording1_0_RCA1_neural_50Hz_vel_1.0_noise_c[0.05, 0.1]_mu_None_mu_c_None_.csv'  # folder OR a single CSV path
+DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify/'  # folder for outputs
 DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
 # If > 0 and the resolved input is a single CSV, create a truncated test CSV (first N rows) and process that.
-DEFAULT_MAX_ROWS = -1
+DEFAULT_MAX_ROWS = 400
+
+# Fake history via backward predictor (history forging). If True, offline replay will prime stateful controllers
+# using a synthetic past based on the recorded trajectory.
+DEFAULT_FORGE_HISTORY = True
+# options: optimizer, network, hybrid, off
+DEFAULT_FORGED_HISTORY_MODE = "optimizer"
 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
@@ -56,7 +66,7 @@ DEFAULT_MU_MIN = 0.3
 DEFAULT_MU_MAX = 1.1
 DEFAULT_MU_STEP = 0.05
 
-controller_output_variable_name = ['angular_control_mpc', 'translational_control_mpc']
+controller_output_variable_name = ['angular_control_offline', 'translational_control_offline']
 
 # ======================================================================================
 # COUNTERFACTUAL TRAJECTORY MODE CONFIGURATION (hardcoded)
@@ -112,14 +122,14 @@ if mu_max < mu_min:
     raise ValueError(f"DEFAULT_MU_MAX must be >= DEFAULT_MU_MIN, got mu_min={mu_min}, mu_max={mu_max}")
 
 controller_config = {
-    "controller_name": "mpc",
+    # Match online Settings.CONTROLLER == 'neural' (NeuralNetImitatorPlanner).
+    "controller_name": "neural",
     "state_components": 'state',
-    "environment_attributes_dict": {  # keys are names used by controller, values the df column names
+    "environment_attributes_dict": {
         "lidar": "lidar",
         "next_waypoints": "next_waypoints",
-        # Evaluate control for a whole vector of mu values at each row:
-        # creates output columns like *_mu_0p3, *_mu_0p35, ... *_mu_1p1
-        "mu": f"mu_regular_grid_{mu_min}_{mu_max}_{mu_step}",
+        # If 'mu' exists in the CSV, offline replay keeps Settings.SURFACE_FRICTION in sync per-timestep.
+        "mu": "mu",
     },
 }
 
@@ -198,13 +208,17 @@ get_files_from, save_dir, rename_after = _resolve_io_paths(
 control_limits = (control_limits_low, control_limits_high),
 
 if __name__ == '__main__':
+
+    # Apply history-forging settings (mirrors online Settings knobs).
+    Settings.FORGE_HISTORY = bool(DEFAULT_FORGE_HISTORY)
+    Settings.FORGED_HISTORY_MODE = str(DEFAULT_FORGED_HISTORY_MODE)
+
     # Optional: create a truncated test CSV for faster iteration.
     if DEFAULT_MAX_ROWS and DEFAULT_MAX_ROWS > 0:
         if os.path.isdir(get_files_from):
             raise ValueError("--max_rows is only supported when the resolved input is a single CSV file (not a folder).")
         if save_dir is None:
             raise ValueError("--max_rows requires an output folder (DEFAULT_OUTPUT_ROOT must not be None).")
-        import pandas as pd
         df_in = pd.read_csv(get_files_from, comment='#')
         df_in = df_in.iloc[: DEFAULT_MAX_ROWS].copy()
         truncated_name = f"_truncated_{DEFAULT_MAX_ROWS}_" + os.path.basename(get_files_from)

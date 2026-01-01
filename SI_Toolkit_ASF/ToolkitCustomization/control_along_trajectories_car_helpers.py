@@ -25,6 +25,20 @@ class PlannerAsController:
             self.planner.waypoint_utils = self.waypoint_utils
         self.angular_control_dict, self.translational_control_dict = if_mpc_define_cs_variables(self.planner)
 
+        # Optional: forge a fake history using the backward predictor (matches online history-forge experiments).
+        # Enabled by Settings.FORGE_HISTORY.
+        self.backward_predictor = None
+        self._render_utils_stub = None
+        if getattr(Settings, "FORGE_HISTORY", False):
+            from utilities.BackwardPredictor import BackwardPredictor
+
+            class _RenderStub:
+                def update(self, **kwargs):
+                    return
+
+            self._render_utils_stub = _RenderStub()
+            self.backward_predictor = BackwardPredictor()
+
     def reset(self):
         # Reset internal state to improve solver stability when re-running a trajectory
         # (e.g. when evaluating the same trajectory for multiple mu values).
@@ -34,6 +48,11 @@ class PlannerAsController:
             self.waypoint_utils.reset()
         if hasattr(self.planner, 'reset'):
             self.planner.reset()
+        if self.backward_predictor is not None and hasattr(self.backward_predictor, "reset"):
+            try:
+                self.backward_predictor.reset()
+            except Exception:
+                pass
 
     def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, object]" = {}):
 
@@ -86,13 +105,45 @@ class PlannerAsController:
 
         try:
             a, v = new_controls
-            return np.array([_to_float(a), _to_float(v)], dtype=np.float32)
+            out = np.array([_to_float(a), _to_float(v)], dtype=np.float32)
         except Exception:
             # Fallback: attempt to coerce any array-like into float vector
             arr = np.asarray(new_controls)
             if arr.size >= 2:
-                return np.array([_to_float(arr.flat[0]), _to_float(arr.flat[1])], dtype=np.float32)
+                out = np.array([_to_float(arr.flat[0]), _to_float(arr.flat[1])], dtype=np.float32)
             raise
+
+        # If enabled, update backward predictor history and forge synthetic past steps to prime stateful controllers.
+        # This runs AFTER computing the current control, consistent with online `CarSystem.process_data_post_control()`.
+        if self.backward_predictor is not None:
+            try:
+                self.backward_predictor.update(out, np.array(s, dtype=np.float32))
+            except Exception:
+                pass
+
+            try:
+                history = self.backward_predictor.get_forged_history(np.array(s, dtype=np.float32), self.waypoint_utils)
+            except Exception:
+                history = None
+
+            if history is not None:
+                past_car_states, all_past_next_waypoints = history
+                for past_car_state, past_next_waypoints in zip(past_car_states, all_past_next_waypoints):
+                    # Feed forged past into planner in a signature-agnostic way (works for neural + MPC planners).
+                    try:
+                        if hasattr(self.planner, "car_state"):
+                            self.planner.car_state = np.array(past_car_state, dtype=np.float64)
+                        self.waypoint_utils.next_waypoints = past_next_waypoints
+                        self.LIDAR.update_ranges(lidar_full, np.array(past_car_state, dtype=np.float64))
+                        _ = self.planner.process_observation()
+                    except Exception:
+                        # If planner expects explicit args, fall back to that style.
+                        try:
+                            _ = self.planner.process_observation(lidar_full, np.array(past_car_state, dtype=np.float64))
+                        except Exception:
+                            pass
+
+        return out
 
 
 def controller_creator(controller_config, initial_environment_attributes):
