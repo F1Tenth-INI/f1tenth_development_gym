@@ -51,7 +51,9 @@ predictors:
 
   backward_optimizer_default:
     predictor_type: "backward_optimizer"
-    model_name:
+    # Neural network model for 'network' and 'hybrid' modes (set FORGED_HISTORY_MODE in Settings.py)
+    model_name: "Dense-9IN-32H1-32H2-8OUT-1"
+    path_to_model: "./SI_Toolkit_ASF/Experiments/Experiments_05_12_2025/Models/"
 
   data_integrator_default:
     predictor_type: "data_integrator"
