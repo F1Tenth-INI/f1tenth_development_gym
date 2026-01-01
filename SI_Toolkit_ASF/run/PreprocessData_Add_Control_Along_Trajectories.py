@@ -43,6 +43,9 @@ DEFAULT_INPUT_ROOT = './Mu_sens_test/'  # folder OR a single CSV path
 DEFAULT_OUTPUT_ROOT = './Mu_sens_test_mpc_cf/'  # folder for outputs
 DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
+# If > 0 and the resolved input is a single CSV, create a truncated test CSV (first N rows) and process that.
+DEFAULT_MAX_ROWS = -1
+
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
 # - for single-file input: can be a folder OR a full output CSV path
@@ -195,6 +198,21 @@ get_files_from, save_dir, rename_after = _resolve_io_paths(
 control_limits = (control_limits_low, control_limits_high),
 
 if __name__ == '__main__':
+    # Optional: create a truncated test CSV for faster iteration.
+    if DEFAULT_MAX_ROWS and DEFAULT_MAX_ROWS > 0:
+        if os.path.isdir(get_files_from):
+            raise ValueError("--max_rows is only supported when the resolved input is a single CSV file (not a folder).")
+        if save_dir is None:
+            raise ValueError("--max_rows requires an output folder (DEFAULT_OUTPUT_ROOT must not be None).")
+        import pandas as pd
+        df_in = pd.read_csv(get_files_from, comment='#')
+        df_in = df_in.iloc[: DEFAULT_MAX_ROWS].copy()
+        truncated_name = f"_truncated_{DEFAULT_MAX_ROWS}_" + os.path.basename(get_files_from)
+        truncated_path = os.path.join(save_dir, truncated_name)
+        os.makedirs(save_dir, exist_ok=True)
+        df_in.to_csv(truncated_path, index=False)
+        print(f"[max_rows] Wrote truncated test file: {truncated_path}")
+        get_files_from = truncated_path
     
     # === COUNTERFACTUAL TRAJECTORY MODE ===
     if COUNTERFACTUAL_ENABLED or COUNTERFACTUAL_CONFIG.get('run_tests_only', False):
