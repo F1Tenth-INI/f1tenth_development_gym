@@ -3,8 +3,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from tqdm import trange
-
+from utilities.Settings import Settings
 from utilities.car_system import initialize_planner, if_mpc_define_cs_variables
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
 from utilities.state_utilities import STATE_VARIABLES
@@ -36,7 +35,17 @@ class PlannerAsController:
         if hasattr(self.planner, 'reset'):
             self.planner.reset()
 
-    def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, TensorType]" = {}):
+    def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, object]" = {}):
+
+        # Some planner/controller stacks (notably the "neural" planner) read mu from Settings.SURFACE_FRICTION.
+        # If the dataset provides mu, keep Settings in sync per-step.
+        if isinstance(updated_attributes, dict) and "mu" in updated_attributes:
+            mu_val = updated_attributes.get("mu", None)
+            if mu_val is not None:
+                try:
+                    Settings.SURFACE_FRICTION = float(mu_val)
+                except Exception:
+                    pass
 
         if hasattr(self.planner, 'mpc'):
             self.planner.mu = updated_attributes['mu']
@@ -67,10 +76,35 @@ class PlannerAsController:
         # Match `CarSystem` behavior: planners read required inputs from their bound utils/state.
         new_controls = self.planner.process_observation()
 
-        return new_controls
+        # Normalize output type to plain floats (important for TF models returning tf.Tensor scalars).
+        def _to_float(x):
+            if hasattr(x, "numpy"):
+                x = x.numpy()
+            if isinstance(x, np.ndarray):
+                return float(x.reshape(-1)[0]) if x.size else float("nan")
+            return float(x)
+
+        try:
+            a, v = new_controls
+            return np.array([_to_float(a), _to_float(v)], dtype=np.float32)
+        except Exception:
+            # Fallback: attempt to coerce any array-like into float vector
+            arr = np.asarray(new_controls)
+            if arr.size >= 2:
+                return np.array([_to_float(arr.flat[0]), _to_float(arr.flat[1])], dtype=np.float32)
+            raise
 
 
 def controller_creator(controller_config, initial_environment_attributes):
+    # For the neural controller, the planner reads mu from Settings.SURFACE_FRICTION.
+    # Set it from the dataset if provided, so offline replay matches the recorded run.
+    if isinstance(initial_environment_attributes, dict) and "mu" in initial_environment_attributes:
+        mu_val = initial_environment_attributes.get("mu", None)
+        if mu_val is not None and not (isinstance(mu_val, float) and np.isnan(mu_val)):
+            try:
+                Settings.SURFACE_FRICTION = float(mu_val)
+            except Exception:
+                pass
     controller_instance = PlannerAsController(controller_config, initial_environment_attributes)
     return controller_instance
 
