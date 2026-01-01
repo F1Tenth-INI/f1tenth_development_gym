@@ -165,7 +165,7 @@ class Settings():
     
     ## Forged history settings 
     FORGE_HISTORY = False # Forge history of friction values
-    FORGED_HISTORY_MODE = "hybrid"  # Set here; options: optimizer, network, hybrid, off
+    FORGED_HISTORY_MODE = "optimizer"  # Set here; options: optimizer, network, hybrid, off
     SAVE_STATE_METRICS = False # Save state metrics for analysis
     FRICTION_FOR_CONTROLLER = None # Friction value for the controller. If None, controller will use the friction value from the car params / Settings.SURFACE_FRICTION
     

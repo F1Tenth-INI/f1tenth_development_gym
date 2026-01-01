@@ -42,7 +42,7 @@ Settings.RECORDING_FOLDER = os.path.join(Settings.RECORDING_FOLDER, Settings.DAT
 
 # Dont touch:
 Settings.CONTROLLER = 'mpc'
-Settings.RENDER_MODE = 'human_fast'
+Settings.RENDER_MODE = None
 Settings.SAVE_RECORDINGS = True 
 Settings.SAVE_PLOTS = True
 Settings.APPLY_SPEED_SCALING_FROM_CSV = False

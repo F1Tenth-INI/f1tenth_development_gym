@@ -22,16 +22,16 @@ from tqdm import tqdm
 # =============================================================================
 
 # Input folder (output from PreprocessData_BackToFront_Trajectories.py)
-INPUT_FOLDER = './SI_Toolkit_ASF/Experiments/Experiments_05_12_2025_BackToFront/Recordings/Train/'
+INPUT_FOLDER = './SI_Toolkit_ASF/Experiments/Experiments_05_12_2025_BackToFront_shifted/Recordings/Validate/'
 
 # Output folder
-OUTPUT_FOLDER = './SI_Toolkit_ASF/Experiments/Experiments_05_12_2025_DAGGER/Recordings/Train/'
+OUTPUT_FOLDER = './SI_Toolkit_ASF/Experiments/Experiments_05_12_2025_DAGGER/Recordings/Validate/'
 
 # Sampling parameters
 SAMPLING_TEMPERATURE = 1.0  # Lower = more focus on high-error trajectories (0.5 = aggressive, 2.0 = mild)
-SAMPLE_FRACTION = 1.0       # 1.0 = same number of trajectories as original
+SAMPLE_FRACTION = 0.1       # 1.0 = same number of trajectories as original
 MIN_SAMPLES_PER_FILE = 100  # Minimum number of trajectories to sample per file
-SAMPLE_WITH_REPLACEMENT = True  # Allow sampling same trajectory multiple times
+SAMPLE_WITH_REPLACEMENT = False  # Allow sampling same trajectory multiple times
 RANDOM_SEED = 42            # For reproducibility
 
 # =============================================================================

@@ -1,6 +1,11 @@
-predictors_specifications_testing: ['ODE']
-#predictors_specifications_testing: ['B:Dense-9IN-32H1-32H2-8OUT-0;ODE','B:Dense-9IN-32H1-32H2-8OUT-1;ODE','B:Dense-9IN-64H1-64H2-8OUT-0;ODE'] #['ODE_TF'] #['./SI_Toolkit_ASF/Experiments/Experiment-MPPI-Imitator/Models/GRU-68IN-32H1-32H2-2OUT-12']
-# B:Dense-9IN-32H1-32H2-8OUT-1;ODE  - Neural network backward predictor with ODE forward
+# Forward Data Integrator test (DI) - uses D_* columns
+# Backward Data Integrator test (B:DI) - backward mode, uses D_*_-1 columns
+#predictors_specifications_testing: ['DI']
+#predictors_specifications_testing: ['B:DI']  # Backward Data Integrator
+#predictors_specifications_testing: ['DI', 'ODE']  # Compare forward integrator with ODE
+#predictors_specifications_testing: ['ODE_with_mu_test']
+predictors_specifications_testing: ["B:BP;ODE_with_mu", "B:Dense-9IN-32H1-32H2-8OUT-1"] # Backward test: DI + Neural Network + Backward Predictor with forward ODE
+# B:Dense-9IN-32H1-32H2-8OUT-0;ODE  - Neural network backward predictor with ODE forward
 # B:BP;ODE                          - Optimizer-based backward predictor with ODE forward
 
 # predictors_specifications may be a names from the list of predictors in config_predictors.yml (assuming specification make sense)

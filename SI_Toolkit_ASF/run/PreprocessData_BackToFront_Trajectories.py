@@ -33,7 +33,7 @@ forward_predictor_specification = 'ODE'
 
 # Test parameters
 test_horizon = 30  # Prediction horizon
-dataset_sampling_dt = 0.02  # Sampling time step (seconds)
+dataset_sampling_dt = 0.01  # Sampling time step (seconds) - 100Hz
 verbose = False  # Set to True for detailed diagnostic output
 max_batch_size = 512  # Fixed batch size for predictor reuse (increase if you have larger datasets)
 
