@@ -48,7 +48,7 @@ DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify/'  # folder for ou
 DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
 # If > 0 and the resolved input is a single CSV, create a truncated test CSV (first N rows) and process that.
-DEFAULT_MAX_ROWS = 400
+DEFAULT_MAX_ROWS = 400  # H=200 + 200 forged steps
 
 # Fake history via backward predictor (history forging). If True, offline replay will prime stateful controllers
 # using a synthetic past based on the recorded trajectory.
@@ -58,11 +58,17 @@ DEFAULT_FORGED_HISTORY_MODE = "optimizer"
 # How to generate the "fake past" used to prime the RNN:
 # - "backward": use BackwardPredictor output (but fed with RECORDED online controls)
 # - "oracle": replay true past states/waypoints/lidar from the CSV (to isolate RNN convergence issues)
-DEFAULT_FORGE_PAST_SOURCE = "backward"  # "backward" | "oracle"
+DEFAULT_FORGE_PAST_SOURCE = "oracle"  # "backward" | "oracle"
 # When to reset RNN hidden states before warmup:
 # - "every_step": reset to zeros at every step (current behavior, sliding window)
 # - "first_only": reset only at the first forged step (H), then let hidden state accumulate
 DEFAULT_FORGE_RESET_MODE = "every_step"  # "every_step" | "first_only"
+# Length of history window for warmup (number of past steps to replay before computing current control)
+# Try 50, 100, 150, 200, etc. to see if longer warmup converges to online results
+DEFAULT_FORGE_HISTORY_LENGTH = 200
+# Output stride: only compute offline control for every Nth row (1 = all rows, 200 = every 200th row)
+# Useful for quick tests on long trajectories
+DEFAULT_OUTPUT_STRIDE = 10
 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
@@ -225,6 +231,8 @@ if __name__ == '__main__':
     Settings.FORGED_HISTORY_MODE = str(DEFAULT_FORGED_HISTORY_MODE)
     Settings.FORGE_PAST_SOURCE = str(DEFAULT_FORGE_PAST_SOURCE)
     Settings.FORGE_RESET_MODE = str(DEFAULT_FORGE_RESET_MODE)
+    Settings.FORGE_HISTORY_LENGTH = int(DEFAULT_FORGE_HISTORY_LENGTH)
+    Settings.OUTPUT_STRIDE = int(DEFAULT_OUTPUT_STRIDE)
 
     # Optional: create a truncated test CSV for faster iteration.
     if DEFAULT_MAX_ROWS and DEFAULT_MAX_ROWS > 0:

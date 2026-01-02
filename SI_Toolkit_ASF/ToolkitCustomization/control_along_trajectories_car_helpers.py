@@ -35,6 +35,8 @@ class PlannerAsController:
 
         self._forge_source = str(getattr(Settings, "FORGE_PAST_SOURCE", "backward")).lower()
         self._first_warmup_done = False  # Track if first warmup has been done (for "first_only" mode)
+        self._step_counter = 0  # For output stride
+        self._output_stride = int(getattr(Settings, "OUTPUT_STRIDE", 1))
         if getattr(Settings, "FORGE_HISTORY", False) and self._forge_source == "backward":
             from utilities.BackwardPredictor import BackwardPredictor
             self.backward_predictor = BackwardPredictor()
@@ -60,6 +62,7 @@ class PlannerAsController:
         self._wpt_hist = []
         self._lidar_hist = []
         self._first_warmup_done = False  # Track if first warmup has been done (for "first_only" mode)
+        self._step_counter = 0  # Reset step counter for stride
 
     def _reset_rnn_hidden_states(self):
         """Reset LSTM/GRU hidden states to zeros so warmup starts from a clean slate."""
@@ -131,6 +134,43 @@ class PlannerAsController:
             )
 
         self.LIDAR.update_ranges(lidar_full, np.array(s, dtype=np.float64))
+
+        # ---- Output stride optimization ----
+        # With reset_mode="every_step", we can skip warmup+inference for non-stride rows.
+        # We only need to update history buffers and return NaN.
+        current_step = self._step_counter
+        self._step_counter += 1
+        skip_inference = (self._output_stride > 1 and (current_step % self._output_stride) != 0)
+
+        if skip_inference:
+            # Still update history buffers (needed for future warmups in oracle mode)
+            try:
+                self._state_hist.append(np.array(s, dtype=np.float32))
+                self._wpt_hist.append(np.array(updated_attributes.get("next_waypoints"), dtype=np.float32))
+                self._lidar_hist.append(np.array(lidar_full, dtype=np.float32))
+            except Exception:
+                pass
+            # Update recorded control
+            if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
+                try:
+                    a_rec = float(updated_attributes["angular_control_calculated"])
+                    v_rec = float(updated_attributes["translational_control_calculated"])
+                    self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
+                except Exception:
+                    pass
+            # Also update BackwardPredictor's internal history (needed for backward mode)
+            if self.backward_predictor is not None:
+                if self._prev_recorded_u is not None:
+                    try:
+                        self.backward_predictor.update_control_history(self._prev_recorded_u)
+                    except Exception:
+                        pass
+                try:
+                    self.backward_predictor.update_state_history(np.array(s, dtype=np.float32))
+                except Exception:
+                    pass
+            return np.array([np.nan, np.nan], dtype=np.float32)
+
         # ---- Forged history priming (BEFORE computing current control) ----
         # This is the critical change for RNNs: we want to set a consistent hidden state
         # based on either the BackwardPredictor's forged past, or the true past from the CSV ("oracle").
@@ -140,7 +180,7 @@ class PlannerAsController:
             # Oracle mode: replay true past states/waypoints/lidar from the CSV to prime hidden state.
             if source == "oracle":
                 # Need at least HISTORY_LENGTH past samples.
-                H = 50
+                H = int(getattr(Settings, "FORGE_HISTORY_LENGTH", 50))
                 if len(self._state_hist) >= H:
                     # Check reset mode: "every_step" (reset before each warmup) vs "first_only" (reset only at first warmup)
                     reset_mode = str(getattr(Settings, "FORGE_RESET_MODE", "every_step")).lower()
@@ -195,6 +235,18 @@ class PlannerAsController:
                 except Exception:
                     history = None
                 if history is not None:
+                    # Check reset mode: "every_step" (reset before each warmup) vs "first_only" (reset only at first warmup)
+                    reset_mode = str(getattr(Settings, "FORGE_RESET_MODE", "every_step")).lower()
+                    should_reset = (reset_mode == "every_step") or (reset_mode == "first_only" and not self._first_warmup_done)
+
+                    if should_reset:
+                        # Reset LSTM/GRU hidden states to zeros before warmup.
+                        self._reset_rnn_hidden_states()
+
+                    # Mark first warmup as done (for "first_only" mode)
+                    if not self._first_warmup_done:
+                        self._first_warmup_done = True
+
                     past_car_states, all_past_next_waypoints = history
                     for past_car_state, past_next_waypoints in zip(past_car_states, all_past_next_waypoints):
                         try:
@@ -206,6 +258,12 @@ class PlannerAsController:
                             _ = self.planner.process_observation()
                         except Exception:
                             pass
+
+                    # CRITICAL: Restore CURRENT state/waypoints/lidar after warmup
+                    if hasattr(self.planner, "car_state"):
+                        self.planner.car_state = np.array(s, dtype=np.float64)
+                    self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']
+                    self.LIDAR.update_ranges(lidar_full, np.array(s, dtype=np.float64))
 
         # Match `CarSystem` behavior: planners read required inputs from their bound utils/state.
         new_controls = self.planner.process_observation()
