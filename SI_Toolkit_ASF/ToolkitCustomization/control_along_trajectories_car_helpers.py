@@ -28,15 +28,15 @@ class PlannerAsController:
         # Optional: forge a fake history using the backward predictor (matches online history-forge experiments).
         # Enabled by Settings.FORGE_HISTORY.
         self.backward_predictor = None
-        self._render_utils_stub = None
-        if getattr(Settings, "FORGE_HISTORY", False):
+        self._prev_recorded_u = None  # u_{t-1} in controller cadence
+        self._state_hist = []         # list[np.ndarray]
+        self._wpt_hist = []           # list[np.ndarray]
+        self._lidar_hist = []         # list[np.ndarray] (full scan length)
+
+        self._forge_source = str(getattr(Settings, "FORGE_PAST_SOURCE", "backward")).lower()
+        self._first_warmup_done = False  # Track if first warmup has been done (for "first_only" mode)
+        if getattr(Settings, "FORGE_HISTORY", False) and self._forge_source == "backward":
             from utilities.BackwardPredictor import BackwardPredictor
-
-            class _RenderStub:
-                def update(self, **kwargs):
-                    return
-
-            self._render_utils_stub = _RenderStub()
             self.backward_predictor = BackwardPredictor()
 
     def reset(self):
@@ -48,11 +48,50 @@ class PlannerAsController:
             self.waypoint_utils.reset()
         if hasattr(self.planner, 'reset'):
             self.planner.reset()
-        if self.backward_predictor is not None and hasattr(self.backward_predictor, "reset"):
+        if self.backward_predictor is not None:
+            # BackwardPredictor has no explicit reset in current code; just drop history by re-instantiating.
             try:
-                self.backward_predictor.reset()
+                from utilities.BackwardPredictor import BackwardPredictor
+                self.backward_predictor = BackwardPredictor()
             except Exception:
                 pass
+        self._prev_recorded_u = None
+        self._state_hist = []
+        self._wpt_hist = []
+        self._lidar_hist = []
+        self._first_warmup_done = False  # Track if first warmup has been done (for "first_only" mode)
+
+    def _reset_rnn_hidden_states(self):
+        """Reset LSTM/GRU hidden states to zeros so warmup starts from a clean slate."""
+        try:
+            # Navigate: planner -> nni -> net_evaluator -> net (TF model)
+            nni = getattr(self.planner, "nni", None)
+            if nni is None:
+                return
+            net_evaluator = getattr(nni, "net_evaluator", None)
+            if net_evaluator is None:
+                return
+            net = getattr(net_evaluator, "net", None)
+            if net is None:
+                return
+            # Reset each recurrent layer's states to zeros
+            for layer in net.layers:
+                layer_name = getattr(layer, "name", "").lower()
+                if "lstm" in layer_name or "gru" in layer_name or "rnn" in layer_name:
+                    try:
+                        layer.reset_states()  # resets to zeros (initial_state default)
+                    except Exception:
+                        pass
+            # Also reset the planner's control_history to zeros (initial state)
+            if hasattr(self.planner, "control_history"):
+                self.planner.control_history.clear()
+                for _ in range(self.planner.control_history_size):
+                    self.planner.control_history.append((0.0, 0.0))
+            # Reset simulation_index so acceleration warmup logic matches online behavior
+            if hasattr(self.planner, "simulation_index"):
+                self.planner.simulation_index = 0
+        except Exception:
+            pass
 
     def step(self, s: np.ndarray, time=None, updated_attributes: "dict[str, object]" = {}):
 
@@ -92,6 +131,82 @@ class PlannerAsController:
             )
 
         self.LIDAR.update_ranges(lidar_full, np.array(s, dtype=np.float64))
+        # ---- Forged history priming (BEFORE computing current control) ----
+        # This is the critical change for RNNs: we want to set a consistent hidden state
+        # based on either the BackwardPredictor's forged past, or the true past from the CSV ("oracle").
+        if getattr(Settings, "FORGE_HISTORY", False):
+            source = str(getattr(Settings, "FORGE_PAST_SOURCE", "backward")).lower()
+
+            # Oracle mode: replay true past states/waypoints/lidar from the CSV to prime hidden state.
+            if source == "oracle":
+                # Need at least HISTORY_LENGTH past samples.
+                H = 50
+                if len(self._state_hist) >= H:
+                    # Check reset mode: "every_step" (reset before each warmup) vs "first_only" (reset only at first warmup)
+                    reset_mode = str(getattr(Settings, "FORGE_RESET_MODE", "every_step")).lower()
+                    should_reset = (reset_mode == "every_step") or (reset_mode == "first_only" and not self._first_warmup_done)
+
+                    if should_reset:
+                        # Reset LSTM/GRU hidden states to zeros before warmup.
+                        self._reset_rnn_hidden_states()
+
+                    # Mark first warmup as done (for "first_only" mode)
+                    if not self._first_warmup_done:
+                        self._first_warmup_done = True
+
+                    past_states = self._state_hist[-H:]
+                    past_wpts = self._wpt_hist[-H:]
+                    past_lidars = self._lidar_hist[-H:]
+                    for ps, pw, pl in zip(past_states, past_wpts, past_lidars):
+                        try:
+                            if hasattr(self.planner, "car_state"):
+                                self.planner.car_state = np.array(ps, dtype=np.float64)
+                            self.waypoint_utils.next_waypoints = pw
+                            self.LIDAR.update_ranges(pl, np.array(ps, dtype=np.float64))
+                            _ = self.planner.process_observation()
+                        except Exception:
+                            pass
+
+                    # CRITICAL: Restore CURRENT state/waypoints/lidar after warmup,
+                    # so process_observation() below computes control for the CURRENT step, not step H-1!
+                    if hasattr(self.planner, "car_state"):
+                        self.planner.car_state = np.array(s, dtype=np.float64)
+                    self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']
+                    self.LIDAR.update_ranges(lidar_full, np.array(s, dtype=np.float64))
+
+            # BackwardPredictor mode (B): use BackwardPredictor forged past, but feed it with RECORDED online controls.
+            elif source == "backward" and self.backward_predictor is not None:
+                # 1) Update control history with u_{t-1} (recorded) like online sim does.
+                if self._prev_recorded_u is not None:
+                    try:
+                        self.backward_predictor.update_control_history(self._prev_recorded_u)
+                    except Exception:
+                        pass
+                # 2) Update state history with current state (online sim updates state history after control computation;
+                # we do it here so get_forged_history can see the newest state).
+                try:
+                    self.backward_predictor.update_state_history(np.array(s, dtype=np.float32))
+                except Exception:
+                    pass
+
+                # 3) If forging is ready, replay forged past to prime planner hidden state.
+                try:
+                    history = self.backward_predictor.get_forged_history(np.array(s, dtype=np.float32), self.waypoint_utils)
+                except Exception:
+                    history = None
+                if history is not None:
+                    past_car_states, all_past_next_waypoints = history
+                    for past_car_state, past_next_waypoints in zip(past_car_states, all_past_next_waypoints):
+                        try:
+                            if hasattr(self.planner, "car_state"):
+                                self.planner.car_state = np.array(past_car_state, dtype=np.float64)
+                            self.waypoint_utils.next_waypoints = past_next_waypoints
+                            # BackwardPredictor intentionally uses the same current scan (no past lidar reconstruction).
+                            self.LIDAR.update_ranges(lidar_full, np.array(past_car_state, dtype=np.float64))
+                            _ = self.planner.process_observation()
+                        except Exception:
+                            pass
+
         # Match `CarSystem` behavior: planners read required inputs from their bound utils/state.
         new_controls = self.planner.process_observation()
 
@@ -113,35 +228,26 @@ class PlannerAsController:
                 out = np.array([_to_float(arr.flat[0]), _to_float(arr.flat[1])], dtype=np.float32)
             raise
 
-        # If enabled, update backward predictor history and forge synthetic past steps to prime stateful controllers.
-        # This runs AFTER computing the current control, consistent with online `CarSystem.process_data_post_control()`.
-        if self.backward_predictor is not None:
-            try:
-                self.backward_predictor.update(out, np.array(s, dtype=np.float32))
-            except Exception:
-                pass
+        # ---- Update local histories (for oracle + for predictor control feed) ----
+        # Store true past signals from the CSV (state, waypoints, lidar).
+        try:
+            self._state_hist.append(np.array(s, dtype=np.float32))
+            self._wpt_hist.append(np.array(updated_attributes.get("next_waypoints"), dtype=np.float32))
+            self._lidar_hist.append(np.array(lidar_full, dtype=np.float32))
+        except Exception:
+            pass
 
+        # Store recorded online control from CSV for feeding into BackwardPredictor at the next step.
+        if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
             try:
-                history = self.backward_predictor.get_forged_history(np.array(s, dtype=np.float32), self.waypoint_utils)
+                a_rec = float(updated_attributes["angular_control_calculated"])
+                v_rec = float(updated_attributes["translational_control_calculated"])
+                self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
             except Exception:
-                history = None
-
-            if history is not None:
-                past_car_states, all_past_next_waypoints = history
-                for past_car_state, past_next_waypoints in zip(past_car_states, all_past_next_waypoints):
-                    # Feed forged past into planner in a signature-agnostic way (works for neural + MPC planners).
-                    try:
-                        if hasattr(self.planner, "car_state"):
-                            self.planner.car_state = np.array(past_car_state, dtype=np.float64)
-                        self.waypoint_utils.next_waypoints = past_next_waypoints
-                        self.LIDAR.update_ranges(lidar_full, np.array(past_car_state, dtype=np.float64))
-                        _ = self.planner.process_observation()
-                    except Exception:
-                        # If planner expects explicit args, fall back to that style.
-                        try:
-                            _ = self.planner.process_observation(lidar_full, np.array(past_car_state, dtype=np.float64))
-                        except Exception:
-                            pass
+                self._prev_recorded_u = out.copy()
+        else:
+            # Fallback: use offline-computed control
+            self._prev_recorded_u = out.copy()
 
         return out
 

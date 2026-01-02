@@ -55,6 +55,14 @@ DEFAULT_MAX_ROWS = 400
 DEFAULT_FORGE_HISTORY = True
 # options: optimizer, network, hybrid, off
 DEFAULT_FORGED_HISTORY_MODE = "optimizer"
+# How to generate the "fake past" used to prime the RNN:
+# - "backward": use BackwardPredictor output (but fed with RECORDED online controls)
+# - "oracle": replay true past states/waypoints/lidar from the CSV (to isolate RNN convergence issues)
+DEFAULT_FORGE_PAST_SOURCE = "backward"  # "backward" | "oracle"
+# When to reset RNN hidden states before warmup:
+# - "every_step": reset to zeros at every step (current behavior, sliding window)
+# - "first_only": reset only at the first forged step (H), then let hidden state accumulate
+DEFAULT_FORGE_RESET_MODE = "every_step"  # "every_step" | "first_only"
 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
@@ -130,6 +138,9 @@ controller_config = {
         "next_waypoints": "next_waypoints",
         # If 'mu' exists in the CSV, offline replay keeps Settings.SURFACE_FRICTION in sync per-timestep.
         "mu": "mu",
+        # For forged-history mode B: feed the BackwardPredictor with recorded (online) controls.
+        "angular_control_calculated": "angular_control_calculated",
+        "translational_control_calculated": "translational_control_calculated",
     },
 }
 
@@ -212,6 +223,8 @@ if __name__ == '__main__':
     # Apply history-forging settings (mirrors online Settings knobs).
     Settings.FORGE_HISTORY = bool(DEFAULT_FORGE_HISTORY)
     Settings.FORGED_HISTORY_MODE = str(DEFAULT_FORGED_HISTORY_MODE)
+    Settings.FORGE_PAST_SOURCE = str(DEFAULT_FORGE_PAST_SOURCE)
+    Settings.FORGE_RESET_MODE = str(DEFAULT_FORGE_RESET_MODE)
 
     # Optional: create a truncated test CSV for faster iteration.
     if DEFAULT_MAX_ROWS and DEFAULT_MAX_ROWS > 0:
