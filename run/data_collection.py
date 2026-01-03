@@ -13,24 +13,18 @@ from itertools import product  # Enables Cartesian product iteration over multip
 started = datetime.datetime.now()
 print(f"Started at: {started}")
 
-Settings.DATASET_NAME = "Experiments_22_12_2025"
+Settings.DATASET_NAME = "MPC_RCA1_Jan2026"
 Settings.RECORDING_INDEX = euler_index
 
 
 # Global Settings (for every recording)
-Settings.MAP_NAME = 'RCA2'
+Settings.MAP_NAME = 'RCA1'  # Same map as 04_08_RCA1_noise dataset
 
 Settings.EXPERIMENT_LENGTH = 6000
 
-# Settings.NOISE_LEVEL_TRANSLATIONAL_CONTROL = 1.0 # ftg: 0.5  # mppi: 2.0
-# Settings.NOISE_LEVEL_ANGULAR_CONTROL = 0.3  # ftg: 0.05  # mppi: 3.0
-# Settings.NOISE_LEVEL_CAR_STATE = [ 0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-
-
-# Settings.NOISE_LEVEL_CAR_STATE = [ 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.0]
-# Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0]  # noise level [angular, translational]
-Settings.CONTROL_NOISE_DURATION = 30  # Number of timesteps for which the control noise is applied
+# Noise level matching original 04_08_RCA1_noise dataset
+Settings.NOISE_LEVEL_CONTROL = [0.1, 0.1]  # noise level [angular, translational]
+Settings.CONTROL_NOISE_DURATION = 10  # Number of timesteps for which the control noise is applied
 
 
 Settings.CONTROL_DELAY = 0.0
@@ -53,46 +47,36 @@ runs_without_obstacles = 1
 runs_with_oponents = 0
 
 # Friction sampling configuration - UNIFORM DISTRIBUTION
-# FRICTION_MIN = 0.3  # Minimum friction value (matching Train dataset)
-# FRICTION_MAX = 1.1  # Maximum friction value (matching Train dataset)
-# NUM_FRICTION_SAMPLES = 8  # Number of samples to generate across the range
+FRICTION_MIN = 0.3
+FRICTION_MAX = 1.1
+# 1190 total files = 7 velocities × 170 repetitions
+NUM_REPETITIONS_PER_VELOCITY = 170
 
-# Friction sampling configuration - DISCRETE LIST (indexed via euler_index)
-FRICTION_VALUES = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0, 1.05, 1.1]
-NUM_FRICTION_SAMPLES = len(FRICTION_VALUES)
-
-# Generate friction values using uniform sampling based on euler_index
-# This ensures reproducibility while using continuous distribution
-np.random.seed(euler_index)  # Use euler_index as seed for reproducibility
+# Velocity factors - 7 discrete values
+VELOCITY_FACTORS = [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]
 
 reverse_direction_values = [False]
-global_waypoint_velocity_factors = [1.0]
+global_waypoint_velocity_factors = VELOCITY_FACTORS
 
-# Settings for tuning before recording
-# Comment out during data collection
-# Settings.EXPERIMENT_LENGTH = 1000  
-# global_waypoint_velocity_factors = [1.0] 
-# FRICTION_MIN = 0.7
-# FRICTION_MAX = 0.7
-# NUM_FRICTION_SAMPLES = 1
+# Settings for tuning before recording (uncomment to test locally)
+# Settings.EXPERIMENT_LENGTH = 1000
 # Settings.RENDER_MODE = "human_fast"
+# NUM_REPETITIONS_PER_VELOCITY = 1
 
 feature_A = global_waypoint_velocity_factors
-# For discrete sampling, we'll use the number of discrete friction values
-# For uniform sampling, we'll use NUM_FRICTION_SAMPLES as the number of different samples
-feature_B_size = NUM_FRICTION_SAMPLES
+feature_B_size = NUM_REPETITIONS_PER_VELOCITY
 
 index_A, index_B, index_C = decode_flag(euler_index, len(feature_A), feature_B_size)
 
 # Sample velocity from discrete list
 global_waypoint_velocity_factors = [global_waypoint_velocity_factors[index_A]]
 
-# Sample friction uniformly from range
-# Use a deterministic seed based on index_B to ensure reproducibility
-# friction_rng = np.random.RandomState(seed=euler_index * 1000 + index_B)
-# sampled_friction = friction_rng.uniform(FRICTION_MIN, FRICTION_MAX)
-# global_surface_friction_values = [sampled_friction]
-global_surface_friction_values = [FRICTION_VALUES[index_B]]
+# Sample friction UNIFORMLY from [0.3, 1.1] using euler_index as seed
+# Each job gets a different random mu value
+friction_rng = np.random.RandomState(seed=euler_index)
+sampled_friction = friction_rng.uniform(FRICTION_MIN, FRICTION_MAX)
+global_surface_friction_values = [sampled_friction]
+print(f"[Data Collection] euler_index={euler_index}, vel_factor={global_waypoint_velocity_factors[0]}, mu={sampled_friction:.4f}")
 
 # Friction for controller is same as actual friction
 global_surface_friction_for_controller_values = None  # If None, always same as global_surface_friction
