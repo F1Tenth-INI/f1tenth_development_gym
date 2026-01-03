@@ -1,7 +1,7 @@
 #!/bin/bash
 # 1190 jobs = 7 velocity factors × 170 repetitions
 # Each job samples mu uniformly from [0.3, 1.1]
-#SBATCH --array=0-1189
+#SBATCH --array=0-951
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=3G
 #SBATCH --time=2:00:00
