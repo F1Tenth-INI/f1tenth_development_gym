@@ -42,9 +42,10 @@ import pandas as pd
 # When `--secondary_experiment_index` is provided (e.g. 7 -> "007"), the script will
 # pick exactly one file matching `*_<idx>.csv` inside the folder.
 # ======================================================================================
-# Default paths for quick verification runs (can be edited as needed).
-DEFAULT_INPUT_ROOT = '/Users/marcinpaluch/PycharmProjects/f1tenth_development_gym/ExperimentRecordings/2026-01-01_14-12-37_Recording1_0_RCA1_neural_50Hz_vel_1.0_noise_c[0.05, 0.1]_mu_None_mu_c_None_.csv'  # folder OR a single CSV path
-DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify/'  # folder for outputs
+# Default paths (relative to repo root - script must be run from there).
+# Can be a folder (processes all CSVs, or use -i for indexed file) OR a single CSV path.
+DEFAULT_INPUT_ROOT = './ExperimentRecordings/2026-01-01_14-12-37_Recording1_0_RCA1_neural_50Hz_vel_1.0_noise_c[0.05, 0.1]_mu_None_mu_c_None_.csv'
+DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify/'
 DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
 # If > 0 and the resolved input is a single CSV, create a truncated test CSV (first N rows) and process that.
