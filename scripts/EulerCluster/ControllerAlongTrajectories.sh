@@ -14,7 +14,7 @@
 mkdir -p ./scripts/EulerCluster/out/
 
 source $HOME/miniconda3/bin/activate
-conda activate f1t  # Change to f1t_tf15 if that's the env name on Euler
+conda activate f1t_tf15  # Change to f1t_tf15 if that's the env name on Euler
 
 export PYTHONPATH=$HOME/f1tenth_development_gym/
 cd $HOME/f1tenth_development_gym/
