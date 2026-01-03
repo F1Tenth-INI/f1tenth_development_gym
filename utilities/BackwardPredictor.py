@@ -10,7 +10,11 @@ from utilities.waypoint_utils import get_nearest_waypoint
 from utilities.InverseDynamics import ProgressiveWindowRefiner
 from utilities.Settings import Settings
 
-HISTORY_LENGTH = 50  # in 'controller updates'
+# ============================================================================
+# Backward Predictor settings (tunable via environment variables)
+# ============================================================================
+
+HISTORY_LENGTH = int(os.getenv('ID_HISTORY_LENGTH', '50'))  # in 'controller updates'
 TIMESTEP_CONTROL = float(Settings.TIMESTEP_CONTROL)
 TIMESTEP_ENVIRONMENT = float(Settings.TIMESTEP_SIM)
 timesteps_per_controller_update = max(
@@ -20,10 +24,11 @@ FORGE_AT_CONTROLLER_RATE = True
 
 START_AFTER_X_STEPS = HISTORY_LENGTH
 
-WINDOW_SIZE = 15
-OVERLAP = 10
-SMOOTHING_WINDOW = None
-SMOOTHING_OVERLAP = 15
+# Window settings for progressive refinement
+WINDOW_SIZE = int(os.getenv('ID_WINDOW_SIZE', '15'))
+OVERLAP = int(os.getenv('ID_OVERLAP', '10'))
+SMOOTHING_WINDOW = None  # Optional smoothing pass
+SMOOTHING_OVERLAP = int(os.getenv('ID_SMOOTHING_OVERLAP', '15'))
 
 
 # ---- Online ID Diagnostics --------------------------------------------------

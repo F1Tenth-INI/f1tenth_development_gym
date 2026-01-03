@@ -222,10 +222,10 @@ class TrajectoryRefiner:
         self._TOL_MULT  = 3.0
         self.TOL_HUBER  = tf.constant(self._TOL_MULT * (self.RES_DELTA ** 2) * self._M_PARTIAL, tf.float32)
 
-        # Schedule
-        self.ADAM_ITERATIONS_LIMIT = 40
-        self.LR1          = 5e-2
-        self.LR2          = 1e-4
+        # Schedule (can be overridden via environment variables for tuning)
+        self.ADAM_ITERATIONS_LIMIT = int(os.getenv('ID_ADAM_ITERS', '40'))
+        self.LR1          = float(os.getenv('ID_LR1', '5e-2'))
+        self.LR2          = float(os.getenv('ID_LR2', '1e-4'))
 
     def inverse_entire_trajectory(self, x_T: np.ndarray, Q: np.ndarray,
                                   X_init: Optional[np.ndarray]=None,
