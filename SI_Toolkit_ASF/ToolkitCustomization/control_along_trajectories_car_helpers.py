@@ -163,10 +163,10 @@ class PlannerAsController:
                 except Exception:
                     pass
             # NOW update _prev_recorded_u with current control (for next step)
-            if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
+            if isinstance(updated_attributes, dict) and ("angular_control" in updated_attributes) and ("translational_control" in updated_attributes):
                 try:
-                    a_rec = float(updated_attributes["angular_control_calculated"])
-                    v_rec = float(updated_attributes["translational_control_calculated"])
+                    a_rec = float(updated_attributes["angular_control"])
+                    v_rec = float(updated_attributes["translational_control"])
                     self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
                 except Exception:
                     pass
@@ -297,10 +297,11 @@ class PlannerAsController:
             pass
 
         # Store recorded online control from CSV for feeding into BackwardPredictor at the next step.
-        if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
+        # Use APPLIED controls (angular_control, translational_control), not raw network output.
+        if isinstance(updated_attributes, dict) and ("angular_control" in updated_attributes) and ("translational_control" in updated_attributes):
             try:
-                a_rec = float(updated_attributes["angular_control_calculated"])
-                v_rec = float(updated_attributes["translational_control_calculated"])
+                a_rec = float(updated_attributes["angular_control"])
+                v_rec = float(updated_attributes["translational_control"])
                 self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
             except Exception:
                 self._prev_recorded_u = out.copy()

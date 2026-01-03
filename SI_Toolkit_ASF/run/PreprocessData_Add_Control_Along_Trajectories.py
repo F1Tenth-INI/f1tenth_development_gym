@@ -144,7 +144,11 @@ controller_config = {
         "next_waypoints": "next_waypoints",
         # If 'mu' exists in the CSV, offline replay keeps Settings.SURFACE_FRICTION in sync per-timestep.
         "mu": "mu",
-        # For forged-history mode B: feed the BackwardPredictor with recorded (online) controls.
+        # For forged-history mode B: feed the BackwardPredictor with APPLIED controls (not raw network output).
+        # angular_control/translational_control = actually applied to car (includes noise, clipping, etc.)
+        # angular_control_calculated/translational_control_calculated = raw network output (for comparison only)
+        "angular_control": "angular_control",
+        "translational_control": "translational_control",
         "angular_control_calculated": "angular_control_calculated",
         "translational_control_calculated": "translational_control_calculated",
     },
