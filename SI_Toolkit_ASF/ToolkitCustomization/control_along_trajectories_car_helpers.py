@@ -150,15 +150,8 @@ class PlannerAsController:
                 self._lidar_hist.append(np.array(lidar_full, dtype=np.float32))
             except Exception:
                 pass
-            # Update recorded control
-            if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
-                try:
-                    a_rec = float(updated_attributes["angular_control_calculated"])
-                    v_rec = float(updated_attributes["translational_control_calculated"])
-                    self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
-                except Exception:
-                    pass
-            # Also update BackwardPredictor's internal history (needed for backward mode)
+            # Update BackwardPredictor's internal history FIRST (before updating _prev_recorded_u!)
+            # This ensures we feed u(t-1) when processing x(t), matching: x(t) = f(x(t-1), u(t-1))
             if self.backward_predictor is not None:
                 if self._prev_recorded_u is not None:
                     try:
@@ -167,6 +160,14 @@ class PlannerAsController:
                         pass
                 try:
                     self.backward_predictor.update_state_history(np.array(s, dtype=np.float32))
+                except Exception:
+                    pass
+            # NOW update _prev_recorded_u with current control (for next step)
+            if isinstance(updated_attributes, dict) and ("angular_control_calculated" in updated_attributes) and ("translational_control_calculated" in updated_attributes):
+                try:
+                    a_rec = float(updated_attributes["angular_control_calculated"])
+                    v_rec = float(updated_attributes["translational_control_calculated"])
+                    self._prev_recorded_u = np.array([a_rec, v_rec], dtype=np.float32)
                 except Exception:
                     pass
             return np.array([np.nan, np.nan], dtype=np.float32)
