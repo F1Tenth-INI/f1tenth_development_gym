@@ -79,6 +79,9 @@ DEFAULT_OUTPUT_STRIDE = 50
 DEFAULT_MU_MIN = 0.3
 DEFAULT_MU_MAX = 1.1
 DEFAULT_MU_STEP = 0.05
+# If True, compute control for each mu in [MU_MIN, MU_MAX] with MU_STEP.
+# Output columns will be suffixed with mu values, e.g. angular_control_offline_mu_0p30
+DEFAULT_MU_SWEEP_ENABLED = True
 
 controller_output_variable_name = ['angular_control_offline', 'translational_control_offline']
 
@@ -135,6 +138,16 @@ if mu_step <= 0:
 if mu_max < mu_min:
     raise ValueError(f"DEFAULT_MU_MAX must be >= DEFAULT_MU_MIN, got mu_min={mu_min}, mu_max={mu_max}")
 
+# Build mu attribute: either single value from CSV column, or regular_grid sweep
+if DEFAULT_MU_SWEEP_ENABLED:
+    # regular_grid pattern: mu_regular_grid_{min}_{max}_{step}
+    # This generates outputs for each mu value, e.g. angular_control_offline_mu_0p30
+    _mu_attr = f"mu_regular_grid_{mu_min}_{mu_max}_{mu_step}"
+    print(f"[MU SWEEP] Enabled: {_mu_attr}")
+else:
+    # Single value from CSV column 'mu'
+    _mu_attr = "mu"
+
 controller_config = {
     # Match online Settings.CONTROLLER == 'neural' (NeuralNetImitatorPlanner).
     "controller_name": "neural",
@@ -142,8 +155,8 @@ controller_config = {
     "environment_attributes_dict": {
         "lidar": "lidar",
         "next_waypoints": "next_waypoints",
-        # If 'mu' exists in the CSV, offline replay keeps Settings.SURFACE_FRICTION in sync per-timestep.
-        "mu": "mu",
+        # mu: either from CSV column or regular_grid sweep (see DEFAULT_MU_SWEEP_ENABLED)
+        "mu": _mu_attr,
         # For forged-history mode B: feed the BackwardPredictor with APPLIED controls (not raw network output).
         # angular_control/translational_control = actually applied to car (includes noise, clipping, etc.)
         # angular_control_calculated/translational_control_calculated = raw network output (for comparison only)
