@@ -1,14 +1,20 @@
 # BackwardPredictor.py
 #
 # Optimizer-based backward trajectory predictor aligned with the predictor API.
+#
+# Supports two optimizer backends (controlled by USE_FAST_OPTIMIZER):
+#   - FastBackwardOptimizer: Single-shooting method, same as Brunton Test (default)
+#   - ProgressiveWindowRefiner: Progressive windowing (legacy)
 
 import os
 import time
 import numpy as np
 
 from utilities.waypoint_utils import get_nearest_waypoint
-from utilities.InverseDynamics import ProgressiveWindowRefiner
 from utilities.Settings import Settings
+
+# Choose optimizer backend: True = FastBackwardOptimizer (Brunton), False = ProgressiveWindowRefiner (legacy)
+USE_FAST_OPTIMIZER = True
 
 # ============================================================================
 # Backward Predictor settings (tunable via environment variables)
@@ -116,16 +122,33 @@ class BackwardPredictor:
         #  - ctrl-rate forge → stride = 1 (each step is a control boundary already)
         self.out_stride_ctrl = 1 if self.forge_ctrl_rate else self.ts
 
-        # Progressive, overlapped refiner with smoothing (reused instance → no retracing)
-        self.refiner = ProgressiveWindowRefiner(
-            mu=Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None,
-            controls_are_pid=False,
-            dt=(self.dt_ctrl if self.forge_ctrl_rate else self.dt_env),  # CHANGED: forge cadence dt
-            window_size=WINDOW_SIZE,
-            overlap=OVERLAP,
-            smoothing_window=SMOOTHING_WINDOW,
-            smoothing_overlap=SMOOTHING_OVERLAP,
-        )
+        # Choose optimizer backend based on USE_FAST_OPTIMIZER flag
+        self._use_fast = USE_FAST_OPTIMIZER
+        mu_val = Settings.FRICTION_FOR_CONTROLLER if hasattr(Settings, "FRICTION_FOR_CONTROLLER") else None
+        dt_val = self.dt_ctrl if self.forge_ctrl_rate else self.dt_env
+
+        if self._use_fast:
+            # FastBackwardOptimizer: same as Brunton Test (single-shooting method)
+            from utilities.FastBackwardOptimizer import FastBackwardPredictor
+            self.refiner = FastBackwardPredictor(
+                dt=dt_val,
+                mu=mu_val,
+                max_iter=200,
+                tol=1e-7,
+                verbose=False,
+            )
+        else:
+            # ProgressiveWindowRefiner: legacy progressive windowing
+            from utilities.InverseDynamics import ProgressiveWindowRefiner
+            self.refiner = ProgressiveWindowRefiner(
+                mu=mu_val,
+                controls_are_pid=False,
+                dt=dt_val,
+                window_size=WINDOW_SIZE,
+                overlap=OVERLAP,
+                smoothing_window=SMOOTHING_WINDOW,
+                smoothing_overlap=SMOOTHING_OVERLAP,
+            )
 
         self._warmed_once = False
         self.forged_history_applied = False
@@ -174,7 +197,13 @@ class BackwardPredictor:
         T_small = min(5, Q.shape[0])
         if T_small >= 1:
             Qs = Q[-T_small:]  # old->new last few controls
-            _ = self.refiner.refine(x_T, Qs)  # warm the internal optimizer
+            x_flat = x_T.flatten() if x_T.ndim == 2 else x_T
+            if self._use_fast:
+                # FastBackwardPredictor: warm via predict
+                _ = self.refiner.predict(x_flat, Qs)
+            else:
+                # ProgressiveWindowRefiner: warm via refine
+                _ = self.refiner.refine(x_T, Qs)
         self._warmed_once = True
 
     def _compress_env_controls_to_ctrl_rate(self, env_controls: np.ndarray) -> np.ndarray:
@@ -226,14 +255,31 @@ class BackwardPredictor:
         else:
             Q_np = controls.astype(np.float32)  # [H*ts,2] (fine-grain)
 
-        x_next = np.asarray(car_state, np.float32)[None]  # [1, 10]
+        x_next = np.asarray(car_state, np.float32)  # [10]
+        if x_next.ndim == 2:
+            x_next = x_next.flatten()
 
         # Warm once to exclude tracing from timings
-        self._warm_once(x_next, Q_np)
+        self._warm_once(x_next[None], Q_np)
 
-        # ---- Refine with stats ----
-        # ---- Refine with stats ----
-        states_all, converged_flags, stats = self.refiner.refine_stats(x_next, Q_np)
+        # ---- Run backward optimization (depends on backend) ----
+        stats = {}
+        if self._use_fast:
+            # FastBackwardPredictor: returns [H, state_dim] oldest→newest, or None if failed
+            past_states = self.refiner.predict(x_next, Q_np)
+            if past_states is None:
+                self.forged_history_applied = False
+                self._last_gt_past = None
+                self._last_prior_past = None
+                return self._finalize_return(False, started_at, reason="not_converged")
+            converged_flags = np.ones(len(past_states), dtype=bool)  # predict() only returns if converged
+            stats = self.refiner.last_stats if hasattr(self.refiner, 'last_stats') else {}
+            # Rebuild states_all for compatibility: [T+1, 10] newest→older (anchor at index 0)
+            past_states_backwards = past_states[::-1, :]  # oldest→newest → newest→older
+            states_all = np.vstack([x_next[None, :], past_states_backwards])  # [T+1, 10]
+        else:
+            # ProgressiveWindowRefiner: returns (states_all, converged_flags, stats)
+            states_all, converged_flags, stats = self.refiner.refine_stats(x_next[None], Q_np)
 
         # ---- Build controller-cadence predicted past ONCE (reused everywhere) ----
         states_at_ctrl = states_all[::self.out_stride_ctrl, :]  # newest→older at controller boundaries
@@ -526,34 +572,40 @@ class BackwardPredictor:
         Returns:
             Backward states [horizon, state_dim], oldest to newest, or None if failed
         """
-        # Ensure initial_state is 2D [1, state_dim]
-        if initial_state.ndim == 1:
-            initial_state = initial_state[None, :]
+        # Flatten initial_state for FastBackwardPredictor
+        if initial_state.ndim == 2:
+            initial_state_flat = initial_state.flatten()
+        else:
+            initial_state_flat = initial_state
 
         # Warm once
-        self._warm_once(initial_state, controls)
+        self._warm_once(initial_state_flat[None, :], controls)
 
-        if X_init is not None:
-            # Use direct TrajectoryRefiner with neural prior as seed
-            return self._predict_with_init(initial_state, controls, X_init)
+        if self._use_fast:
+            # FastBackwardPredictor: returns [H, state_dim] oldest→newest directly
+            past_states = self.refiner.predict(initial_state_flat, controls, X_init=X_init)
+            return past_states  # Already in correct format, or None if failed
+        else:
+            # ProgressiveWindowRefiner: legacy path
+            if X_init is not None:
+                return self._predict_with_init(initial_state_flat[None, :], controls, X_init)
 
-        # Run optimizer refinement (progressive windowing)
-        states_all, converged_flags, _ = self.refiner.refine_stats(initial_state, controls)
+            states_all, converged_flags, _ = self.refiner.refine_stats(initial_state_flat[None, :], controls)
 
-        if not np.all(converged_flags):
-            return None
+            if not np.all(converged_flags):
+                return None
 
-        # states_all[0] is current, states_all[1:] are older
-        states_at_ctrl = states_all[::self.out_stride_ctrl, :]
-        past_states_backwards = states_at_ctrl[1:, :]
-        past_states = past_states_backwards[::-1, :].astype(np.float32)  # oldest→newest
+            states_at_ctrl = states_all[::self.out_stride_ctrl, :]
+            past_states_backwards = states_at_ctrl[1:, :]
+            past_states = past_states_backwards[::-1, :].astype(np.float32)
 
-        return past_states
+            return past_states
 
     def _predict_with_init(self, initial_state: np.ndarray, controls: np.ndarray, 
                            X_init: np.ndarray) -> np.ndarray:
         """
         Predict using TrajectoryRefiner directly with neural network output as seed.
+        (Legacy path for ProgressiveWindowRefiner only)
         
         Args:
             initial_state: Current state [1, state_dim]
@@ -563,6 +615,10 @@ class BackwardPredictor:
         Returns:
             Refined backward states [horizon, state_dim], oldest→newest, or None if failed
         """
+        if self._use_fast:
+            # FastBackwardPredictor handles X_init directly in predict()
+            return self.refiner.predict(initial_state.flatten(), controls, X_init=X_init)
+        
         # Convert X_init from oldest→newest to newest→older (what refiner expects)
         X_init_newest_first = X_init[::-1, :]  # [horizon, state_dim] newest→older
         
