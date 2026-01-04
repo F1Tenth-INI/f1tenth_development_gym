@@ -61,6 +61,7 @@ class SacUtilities:
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
+
     @staticmethod
     def make_env():
         return _SpacesOnlyEnv(SacUtilities.obs_space, SacUtilities.act_space)
@@ -217,10 +218,27 @@ class TrainingLogHelper():
         # Gather all available metrics from logger
         metric_dict = {}
 
-        # Add lap_times, min_laptime, avg_laptime from the last episode's info if available
+        all_lap_times = []
+        
+        # We still need last_info for scalar metrics like 'reward_difficulty'
         last_episode = episodes[-1] if episodes else None
         last_info = last_episode[-1]["info"] if last_episode and last_episode[-1] and "info" in last_episode[-1] else {}
-        lap_times = last_info.get("lap_times", None)
+
+        # Iterate through all episodes to collect every lap time
+        if episodes:
+            for ep in episodes:
+                if not ep: continue
+                ep_info = ep[-1].get("info", {})
+                laps = ep_info.get("lap_times", [])
+                
+                if laps:
+                    if isinstance(laps, (list, tuple, np.ndarray)):
+                        all_lap_times.extend(list(laps))
+                    else:
+                        all_lap_times.append(laps)
+
+        
+        metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
 
         episode_lengths = [len(episode) for episode in episodes]
         episode_rewards = [sum(transition["reward"] for transition in episode) for episode in episodes]
@@ -233,7 +251,8 @@ class TrainingLogHelper():
         metric_dict['episode_lengths'] = episode_lengths
         metric_dict['episode_rewards'] = episode_rewards
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
-        metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
+        metric_dict['lap_times'] = str(all_lap_times) if all_lap_times else "[]"
+        # metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
         metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
         
         metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)

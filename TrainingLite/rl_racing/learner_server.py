@@ -66,6 +66,8 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.rank_based_sampling = Settings.SAC_RANK_BASED_SAMPLING
 
+        self.steps_taken = np.ones(self.buffer_size, dtype=np.int32)
+
 
         ###FOR DEBUGGING
         self.counter = 0
@@ -75,10 +77,10 @@ class CustomReplayBuffer(ReplayBuffer):
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
 
-    def add(self, *args, **kwargs):
+    def add(self, obs, next_obs, action, reward, done, infos, steps_taken: int):
         """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
         # --> actual weighting computation is only within this function
-        super().add(*args, **kwargs)
+        super().add(obs, next_obs, action, reward, done, infos)
 
         #handle special pos index for SB3
         try:
@@ -86,6 +88,9 @@ class CustomReplayBuffer(ReplayBuffer):
         except Exception:
             return
         
+        #store steps taken for each transition over whole buffer
+        self.steps_taken[idx] = steps_taken
+
         #set to max samplepriority for newest transitions
         #TODO: option to have this be able to be set in settings
         self.TD_weights[idx] = self.new_weight_priority
@@ -97,7 +102,14 @@ class CustomReplayBuffer(ReplayBuffer):
         d = obs[-2]
         e = obs[-1]
         # rew = self.rewards[idx, 0] + 1
-        rew = abs(self.rewards[idx, 0]) #both positive and negative rewards contain lots of information
+        rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
+        # Scale the reward contribution to the priority by the number of steps in the n-step transition.
+        # Without this, longer n-step transitions (larger aggregated rewards) are over-prioritised,
+        # which can destabilize training. Use per-step average reward for priority computation.
+        try:
+            reward_per_step = float(rew) / max(1, int(steps_taken))
+        except Exception:
+            reward_per_step = float(rew)
 
         #velx = obs[0] and vely = obs[1]
         vel = np.sqrt(obs[0]**2 + obs[1]**2)
@@ -105,11 +117,11 @@ class CustomReplayBuffer(ReplayBuffer):
         vel = (1 - min(e, 0.9)) * vel #we only care about speed into the right direction
         # print(rew)
 
-        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * rew + self.velocity_weight * vel
+        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * abs(reward_per_step) + self.velocity_weight * abs(vel)
         w = np.clip(w, 1e-6, 1e3)
 
         if self.clip_weights:
-            w = np.clip(w, -1, 1)
+            w = np.clip(w, 0, 5)
 
         self.state_weights[idx] = w
         
@@ -156,6 +168,7 @@ class CustomReplayBuffer(ReplayBuffer):
 
         if self.rank_based_sampling:
             sorted_inds = np.argsort(-combined_weight) #highest to lowest
+            ranked_buffer_inds = possible_inds[sorted_inds]
             ranks = np.arange(1, length + 1)
             p = ranks ** -self.alpha
         else:
@@ -169,29 +182,29 @@ class CustomReplayBuffer(ReplayBuffer):
         """"""""""""""""""""""""""""""""""""""""""""""""
         """DEBUG DEBUG DEBUG"""
 
-        if self.counter % 1000 == 0:
-            # test_idx = np.random.choice(length, size=1)[0]
-            print("--- Debug Info ---")
-            # print("idx: " + str(test_idx))
-            # print("w: " + str(w_vec[test_idx]))
-            # uni_p = 1.0 / max(1, self.size())
-            # print("TD_vec: " + str(TD_vec[test_idx]))
-            # print("combined weight: " + str(combined_weight[test_idx]))
-            # print("uniform sampling prob: " + str(uni_p))
-            print("max weight: " + str(combined_weight.max()))
-            print("min weight: " + str(combined_weight.min()))
+        # if self.counter % 1000 == 0:
+        #     # test_idx = np.random.choice(length, size=1)[0]
+        #     print("--- Debug Info ---")
+        #     # print("idx: " + str(test_idx))
+        #     # print("w: " + str(w_vec[test_idx]))
+        #     # uni_p = 1.0 / max(1, self.size())
+        #     # print("TD_vec: " + str(TD_vec[test_idx]))
+        #     # print("combined weight: " + str(combined_weight[test_idx]))
+        #     # print("uniform sampling prob: " + str(uni_p))
+        #     print("max weight: " + str(combined_weight.max()))
+        #     print("min weight: " + str(combined_weight.min()))
 
-            print("max prob: " + str(p.max()))
-            print("min prob: " + str(p.min()))
+        #     print("max prob: " + str(p.max()))
+        #     print("min prob: " + str(p.min()))
 
-            # # Find who is holding this static max value
-            # max_weight_idx_in_possible = np.argmax(combined_weight)
-            # max_weight_val = combined_weight[max_weight_idx_in_possible]
-            # actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
+        #     # # Find who is holding this static max value
+        #     # max_weight_idx_in_possible = np.argmax(combined_weight)
+        #     # max_weight_val = combined_weight[max_weight_idx_in_possible]
+        #     # actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
 
-            # print(f"--- Max Weight Debug ---")
-            # print(f"Max Weight: {max_weight_val}")
-            # print(f"Held by Buffer Index: {actual_buffer_idx}")
+        #     # print(f"--- Max Weight Debug ---")
+        #     # print(f"Max Weight: {max_weight_val}")
+        #     # print(f"Held by Buffer Index: {actual_buffer_idx}")
 
         """"""""""""""""""""""""""""""""""""""""""""""""
         """DEBUG DEBUG DEBUG"""
@@ -200,7 +213,7 @@ class CustomReplayBuffer(ReplayBuffer):
         sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p)
         
         if self.rank_based_sampling:
-            batch_inds = sorted_inds[sampled_p_index]
+            batch_inds = ranked_buffer_inds[sampled_p_index]
         else:
             #map the sampled indices back to the possible_inds
             batch_inds = possible_inds[sampled_p_index]
@@ -248,6 +261,8 @@ class CustomReplayBuffer(ReplayBuffer):
         # self.batch_is_correctors = self.importance_sampling_correctors[batch_inds]
         
         # self.batch_is_correctors = self.batch_is_correctors.reshape(-1, 1).astype(np.float32)
+        # assert np.all(np.isin(batch_inds, possible_inds))
+
         return self._get_samples(batch_inds, env=env)
     
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
@@ -262,7 +277,8 @@ class CustomReplayBuffer(ReplayBuffer):
                 next_observations=samples.next_observations,
                 dones=samples.dones,
                 rewards=samples.rewards,
-                is_weights=is_weights)  
+                is_weights=is_weights,
+                steps_taken = samples.steps_taken)  
         
 
         # Sample randomly the env idx
@@ -273,6 +289,8 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
 
+        steps_taken = self.steps_taken[batch_inds].reshape(-1, 1)
+
         data = (
             self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
             self.actions[batch_inds, env_indices, :],
@@ -282,8 +300,12 @@ class CustomReplayBuffer(ReplayBuffer):
             (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
         )
+
         return WeightedReplayBufferSamples(*tuple(map(self.to_torch, data)), 
-                                           is_weights = self.to_torch(self.batch_is_correctors))
+                                           is_weights = self.to_torch(self.batch_is_correctors),
+                                           steps_taken = self.to_torch(steps_taken),
+                                            )
+
     
 class WeightedReplayBufferSamples(NamedTuple):
     observations: torch.Tensor
@@ -293,7 +315,7 @@ class WeightedReplayBufferSamples(NamedTuple):
     rewards: torch.Tensor
     is_weights: torch.Tensor
     # For n-step replay buffer
-    discounts: Optional[torch.Tensor] = None
+    steps_taken: torch.Tensor
 
 
 # class WeightedReplayBufferSamples(ReplayBufferSamples):
@@ -354,6 +376,13 @@ class LearnerServer:
         self.vecnorm: Optional[VecNormalize] = None
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
+
+        self.last_episode_time = None 
+        self.episode_timeout = 60.0
+
+        #used for n-step buffer, for standard buffer set = 1
+        self.n_step = getattr(Settings, "SAC_N_STEP", 1)
+        # self.n_step_discount_factor = self.discount_factor ** self.n_step
 
 
         # file paths: default save name fallback
@@ -493,8 +522,38 @@ class LearnerServer:
     
     def _dummy_vec_from_spaces(self, obs_space: spaces.Box, act_space: spaces.Box):
         return DummyVecEnv([lambda: _SpacesOnlyEnv(obs_space, act_space)])
-
+    
     def _ingest_episodes_into_replay(self, episodes: List[List[dict]]) -> int:
+        if self.model is None or self.replay_buffer is None:
+            return 0
+        n_added = 0
+        for ep in episodes:
+            transitions = self._compute_n_step_transitions(ep)
+            for t in transitions:
+                obs = t["obs"].astype(np.float32)
+                next_obs = t["next_obs"].astype(np.float32)
+                action = t["action"].astype(np.float32)
+                reward = float(t["reward"])
+                done = bool(t["done"])
+                steps_taken = t["steps_taken"]
+                # normalize obs like SB3 would during collection
+                obs = self._normalize_obs(obs)
+                next_obs = self._normalize_obs(next_obs)
+                # sampling_weight = self.single_weight(obs, action, next_obs, reward)
+                self.replay_buffer.add(
+                    obs=obs,
+                    next_obs=next_obs,
+                    action=action,
+                    reward=reward,
+                    done=done,
+                    infos={}, # could pass TimeLimit info here if you track it
+                    steps_taken=steps_taken  
+                    # sampling_weight = sampling_weight
+                )
+                n_added += 1
+        return n_added
+
+    def _ingest_episodes_into_replay_old(self, episodes: List[List[dict]]) -> int:
         if self.model is None or self.replay_buffer is None:
             return 0
         n_added = 0
@@ -520,6 +579,97 @@ class LearnerServer:
                 )
                 n_added += 1
         return n_added
+    
+    def _compute_n_step_transitions(self, episode: List[dict]) -> List[dict]:
+        """
+        Takes list of episode transitions, converts into n-step reward structure.
+        
+        According to the n-step SAC formulation (eq. 8 from the paper):
+        R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} 
+              + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))  [entropy bonus - handled in training]
+              + gamma^n * Q(s_{t+n})                            [bootstrapping - handled in training]
+        
+        The accumulated reward is scaled properly across the n steps. The entropy scaling
+        and Q bootstrapping are handled in the critic update (see _train_loop where we compute
+        target_q with discounts = gamma^steps_taken).
+        """
+        n = self.n_step
+        n_step_transitions = []
+        episode_length = len(episode)
+        for i in range(episode_length):
+            n_step_reward = 0.0
+            cur_discount = 1.0 #no discount on first step
+            for j in range(n):
+                if i + j < episode_length:
+                    n_step_reward += cur_discount * episode[i + j]["reward"]
+                    cur_discount *= self.discount_factor
+                    steps_taken = j + 1
+                    if episode[i + j].get("done", False): # stop if theres an episode end in the sequence -> not enough steps
+                        break
+                else:
+                    break
+
+            final_index = i + (steps_taken - 1)
+
+            # assert steps_taken >= 1
+            # assert steps_taken <= self.n_step
+
+
+            #TODO: figure out wth is going on here
+
+
+            # If we were able to go full N steps without ending the episode:
+            # The next state is the observation N steps later.
+            # But wait: if i+n is typically the start of the n-th step. 
+            # We want the state AFTER n steps.
+            
+            # Case A: We ran out of episode (Terminal within window)
+            if episode[final_index]["done"]:
+                target_transition = episode[final_index]
+                next_obs = target_transition["next_obs"] # Use the terminal state
+                # CHECK FOR TIMEOUT HERE
+                is_timeout = target_transition.get("info", {}).get("TimeLimit.truncated", False)
+                
+                if is_timeout:
+                    done = False # <--- Force False so Bellman bootstraps
+                else:
+                    done = True # <--- Real crash
+    
+            
+            # Case B: We successfully looked ahead N steps (Non-terminal)
+            # The "next state" for the update is the 'obs' of the transition at i + n
+            # OR the 'next_obs' of the transition at i + n - 1. They are the same.
+            elif i + n < episode_length:
+                target_transition = episode[i + n]
+                next_obs = target_transition["obs"] # The state at start of step t+n
+                done = False
+                
+            # Case C: Edge case where we hit end of list but 'done' wasn't True (e.g. timeout)
+            else:
+                target_transition = episode[-1]
+                next_obs = target_transition["next_obs"]
+                is_timeout = target_transition.get("info", {}).get("TimeLimit.truncated", False)
+                if is_timeout:
+                    done = False
+                else:
+                    done = bool(target_transition["done"])
+
+            # --- 3. Build the Transition ---
+            # We preserve the ORIGINAL observation and action from step 'i'
+            current_transition = episode[i]
+            
+            new_transition = {
+                "obs": current_transition["obs"],
+                "action": current_transition["action"],
+                "next_obs": next_obs,
+                "reward": n_step_reward,
+                "done": done,
+                "steps_taken": steps_taken
+            }
+
+            n_step_transitions.append(new_transition)
+            
+        return n_step_transitions
     
     
     def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
@@ -628,6 +778,7 @@ class LearnerServer:
                 batch_size = self.model.batch_size
                 replay_buffer = self.model.replay_buffer
                 gamma = self.model.gamma
+                n_step_gamma = gamma ** self.n_step
                 tau = self.model.tau
                 ent_coef = self.model.ent_coef
                 target_entropy = self.model.target_entropy
@@ -661,6 +812,7 @@ class LearnerServer:
                         next_obs = data.next_observations
                         rewards  = data.rewards  # shape handling below
                         dones    = data.dones
+                        steps_taken = data.steps_taken
 
                         #TODO: Have the IS sampling weights be returned here
                         is_weights = data.is_weights
@@ -672,8 +824,11 @@ class LearnerServer:
                         # Critic update
                         with torch.no_grad():
                             next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                            # print(next_log_prob)
                             target_q1, target_q2 = critic_target(next_obs, next_actions)
                             target_q = torch.min(target_q1, target_q2)
+                            discounts = torch.pow(gamma, steps_taken)
+
                             if log_ent_coef is not None:
                                 ent_coef = torch.exp(log_ent_coef.detach())
                             # Ensure next_log_prob shape is [batch_size, 1]
@@ -681,7 +836,31 @@ class LearnerServer:
                                 next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
                             else:
                                 next_log_prob = next_log_prob.view(-1, 1)
-                            target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
+
+                            # print(next_log_prob)
+                            """
+                            R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} -> rewards handled when saving to replay buffer
+                                  + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))      -> here
+                                  + gamma^n * Q(s_{t+n}) -> here
+                            """
+                            target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
+
+                            # Debug: print sampled-batch statistics occasionally
+                            try:
+                                if Settings.SAC_DEBUG_LOGGING and (step % 50 == 0):
+                                    rt = rewards.detach().cpu().numpy().reshape(-1)
+                                    st = steps_taken.detach().cpu().numpy().reshape(-1)
+                                    disc = discounts.detach().cpu().numpy().reshape(-1)
+                                    nlp = next_log_prob.detach().cpu().numpy().reshape(-1)
+                                    tq = target_q.detach().cpu().numpy().reshape(-1)
+                                    iw = is_weights.detach().cpu().numpy().reshape(-1)
+                                    import numpy as _np
+                                    print(f"[SAC DEBUG][step={step}] batch_size={rt.shape[0]} | steps mean={st.mean():.3f}, min={st.min()}, max={st.max()} | reward mean={rt.mean():.4f}, std={rt.std():.4f}")
+                                    print(f"[SAC DEBUG][step={step}] discounts mean={disc.mean():.4f} | next_logprob mean={nlp.mean():.4f}, ent_coef={float(ent_coef) if 'ent_coef' in locals() else None}")
+                                    print(f"[SAC DEBUG][step={step}] target_q mean={tq.mean():.4f}, min={tq.min():.4f}, max={tq.max():.4f} | is_weights mean={iw.mean():.4f}")
+                            except Exception:
+                                pass
+                            # target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
                         # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
 
                         current_q1, current_q2 = critic(obs, actions)
@@ -693,14 +872,21 @@ class LearnerServer:
                                 # -> TD-error = TD_target - current_q
                                 TD_error_1 = torch.abs(target_q - current_q1)
                                 TD_error_2 = torch.abs(target_q - current_q2)
-                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0).cpu().numpy().flatten()
 
-                                # TD_update_priorities = torch.min(TD_error_1, TD_error_2).cpu().numpy().flatten()
+                                # also normalize by n-step
+                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
+
+                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
+
+                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
 
                                 TD_update_priorities += 1e-6
-                                
+
+                                # optional clipping
                                 if replay_buffer.clip_weights:
-                                    TD_update_priorities = np.clip(TD_update_priorities, -1, 1)
+                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+
+                                # print(TD_update_priorities.mean(), TD_update_priorities.max())
                                 
                                 replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
@@ -719,8 +905,8 @@ class LearnerServer:
                         q1_new, q2_new = critic(obs, new_actions)
                         q_new = torch.min(q1_new, q2_new)
                         ####Nikita: this is my actor loss
-                        actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
-                        # actor_loss = (ent_coef * log_prob - q_new).mean()
+                        # actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
+                        actor_loss = (ent_coef * log_prob - q_new).mean() #is_weights should not be here TODO: find out why!
                         actor_optimizer.zero_grad()
                         actor_loss.backward()
                         actor_optimizer.step()
@@ -859,6 +1045,8 @@ class LearnerServer:
                     if self.model is None:
                         self._initialize_model()
 
+                    self.last_episode_time = time.time()
+
                     self.episode_buffer.add_episode(episode)
                     # print(f"[server] Stored episode: {len(episode)} transitions "
                     #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
@@ -947,6 +1135,15 @@ class LearnerServer:
         # Create a task to monitor termination flag
         async def monitor_termination():
             while True:
+
+                if self.last_episode_time is not None:
+                    time_since_last_ep = time.time() - self.last_episode_time
+                    
+                    if time_since_last_ep > self.episode_timeout:
+                        print(f"[server] Timeout: No episodes received for {time_since_last_ep:.1f}s. Initiating shutdown.")
+                        async with self._terminate_lock:
+                            self._should_terminate = True
+
                 async with self._terminate_lock:
                     if self._should_terminate:
                         print("[server] Termination flag set, shutting down server...")

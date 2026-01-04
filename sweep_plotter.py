@@ -24,7 +24,7 @@ GROUP_GAP = 0.2
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def parse_folder_name(folder_name):
-    pattern = r"Sweep_Clip_1Anneal_Example-1_A([0-9\.]+)_B([0-9\.]+)_R([0-9\.]+)"
+    pattern = r"Sweep_rank_noclip_Ex1_A([0-9\.]+)_B([0-9\.]+)_R([0-9\.]+)"
     match = re.search(pattern, folder_name)
     if match:
         return float(match.group(1)), float(match.group(2)), float(match.group(3))

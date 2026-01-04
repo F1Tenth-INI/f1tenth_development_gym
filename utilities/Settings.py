@@ -144,8 +144,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -182,13 +182,17 @@ class Settings():
     SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.0   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_BETA_ANNEALING_RATIO = 1 #at how much % of total agent timesteps should beta have grown to 1.0
     SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
 
-    SAC_CLIP_WEIGHTS = True
+    SAC_N_STEP = 1 #lookahead steps for reward calculations
+
+    # Debug logging for SAC training internals
+    SAC_DEBUG_LOGGING = False
+    SAC_CLIP_WEIGHTS = False
 
     EXTENDED_AUTO_STOP = True
 
