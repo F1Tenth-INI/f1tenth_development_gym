@@ -10,7 +10,8 @@ class Settings():
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
-
+    
+    BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
     CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
@@ -48,7 +49,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = False
+    CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -66,6 +67,8 @@ class Settings():
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
     
     MAX_CRASH_REPETITIONS = 10000000
+    
+    TRUNCATE_ON_LEAVE_TRACK = True
     RESET_ON_DONE = True  # Reset the environment when done
     RESPAWN_ON_RESET = False  # If True, respawn to state N timesteps ago instead of complete reset
     RESPAWN_SETBACK_TIMESTEPS = 50  # Number of timesteps to go back when respawning
@@ -123,7 +126,7 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.5
 
-    RELOAD_WP_IN_BACKGROUND = False # If True, waypoints are reloaded in a separate thread
+    RELOAD_WP_IN_BACKGROUND = True  # If True, waypoints are reloaded in a separate thread
 
     
     ## MPC Controller ##
@@ -145,7 +148,7 @@ class Settings():
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
     RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

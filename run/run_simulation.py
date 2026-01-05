@@ -127,7 +127,8 @@ class RacingSimulation:
             window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
             window_height = int(window_width / 1.5)
             self.renderer = EnvRenderer(window_width, window_height)
-            self.renderer.update_map(map_path, map_ext)
+            if not Settings.BLANK_MAP:
+                self.renderer.update_map(map_path, map_ext)
         
         
         self.init_drivers()
@@ -256,6 +257,7 @@ class RacingSimulation:
         driver_obs['imu'] = self.obs['imus'][driver_index]
         driver_obs['collision'] = True if self.obs['collisions'][0] else False
         driver_obs['terminated'] = self.obs['terminated']
+        driver_obs['interrupted'] = False
         driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
 
         if driver_obs['done']:

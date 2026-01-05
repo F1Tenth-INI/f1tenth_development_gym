@@ -37,6 +37,14 @@ import yaml
 import unittest
 import timeit
 
+# Import Settings to check BLANK_MAP mode
+try:
+    from utilities.Settings import Settings
+except ImportError:
+    # Fallback if Settings is not available
+    class Settings:
+        BLANK_MAP = False
+
 def get_dt(bitmap, resolution):
     """
     Distance transformation, returns the distance matrix from the input bitmap.
@@ -445,11 +453,19 @@ class ScanSimulator2D(object):
                 scan (numpy.ndarray (n, )): data array of the laserscan, n=num_beams
 
             Raises:
-                ValueError: when scan is called before a map is set
+                ValueError: when scan is called before a map is set (unless BLANK_MAP is True)
         """
         
         if self.map_height is None:
-            raise ValueError('Map is not set for scan simulator.')
+            # If BLANK_MAP is enabled, return max_range for all beams (no obstacles)
+            if Settings.BLANK_MAP:
+                scan = np.full(self.num_beams, self.max_range, dtype=np.float64)
+                if rng is not None:
+                    noise = rng.normal(0., std_dev, size=self.num_beams)
+                    scan += noise
+                return scan
+            else:
+                raise ValueError('Map is not set for scan simulator.')
         
         scan = get_scan(pose, self.theta_dis, self.fov, self.num_beams, self.theta_index_increment, self.sines, self.cosines, self.eps, self.orig_x, self.orig_y, self.orig_c, self.orig_s, self.map_height, self.map_width, self.map_resolution, self.dt, self.max_range)
 
