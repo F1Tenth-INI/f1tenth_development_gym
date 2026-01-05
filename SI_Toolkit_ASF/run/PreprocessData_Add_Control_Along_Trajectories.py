@@ -44,8 +44,8 @@ import pandas as pd
 # ======================================================================================
 # Default paths (relative to repo root - script must be run from there).
 # Can be a folder (processes all CSVs, or use -i for indexed file) OR a single CSV path.
-DEFAULT_INPUT_ROOT = './ExperimentRecordings/2026-01-01_14-12-37_Recording1_0_RCA1_neural_50Hz_vel_1.0_noise_c[0.05, 0.1]_mu_None_mu_c_None_.csv'
-DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify/'
+DEFAULT_INPUT_ROOT = './ExperimentRecordings/2026-01-05_08-04-01_Recording1_0_RCA2_mpc_50Hz_vel_1.0_noise_c[0.05, 0.1]_mu_None_mu_c_None_.csv'
+DEFAULT_OUTPUT_ROOT = './ExperimentRecordings/_offline_verify_lstm/'
 DEFAULT_FILE_NAME = None  # only used when input_root is a folder and -i is not provided
 
 # If > 0 and the resolved input is a single CSV, create a truncated test CSV (first N rows) and process that.
@@ -66,10 +66,10 @@ DEFAULT_FORGE_PAST_SOURCE = "backward"  # "backward" | "oracle"
 DEFAULT_FORGE_RESET_MODE = "every_step"  # "every_step" | "first_only"
 # Length of history window for warmup (number of past steps to replay before computing current control)
 # Try 50, 100, 150, 200, etc. to see if longer warmup converges to online results
-DEFAULT_FORGE_HISTORY_LENGTH = 100
+DEFAULT_FORGE_HISTORY_LENGTH = 50
 # Output stride: only compute offline control for every Nth row (1 = all rows, 200 = every 200th row)
 # Useful for quick tests on long trajectories
-DEFAULT_OUTPUT_STRIDE = 50
+DEFAULT_OUTPUT_STRIDE = 200
 
 # `save_files_to`:
 # - for folder input: MUST be a folder (output root)
