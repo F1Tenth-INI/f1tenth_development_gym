@@ -48,14 +48,10 @@ sys.path.append(os.path.join(parent_dir, 'sim/f110_sim/envs'))
 sys.path.append(os.path.join(parent_dir, 'utilities'))
 
 
-from sim.f110_sim.envs.car_model_jax import car_steps_sequential_jax
+from sim.f110_sim.envs.car_model_jax import CarModelJAX
 # Import residual dynamics dynamically when needed
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES
-
-# Import residual dynamics model
-sys.path.append(os.path.join(parent_dir, 'TrainingLite', 'dynamic_residual_jax'))
-from dynamics_model_residual import DynamicsModelResidual
     
 
 # Control column names - change these if CSV column names change
@@ -102,16 +98,13 @@ class StateComparisonVisualizer:
         # Available car models
         self.available_models = {
             'pacejka': 'Pure Pacejka Model',
-            'pacejka_custom': 'Pacejka Model with Customization',
+            'ks_jax': 'KS jax',
             'direct': 'Direct Dynamics Neural Network',
             'residual': 'Residual Dynamics Model',
         }
         
-        # Preload models
-        
-        # Residual model loading flag
-        self._residual_model_loaded = False
-        self.residual_model = DynamicsModelResidual(dt=0.04)
+        # Preload models - create car model instances
+        self._reload_car_models()
         
         # Wider selectors so long option text remains visible in the dropdown
         self.selector_width_chars = 32
@@ -153,6 +146,29 @@ class StateComparisonVisualizer:
         
         # Set up cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+    
+    def _reload_car_models(self):
+        """Force reload modules and recreate car model instances."""
+        import importlib
+        import sys
+        
+        # Reload modules
+        for module_name in ['sim.f110_sim.envs.dynamic_model_pacejka_jax',
+                            'sim.f110_sim.envs.dynamic_model_ks_jax',
+                            'TrainingLite.dynamic_residual_jax.dynamics_model_residual',
+                            'TrainingLite.dynamic_residual_jax.predictor',
+                            'sim.f110_sim.envs.car_model_jax']:
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
+        
+        # Reimport and recreate models
+        from sim.f110_sim.envs.car_model_jax import CarModelJAX
+        self.car_models = {
+            'pacejka': CarModelJAX(model_type='pacejka', dt=0.04, intermediate_steps=4),
+            'pacejka_custom': CarModelJAX(model_type='pacejka_custom', dt=0.04, intermediate_steps=4),
+            'ks_jax': CarModelJAX(model_type='ks', dt=0.04, intermediate_steps=4),
+            'residual': CarModelJAX(model_type='residual', dt=0.04, intermediate_steps=4),
+        }
         
     def setup_dpi_scaling(self):
         """Setup DPI scaling for high resolution displays."""
@@ -890,8 +906,8 @@ class StateComparisonVisualizer:
                 label.config(text="N/A")
             return
         
-        # Calculate metrics for the entire data range (from start_index to end_index)
-        metrics = self.calculate_metrics_for_entire_range(selected_state)
+        # Calculate metrics based on what's actually displayed
+        metrics = self.calculate_metrics_for_displayed_predictions(selected_state)
         
         if metrics:
             # Update display labels
@@ -914,9 +930,7 @@ class StateComparisonVisualizer:
         
     def on_model_changed(self, event=None):
         """Handle model selection change."""
-        selected_model_key = self.get_model_key(self.model_var.get())
-        
-    
+        self._reload_car_models()
         if self.enable_comparison.get():
             self.plot_state()
             
@@ -1777,36 +1791,34 @@ class StateComparisonVisualizer:
     def _run_model_prediction(self, model_name, initial_state, control_sequence, car_params, dt, horizon):
         """Run model prediction based on model name."""
         try:
-            if model_name == 'pacejka':
-                return car_steps_sequential_jax(
-                    initial_state, control_sequence, car_params, dt, horizon, 
-                    model_type='pacejka',
-                    intermediate_steps=4
-                )
-            elif model_name == 'pacejka_custom':
-                return car_steps_sequential_jax(
-                    initial_state, control_sequence, car_params, dt, horizon,
-                    model_type='pacejka_custom',
-                    intermediate_steps=4
-                )
-            elif model_name == 'residual':
-               
-                # Set history
-                if hasattr(self, '_current_start_index') and self.data is not None and self._current_start_index >= 10:
-                    start_idx = self._current_start_index
-                    state_history = np.array([self.extract_initial_state_at_index(start_idx - 10 + i) for i in range(10)])
-                    control_history = np.array([self.extract_control_sequence_at_index(start_idx - 10 + i, 1)[0] for i in range(10)])
-                    self.residual_model.set_history(state_history, control_history)
-                
-                # SHould be (horizon, 2)
-                control_seq = control_sequence[:horizon]
-                # sequence prediction
-                predicted_states = self.residual_model.predict_sequence(initial_state, control_seq)
-                
-                return np.array(predicted_states)
-            else:
+            if model_name not in self.car_models:
                 print(f"Unknown model: {model_name}")
                 return None
+            
+            car_model = self.car_models[model_name]
+            
+            # Update car params if provided
+            if car_params is not None:
+                car_model.car_params = jnp.array(car_params)
+            
+            # Prepare history for residual model (history_length = 10 to match DynamicsModelResidual)
+            state_history = None
+            control_history = None
+            if model_name == 'residual':
+                history_length = 10  # Match DynamicsModelResidual.history_length
+                if hasattr(self, '_current_start_index') and self.data is not None and self._current_start_index >= history_length:
+                    start_idx = self._current_start_index
+                    # Extract state and control history (will be converted to JAX arrays in car_steps_sequential)
+                    state_history = np.array([self.extract_initial_state_at_index(start_idx - history_length + i) for i in range(history_length)], dtype=np.float32)
+                    control_history = np.array([self.extract_control_sequence_at_index(start_idx - history_length + i, 1)[0] for i in range(history_length)], dtype=np.float32)
+                else:
+                    # Use default history from the model (zeros)
+                    state_history = np.array(car_model.state_history)
+                    control_history = np.array(car_model.control_history)
+            
+            # Run prediction
+            control_seq = control_sequence[:horizon]
+            return np.array(car_model.car_steps_sequential(initial_state, control_seq, state_history=state_history, control_history=control_history))
         except NameError as e:
             # Handle case where dynamics functions aren't imported
             messagebox.showerror("Error", f"Dynamics models not available: {e}")
@@ -1826,12 +1838,8 @@ class StateComparisonVisualizer:
             importlib.reload(sys.modules['sim.f110_sim.envs.dynamic_model_pacejka_jax'])
         else:
             import sim.f110_sim.envs.dynamic_model_pacejka_jax
-        if 'sim.f110_sim.envs.car_model_jax' in sys.modules:
-            importlib.reload(sys.modules['sim.f110_sim.envs.car_model_jax'])
-        else:
-            import sim.f110_sim.envs.car_model_jax
-        global car_steps_sequential_jax
-        car_steps_sequential_jax = sys.modules['sim.f110_sim.envs.car_model_jax'].car_steps_sequential_jax
+        # Reload modules before running comparison
+        self._reload_car_models()
 
         horizon = self._validate_comparison_requirements()
         if not horizon:
@@ -2021,7 +2029,7 @@ class StateComparisonVisualizer:
         """Get timestep from data or use default."""
         if self.data is not None and self.time_column in self.data.columns and len(self.data) > 1:
             return float(self.data[self.time_column].iloc[1] - self.data[self.time_column].iloc[0])
-        return 0.04  # Default 50Hz
+        return 0.04  # Default 25Hz
         
     def convert_predictions_to_dict(self, predicted_states):
         """Convert JAX predictions to dictionary format matching CSV columns."""
@@ -2066,8 +2074,101 @@ class StateComparisonVisualizer:
         end_idx = min(start_idx + horizon, len(self.data))
         return self.data[state_name].iloc[start_idx:end_idx].values
     
+    def calculate_metrics_for_displayed_predictions(self, state_name):
+        """Calculate error metrics for the predictions that are actually displayed."""
+        if self.data is None or state_name not in self.data.columns:
+            return None
+        
+        if not hasattr(self, 'comparison_data_dict') or not self.comparison_data_dict:
+            return None
+        
+        # Get the current visible range
+        start_idx = self.start_index
+        end_idx = self.end_index if self.end_index is not None else len(self.data)
+        
+        if start_idx >= end_idx:
+            return None
+        
+        # Collect all predictions and corresponding ground truth that are displayed
+        all_predictions = []
+        all_ground_truth = []
+        
+        try:
+            # Check if showing all comparisons or single comparison
+            show_all = hasattr(self, 'show_all_comparisons') and self.show_all_comparisons.get()
+            
+            if show_all:
+                # Calculate errors for all displayed predictions
+                for comp_start_idx, comparison_data in self.comparison_data_dict.items():
+                    # Only include predictions that start within the current visible range
+                    if comp_start_idx < start_idx or comp_start_idx >= end_idx:
+                        continue
+                    
+                    if state_name in comparison_data:
+                        prediction = np.array(comparison_data[state_name])
+                        horizon = len(prediction)
+                        
+                        # Get ground truth for this prediction's time range
+                        pred_end_idx = min(comp_start_idx + horizon, len(self.data))
+                        gt_slice = self.data[state_name].iloc[comp_start_idx:pred_end_idx].values
+                        
+                        # Ensure same length
+                        min_len = min(len(prediction), len(gt_slice))
+                        all_predictions.extend(prediction[:min_len])
+                        all_ground_truth.extend(gt_slice[:min_len])
+            else:
+                # Calculate errors for single displayed prediction
+                comp_start_idx = self.comparison_start_var.get() if hasattr(self, 'comparison_start_var') else 0
+                
+                if comp_start_idx in self.comparison_data_dict:
+                    comparison_data = self.comparison_data_dict[comp_start_idx]
+                    
+                    if state_name in comparison_data:
+                        prediction = np.array(comparison_data[state_name])
+                        horizon = len(prediction)
+                        
+                        # Get ground truth for this prediction's time range
+                        pred_end_idx = min(comp_start_idx + horizon, len(self.data))
+                        gt_slice = self.data[state_name].iloc[comp_start_idx:pred_end_idx].values
+                        
+                        # Ensure same length
+                        min_len = min(len(prediction), len(gt_slice))
+                        all_predictions.extend(prediction[:min_len])
+                        all_ground_truth.extend(gt_slice[:min_len])
+            
+            if len(all_predictions) == 0:
+                return None
+            
+            # Convert to numpy arrays
+            pred_data = np.array(all_predictions)
+            gt_data = np.array(all_ground_truth)
+            
+            # Calculate error (deviation from ground truth to prediction)
+            error = pred_data - gt_data
+            
+            # Calculate metrics
+            mean_error = np.mean(error)
+            max_error = np.max(np.abs(error))
+            error_std = np.std(error)
+            rmse = np.sqrt(np.mean(error**2))
+            
+            return {
+                'mean_error': mean_error,
+                'max_error': max_error,
+                'error_std': error_std,
+                'rmse': rmse
+            }
+            
+        except Exception as e:
+            print(f"Error calculating metrics for displayed predictions: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
     def calculate_metrics_for_entire_range(self, state_name):
-        """Calculate error metrics for the entire data range using model predictions."""
+        """Calculate error metrics for the entire data range using model predictions.
+        NOTE: This function is kept for backward compatibility but is no longer used.
+        Use calculate_metrics_for_displayed_predictions instead."""
         if self.data is None or state_name not in self.data.columns:
             return None
         

@@ -28,47 +28,56 @@ class DynamicsModelResidual:
         model_dir = os.path.join(script_dir, 'models')
         self.predictor = Predictor(model_dir)
 
-        # Init rolling window of state and control history
-        self.state_history = np.zeros((self.history_length, 10), dtype=np.float32)
-        self.control_history = np.zeros((self.history_length, 2), dtype=np.float32)
+        # Init rolling window of state and control history (JAX arrays for max performance)
+        self.state_history = jnp.zeros((self.history_length, 10), dtype=jnp.float32)
+        self.control_history = jnp.zeros((self.history_length, 2), dtype=jnp.float32)
 
 
     def set_history(self, state_history, control_history):
-        self.state_history = state_history
-        self.control_history = control_history
+        # Convert to JAX arrays for max performance
+        self.state_history = jnp.array(state_history)
+        self.control_history = jnp.array(control_history)
 
 
-    def predict_sequence(self, initial_state, control_sequence, initial_state_history=None, initial_control_history=None):
-        """JIT-compiled sequence prediction using jax.lax.scan."""
-        # Get predictor params once
-        predictor_params = self.predictor.get_params_jax()
-        norm_params = self.predictor.get_norm_params_jax()
+    # def predict_sequence(self, initial_state, control_sequence, initial_state_history=None, initial_control_history=None):
+    #     """JIT-compiled sequence prediction using jax.lax.scan."""
+    #     # Get predictor params once
+    #     predictor_params = self.predictor.get_params_jax()
+    #     norm_params = self.predictor.get_norm_params_jax()
         
-        # Convert to JAX arrays
-        initial_state_jax = jnp.array(initial_state)
-        control_sequence_jax = jnp.array(control_sequence)
+    #     # Convert to JAX arrays
+    #     initial_state_jax = jnp.array(initial_state)
+    #     control_sequence_jax = jnp.array(control_sequence)
         
-        # Use provided history or default to instance history
-      
-        state_history_jax = jnp.array(self.state_history) 
-        control_history_jax = jnp.array(self.control_history)
-        car_params_jax = jnp.array(self.car_params)
+    #     # Use provided history or default to instance history (jnp.array is no-op for JAX arrays)
+    #     if initial_state_history is None:
+    #         initial_state_history = self.state_history
+    #     if initial_control_history is None:
+    #         initial_control_history = self.control_history
         
-        return predict_sequence_jax(
-            initial_state_jax, control_sequence_jax,
-            state_history_jax, control_history_jax,
-            predictor_params, norm_params, car_params_jax,
-            self.history_length, self.dt
-        )
+    #     state_history_jax = jnp.array(initial_state_history)
+    #     control_history_jax = jnp.array(initial_control_history)
+    #     car_params_jax = jnp.array(self.car_params)
         
-    def predict(self, state, control, dt=None, update_history=False):
+    #     return predict_sequence_jax(
+    #         initial_state_jax, control_sequence_jax,
+    #         state_history_jax, control_history_jax,
+    #         predictor_params, norm_params, car_params_jax,
+    #         self.history_length, self.dt
+    #     )
+        
+    def predict(self, state, control, dt=None, state_history=None, control_history=None):
         """Single step prediction without full rollout.
+        
+        NOTE: This method is NOT pure - it updates instance history. 
+        For use in JAX transformations, use predict_single_step_jax directly.
         
         Args:
             state: current state
             control: control input
             dt: time step (uses self.dt if None)
-            update_history: if True, update internal history buffers (should be False when called from JIT)
+            state_history: optional state history (uses self.state_history if None)
+            control_history: optional control history (uses self.control_history if None)
         """
         # Use provided dt or fall back to instance dt
         if dt is None:
@@ -78,11 +87,18 @@ class DynamicsModelResidual:
         predictor_params = self.predictor.get_params_jax()
         norm_params = self.predictor.get_norm_params_jax()
         
-        # Convert to JAX arrays
+        # Convert to JAX arrays (everything in JAX for max performance)
         state_jax = jnp.array(state)
         control_jax = jnp.array(control)
-        state_history_jax = jnp.array(self.state_history)
-        control_history_jax = jnp.array(self.control_history)
+        # Use provided history or fall back to instance history
+        if state_history is None:
+            state_history_jax = jnp.array(self.state_history)
+        else:
+            state_history_jax = jnp.array(state_history)
+        if control_history is None:
+            control_history_jax = jnp.array(self.control_history)
+        else:
+            control_history_jax = jnp.array(control_history)
         car_params_jax = jnp.array(self.car_params)
         
         # Single step prediction (returns next_state and updated histories)
@@ -93,10 +109,9 @@ class DynamicsModelResidual:
             dt
         )
         
-        # Always update history (now done in JAX, so it's traceable)
-        if update_history:
-            self.state_history = np.array(new_state_history)
-            self.control_history = np.array(new_control_history)
+        # Update instance history for next call
+        self.state_history = np.array(new_state_history)
+        self.control_history = np.array(new_control_history)
         
         return next_state
 
@@ -116,6 +131,8 @@ def predict_single_step_jax(state, control, state_history, control_history,
     
     # Apply residual
     next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
+    # next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * dt)
+    # next_state = next_state.at[LINEAR_VEL_Y_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_y_0')] * dt)
     
     # Update history (in JAX, for tracing compatibility)
     new_state_history = jnp.roll(state_history, -1, axis=0)
@@ -146,7 +163,7 @@ def predict_sequence_jax(initial_state, control_sequence, state_history, control
         # Base dynamics (use pacejka model directly, no circular dependency)
         next_state = car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1)
         # Apply residual
-        next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
+        # next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
         return (next_state, sh, ch), next_state
     
     _, trajectory = jax.lax.scan(step, carry, control_sequence)
@@ -166,6 +183,3 @@ if __name__ == "__main__":
     control_sequence = np.array([control] * 10)  # Shape: (10, 2)
     next_states = dynamics_model_residual.predict_sequence(state, control_sequence)
     print(next_states)
-
-
-
