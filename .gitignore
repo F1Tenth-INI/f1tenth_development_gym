@@ -75,6 +75,7 @@ Datasets/
 !TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4
 
 !TrainingLite/rl_racing/models/Example-1
+!TrainingLite/dynamic_residual_jax/models/0_example/
 
 AnalyseData/Desperate/*
 

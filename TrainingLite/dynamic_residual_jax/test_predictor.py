@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 from predictor import Predictor
 
-from train import INPUT_COLS, OUTPUT_COLS
+from train import INPUT_COLS, OUTPUT_COLS, MODEL_NAME
 
 # Paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
-model_dir = os.path.join(script_dir, 'models')
+
+model_dir = os.path.join(script_dir, 'models', MODEL_NAME)
 csv_path = "/home/florian/Documents/INI/f1tenth_development_gym/TrainingLite/dynamic_residual_jax/training_data/processed_data.csv"
 
 # Load predictor
@@ -38,8 +39,8 @@ for idx, col in enumerate(OUTPUT_COLS):
     df[f'predicted_{col}'] = predictions[:, idx]
 
 
-# state_names = ['angular_vel_z', 'linear_vel_x', 'linear_vel_y']
-state_names = ['linear_vel_x']  # For current model
+state_names = ['angular_vel_z', 'linear_vel_x', 'linear_vel_y']
+# state_names = ['linear_vel_x']  # For current model
 
 for state_name in state_names:
 

@@ -15,7 +15,7 @@ import jax
 from functools import partial
 import time
 
-from train import INPUT_COLS, OUTPUT_COLS
+from train import INPUT_COLS, OUTPUT_COLS, MODEL_NAME
 
 class DynamicsModelResidual:
     def __init__(self, dt=0.01):
@@ -25,7 +25,8 @@ class DynamicsModelResidual:
         self.history_length = 10
         # Load residual neural network model
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        model_dir = os.path.join(script_dir, 'models')
+        model_name = MODEL_NAME
+        model_dir = os.path.join(script_dir, 'models', model_name)
         self.predictor = Predictor(model_dir)
 
         # Init rolling window of state and control history (JAX arrays for max performance)
@@ -131,8 +132,8 @@ def predict_single_step_jax(state, control, state_history, control_history,
     
     # Apply residual
     next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
-    # next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * dt)
-    # next_state = next_state.at[LINEAR_VEL_Y_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_y_0')] * dt)
+    next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * dt)
+    next_state = next_state.at[LINEAR_VEL_Y_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_y_0')] * dt)
     
     # Update history (in JAX, for tracing compatibility)
     new_state_history = jnp.roll(state_history, -1, axis=0)

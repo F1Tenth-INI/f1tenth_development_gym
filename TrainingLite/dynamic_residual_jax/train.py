@@ -30,10 +30,11 @@ project_root = os.path.abspath(os.path.join(script_dir, '../..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+MODEL_NAME = '0_example'
 
 INPUT_COLS = ['linear_vel_x', 'angular_control_executed', 'translational_control_executed']
-OUTPUT_COLS = ['residual_delta_linear_vel_x_0' ]
-# OUTPUT_COLS = ['residual_delta_angular_vel_z_0', 'residual_delta_linear_vel_x_0', 'residual_delta_linear_vel_y_0']
+# OUTPUT_COLS = ['residual_delta_linear_vel_x_0' ]
+OUTPUT_COLS = ['residual_delta_angular_vel_z_0', 'residual_delta_linear_vel_x_0', 'residual_delta_linear_vel_y_0']
 
 
 def load_data(csv_path: str) -> pd.DataFrame:
@@ -479,7 +480,8 @@ def main():
         'training_data',
         'processed_data.csv'
     )
-    model_dir = os.path.join(script_dir, 'models')
+    model_name = MODEL_NAME
+    model_dir = os.path.join(script_dir, 'models', model_name)
     
     # Training hyperparameters
     sequence_length = 10
