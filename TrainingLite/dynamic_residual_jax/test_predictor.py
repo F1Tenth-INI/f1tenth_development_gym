@@ -9,7 +9,7 @@ from train import INPUT_COLS, OUTPUT_COLS, MODEL_NAME
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 model_dir = os.path.join(script_dir, 'models', MODEL_NAME)
-csv_path = "/home/florian/Documents/INI/f1tenth_development_gym/TrainingLite/dynamic_residual_jax/training_data/processed_data.csv"
+csv_path = "TrainingLite/dynamic_residual_jax/training_data/evaluate/2025-11-28_07-58-30_Recording1_0_IPZ10_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None__processed.csv"
 
 # Load predictor
 predictor = Predictor(model_dir)

@@ -25,6 +25,7 @@ from datetime import datetime
 from tqdm import tqdm
 import zipfile
 import shutil
+import glob
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -527,11 +528,29 @@ def main():
     print(f"Training Residual Dynamics Model")
     print("=" * 60)
     
-    # Load data
-    df = load_data(data_path)
+    # Load all CSV files from training_data folder
+    training_data_dir = os.path.join(script_dir, 'training_data')
+    csv_files = glob.glob(os.path.join(training_data_dir, '*.csv'))
     
-    # Create sequences
-    X, y = create_sequences(df, sequence_length=sequence_length)
+    if not csv_files:
+        raise ValueError(f"No CSV files found in {training_data_dir}")
+    
+    print(f"\nFound {len(csv_files)} CSV file(s)")
+    
+    # Create sequences from each file separately (to avoid overlapping sequences between files)
+    X_list = []
+    y_list = []
+    for csv_file in csv_files:
+        print(f"Processing: {os.path.basename(csv_file)}")
+        df = load_data(csv_file)
+        X_file, y_file = create_sequences(df, sequence_length=sequence_length)
+        X_list.append(X_file)
+        y_list.append(y_file)
+    
+    # Concatenate all sequences
+    X = np.concatenate(X_list, axis=0)
+    y = np.concatenate(y_list, axis=0)
+    print(f"\nTotal sequences: {len(X)}")
     
     # Split into train/validation
     X_train, X_val, y_train, y_val = train_test_split(
@@ -567,73 +586,6 @@ def main():
         seed=seed,
         use_lr_schedule=use_lr_schedule
     )
-    
-    
-    evaluation_file = data_path  # Use the same data file for evaluation
-    df_eval = load_data(evaluation_file)
-    X_eval, y_eval = create_sequences(df_eval, sequence_length=sequence_length)
-    _, X_eval_norm, _, y_eval_norm, _ = normalize_data(
-        X_eval, X_eval, y_eval, y_eval, normalize_output=True
-    )
-    eval_loss = float(loss_fn(params, jnp.array(X_eval_norm), jnp.array(y_eval_norm)))
-    print(f"\nEvaluation loss on full dataset (normalized): {eval_loss:.6f}")   
-    
-    # Save model outputs into evaluation dataframe
-    y_eval_pred_norm = forward_pass(params, jnp.array(X_eval_norm))
-    y_std_jax = jnp.array(norm_params['y_std'])
-    y_mean_jax = jnp.array(norm_params['y_mean'])
-    y_eval_pred = y_eval_pred_norm * y_std_jax + y_mean_jax
-    df_eval = df_eval.iloc[sequence_length:]  # Align with sequences
-    df_eval = df_eval.reset_index(drop=True)
-
-    # Handle multiple outputs generically
-    y_eval_np = np.array(y_eval)
-    y_eval_pred_np = np.array(y_eval_pred)
-    y_eval_pred_norm_np = np.array(y_eval_pred_norm)
-    prediction_errors = {}
-    absolute_errors = {}
-
-    for idx, col in enumerate(OUTPUT_COLS):
-        actual_col = f"actual_{col}"
-        pred_col = f"predicted_{col}"
-        pred_norm_col = f"predicted_normalized_{col}"
-
-        df_eval[actual_col] = y_eval_np[:, idx]
-        df_eval[pred_col] = y_eval_pred_np[:, idx]
-        df_eval[pred_norm_col] = y_eval_pred_norm_np[:, idx]
-
-        # Errors per output
-        err = df_eval[pred_col] - df_eval[actual_col]
-        abs_err = np.abs(err)
-        err_col = f"{col}_error"
-        abs_err_col = f"{col}_abs_error"
-        df_eval[err_col] = err
-        df_eval[abs_err_col] = abs_err
-        prediction_errors[col] = err
-        absolute_errors[col] = abs_err
-
-        # If a base prediction column exists, create corrected value
-        base_col_guess = col.replace("residual_", "")
-        base_pred_col = f"predicted_{base_col_guess}"
-        if base_pred_col in df_eval.columns:
-            corrected_col = f"corrected_{base_col_guess}"
-            df_eval[corrected_col] = df_eval[base_pred_col] + df_eval[pred_col]
-    
-    # Ensure model directory exists before saving evaluation CSV
-    os.makedirs(model_dir, exist_ok=True)
-    eval_output_path = os.path.join(model_dir, "evaluation_with_predictions.csv")
-    df_eval.to_csv(eval_output_path, index=False)
-    print(f"Saved evaluation predictions to: {eval_output_path}")
-    
-    # Print evaluation statistics per output
-    print(f"\nEvaluation Statistics:")
-    for col in OUTPUT_COLS:
-        err = prediction_errors[col]
-        abs_err = absolute_errors[col]
-        print(f"  [{col}] Mean error: {np.mean(err):.6f}, Std: {np.std(err):.6f}, Mean abs: {np.mean(abs_err):.6f}, Max abs: {np.max(abs_err):.6f}")
-
-
-        
     
     # Save model
     print("\nSaving model...")

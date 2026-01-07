@@ -202,23 +202,26 @@ def calculate_residuals(df: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     # Input CSV path
     input_csv = "AnalyseData/PhysicalData/2025_11_28/2025-11-28_07-58-30_Recording1_0_IPZ10_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv"
+    csv_folder = "AnalyseData/PhysicalData/all"
+    csv_files = [f for f in os.listdir(csv_folder) if f.endswith('.csv')]
+    
     # Output directory
     output_dir = "TrainingLite/dynamic_residual_jax/training_data"
     
     # Process the data
-    df = pd.read_csv(input_csv, comment='#')
-    df = cleanup(df)
-    df = add_simulated_imu_data(df)
-    df = filter_imu_data(df)
-    df = filter_states(df)
-    df = add_state_deltas(df)
-    df = filter_deltas(df)
-    df = add_predictions(df)
-    df = calculate_residuals(df)
+    for csv_file in csv_files:
+        print(f"Processing {csv_file}")
+        df = pd.read_csv(os.path.join(csv_folder, csv_file), comment='#')
+        df = cleanup(df)
+        df = add_simulated_imu_data(df)
+        df = filter_imu_data(df)
+        df = filter_states(df)
+        df = add_state_deltas(df)
+        df = filter_deltas(df)
+        df = add_predictions(df)
+        df = calculate_residuals(df)
+        # Save dataframe
+        output_path = os.path.join(output_dir, csv_file.replace(".csv", "_processed.csv"))
+        df.to_csv(output_path, index=False)
+        print(f"Saved {csv_file} to {output_path}")
     
-    # Save dataframe
-    output_path = os.path.join(output_dir, "processed_data.csv")
-   
-    df.to_csv(output_path, index=False)
-    print(f"\nDone! Training data saved to: {output_path}")
-
