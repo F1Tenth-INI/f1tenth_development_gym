@@ -134,6 +134,9 @@ def predict_single_step_jax(state, control, state_history, control_history,
     next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
     next_state = next_state.at[ANGULAR_VEL_Z_IDX].add(residual[OUTPUT_COLS.index('residual_delta_angular_vel_z_0')] * dt)
     next_state = next_state.at[LINEAR_VEL_Y_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_y_0')] * dt)
+    next_state = next_state.at[POSE_THETA_SIN_IDX].add(residual[OUTPUT_COLS.index('residual_delta_pose_theta_sin_0')] * dt)
+    next_state = next_state.at[POSE_THETA_COS_IDX].add(residual[OUTPUT_COLS.index('residual_delta_pose_theta_cos_0')] * dt)
+    next_state = next_state.at[POSE_THETA_IDX].set(jnp.arctan2(next_state[POSE_THETA_SIN_IDX], next_state[POSE_THETA_COS_IDX]))
     
     # Update history (in JAX, for tracing compatibility)
     new_state_history = jnp.roll(state_history, -1, axis=0)

@@ -31,10 +31,11 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 MODEL_NAME = '0_example'
+# MODEL_NAME = '1_wip'
 
 INPUT_COLS = ['linear_vel_x', 'angular_control_executed', 'translational_control_executed']
 # OUTPUT_COLS = ['residual_delta_linear_vel_x_0' ]
-OUTPUT_COLS = ['residual_delta_angular_vel_z_0', 'residual_delta_linear_vel_x_0', 'residual_delta_linear_vel_y_0']
+OUTPUT_COLS = ['residual_delta_angular_vel_z_0', 'residual_delta_linear_vel_x_0', 'residual_delta_linear_vel_y_0', 'residual_delta_pose_theta_sin_0', 'residual_delta_pose_theta_cos_0']
 
 
 def load_data(csv_path: str) -> pd.DataFrame:

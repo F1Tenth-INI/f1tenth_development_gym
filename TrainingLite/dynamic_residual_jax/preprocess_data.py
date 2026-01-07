@@ -190,7 +190,7 @@ def add_predictions(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calculate_residuals(df: pd.DataFrame) -> pd.DataFrame:
-    for var in ['delta_angular_vel_z', 'delta_linear_vel_x', 'delta_linear_vel_y']:
+    for var in ['delta_angular_vel_z', 'delta_linear_vel_x', 'delta_linear_vel_y', 'delta_pose_theta_sin', 'delta_pose_theta_cos']:
         for j in range(1):  # horizon
             predicted_col = f'predicted_{var}_{j}'
             if predicted_col in df.columns:

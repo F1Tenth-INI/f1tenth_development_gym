@@ -19,6 +19,8 @@ def car_dynamics_pacejka_jax_with_customization(state, control, car_params, dt, 
     
     return next_state
 
+
+# This function runs on RPGD JAX (Fast). Dont replace. Dont change.
 @partial(jax.jit, static_argnames=["dt", "horizon", "model_type", "intermediate_steps"])
 def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type='pacejka', intermediate_steps=1, state_history=None, control_history=None):
     """
