@@ -23,6 +23,8 @@ from sklearn.model_selection import train_test_split
 import pickle
 from datetime import datetime
 from tqdm import tqdm
+import zipfile
+import shutil
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -470,6 +472,33 @@ def save_model(params: Dict, norm_params: Dict, history: Dict,
     with open(metadata_path, 'wb') as f:
         pickle.dump(metadata, f)
     print(f"Saved model metadata to: {metadata_path}")
+    
+    # Create zip file with preprocess_data.py and train.py
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    preprocess_path = os.path.join(script_dir, 'preprocess_data.py')
+    train_path = os.path.join(script_dir, 'train.py')
+    
+    zip_path = os.path.join(model_dir, f"{model_name}_source_code.zip")
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        if os.path.exists(preprocess_path):
+            zipf.write(preprocess_path, arcname='preprocess_data.py')
+        if os.path.exists(train_path):
+            zipf.write(train_path, arcname='train.py')
+    print(f"Saved source code zip to: {zip_path}")
+    
+    # Save MODEL_NAME, INPUT_COLS, OUTPUT_COLS to CSV
+    config_data = {
+        'Parameter': ['MODEL_NAME', 'INPUT_COLS', 'OUTPUT_COLS'],
+        'Value': [
+            MODEL_NAME,
+            ', '.join(INPUT_COLS),
+            ', '.join(OUTPUT_COLS)
+        ]
+    }
+    config_df = pd.DataFrame(config_data)
+    config_csv_path = os.path.join(model_dir, f"{model_name}_config.csv")
+    config_df.to_csv(config_csv_path, index=False)
+    print(f"Saved model configuration to: {config_csv_path}")
 
 
 def main():
@@ -540,7 +569,7 @@ def main():
     )
     
     
-    evaluation_file = "/home/florian/Documents/INI/f1tenth_development_gym/TrainingLite/dynamic_residual_jax/training_data/processed_data.csv"
+    evaluation_file = data_path  # Use the same data file for evaluation
     df_eval = load_data(evaluation_file)
     X_eval, y_eval = create_sequences(df_eval, sequence_length=sequence_length)
     _, X_eval_norm, _, y_eval_norm, _ = normalize_data(
@@ -590,6 +619,8 @@ def main():
             corrected_col = f"corrected_{base_col_guess}"
             df_eval[corrected_col] = df_eval[base_pred_col] + df_eval[pred_col]
     
+    # Ensure model directory exists before saving evaluation CSV
+    os.makedirs(model_dir, exist_ok=True)
     eval_output_path = os.path.join(model_dir, "evaluation_with_predictions.csv")
     df_eval.to_csv(eval_output_path, index=False)
     print(f"Saved evaluation predictions to: {eval_output_path}")

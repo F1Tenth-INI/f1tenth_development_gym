@@ -162,7 +162,7 @@ def get_points_from_ranges(ranges, angles_rad):
     p2 = ranges * np.sin(angles_rad)
     return np.stack((p1, p2), axis=1)
 
-@jit(nopython=True)
+# @jit(nopython=True)
 def transform_points_from_car_to_global(car_state, points_relative_to_car):
     car_x, car_y = car_state[POSE_X_IDX], car_state[POSE_Y_IDX]
     c, s = car_state[POSE_THETA_COS_IDX], car_state[POSE_THETA_SIN_IDX]

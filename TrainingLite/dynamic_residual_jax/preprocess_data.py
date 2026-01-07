@@ -201,7 +201,7 @@ def calculate_residuals(df: pd.DataFrame) -> pd.DataFrame:
 
 if __name__ == "__main__":
     # Input CSV path
-    input_csv = "/home/florian/Documents/INI/f1tenth_development_gym/AnalyseData/PhysicalData/2025_11_28/2025-11-28_07-58-30_Recording1_0_IPZ10_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv"
+    input_csv = "AnalyseData/PhysicalData/2025_11_28/2025-11-28_07-58-30_Recording1_0_IPZ10_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv"
     # Output directory
     output_dir = "TrainingLite/dynamic_residual_jax/training_data"
     
