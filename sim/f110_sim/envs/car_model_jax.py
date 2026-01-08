@@ -1,4 +1,4 @@
-from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual, predict_sequence_jax, predict_single_step_jax
+from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual, predict_single_step_jax
 from .dynamic_model_pacejka_jax import car_dynamics_pacejka_jax
 from functools import partial
 import jax
@@ -48,14 +48,9 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
         norm_params = residual_model.predictor.get_norm_params_jax()
         car_params_jax = jnp.array(car_params)
         
-        # Initialize histories
-        if state_history is None:
-            state_history = jnp.zeros((HISTORY_LENGTH, 10))
-        if control_history is None:
-            control_history = jnp.zeros((HISTORY_LENGTH, 2))
         
-        state_history_jax = jnp.array(state_history)
-        control_history_jax = jnp.array(control_history)
+        state_history_jax = jnp.array(state_history, dtype=jnp.float32)
+        control_history_jax = jnp.array(control_history, dtype=jnp.float32)
         
         def rollout_fn(carry, control):
             state, sh, ch = carry

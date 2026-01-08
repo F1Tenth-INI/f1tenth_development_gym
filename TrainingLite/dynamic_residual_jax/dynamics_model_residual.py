@@ -92,14 +92,9 @@ class DynamicsModelResidual:
         state_jax = jnp.array(state)
         control_jax = jnp.array(control)
         # Use provided history or fall back to instance history
-        if state_history is None:
-            state_history_jax = jnp.array(self.state_history)
-        else:
-            state_history_jax = jnp.array(state_history)
-        if control_history is None:
-            control_history_jax = jnp.array(self.control_history)
-        else:
-            control_history_jax = jnp.array(control_history)
+
+        state_history_jax = jnp.array(state_history)
+        control_history_jax = jnp.array(control_history)
         car_params_jax = jnp.array(self.car_params)
         
         # Single step prediction (returns next_state and updated histories)
@@ -146,32 +141,6 @@ def predict_single_step_jax(state, control, state_history, control_history,
     
     return next_state, new_state_history, new_control_history
 
-
-@partial(jax.jit, static_argnames=["history_length", "dt"])
-def predict_sequence_jax(initial_state, control_sequence, state_history, control_history,
-                         predictor_params, norm_params, car_params, history_length, dt):
-    """JIT-compiled sequence prediction."""
-    carry = (initial_state, state_history, control_history)
-    
-    def step(carry, control):
-        state, sh, ch = carry
-        # Update history - do operations separately to avoid shape issues
-        sh_rolled = jnp.roll(sh, -1, axis=0)
-        sh = sh_rolled.at[-1, :].set(state)
-        ch_rolled = jnp.roll(ch, -1, axis=0)
-        ch = ch_rolled.at[-1, :].set(control)
-        # Build predictor input
-        input_seq = jnp.stack([sh[:, LINEAR_VEL_X_IDX], ch[:, 0], ch[:, 1]], axis=-1)
-        # Predict residual
-        residual = predictor_forward_jit(input_seq[None, :, :], predictor_params, norm_params)[0]
-        # Base dynamics (use pacejka model directly, no circular dependency)
-        next_state = car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1)
-        # Apply residual
-        # next_state = next_state.at[LINEAR_VEL_X_IDX].add(residual[OUTPUT_COLS.index('residual_delta_linear_vel_x_0')] * dt)
-        return (next_state, sh, ch), next_state
-    
-    _, trajectory = jax.lax.scan(step, carry, control_sequence)
-    return trajectory
 
 
 

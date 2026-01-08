@@ -232,3 +232,16 @@ Run multiple sims/actors (different `actor_id`s) pointing to the same learner to
 ## License
 
 MIT (or your preference).
+
+
+Run RL remotely in the background:
+Like this you can disconnect from SSH while the training is still going on
+
+```
+screen -S experiments
+bash TrainingLite/rl_racing/run_experiments.sh
+```
+# To detach from screen (keep session running): Press Ctrl+A, then D
+# To reattach later: screen -r experiments
+# To list all screen sessions: screen -ls
+# To kill a detached session: screen -X -S experiments quit
