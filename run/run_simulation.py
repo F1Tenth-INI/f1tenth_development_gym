@@ -77,6 +77,13 @@ class RacingSimulation:
         self.sim_time_history = []  # Store last N timesteps of simulation time
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
+
+
+        self.sac_speed_curriculum_learning = Settings.SAC_SPEED_CURRICULUM_LEARNING
+
+        self.sac_curriculum_starting_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY
+        self.sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1
+        self.sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2
     
 
     '''
@@ -205,6 +212,7 @@ class RacingSimulation:
        
   
     def reset(self, poses = None):
+        
         # Check if respawn is enabled and we have enough history
         if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
             self.respawn()
@@ -212,6 +220,23 @@ class RacingSimulation:
         
         # Normal reset
         self.sim_index = 0
+
+        
+        if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and self.sac_speed_curriculum_learning:
+            progress = self.drivers[0].planner.get_total_progress()
+        
+            if progress <= self.sac_curriculum_t1:
+                self.difficulty = self.sac_curriculum_starting_difficulty #starting difficulty
+            elif progress >= self.sac_curriculum_t2:
+                self.difficulty = 1.0
+            else:
+                self.difficulty = (self.sac_curriculum_starting_difficulty + (1.0 - self.sac_curriculum_starting_difficulty) 
+                * ((progress - self.sac_curriculum_t1) / (self.sac_curriculum_t2 - self.sac_curriculum_t1)))
+
+            #IDEA -> if adjusting multiple settings
+            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = (self.difficulty + 0.1) * (1.0) #1.1 is max factor
+            print("Current Curriculum Difficulty:", self.difficulty)
+            print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
         
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)

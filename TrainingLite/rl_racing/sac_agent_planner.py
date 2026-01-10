@@ -144,6 +144,7 @@ class RLAgentPlanner(template_planner):
 
         self.autonomous_driving = True
         self.control_index = 0
+        self.total_sent = 0
 
         self.reset()
 
@@ -260,6 +261,7 @@ class RLAgentPlanner(template_planner):
                 try:
                     if len(self._episode) > 1:
                         self.client.send_transition_batch(self._episode)
+                        self.total_sent += len(self._episode)
                         total_reward = sum(t["reward"] for t in self._episode)
                         print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
                     
@@ -282,17 +284,15 @@ class RLAgentPlanner(template_planner):
                     print("[RLAgentPlanner] Sent terminate message to server")
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
-       
+        
+        
+    def get_total_progress(self):
+        return min(1.0, self.total_sent / Settings.SIMULATION_LENGTH)
+    
     def close(self):
         pass
     
     def _fallback_action(self) -> np.ndarray:
-
-        self.fallback_planner.lidar_utils = self.lidar_utils
-        self.fallback_planner.car_state = self.car_state
-        self.fallback_planner.waypoint_utils = self.waypoint_utils
-        self.fallback_planner.car_state=(self.car_state)
-
         fallback_control = self.fallback_planner.process_observation()
         fallback_action = fallback_control / self.action_denormalization_array
         # return [0., 0.]

@@ -104,6 +104,9 @@ class CarSystem:
         
         # Obstacles
         self.obstacle_detector = ObstacleDetector()
+
+        #Nikita: fixing bug here AttributeError: 'CarSystem' object has no attribute 'backward_predictor'
+        self.backward_predictor = None
         
 
         # Waypoints from MPC

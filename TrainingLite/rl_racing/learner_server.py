@@ -269,8 +269,8 @@ class CustomReplayBuffer(ReplayBuffer):
         
         if not self.custom_sampling:
             samples = super()._get_samples(batch_inds, env=env)
+            samples.steps_taken = self.to_torch(self.steps_taken[batch_inds].reshape(-1, 1))
             is_weights = torch.ones((len(batch_inds), 1), device=samples.observations.device)   
-            #TODO: i dont like this way of doing it
             return WeightedReplayBufferSamples(
                 observations=samples.observations,
                 actions=samples.actions,
@@ -379,7 +379,7 @@ class LearnerServer:
         self.total_weight_updates = 0
 
         self.last_episode_time = None 
-        self.episode_timeout = 60.0
+        self.episode_timeout = 100.0
 
         #used for n-step buffer, for standard buffer set = 1
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
@@ -589,10 +589,6 @@ class LearnerServer:
         R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} 
               + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))  [entropy bonus - handled in training]
               + gamma^n * Q(s_{t+n})                            [bootstrapping - handled in training]
-        
-        The accumulated reward is scaled properly across the n steps. The entropy scaling
-        and Q bootstrapping are handled in the critic update (see _train_loop where we compute
-        target_q with discounts = gamma^steps_taken).
         """
         n = self.n_step
         n_step_transitions = []
@@ -710,6 +706,9 @@ class LearnerServer:
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
         while True:
+            #TODO: DEBUG:::::
+            # print(f"Current waypoint vel factor: {Settings.GLOBAL_WAYPOINT_VEL_FACTOR}")
+
             # Custom stopping logic for bash, doesnt always stop normally...
             if Settings.EXTENDED_AUTO_STOP and self.total_actor_timesteps > Settings.SIMULATION_LENGTH and len(self._clients) == 0:
                 print("[server] All clients disconnected. Assuming simulation finished. Shutting down.")
