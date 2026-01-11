@@ -26,6 +26,8 @@ if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
+from utilities.CurriculumSupervisor import CurriculumSupervisor
+
 
 
 
@@ -84,6 +86,17 @@ class RacingSimulation:
         self.sac_curriculum_starting_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY
         self.sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1
         self.sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2
+
+        if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and Settings.SAC_SPEED_CURRICULUM_LEARNING:
+            self.curriculum_supervisor = CurriculumSupervisor(
+                initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,
+                max_difficulty = 1.0,
+                sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1,
+                sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2,
+                debug = Settings.SAC_CURRICULUM_DEBUG
+            )
+        else:
+            self.curriculum_supervisor = None
     
 
     '''
@@ -221,22 +234,14 @@ class RacingSimulation:
         # Normal reset
         self.sim_index = 0
 
-        
-        if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and self.sac_speed_curriculum_learning:
-            progress = self.drivers[0].planner.get_total_progress()
-        
-            if progress <= self.sac_curriculum_t1:
-                self.difficulty = self.sac_curriculum_starting_difficulty #starting difficulty
-            elif progress >= self.sac_curriculum_t2:
-                self.difficulty = 1.0
-            else:
-                self.difficulty = (self.sac_curriculum_starting_difficulty + (1.0 - self.sac_curriculum_starting_difficulty) 
-                * ((progress - self.sac_curriculum_t1) / (self.sac_curriculum_t2 - self.sac_curriculum_t1)))
+        #TODO: add alpha scaling according to progress
+        if self.curriculum_supervisor is not None:
+            self.curriculum_supervisor.update_progress(self.drivers[0].planner.get_total_progress())
+            self.curriculum_supervisor.update_difficulty()
+            self.curriculum_supervisor.adjust_speed(speed_max = 1.1) #TODO: is there some universal max speed factor i should have
 
-            #IDEA -> if adjusting multiple settings
-            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = (self.difficulty + 0.1) * (1.0) #1.1 is max factor
-            print("Current Curriculum Difficulty:", self.difficulty)
-            print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
+            # print("Current Curriculum Difficulty:", self.difficulty)
+            # print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
         
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)

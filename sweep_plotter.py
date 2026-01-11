@@ -24,7 +24,8 @@ GROUP_GAP = 0.2
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def parse_folder_name(folder_name):
-    pattern = r"Sweep_rank_noclip_Ex1_A([0-9\.]+)_B([0-9\.]+)_R([0-9\.]+)"
+    # pattern = r"Sweep_rank_noclip_Ex1_A([0-9\.]+)_B([0-9\.]+)_R([0-9\.]+)"
+    pattern = r"Sweep_BETTER_Cur_from_Cur1_A([0-9\.]+)_CUR_T2([0-9\.]+)_Run([0-9\.]+)"
     match = re.search(pattern, folder_name)
     if match:
         return float(match.group(1)), float(match.group(2)), float(match.group(3))
@@ -150,8 +151,10 @@ def create_summary_plots():
                 ax2.axis('off')
 
                 # Title
-                ax1.set_title(f"Beta: {entry['beta']} | Ratio: {entry['ratio']}", 
+                ax1.set_title(f"Curriculum_T2: {entry['beta']} | Run #: {entry['ratio']}", 
                              loc='left', fontsize=14, fontweight='bold')
+                # ax1.set_title(f"Beta: {entry['beta']} | Ratio: {entry['ratio']}", 
+                #              loc='left', fontsize=14, fontweight='bold')
 
             except Exception as e:
                 print(f"Error processing {entry['path']}: {e}")

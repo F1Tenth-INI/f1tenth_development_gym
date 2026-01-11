@@ -269,7 +269,7 @@ class CustomReplayBuffer(ReplayBuffer):
         
         if not self.custom_sampling:
             samples = super()._get_samples(batch_inds, env=env)
-            samples.steps_taken = self.to_torch(self.steps_taken[batch_inds].reshape(-1, 1))
+            steps_taken = self.to_torch(self.steps_taken[batch_inds].reshape(-1, 1))
             is_weights = torch.ones((len(batch_inds), 1), device=samples.observations.device)   
             return WeightedReplayBufferSamples(
                 observations=samples.observations,
@@ -278,7 +278,7 @@ class CustomReplayBuffer(ReplayBuffer):
                 dones=samples.dones,
                 rewards=samples.rewards,
                 is_weights=is_weights,
-                steps_taken = samples.steps_taken)  
+                steps_taken = steps_taken)  
         
 
         # Sample randomly the env idx
