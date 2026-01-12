@@ -76,7 +76,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 3000 # In sim timesteps: Length until the simulation is terminated
+    MAX_EPISODE_LENGTH = 2000 
 
 
     ## Noise ##
