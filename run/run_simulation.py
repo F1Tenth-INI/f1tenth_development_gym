@@ -42,6 +42,8 @@ class RacingSimulation:
 
         self.start_time = time.time()
         self.sim_time = 0.0
+        self.episode_index = 0
+
         self.sim_index = 0
 
         self.obs = {}
@@ -159,7 +161,7 @@ class RacingSimulation:
 
 
         self.sim_time = 0.0
-        self.sim_index = 0
+        self.episode_index = 0
 
         print("initializing environment with", self.number_of_drivers, "drivers")
 
@@ -195,7 +197,7 @@ class RacingSimulation:
         # Init recording active dict with all data from the environment that should be recorded in the car system
         recording_dict = {
                     'time': lambda: self.sim_time,
-                    'sim_index': lambda: self.sim_index,
+                    'sim_index': lambda: self.episode_index,
                     'mu': lambda: np.float32(self.vehicle_parameters_instance.mu),
         }
         
@@ -232,11 +234,11 @@ class RacingSimulation:
             return
         
         # Normal reset
-        self.sim_index = 0
+        self.episode_index = 0
 
         #TODO: add alpha scaling according to progress
         if self.curriculum_supervisor is not None:
-            self.curriculum_supervisor.update_progress(self.drivers[0].planner.get_total_progress())
+            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
             self.curriculum_supervisor.update_difficulty()
             self.curriculum_supervisor.adjust_speed(speed_max = 1.1) #TODO: is there some universal max speed factor i should have
 
@@ -271,7 +273,7 @@ class RacingSimulation:
     
         # Main loop
         experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.SIMULATION_LENGTH
-        for _ in trange(experiment_length):
+        for self.sim_index in trange(experiment_length):
             self.simulation_step()
 
         self.on_simulation_end(collision=False)
@@ -310,7 +312,7 @@ class RacingSimulation:
 
             self.obs = self.sim.step(np.array(agent_controls_execute))
             self.sim_time += Settings.TIMESTEP_SIM
-            self.sim_index += 1
+            self.episode_index += 1
 
         # On Step end
         self.render_env()
@@ -356,7 +358,7 @@ class RacingSimulation:
         self.control_history.append(current_controls)
         self.obs_history.append(current_obs)
         self.sim_time_history.append(self.sim_time)
-        self.sim_index_history.append(self.sim_index)
+        self.sim_index_history.append(self.episode_index)
         
         # Keep only last RESPAWN_HISTORY_LENGTH entries
         if len(self.state_history) > self.RESPAWN_HISTORY_LENGTH:
@@ -381,7 +383,7 @@ class RacingSimulation:
         respawn_sim_index = self.sim_index_history[0]
         
         # Reset simulation index and time
-        self.sim_index = respawn_sim_index
+        self.episode_index = respawn_sim_index
         self.sim_time = respawn_sim_time
         
         # Reset simulator to respawn state
@@ -417,7 +419,7 @@ class RacingSimulation:
             self.reset()
             return
         
-        print(f"Respawn triggered: Going back {self.RESPAWN_HISTORY_LENGTH} timesteps from sim_index {self.sim_index} to {self.sim_index_history[0]}")
+        print(f"Respawn triggered: Going back {self.RESPAWN_HISTORY_LENGTH} timesteps from sim_index {self.episode_index} to {self.sim_index_history[0]}")
         self.respawn()
 
     def can_respawn(self):
@@ -446,7 +448,7 @@ class RacingSimulation:
 
     def get_control_for_history_forger(self):
         if not Settings.FORGE_HISTORY: return
-        if self.sim_index > 0:
+        if self.episode_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
                     driver.history_forger.update_control_history(self.sim.agents[index].u_pid_with_constrains)
@@ -611,7 +613,7 @@ class RacingSimulation:
     '''
     def update_driver_state(self, driver, agent_index):
         if Settings.REPLAY_RECORDING:
-            driver.set_car_state(self.state_recording[self.sim_index])
+            driver.set_car_state(self.state_recording[self.episode_index])
             self.sim.agents[agent_index].state = driver.car_state  # was self.env.sim...
             driver.car_state_noiseless = driver.car_state
         else:
