@@ -77,6 +77,7 @@ class Settings():
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
     SIMULATION_LENGTH = 100000 #1_000_000 # In sim timesteps: Length until the simulation is terminated
+    MAX_EPISODE_LENGTH = 2000 
 
 
     ## Noise ##
@@ -209,7 +210,6 @@ class Settings():
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
 
-    MAX_EPISODE_LENGTH = 2000
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

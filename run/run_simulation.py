@@ -82,13 +82,6 @@ class RacingSimulation:
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
 
-
-        self.sac_speed_curriculum_learning = Settings.SAC_SPEED_CURRICULUM_LEARNING
-
-        self.sac_curriculum_starting_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY
-        self.sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1
-        self.sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2
-
         if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and Settings.SAC_SPEED_CURRICULUM_LEARNING:
             self.curriculum_supervisor = CurriculumSupervisor(
                 initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,

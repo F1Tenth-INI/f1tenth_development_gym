@@ -176,6 +176,8 @@ class CarSystem:
         # self.init_recorder_and_start(recorder_dict=recorder_dict)
         self.init_recorder(recorder_dict=recorder_dict)
         
+        self.backward_predictor = None
+        
         if(not Settings.ROS_BRIDGE):
             self.start_recorder()
 
