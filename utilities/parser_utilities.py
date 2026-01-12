@@ -37,6 +37,10 @@ except ImportError:
 
 def convert_value(value_str: str, target_type: type, original_value) -> Any:
     """Convert string value to appropriate type based on target type."""
+    # Handle None explicitly - check if string is "None" (case-insensitive)
+    if value_str.strip().lower() == 'none':
+        return None
+    
     if target_type == bool:
         # Handle boolean values
         if value_str.lower() in ['true', '1', 'yes', 'on']:

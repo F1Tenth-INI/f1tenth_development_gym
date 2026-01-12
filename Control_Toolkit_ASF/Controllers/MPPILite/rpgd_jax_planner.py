@@ -530,7 +530,7 @@ def cost_function_jax(state, control, waypoints):
     translational_control_cost = jnp.abs(control[1]) * 0.0
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]
-    speed_cost = 10.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
+    speed_cost = 5.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
     
     # Add quadratic penalty for large angular controls to discourage extreme values
     angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
