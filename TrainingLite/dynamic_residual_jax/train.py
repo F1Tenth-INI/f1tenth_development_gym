@@ -26,6 +26,7 @@ from tqdm import tqdm
 import zipfile
 import shutil
 import glob
+import yaml
 
 # Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +34,8 @@ project_root = os.path.abspath(os.path.join(script_dir, '../..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+
+# Training Config
 MODEL_NAME = '0_example'
 # MODEL_NAME = '1_wip'
 
@@ -243,7 +246,7 @@ def train_model(X_train: np.ndarray, y_train: np.ndarray,
                 hidden_dims: list = [128, 128, 64],
                 learning_rate: float = 1e-3,
                 batch_size: int = 64,
-                num_epochs: int = 100,
+                num_epochs: int = 10,
                 seed: int = 42,
                 use_lr_schedule: bool = False) -> Tuple[Dict, Dict]:
     """
@@ -421,7 +424,15 @@ def reconstruct_forward_fn(params: Dict):
 
 
 def save_model(params: Dict, norm_params: Dict, history: Dict, 
-               model_dir: str, model_name: str = "residual_model"):
+               model_dir: str, model_name: str = "residual_model",
+               sequence_length: int = None,
+               hidden_dims: list = None,
+               learning_rate: float = None,
+               batch_size: int = None,
+               num_epochs: int = None,
+               seed: int = None,
+               use_lr_schedule: bool = None,
+               test_size: float = None):
     """Save model parameters, normalization params, and training history."""
     os.makedirs(model_dir, exist_ok=True)
     
@@ -487,19 +498,73 @@ def save_model(params: Dict, norm_params: Dict, history: Dict,
             zipf.write(train_path, arcname='train.py')
     print(f"Saved source code zip to: {zip_path}")
     
-    # Save MODEL_NAME, INPUT_COLS, OUTPUT_COLS to CSV
+    # Extract network architecture from params
+    layer_keys = [k for k in params.keys() if k.startswith('layer_')]
+    hidden_dims_from_params = [int(params[f'layer_{i}']['W'].shape[1]) for i in range(len(layer_keys))]
+    input_dim = int(params['layer_0']['W'].shape[0])
+    output_dim = int(params['output']['W'].shape[1])
+    
+    # Extract normalization summary stats (flatten arrays for readability)
+    input_norm_mean = norm_params['X_mean'].flatten().tolist()
+    input_norm_std = norm_params['X_std'].flatten().tolist()
+    output_norm_mean = norm_params['y_mean'].flatten().tolist()
+    output_norm_std = norm_params['y_std'].flatten().tolist()
+    
+    # Extract final training metrics
+    final_train_loss = float(history['train_loss'][-1]) if history.get('train_loss') else None
+    final_val_loss = float(history['val_loss'][-1]) if history.get('val_loss') else None
+    final_val_rmse = float(history['val_rmse_denorm'][-1]) if history.get('val_rmse_denorm') and len(history['val_rmse_denorm']) > 0 else None
+    num_epochs_trained = len(history.get('train_loss', []))
+    
+    # Save comprehensive configuration to YAML
     config_data = {
-        'Parameter': ['MODEL_NAME', 'INPUT_COLS', 'OUTPUT_COLS'],
-        'Value': [
-            MODEL_NAME,
-            ', '.join(INPUT_COLS),
-            ', '.join(OUTPUT_COLS)
-        ]
+        'MODEL_NAME': MODEL_NAME,
+        'timestamp': datetime.now().isoformat(),
+        'data': {
+            'INPUT_COLS': list(INPUT_COLS),
+            'OUTPUT_COLS': list(OUTPUT_COLS),
+            'sequence_length': sequence_length,
+            'test_size': test_size,
+        },
+        'network_architecture': {
+            'input_dim': input_dim,
+            'hidden_dims': hidden_dims if hidden_dims is not None else hidden_dims_from_params,
+            'output_dim': output_dim,
+        },
+        'training_hyperparameters': {
+            'learning_rate': learning_rate,
+            'batch_size': batch_size,
+            'num_epochs': num_epochs,
+            'num_epochs_trained': num_epochs_trained,
+            'seed': seed,
+            'use_lr_schedule': use_lr_schedule,
+        },
+        'normalization': {
+            'normalize_output': norm_params.get('normalize_output', True),
+            'input_mean': input_norm_mean,
+            'input_std': input_norm_std,
+            'output_mean': output_norm_mean,
+            'output_std': output_norm_std,
+        },
+        'training_results': {
+            'final_train_loss': final_train_loss,
+            'final_val_loss': final_val_loss,
+            'final_val_rmse': final_val_rmse,
+        }
     }
-    config_df = pd.DataFrame(config_data)
-    config_csv_path = os.path.join(model_dir, f"{model_name}_config.csv")
-    config_df.to_csv(config_csv_path, index=False)
-    print(f"Saved model configuration to: {config_csv_path}")
+    
+    # Remove None values for cleaner YAML
+    def remove_none(d):
+        if isinstance(d, dict):
+            return {k: remove_none(v) for k, v in d.items() if v is not None}
+        return d
+    config_data = remove_none(config_data)
+    
+    config_yaml_path = os.path.join(model_dir, f"{model_name}_config.yaml")
+    # Save in block style format (human and computer readable)
+    with open(config_yaml_path, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+    print(f"Saved model configuration to: {config_yaml_path}")
 
 
 def main():
@@ -519,7 +584,7 @@ def main():
     hidden_dims = [64, 64]  # Larger and deeper model
     learning_rate = 1e-3  # Slightly higher initial LR
     batch_size = 16
-    num_epochs = 100  # More epochs for better convergence
+    num_epochs = 10  # More epochs for better convergence
     test_size = 0.2
     seed = 42
     use_lr_schedule = True  # Use learning rate scheduling
@@ -589,7 +654,17 @@ def main():
     
     # Save model
     print("\nSaving model...")
-    save_model(params, norm_params, history, model_dir)
+    save_model(
+        params, norm_params, history, model_dir,
+        sequence_length=sequence_length,
+        hidden_dims=hidden_dims,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        num_epochs=num_epochs,
+        seed=seed,
+        use_lr_schedule=use_lr_schedule,
+        test_size=test_size
+    )
     
     print("\n" + "=" * 60)
     print("Training completed!")
