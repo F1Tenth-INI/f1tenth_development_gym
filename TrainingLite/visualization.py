@@ -32,13 +32,15 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib
 matplotlib.rcParams['figure.dpi'] = 100
 matplotlib.rcParams['savefig.dpi'] = 300
-matplotlib.rcParams['font.size'] = 24  # Base plot font size
-matplotlib.rcParams['axes.titlesize'] = 28  # Plot title size
-matplotlib.rcParams['axes.labelsize'] = 24  # Plot label size
-matplotlib.rcParams['xtick.labelsize'] = 20  # Tick label size
-matplotlib.rcParams['ytick.labelsize'] = 20  # Tick label size
-matplotlib.rcParams['legend.fontsize'] = 22  # Legend size
-matplotlib.rcParams['figure.titlesize'] = 30  # Figure title size
+# Font sizes will be set responsively based on screen resolution
+# Base font sizes (will be scaled based on DPI and multiplier)
+matplotlib.rcParams['font.size'] = 12  # Base plot font size (will be adjusted)
+matplotlib.rcParams['axes.titlesize'] = 14  # Plot title size
+matplotlib.rcParams['axes.labelsize'] = 12  # Plot label size
+matplotlib.rcParams['xtick.labelsize'] = 10  # Tick label size
+matplotlib.rcParams['ytick.labelsize'] = 10  # Tick label size
+matplotlib.rcParams['legend.fontsize'] = 11  # Legend size
+matplotlib.rcParams['figure.titlesize'] = 16  # Figure title size
 
 # Add the parent directories to path to import simulation modules
 current_dir = os.path.dirname(__file__)
@@ -65,6 +67,10 @@ class StateComparisonVisualizer:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("State Comparison Visualizer")
+        
+        # Initialize font scaling variables
+        self.base_font_scale = 1.0  # Will be set by setup_dpi_scaling
+        self.font_multiplier = 1.0  # User-adjustable multiplier
         
         # Detect and handle high DPI displays
         self.setup_dpi_scaling()
@@ -136,6 +142,10 @@ class StateComparisonVisualizer:
         
         self.setup_ui()
         
+        # Update font size info display (after UI is created)
+        if hasattr(self, 'update_font_size_info'):
+            self.update_font_size_info()
+        
         # Load config file if it exists
         self.load_config()
         
@@ -171,84 +181,140 @@ class StateComparisonVisualizer:
         }
         
     def setup_dpi_scaling(self):
-        """Setup DPI scaling for high resolution displays."""
+        """Setup DPI scaling for responsive font sizing.
+        
+        Fonts are scaled inversely with DPI - smaller screens (lower DPI) get smaller fonts,
+        larger screens (higher DPI) get larger fonts. This ensures readability on all displays.
+        """
         try:
             # Get screen DPI
             dpi = self.root.winfo_fpixels('1i')
             
-            # Calculate scaling factor (assuming 96 DPI as baseline)
-            scale_factor = max(1.0, dpi / 96.0)
+            # Calculate responsive font scale
+            # Baseline: 96 DPI (standard desktop)
+            # Lower DPI (smaller screens) -> smaller fonts
+            # Higher DPI (larger/high-res screens) -> larger fonts
+            baseline_dpi = 96.0
+            font_scale = dpi / baseline_dpi
             
-            # Apply scaling for plots on high-DPI displays
-            if scale_factor > 1.2:  # Only scale for high DPI displays
-                # Moderate scaling for plot readability
-                plot_scale = max(1.3, scale_factor * 0.85)  # Moderate scaling for plots
-                
-                matplotlib.rcParams['figure.dpi'] = int(100 * plot_scale)
-                matplotlib.rcParams['font.size'] = int(24 * plot_scale)
-                matplotlib.rcParams['axes.titlesize'] = int(28 * plot_scale)
-                matplotlib.rcParams['axes.labelsize'] = int(24 * plot_scale)
-                matplotlib.rcParams['xtick.labelsize'] = int(20 * plot_scale)
-                matplotlib.rcParams['ytick.labelsize'] = int(20 * plot_scale)
-                matplotlib.rcParams['legend.fontsize'] = int(22 * plot_scale)
-                matplotlib.rcParams['figure.titlesize'] = int(30 * plot_scale)
-                
-                print(f"High-DPI plot scaling applied (DPI: {dpi:.1f}). Plot scale: {plot_scale:.1f}x")
+            # Clamp font scale to reasonable range (0.5x to 2.0x)
+            font_scale = max(0.5, min(2.0, font_scale))
+            
+            # Base font sizes (for 96 DPI baseline)
+            base_font_size = 12
+            base_title_size = 14
+            base_label_size = 12
+            base_tick_size = 10
+            base_legend_size = 11
+            base_figure_title_size = 16
+            
+            # Apply responsive scaling (will be multiplied by user multiplier later)
+            self.base_font_scale = font_scale
+            self._apply_font_sizes()
+            
+            # Set figure DPI based on screen DPI (for better rendering)
+            plot_dpi = max(72, min(150, int(100 * font_scale)))
+            matplotlib.rcParams['figure.dpi'] = plot_dpi
+            
+            print(f"Responsive font scaling applied (DPI: {dpi:.1f}, Font scale: {font_scale:.2f}x)")
             
             # Set tkinter scaling for better text rendering
             try:
-                self.root.tk.call('tk', 'scaling', max(1.2, scale_factor))
+                # Use moderate scaling for UI elements
+                ui_scale = max(1.0, min(1.5, font_scale))
+                self.root.tk.call('tk', 'scaling', ui_scale)
             except:
                 pass  # Some systems don't support tk scaling
                 
         except Exception as e:
             print(f"Could not detect DPI scaling: {e}")
-            # Use larger default fonts for plots
-            matplotlib.rcParams['font.size'] = 24
-            matplotlib.rcParams['axes.titlesize'] = 28
-            matplotlib.rcParams['axes.labelsize'] = 24
-            matplotlib.rcParams['xtick.labelsize'] = 20
-            matplotlib.rcParams['ytick.labelsize'] = 20
-            matplotlib.rcParams['legend.fontsize'] = 22
-            matplotlib.rcParams['figure.titlesize'] = 30
+            # Use default baseline scaling
+            self.base_font_scale = 1.0
+            self._apply_font_sizes()
+    
+    def _apply_font_sizes(self):
+        """Apply font sizes using base scale and user multiplier."""
+        # Base font sizes (for 96 DPI baseline)
+        base_font_size = 12
+        base_title_size = 14
+        base_label_size = 12
+        base_tick_size = 10
+        base_legend_size = 11
+        base_figure_title_size = 16
+        
+        # Calculate final font sizes with both responsive scaling and user multiplier
+        total_scale = self.base_font_scale * self.font_multiplier
+        
+        matplotlib.rcParams['font.size'] = int(base_font_size * total_scale)
+        matplotlib.rcParams['axes.titlesize'] = int(base_title_size * total_scale)
+        matplotlib.rcParams['axes.labelsize'] = int(base_label_size * total_scale)
+        matplotlib.rcParams['xtick.labelsize'] = int(base_tick_size * total_scale)
+        matplotlib.rcParams['ytick.labelsize'] = int(base_tick_size * total_scale)
+        matplotlib.rcParams['legend.fontsize'] = int(base_legend_size * total_scale)
+        matplotlib.rcParams['figure.titlesize'] = int(base_figure_title_size * total_scale)
+        
+        # Update info label if it exists
+        if hasattr(self, 'font_size_info_label'):
+            self.update_font_size_info()
     
     def setup_ui_fonts(self):
-        """Setup much larger fonts for the UI control panel."""
+        """Setup responsive fonts for the UI control panel based on screen DPI and font multiplier."""
+        self._apply_ui_fonts()
+    
+    def _apply_ui_fonts(self):
+        """Apply UI fonts using base scale and user multiplier."""
         try:
             import tkinter.font as tkFont
             
-            # Create large 24pt fonts for all UI elements
-            self.large_font = tkFont.Font(family="Arial", size=24, weight="normal")
-            self.large_bold_font = tkFont.Font(family="Arial", size=24, weight="bold")
-            self.button_font = tkFont.Font(family="Arial", size=24, weight="normal")
-            self.metrics_font = tkFont.Font(family="Arial", size=24, weight="bold")
+            # Base UI font size (for 96 DPI baseline) - reasonable default
+            base_ui_font_size = 10
             
-            # Configure ttk styles with much larger fonts
+            # Calculate responsive UI font size based on DPI scaling and user multiplier
+            total_scale = self.base_font_scale * self.font_multiplier
+            ui_font_size = int(base_ui_font_size * total_scale)
+            
+            # Clamp to reasonable range (6pt to 20pt to allow for multiplier adjustments)
+            ui_font_size = max(6, min(20, ui_font_size))
+            
+            # Calculate responsive padding (scales with font size)
+            padding_size = max(5, int(ui_font_size * 0.4))
+            
+            # Create responsive fonts for all UI elements
+            self.large_font = tkFont.Font(family="Arial", size=ui_font_size, weight="normal")
+            self.large_bold_font = tkFont.Font(family="Arial", size=ui_font_size, weight="bold")
+            self.button_font = tkFont.Font(family="Arial", size=ui_font_size, weight="normal")
+            self.metrics_font = tkFont.Font(family="Arial", size=ui_font_size, weight="bold")
+            
+            # Configure ttk styles with responsive fonts
             style = ttk.Style()
             
-            # Configure all styles with larger fonts and padding
+            # Configure all styles with responsive fonts and padding
             style.configure('Large.TLabel', font=self.large_font)
             style.configure('Bold.TLabel', font=self.large_bold_font)
-            style.configure('Large.TButton', font=self.button_font, padding=(10, 10))
-            style.configure('Large.TEntry', font=self.large_font, padding=10)
-            style.configure('Large.TCombobox', font=self.large_font, padding=10)
+            style.configure('Large.TButton', font=self.button_font, padding=(padding_size, padding_size))
+            style.configure('Large.TEntry', font=self.large_font, padding=padding_size)
+            style.configure('Large.TCombobox', font=self.large_font, padding=padding_size)
             style.configure('Large.TCheckbutton', font=self.large_font)
             
             # Set default fonts and padding for all ttk widgets
             style.configure('TLabel', font=self.large_font)
-            style.configure('TButton', font=self.button_font, padding=(10, 10))
-            style.configure('TEntry', font=self.large_font, padding=10)
-            style.configure('TCombobox', font=self.large_font, padding=10)
+            style.configure('TButton', font=self.button_font, padding=(padding_size, padding_size))
+            style.configure('TEntry', font=self.large_font, padding=padding_size)
+            style.configure('TCombobox', font=self.large_font, padding=padding_size)
             style.configure('TCheckbutton', font=self.large_font)
             style.configure('TLabelFrame', font=self.large_bold_font)
             
-            # Configure combobox dropdown list to have larger font
+            # Configure combobox dropdown list to have responsive font
             self.root.option_add('*TCombobox*Listbox.font', self.large_font)
             # Also configure the dropdown height
             style.map('TCombobox', fieldbackground=[('readonly', 'white')])
             style.map('Large.TCombobox', fieldbackground=[('readonly', 'white')])
             
-            print("Large UI fonts configured (24pt for all elements)")
+            # Update slider font if it exists
+            if hasattr(self, 'comparison_slider'):
+                self.comparison_slider.config(font=self.large_font)
+            
+            print(f"Responsive UI fonts configured ({ui_font_size}pt for all elements, DPI scale: {self.base_font_scale:.2f}x, Multiplier: {self.font_multiplier:.2f}x)")
             
         except Exception as e:
             print(f"Could not configure UI fonts: {e}")
@@ -308,6 +374,20 @@ class StateComparisonVisualizer:
             self.steering_delay_var.set(str(config.get('steering_delay_steps', 2)))
             self.acceleration_delay_var.set(str(config.get('acceleration_delay_steps', 2)))
             
+            # Load font multiplier
+            if 'font_multiplier' in config:
+                self.font_multiplier = float(config.get('font_multiplier', 1.0))
+                # Clamp to valid range
+                self.font_multiplier = max(0.5, min(3.0, self.font_multiplier))
+                if hasattr(self, 'font_multiplier_var'):
+                    self.font_multiplier_var.set(f"{self.font_multiplier:.2f}")
+                self._apply_font_sizes()
+                # Also update UI fonts when loading config
+                if hasattr(self, '_apply_ui_fonts'):
+                    self._apply_ui_fonts()
+                if hasattr(self, 'update_font_size_info'):
+                    self.update_font_size_info()
+            
             if self.data is not None and hasattr(self, 'comparison_slider'):
                 self.update_comparison_slider_range()
                 self.plot_state()
@@ -329,6 +409,7 @@ class StateComparisonVisualizer:
                     'horizon_steps': safe_int(self.horizon_var, 50),
                     'steering_delay_steps': safe_int(self.steering_delay_var, 2),
                     'acceleration_delay_steps': safe_int(self.acceleration_delay_var, 2),
+                    'font_multiplier': self.font_multiplier,
                 }, f, indent=2)
         except Exception as e:
             print(f"Could not save config: {e}")
@@ -548,15 +629,28 @@ class StateComparisonVisualizer:
                        variable=self.show_metrics,
                        command=self.on_show_metrics_toggled, style='Large.TCheckbutton').pack(pady=2)
         
-        # Font size control (for plot fonts)
-        ttk.Label(metrics_frame, text="Plot Font Size:", style='Bold.TLabel').pack(anchor='w')
-        self.font_size_var = tk.StringVar(value="12")  # Default to normal size
-        font_size_combo = ttk.Combobox(metrics_frame, textvariable=self.font_size_var,
-                                      values=["8", "10", "12", "14", "16", "18", "20"], 
-                                      state='readonly', width=self.selector_width_chars,
-                                      style='Large.TCombobox')
-        font_size_combo.pack(anchor='w', pady=2)
-        font_size_combo.bind('<<ComboboxSelected>>', self.on_font_size_changed)
+        # Font multiplier control (for plot fonts)
+        ttk.Label(metrics_frame, text="Font Size Multiplier:", style='Bold.TLabel').pack(anchor='w')
+        font_mult_frame = ttk.Frame(metrics_frame)
+        font_mult_frame.pack(anchor='w', pady=2, fill=tk.X)
+        
+        self.font_multiplier_var = tk.StringVar(value="1.0")  # Default multiplier
+        font_mult_entry = ttk.Entry(font_mult_frame, textvariable=self.font_multiplier_var, width=8,
+                                   style='Large.TEntry')
+        font_mult_entry.pack(side=tk.LEFT, padx=(0, 5))
+        font_mult_entry.bind('<KeyRelease>', self.on_font_multiplier_changed)
+        font_mult_entry.bind('<Return>', self.on_font_multiplier_changed)
+        
+        # Add quick adjustment buttons
+        ttk.Button(font_mult_frame, text="-", width=3,
+                  command=lambda: self.adjust_font_multiplier(-0.1), style='Large.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(font_mult_frame, text="+", width=3,
+                  command=lambda: self.adjust_font_multiplier(0.1), style='Large.TButton').pack(side=tk.LEFT, padx=2)
+        
+        # Info label showing current effective font size
+        self.font_size_info_label = ttk.Label(metrics_frame, text="", style='Large.TLabel', foreground='gray')
+        self.font_size_info_label.pack(anchor='w', pady=(0, 2))
+        self.update_font_size_info()
     
     def toggle_all_control_panels(self):
         """Toggle the collapse state of all control panel frames."""
@@ -584,10 +678,12 @@ class StateComparisonVisualizer:
             
             ttk.Label(slider_frame, text="Comparison Start Index:", style='Large.TLabel').pack(side=tk.LEFT)
             self.comparison_start_var = tk.IntVar(value=0)
+            # Use responsive font for slider (fallback to reasonable default)
+            slider_font = self.large_font if hasattr(self, 'large_font') and self.large_font else ('Arial', 10)
             self.comparison_slider = tk.Scale(slider_frame, from_=0, to=0, 
                                             variable=self.comparison_start_var,
                                             orient=tk.HORIZONTAL, length=400,
-                                            font=self.large_font if hasattr(self, 'large_font') and self.large_font else ('Arial', 24),
+                                            font=slider_font,
                                             width=30,  # Make slider wider/taller
                                             sliderlength=40,  # Make slider thumb larger
                                             command=self.on_comparison_slider_changed)
@@ -869,28 +965,53 @@ class StateComparisonVisualizer:
         """Handle show metrics checkbox toggle."""
         self.update_metrics_display()
         
-    def on_font_size_changed(self, event=None):
-        """Handle font size change."""
+    def on_font_multiplier_changed(self, event=None):
+        """Handle font multiplier change."""
         try:
-            font_size = int(self.font_size_var.get())
+            multiplier = float(self.font_multiplier_var.get())
             
-            # Update matplotlib font sizes with normal proportions
-            matplotlib.rcParams['font.size'] = font_size
-            matplotlib.rcParams['axes.titlesize'] = font_size + 2  # Normal title
-            matplotlib.rcParams['axes.labelsize'] = font_size  # Same as base
-            matplotlib.rcParams['xtick.labelsize'] = font_size - 2  # Smaller ticks
-            matplotlib.rcParams['ytick.labelsize'] = font_size - 2  # Smaller ticks
-            matplotlib.rcParams['legend.fontsize'] = font_size - 1  # Slightly smaller legend
-            matplotlib.rcParams['figure.titlesize'] = font_size + 4  # Normal figure title
+            # Clamp multiplier to reasonable range
+            multiplier = max(0.5, min(3.0, multiplier))
+            
+            self.font_multiplier = multiplier
+            self.font_multiplier_var.set(f"{multiplier:.2f}")
+            
+            # Apply new font sizes for plots
+            self._apply_font_sizes()
+            
+            # Apply new font sizes for UI
+            self._apply_ui_fonts()
+            
+            # Update font size info display
+            self.update_font_size_info()
             
             # Update existing plot
             if self.fig is not None:
                 # Redraw with new font sizes
                 self.canvas.draw()
+            
+            # Force UI to refresh with new font sizes
+            self.root.update_idletasks()
                 
-        except ValueError:
-            # Invalid font size, revert to default
-            self.font_size_var.set("12")
+        except (ValueError, AttributeError):
+            # Invalid multiplier, revert to current value
+            self.font_multiplier_var.set(f"{self.font_multiplier:.2f}")
+    
+    def adjust_font_multiplier(self, delta):
+        """Adjust font multiplier by a delta amount."""
+        new_multiplier = max(0.5, min(3.0, self.font_multiplier + delta))
+        self.font_multiplier = new_multiplier
+        self.font_multiplier_var.set(f"{new_multiplier:.2f}")
+        # Apply changes (this will update both plot and UI fonts)
+        self.on_font_multiplier_changed()
+    
+    def update_font_size_info(self):
+        """Update the info label showing current effective font size."""
+        if hasattr(self, 'font_size_info_label'):
+            effective_size = int(12 * self.base_font_scale * self.font_multiplier)
+            self.font_size_info_label.config(
+                text=f"Effective base size: {effective_size}pt (DPI scale: {self.base_font_scale:.2f}x, Multiplier: {self.font_multiplier:.2f}x)"
+            )
         
     def update_metrics_display(self):
         """Update the metrics display based on current comparison."""
