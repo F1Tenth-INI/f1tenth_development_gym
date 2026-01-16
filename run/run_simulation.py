@@ -226,18 +226,30 @@ class RacingSimulation:
             self.respawn()
             return
         
-        # Normal reset
-        self.episode_index = 0
-
         #TODO: add alpha scaling according to progress
         if self.curriculum_supervisor is not None:
-            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
-            self.curriculum_supervisor.update_difficulty()
-            self.curriculum_supervisor.adjust_speed(speed_max = 1.1) #TODO: is there some universal max speed factor i should have
+            # self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
+            # self.curriculum_supervisor.update_difficulty_linear()
+            # self.curriculum_supervisor.adjust_speed(speed_max = 1.1) #TODO: is there some universal max speed factor i should have
 
+            # print("[DEBUG] Episode Index:", self.episode_index)
+            # print("[DEBUG] Value:", (int(self.episode_index >= Settings.MAX_EPISODE_LENGTH)))
+            intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+            #TODO: ask, is it not possible that this is just EXPERIMENT_MAX_LENGTH = 8000  from Settings
+            self.curriculum_supervisor.update_completed_episodes(int(self.episode_index >= intermediate_steps * Settings.MAX_EPISODE_LENGTH))
+            print(self.curriculum_supervisor.completed_episodes)
+            self.curriculum_supervisor.calculate_success_rate()
+            self.curriculum_supervisor.update_difficulty_dynamic()
+
+            self.curriculum_supervisor.adjust_speed(speed_max = 1.1)
+
+            # self.curriculum_supervisor.adjust_speed_cap
             # print("Current Curriculum Difficulty:", self.difficulty)
             # print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
         
+         # Normal reset
+        self.episode_index = 0
+
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
         self.control_delay_buffer.clear()

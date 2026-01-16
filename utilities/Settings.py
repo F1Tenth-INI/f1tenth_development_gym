@@ -210,6 +210,9 @@ class Settings():
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
 
+    SAC_SPEED_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
+    SAC_SPEED_CAP = 3.0
+
     
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

@@ -10,15 +10,16 @@ RATIOS=(0.0) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 NSTEPS=(1)
 # CURRICULUM_START=(0.5 0.3 0.7)
 CURRICULUM_T2=(0.5 0.8)
+BASELINE_T2 = 0.8
 
-# SOURCE_MODEL="Example-1"
-# SOURCE_MODEL_SHORT="Ex1"
-# NEW_MAP_NAME="RCA2"
-
-SOURCE_MODEL="Curriculum1PC"
-SOURCE_MODEL_SHORT="Cur1"
+SOURCE_MODEL="Example-1"
+SOURCE_MODEL_SHORT="Ex1"
 NEW_MAP_NAME="RCA2"
-CURRICULUM_START=0.5
+
+# SOURCE_MODEL="Curriculum1PC"
+# SOURCE_MODEL_SHORT="Cur1"
+# NEW_MAP_NAME="RCA2"
+CURRCULUM_START=0.5
 
 # Loop
 for alpha in "${ALPHAS[@]}"; do
@@ -57,26 +58,26 @@ for alpha in "${ALPHAS[@]}"; do
   done
 done
  
-for index in 1 2 3 4 5 6; do
-  MODEL_NAME="Sweep_BETTER_Cur_from_${SOURCE_MODEL_SHORT}_A0.0_CUR_T20.0__Run${index}"
-  echo "=================================================="
-  echo " STARTING: $MODEL_NAME"
-  echo " Alpha: 0.0 | Beta: 0.4 | Ratio: 0.0"
-  echo "=================================================="
+# for index in 1 2 3 4 5 6; do
+#   MODEL_NAME="Sweep_BETTER_Cur_from_${SOURCE_MODEL_SHORT}_A0.0_CUR_T20.0__Run${index}"
+#   echo "=================================================="
+#   echo " STARTING: $MODEL_NAME"
+#   echo " Alpha: 0.0 | Beta: 0.4 | Ratio: 0.0"
+#   echo "=================================================="
 
-  python -u TrainingLite/rl_racing/run_training.py \
-    --auto-start-client \
-    --USE_CUSTOM_SAC_SAMPLING True \
-    --device cpu \
-    --SIMULATION_LENGTH 50000 \
-    --load-model-name "$SOURCE_MODEL" \
-    --save-model-name "$MODEL_NAME" \
-    --MAP_NAME "$NEW_MAP_NAME" \
-    --alpha 0.0 \
-    --beta_start 0.4 \
-    --td_ratio 0.0 \
-    --SAC_SPEED_CURRICULUM_LEARNING False \
-    --SAC_CURRICULUM_T2 $CURRICULUM_START \
+#   python -u TrainingLite/rl_racing/run_training.py \
+#     --auto-start-client \
+#     --USE_CUSTOM_SAC_SAMPLING True \
+#     --device cpu \
+#     --SIMULATION_LENGTH 50000 \
+#     --load-model-name "$SOURCE_MODEL" \
+#     --save-model-name "$MODEL_NAME" \
+#     --MAP_NAME "$NEW_MAP_NAME" \
+#     --alpha 0.0 \
+#     --beta_start 0.4 \
+#     --td_ratio 0.0 \
+#     --SAC_SPEED_CURRICULUM_LEARNING False \
+#     --SAC_CURRICULUM_T2 $BASELINE_T2 \
 
-  sleep 5
-done
+#   sleep 5
+# done

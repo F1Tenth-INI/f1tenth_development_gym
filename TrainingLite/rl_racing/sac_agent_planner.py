@@ -205,6 +205,10 @@ class RLAgentPlanner(template_planner):
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
 
+        #TODO: nikita: add clipping here
+        if Settings.SAC_SPEED_CURRICULUM_LEARNING:
+            accel = np.clip(accel, -Settings.SAC_SPEED_CAP, Settings.SAC_SPEED_CAP)
+
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
         self.prev_action  = action
