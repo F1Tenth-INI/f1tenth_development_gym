@@ -1,0 +1,11 @@
+RPGD driving on IPZ20 (The Track)
+always driving as fast as possible ( not  reliably or accurately ) on the same track while recording
+After every recording: 
+- stopped the car
+- Retrained the residual network
+- Restart RPGD
+- Continued driving
+
+Laptimes beteen 6.6 and 9s
+
+Also one file is driven by hand
