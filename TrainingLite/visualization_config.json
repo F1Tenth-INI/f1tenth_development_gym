@@ -1,9 +1,0 @@
-{
-  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/AnalyseData/PhysicalData/2025_10_10/IPZ8_rpgd/2025-10-10_02-08-52_Recording1_0_IPZ8_rpgd-lite-jax_25Hz_vel_1.0_noise_c[0.0, 0.0]_mu_None_mu_c_None_.csv",
-  "start_index": 500,
-  "end_index": 1000,
-  "horizon_steps": 50,
-  "steering_delay_steps": 0,
-  "acceleration_delay_steps": 0,
-  "font_multiplier": 1.5
-}
