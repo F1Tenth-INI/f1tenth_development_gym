@@ -20,7 +20,7 @@ class CurriculumSupervisor:
 
         self.dynamic_difficulty_step = 0.05
 
-        self.speed_adjust_mode = 'vel_factor' # 'vel_factor' or 'speed_cap'
+        self.speed_adjust_mode = Settings.SAC_CURRICULUM_SPEED_ADJUST_MODE # 'vel_factor' or 'speed_cap'
 
 
     def update_progress(self, progress):
@@ -29,6 +29,7 @@ class CurriculumSupervisor:
     def get_progress(self):
         return self.progress
     
+
     #TODO: maybe update difficulty should be one function, with param for linear vs dynamic
     def update_difficulty_linear(self):
         if self.progress <= self.sac_curriculum_t1:
@@ -41,8 +42,24 @@ class CurriculumSupervisor:
 
         if self.debug:
             print(f"[Curriculum Debug] Progress: {self.progress:.3f} | Difficulty: {self.difficulty:.3f}")
-            
         return self.difficulty
+    
+    def update_difficulty_dynamic(self):
+        # Placeholder for dynamic difficulty adjustment based on success rate
+        if self.difficulty >= self.max_difficulty:
+            print("Already at max difficulty, not sure what to do here yet")
+            return
+
+        if self.success_rate > 0.5:
+            print("i would adjust difficulty up")
+            self.difficulty += self.dynamic_difficulty_step
+            self.difficulty = min(self.difficulty, self.max_difficulty)
+            self.clear_completed_episodes()
+
+        if self.debug:
+            print(f"[Curriculum Debug] Success rate:: {self.success_rate:.3f} | Difficulty: {self.difficulty:.3f}")
+        return self.difficulty
+
 
     def get_difficulty(self):
         return self.difficulty
@@ -53,14 +70,16 @@ class CurriculumSupervisor:
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR = velocity_factor
             if self.debug:
                 print(f"[Curriculum Debug] New Velocity Factor: {velocity_factor:.3f}")
+            return velocity_factor
         if self.speed_adjust_mode == 'speed_cap':
-            Settings.SAC_SPEED_CAP = self.difficulty * Settings.SAC_SPEED_CAP_MAX
+            new_speed_cap = self.difficulty * Settings.SAC_SPEED_CAP_MAX
+            Settings.SAC_SPEED_CAP = new_speed_cap
             # if speed_cap > speed_max:
             #     speed_cap = speed_max
             # Settings.GLOBAL_WAYPOINT_SPEED_CAP = speed_cap
             if self.debug:
                 print(f"[Curriculum Debug] New Speed Cap: {Settings.SAC_SPEED_CAP:.3f}")
-        return velocity_factor
+            return new_speed_cap
     
     def update_completed_episodes(self, success):
         self.completed_episodes[self.completed_episodes_counter] = success
@@ -79,19 +98,3 @@ class CurriculumSupervisor:
         self.success_rate = np.mean(self.completed_episodes)
         print("Current success rate:", self.success_rate)
         return self.success_rate
-
-    def update_difficulty_dynamic(self):
-        # Placeholder for dynamic difficulty adjustment based on success rate
-        if self.difficulty >= self.max_difficulty:
-            print("Already at max difficulty, not sure what to do here yet")
-            return
-
-        if self.success_rate > 0.5:
-            print("i would adjust difficulty up")
-            self.difficulty += self.dynamic_difficulty_step
-            self.clear_completed_episodes()
-
-        if self.debug:
-            print(f"[Curriculum Debug] Success rate:: {self.success_rate:.3f}) | Difficulty: {self.difficulty:.3f}")
-        
-        return self.difficulty

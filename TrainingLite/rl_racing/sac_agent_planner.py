@@ -207,7 +207,7 @@ class RLAgentPlanner(template_planner):
 
         #TODO: nikita: add clipping here
         if Settings.SAC_SPEED_CURRICULUM_LEARNING:
-            accel = np.clip(accel, -Settings.SAC_SPEED_CAP, Settings.SAC_SPEED_CAP)
+            accel = np.clip(accel, -np.inf, Settings.SAC_SPEED_CAP)
 
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs

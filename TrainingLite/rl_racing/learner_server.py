@@ -384,6 +384,7 @@ class LearnerServer:
         #used for n-step buffer, for standard buffer set = 1
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
         # self.n_step_discount_factor = self.discount_factor ** self.n_step
+        self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
 
 
         # file paths: default save name fallback
@@ -785,7 +786,7 @@ class LearnerServer:
                 log_ent_coef = getattr(self.model, "log_ent_coef", None)
                 ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
 
-                if self.replay_buffer.dynamic_importance_sampling_corrector:
+                if self.custom_sampling and self.replay_buffer.dynamic_importance_sampling_corrector:
                     progress = min(1, self.total_actor_timesteps / self.replay_buffer.beta_annealing_horizon)
                     self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
                     print("Beta has been updated to: " + str(self.replay_buffer.beta))

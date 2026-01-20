@@ -85,7 +85,7 @@ class RacingSimulation:
         if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and Settings.SAC_SPEED_CURRICULUM_LEARNING:
             self.curriculum_supervisor = CurriculumSupervisor(
                 initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,
-                max_difficulty = 1.0,
+                max_difficulty = Settings.SAC_CURRICULUM_MAX_DIFFICULTY,
                 sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1,
                 sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2,
                 debug = Settings.SAC_CURRICULUM_DEBUG
