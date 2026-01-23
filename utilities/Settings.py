@@ -206,9 +206,13 @@ class Settings():
     SAC_CURRICULUM_DEBUG = True
 
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.3 
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.4
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
+    SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
+
+
+    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
 
     SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
     SAC_ACCEL_CAP = 3.0
