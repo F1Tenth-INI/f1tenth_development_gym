@@ -235,11 +235,17 @@ class RacingSimulation:
             # print("[DEBUG] Episode Index:", self.episode_index)
             # print("[DEBUG] Value:", (int(self.episode_index >= Settings.MAX_EPISODE_LENGTH)))
             intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+
+            """SUCCESS RATE VERSION"""
             #TODO: ask, is it not possible that this is just EXPERIMENT_MAX_LENGTH = 8000  from Settings
-            self.curriculum_supervisor.update_completed_episodes(int(self.episode_index >= intermediate_steps * Settings.MAX_EPISODE_LENGTH))
-            print(self.curriculum_supervisor.completed_episodes)
-            self.curriculum_supervisor.calculate_success_rate()
-            self.curriculum_supervisor.update_difficulty_dynamic()
+            # self.curriculum_supervisor.update_completed_episodes(int(self.episode_index >= intermediate_steps * Settings.MAX_EPISODE_LENGTH))
+            # print(self.curriculum_supervisor.completed_episodes)
+            # self.curriculum_supervisor.calculate_success_rate()
+            # self.curriculum_supervisor.update_difficulty_dynamic()
+            """SUCCESS RATE VERSION END """
+
+            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
+            self.curriculum_supervisor.update_difficulty_linear()
 
             self.curriculum_supervisor.adjust_speed(speed_max = 1.1)
 

@@ -20,7 +20,7 @@ class CurriculumSupervisor:
 
         self.dynamic_difficulty_step = 0.05
 
-        self.speed_adjust_mode = 'vel_factor' # 'vel_factor' or 'speed_cap'
+        self.speed_adjust_mode = 'speed_cap' # 'vel_factor' or 'speed_cap' or 'accel_cap
 
 
     def update_progress(self, progress):
@@ -53,14 +53,18 @@ class CurriculumSupervisor:
             Settings.GLOBAL_WAYPOINT_VEL_FACTOR = velocity_factor
             if self.debug:
                 print(f"[Curriculum Debug] New Velocity Factor: {velocity_factor:.3f}")
-        if self.speed_adjust_mode == 'speed_cap':
-            Settings.SAC_SPEED_CAP = self.difficulty * Settings.SAC_SPEED_CAP_MAX
+        if self.speed_adjust_mode == 'accel_cap':
+            Settings.SAC_ACCEL_CAP = self.difficulty * Settings.SAC_ACCEL_CAP_MAX
             # if speed_cap > speed_max:
             #     speed_cap = speed_max
             # Settings.GLOBAL_WAYPOINT_SPEED_CAP = speed_cap
             if self.debug:
-                print(f"[Curriculum Debug] New Speed Cap: {Settings.SAC_SPEED_CAP:.3f}")
-        return velocity_factor
+                print(f"[Curriculum Debug] New acceleration Cap: {Settings.SAC_ACCEL_CAP:.3f}")
+        if self.speed_adjust_mode == 'speed_cap':
+            Settings.SAC_CURRICULUM_SPEED_LIMIT = self.difficulty * Settings.SAC_CURRICULUM_SPEED_LIMIT_MAX
+            if self.debug:
+                print(f"[Curriculum Debug] New Speed Cap: {Settings.SAC_CURRICULUM_SPEED_LIMIT:.3f}")
+        return
     
     def update_completed_episodes(self, success):
         self.completed_episodes[self.completed_episodes_counter] = success
