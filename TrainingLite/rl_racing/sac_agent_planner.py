@@ -76,9 +76,9 @@ class RLAgentPlanner(template_planner):
         self.training_mode = (self.inference_model_name is None)  # Training mode if no inference model specified
         
         if self.training_mode:
-            print(f"[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
+            print(f"\n[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
         else:
-            print(f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
+            print(f"\n[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
 
 
         self.clear_buffer_on_reset = True
@@ -94,7 +94,7 @@ class RLAgentPlanner(template_planner):
             # Send clear buffer message on initialization
             if self.clear_buffer_on_reset:
                 self.client.send_clear_buffer()
-                print("[RLAgentPlanner] Sent clear buffer message to server")
+                print("\n[RLAgentPlanner] Sent clear buffer message to server")
 
         # Initialization of SAC utilities
         dummy_env = SacUtilities.create_vec_env()
@@ -179,9 +179,9 @@ class RLAgentPlanner(template_planner):
                     self.model.policy.actor.load_state_dict(sd, strict=True)
                     self.model.policy.actor.eval()
                     self._received_weights = True
-                    print("[RLAgentPlanner] ✅ Actor weights updated.")
+                    print("\n[RLAgentPlanner] ✅ Actor weights updated.")
                 except Exception as e:
-                    print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
+                    print(f"\n[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
 
 
         # --- build raw obs (manual normalization happens inside) ---
@@ -196,7 +196,7 @@ class RLAgentPlanner(template_planner):
             action = np.asarray(action, dtype=np.float32).reshape(-1)
         else:
             if not self._warned_no_weights:
-                print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
+                print("\n[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
                 self._warned_no_weights = True
             action = self._fallback_action()
 
@@ -282,17 +282,17 @@ class RLAgentPlanner(template_planner):
                         self.client.send_transition_batch(self._episode)
                         self.total_sent += len(self._episode)
                         total_reward = sum(t["reward"] for t in self._episode)
-                        print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
+                        print(f"\n[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
                     
                 except Exception as e:
-                    print(f"[RLAgentPlanner] Failed to send episode: {e}")
+                    print(f"\n[RLAgentPlanner] Failed to send episode: {e}")
                 finally:
                     self._episode = []
                     self.control_index = 0
                     self.prev_obs_raw = None
                     self.prev_action = None
             else:
-                print(f"[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
+                print(f"\n[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
@@ -300,9 +300,9 @@ class RLAgentPlanner(template_planner):
             if self.training_mode and hasattr(self, 'client') and self.client is not None:
                 try:
                     self.client.send_terminate()
-                    print("[RLAgentPlanner] Sent terminate message to server")
+                    print("\n[RLAgentPlanner] Sent terminate message to server")
                 except Exception as e:
-                    print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+                    print(f"\n[RLAgentPlanner] Failed to send terminate message: {e}")
         
         
     def get_total_progress(self):

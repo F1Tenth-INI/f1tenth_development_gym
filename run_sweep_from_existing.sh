@@ -19,6 +19,7 @@ BASELINE_T2=0.8
 SOURCE_MODEL="Curriculum1PC"
 SOURCE_MODEL_SHORT="Cur1"
 NEW_MAP_NAME="RCA2"
+
 CURRCULUM_START=0.5
 
 # CURRICULUM_TYPE=()
@@ -62,9 +63,9 @@ USE_SPEED_CURRICULUM_LIST=(True False)
 #     done
 #   done
 # done
-for curriculum in "${USE_SPEED_CURRICULUM_LIST[@]}"; do
-  for index in 1 2 3; do
-    MODEL_NAME="Sweep_speed_cap_Cur_from_${SOURCE_MODEL_SHORT}_A0.0_CUR_T20.0__Run${index}"
+for index in 1 2 3; do
+  for curriculum in "${USE_SPEED_CURRICULUM_LIST[@]}"; do
+    MODEL_NAME="Sweep_Cur_20_${curriculum}_from_${SOURCE_MODEL_SHORT}_A0.0_T20.0__Run${index}"
     echo "=================================================="
     echo " STARTING: $MODEL_NAME"
     echo " Alpha: 0.0 | Beta: 0.4 | Ratio: 0.0"
@@ -74,7 +75,7 @@ for curriculum in "${USE_SPEED_CURRICULUM_LIST[@]}"; do
       --auto-start-client \
       --USE_CUSTOM_SAC_SAMPLING False \
       --device cpu \
-      --SIMULATION_LENGTH 50000 \
+      --SIMULATION_LENGTH 75000 \
       --load-model-name "$SOURCE_MODEL" \
       --save-model-name "$MODEL_NAME" \
       --MAP_NAME "$NEW_MAP_NAME" \

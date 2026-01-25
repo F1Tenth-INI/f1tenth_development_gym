@@ -50,7 +50,7 @@ class CustomReplayBuffer(ReplayBuffer):
         self.initial_beta = self.beta
         self.beta_end = 1.0
         self.beta_annealing_horizon = Settings.SAC_BETA_ANNEALING_RATIO * Settings.SIMULATION_LENGTH
-        self.state_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6 # Initialize with small non-zero values to avoid zero-sum edge cases
+        self.state_weights = np.ones(self.buffer_size, dtype=np.float64) * 1e-6 # Initialize with small values to avoid zero div
         self.importance_sampling_correctors = np.ones(self.buffer_size, dtype=np.float64)
         self.batch_is_correctors = None
 
@@ -68,11 +68,10 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.steps_taken = np.ones(self.buffer_size, dtype=np.int32)
 
+        # if 
 
         ###FOR DEBUGGING
-        self.counter = 0
-
-        
+        self.counter = 0     
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
@@ -81,6 +80,9 @@ class CustomReplayBuffer(ReplayBuffer):
         """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
         # --> actual weighting computation is only within this function
         super().add(obs, next_obs, action, reward, done, infos)
+
+        if not self.custom_sampling:
+            return
 
         #handle special pos index for SB3
         try:
@@ -103,9 +105,10 @@ class CustomReplayBuffer(ReplayBuffer):
         e = obs[-1]
         # rew = self.rewards[idx, 0] + 1
         rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
+
         # Scale the reward contribution to the priority by the number of steps in the n-step transition.
-        # Without this, longer n-step transitions (larger aggregated rewards) are over-prioritised,
-        # which can destabilize training. Use per-step average reward for priority computation.
+        # Without this, longer n-step transitions are over-prioritised.
+        # Use per-step average reward for priority computation.
         try:
             reward_per_step = float(rew) / max(1, int(steps_taken))
         except Exception:
@@ -153,7 +156,6 @@ class CustomReplayBuffer(ReplayBuffer):
             possible_inds = np.arange(self.pos)
 
         length = len(possible_inds)
-        uniform_p = np.ones(length) / length
 
         # Use stored per-transition weights for sampling instead of recomputing from obs
         w_vec = self.state_weights[possible_inds].astype(np.float64)
@@ -265,6 +267,7 @@ class CustomReplayBuffer(ReplayBuffer):
 
         return self._get_samples(batch_inds, env=env)
     
+
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
         
         if not self.custom_sampling:
@@ -530,14 +533,18 @@ class LearnerServer:
             return 0
         n_added = 0
         for ep in episodes:
-            transitions = self._compute_n_step_transitions(ep)
+            if self.n_step == 1:
+                transitions = ep
+            else:
+                transitions = self._compute_n_step_transitions(ep)
+                
             for t in transitions:
                 obs = t["obs"].astype(np.float32)
                 next_obs = t["next_obs"].astype(np.float32)
                 action = t["action"].astype(np.float32)
                 reward = float(t["reward"])
                 done = bool(t["done"])
-                steps_taken = t["steps_taken"]
+                steps_taken = t.get("steps_taken", 1)  # Default to 1 for non-n-step transitions
                 # normalize obs like SB3 would during collection
                 obs = self._normalize_obs(obs)
                 next_obs = self._normalize_obs(next_obs)
@@ -729,8 +736,8 @@ class LearnerServer:
             episodes = self.episode_buffer.drain_all()
 
             n_added = self._ingest_episodes_into_replay(episodes)
-            if( n_added > 0 ):
-                print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
+            if n_added > 0:
+                print(f"\n[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
                 
             # =================================================================
@@ -766,7 +773,7 @@ class LearnerServer:
                 grad_steps = self.grad_steps
 
 
-                print(f"[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
+                print(f"\n[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
                 time_start_training = time.time()
 
 
@@ -956,7 +963,7 @@ class LearnerServer:
                     "total_timesteps": self.total_actor_timesteps,
                     "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
                 }
-                print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
+                print(f"\n[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 if(len(episodes) > 0):
                     print(log_dict)
                     self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
@@ -964,7 +971,7 @@ class LearnerServer:
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
                 await self._broadcast_weights(new_blob)
-                print("[server] Trained SAC and broadcast updated actor weights.")
+                print("\n[server] Trained SAC and broadcast updated actor weights.")
 
                 try:
                     target = os.path.join(self.model_dir, str(self.save_model_name))
