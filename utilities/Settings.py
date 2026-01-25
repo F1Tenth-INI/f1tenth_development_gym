@@ -205,20 +205,22 @@ class Settings():
     SAC_SPEED_CURRICULUM_LEARNING = True
     SAC_CURRICULUM_DEBUG = True
 
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.4
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
     SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
 
-    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
+    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed_cap' or 'vel_factor'
 
     SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
     SAC_ACCEL_CAP = 3.0
 
-    SAC_CURRICULUM_SPEED_LIMIT_MAX = 10 #absolute max speed limit during curriculum learning
-    SAC_CURRICULUM_SPEED_LIMIT = 10
+    SAC_CURRICULUM_SPEED_LIMIT_MAX = 20 #absolute max speed limit during curriculum learning
+    SAC_CURRICULUM_SPEED_LIMIT = 20
+
+    SAC_STAT_TRACKER = True
 
     
     ## Friction ##

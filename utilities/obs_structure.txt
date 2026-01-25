@@ -1,0 +1,21 @@
+# State features
+obs[0]  # velocity x
+obs[1]  # velocity y
+obs[2]  # angular velocity z
+obs[3]  # steering angle
+
+# Curvatures (waypoint curvatures for next 15 waypoints)
+obs[4:34]  # 30 values
+
+# Border points (relative positions of track borders)
+obs[34:154]  # 120 values (right border 60 + left border 60)
+
+# Last 3 actions
+obs[154:160]  # 6 values
+
+# Frenet coordinates
+obs[160]  # lateral offset (d)
+obs[161]  # heading error (e)
+
+# Velocity factor
+obs[162]  # Settings.GLOBAL_WAYPOINT_VEL_FACTOR

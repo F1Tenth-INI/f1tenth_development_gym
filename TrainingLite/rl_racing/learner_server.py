@@ -22,6 +22,8 @@ from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, Tra
 
 from utilities.Settings import Settings
 
+from utilities.StatTracker import StatTracker
+
 from stable_baselines3.common.type_aliases import ReplayBufferSamples
 
 from dataclasses import dataclass
@@ -76,13 +78,16 @@ class CustomReplayBuffer(ReplayBuffer):
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
 
+        if Settings.SAC_STAT_TRACKER:
+            self.stat_tracker = StatTracker()
+        else:
+            self.stat_tracker = None
+
+
     def add(self, obs, next_obs, action, reward, done, infos, steps_taken: int):
         """Override SB3 add so that the weight can be computed once per transition, and then stored in the buffer"""
         # --> actual weighting computation is only within this function
         super().add(obs, next_obs, action, reward, done, infos)
-
-        if not self.custom_sampling:
-            return
 
         #handle special pos index for SB3
         try:
@@ -90,6 +95,16 @@ class CustomReplayBuffer(ReplayBuffer):
         except Exception:
             return
         
+        # Extract newest unnormalized observation added by super().add()
+        obs = self.observations[idx, 0, :]
+
+        if self.stat_tracker is not None:
+            self.stat_tracker.register_transition(obs, idx, reward, done) #gets the unnormalized obs directly
+            # self.stat_tracker.print_stats()
+
+        if not self.custom_sampling:
+            return
+
         #store steps taken for each transition over whole buffer
         self.steps_taken[idx] = steps_taken
 
@@ -97,9 +112,7 @@ class CustomReplayBuffer(ReplayBuffer):
         #TODO: option to have this be able to be set in settings
         self.TD_weights[idx] = self.new_weight_priority
 
-        # Extract newest observation added by super().add()
-        obs = self.observations[idx, 0, :]
-
+        #TODO: the observations are normalized, is that bad or not?
         #compute weight
         d = obs[-2]
         e = obs[-1]
@@ -269,7 +282,10 @@ class CustomReplayBuffer(ReplayBuffer):
     
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
-        
+
+        if self.stat_tracker is not None:
+            self.stat_tracker.batch_update_sample_count(batch_inds)
+
         if not self.custom_sampling:
             samples = super()._get_samples(batch_inds, env=env)
             steps_taken = self.to_torch(self.steps_taken[batch_inds].reshape(-1, 1))
@@ -304,6 +320,7 @@ class CustomReplayBuffer(ReplayBuffer):
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
         )
 
+        
         return WeightedReplayBufferSamples(*tuple(map(self.to_torch, data)), 
                                            is_weights = self.to_torch(self.batch_is_correctors),
                                            steps_taken = self.to_torch(steps_taken),
@@ -797,6 +814,9 @@ class LearnerServer:
                     progress = min(1, self.total_actor_timesteps / self.replay_buffer.beta_annealing_horizon)
                     self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
                     print("Beta has been updated to: " + str(self.replay_buffer.beta))
+
+                if self.replay_buffer.stat_tracker is not None:
+                    self.replay_buffer.stat_tracker.print_stats()
                                 
                 for step in range(grad_steps):
                     
