@@ -39,7 +39,7 @@ class Settings():
     SAVE_RECORDINGS = False
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = False
+    SAVE_VIDEOS = True #False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -147,8 +147,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE =None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -176,7 +176,17 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
+   
 
+    SAC_SPEED_CURRICULUM_LEARNING = True
+    SAC_CURRICULUM_DEBUG = True
+
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.5 
+    SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
+    SAC_CURRICULUM_T2 = 0.8
+
+    
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
     

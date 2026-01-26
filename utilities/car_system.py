@@ -175,6 +175,8 @@ class CarSystem:
 
         self.backward_predictor = None
         
+        self.backward_predictor = None
+        
         if(not Settings.ROS_BRIDGE):
             self.start_recorder()
 
