@@ -1,0 +1,2 @@
+Example file for racing on map RCA1
+Trained without noise.
