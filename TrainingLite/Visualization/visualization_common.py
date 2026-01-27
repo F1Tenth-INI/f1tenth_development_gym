@@ -98,12 +98,22 @@ class VisualizationCommon:
     def load_car_parameters(self, param_file):
         """Load car parameters from YAML file."""
         try:
+            # Always create a fresh instance to avoid any caching
             vehicle_params = VehicleParameters(param_file)
             params_array = vehicle_params.to_np_array()
-            print(f"Loaded car parameters from {param_file} - array length: {len(params_array)}")
+            
+            # Print key parameters to verify they're different
+            if len(params_array) >= 15:
+                mu = params_array[0]
+                C_Pf_B = params_array[7]  # First Pacejka front parameter
+                I_z = params_array[5]
+                print(f"Loaded parameters from {param_file}: mu={mu:.3f}, C_Pf_B={C_Pf_B:.3f}, I_z={I_z:.4f}")
+            
             return params_array
         except Exception as e:
-            print(f"Error loading car parameters: {e}")
+            print(f"Error loading car parameters from {param_file}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def get_model_key(self, display_name):
@@ -202,7 +212,7 @@ class VisualizationCommon:
             
             car_model = self.car_models[model_name]
             
-            # Update car params if provided
+            # Update car params if provided - ALWAYS update to ensure fresh parameters
             if car_params is not None:
                 car_model.car_params = jnp.array(car_params)
             
@@ -244,6 +254,18 @@ class VisualizationCommon:
             car_params = self.load_car_parameters(param_file)
             if car_params is None:
                 return None
+            # Debug: print concise parameter summary to confirm usage
+            try:
+                mu, lf, lr, h_cg, m, I_z, g_ = car_params[:7]
+                B_f, C_f, D_f, E_f = car_params[7:11]
+                B_r, C_r, D_r, E_r = car_params[11:15]
+                servo_p, s_min, s_max, sv_min, sv_max = car_params[15:20]
+                a_min, a_max, v_min, v_max, v_switch = car_params[20:25]
+                c_rr = car_params[25]
+                v_dead, curve_resistance_factor, brake_multiplier = car_params[26:29]
+                print(f"[Viz] Params '{param_file}': mu={mu:.3f}, lf={lf:.3f}, lr={lr:.3f}, m={m:.1f}, Bf={B_f:.3f}, Cf={C_f:.2f}, Dr={D_r:.2f}, c_rr={c_rr:.4f}, brake_mult={brake_multiplier:.2f}")
+            except Exception:
+                pass
             
             # Prepare initial state and controls with delay
             initial_state = self.extract_initial_state_at_index(start_index)

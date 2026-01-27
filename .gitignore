@@ -91,3 +91,5 @@ ppo_models/*
 
 TrainingLite/dynamic_residual_jax/training_data
 TrainingLite/dynamic_residual_jax/data_analysis
+
+AnalyseData/PhysicalData/2026_01_16/plots_offline/

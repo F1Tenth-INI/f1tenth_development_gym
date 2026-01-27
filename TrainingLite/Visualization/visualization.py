@@ -64,8 +64,8 @@ class StateComparisonVisualizer:
         # Initialize common utilities
         self.common = VisualizationCommon()
         
-        # Config file path
-        vis_dir = os.path.join(parent_dir, 'TrainingLite', 'Visualization')
+        # Config file path - use the directory where this script is located
+        vis_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_file_path = os.path.join(vis_dir, 'visualization_config.json')
         
         # Initialize tkinter UI
@@ -86,7 +86,7 @@ class StateComparisonVisualizer:
         
         # Data storage - delegate to common
         self.data = self.common.data
-        self.csv_file_path = self.common.csv_file_path
+        self.csv_file_path = self.common.csv_file_path or ''  # Ensure it's a string, not None
         self.time_column = self.common.time_column
         self.state_columns = self.common.state_columns
         self.control_columns = self.common.control_columns
@@ -144,6 +144,9 @@ class StateComparisonVisualizer:
         
         # Load config file if it exists
         self.load_config()
+
+        # Initialize car parameter file watcher
+        self._init_param_file_watch()
     
     def _reload_car_models(self):
         """Force reload modules and recreate car model instances."""
@@ -299,6 +302,13 @@ class StateComparisonVisualizer:
         # Cancel any pending slider updates
         if self.slider_update_timer is not None:
             self.root.after_cancel(self.slider_update_timer)
+
+        # Cancel parameter file watcher
+        if hasattr(self, '_param_watch_timer') and self._param_watch_timer is not None:
+            try:
+                self.root.after_cancel(self._param_watch_timer)
+            except Exception:
+                pass
         
         # Save config before closing
         self.save_config()
@@ -316,28 +326,43 @@ class StateComparisonVisualizer:
             
             # Load CSV file
             csv_path = config.get('csv_file_path', '')
-            if csv_path and os.path.exists(csv_path):
-                self.data = pd.read_csv(csv_path, comment='#')
-                self.csv_file_path = csv_path
-                self.common.data = self.data  # Sync to common
-                self.common.csv_file_path = csv_path
+            
+            if csv_path:
+                # Convert to absolute path for consistency
+                if not os.path.isabs(csv_path):
+                    csv_path = os.path.abspath(csv_path)
                 
-                self.file_label.config(text=f"Loaded: {os.path.basename(csv_path)}")
-                
-                available_states = [col for col in self.state_columns if col in self.data.columns]
-                self.state_combo['values'] = available_states
-                if available_states:
-                    self.state_var.set(available_states[0])
-                
-                # Update other data combo box with all CSV columns
-                all_columns = list(self.data.columns)
-                if hasattr(self, 'other_data_combo'):
-                    self.other_data_combo['values'] = all_columns
-                    self.other_data_var.set("")  # Reset to empty (default)
-                
-                # Enable reload button
-                if hasattr(self, 'reload_button'):
-                    self.reload_button.config(state='normal')
+                if os.path.exists(csv_path):
+                    self.data = pd.read_csv(csv_path, comment='#')
+                    self.csv_file_path = csv_path
+                    self.common.data = self.data
+                    self.common.csv_file_path = csv_path
+                    
+                    self.file_label.config(text=f"Loaded: {os.path.basename(csv_path)}")
+                    print(f"Loaded CSV from config: {csv_path}")
+                    
+                    available_states = [col for col in self.state_columns if col in self.data.columns]
+                    self.state_combo['values'] = available_states
+                    # Restore selected state if present and valid
+                    cfg_state = config.get('state_name')
+                    if cfg_state and cfg_state in available_states:
+                        self.state_var.set(cfg_state)
+                    elif available_states:
+                        self.state_var.set(available_states[0])
+                    
+                    # Update other data combo box with all CSV columns
+                    all_columns = list(self.data.columns)
+                    if hasattr(self, 'other_data_combo'):
+                        self.other_data_combo['values'] = all_columns
+                        self.other_data_var.set("")  # Reset to empty (default)
+                    
+                    # Enable reload button
+                    if hasattr(self, 'reload_button'):
+                        self.reload_button.config(state='normal')
+                else:
+                    print(f"Warning: CSV file in config does not exist: {csv_path}")
+            else:
+                print("No CSV file path in config")
             
             # Load settings
             self.start_index = config.get('start_index', 0)
@@ -380,6 +405,41 @@ class StateComparisonVisualizer:
                 # Set default if not already set
                 if self.available_car_params:
                     self.params_var.set(list(self.available_car_params.values())[0])
+
+            # Restore UI toggles and selections
+            try:
+                if hasattr(self, 'enable_comparison'):
+                    self.enable_comparison.set(bool(config.get('enable_comparison', True)))
+                if hasattr(self, 'show_controls'):
+                    self.show_controls.set(bool(config.get('show_controls', False)))
+                if hasattr(self, 'show_delta_state'):
+                    self.show_delta_state.set(bool(config.get('show_delta_state', False)))
+                if hasattr(self, 'show_all_comparisons'):
+                    self.show_all_comparisons.set(bool(config.get('show_all_comparisons', False)))
+                if hasattr(self, 'sync_scales'):
+                    self.sync_scales.set(bool(config.get('sync_scales', False)))
+                if hasattr(self, 'show_metrics'):
+                    self.show_metrics.set(bool(config.get('show_metrics', True)))
+                # Restore selected other data columns that still exist
+                if self.data is not None and hasattr(self, 'other_data_combo'):
+                    all_columns = list(self.data.columns)
+                    sel_other = config.get('selected_other_data', []) or []
+                    self.selected_other_data = [c for c in sel_other if c in all_columns]
+                    if hasattr(self, 'other_data_listbox'):
+                        self.update_other_data_listbox()
+                # Restore comparison slider position (validated later)
+                if hasattr(self, 'comparison_start_var'):
+                    self.comparison_start_var.set(int(config.get('comparison_start_index', 0)))
+            except Exception:
+                pass
+            # Apply UI layout updates based on restored toggles
+            try:
+                if hasattr(self, '_update_plot_layout'):
+                    self._update_plot_layout()
+                if hasattr(self, 'on_show_all_comparisons_toggled'):
+                    self.on_show_all_comparisons_toggled()
+            except Exception:
+                pass
             
             if self.data is not None and hasattr(self, 'comparison_slider'):
                 self.update_comparison_slider_range()
@@ -396,14 +456,31 @@ class StateComparisonVisualizer:
                     return int(val) if val and val.isdigit() else default
                 return default
             
+            # Get csv_file_path - use self.csv_file_path directly
+            csv_path = str(self.csv_file_path) if self.csv_file_path else ''
+            
+            # Ensure config directory exists
+            config_dir = os.path.dirname(self.config_file_path)
+            if config_dir and not os.path.exists(config_dir):
+                os.makedirs(config_dir, exist_ok=True)
+            
             config_dict = {
-                'csv_file_path': self.csv_file_path or '',
+                'csv_file_path': csv_path,
                 'start_index': self.start_index,
                 'end_index': self.end_index,
                 'horizon_steps': safe_int(self.horizon_var, 50) if hasattr(self, 'horizon_var') else 50,
                 'steering_delay_steps': safe_int(self.steering_delay_var, 2) if hasattr(self, 'steering_delay_var') else 2,
                 'acceleration_delay_steps': safe_int(self.acceleration_delay_var, 2) if hasattr(self, 'acceleration_delay_var') else 2,
                 'font_multiplier': self.font_multiplier,
+                'enable_comparison': bool(self.enable_comparison.get()) if hasattr(self, 'enable_comparison') else True,
+                'show_controls': bool(self.show_controls.get()) if hasattr(self, 'show_controls') else False,
+                'show_delta_state': bool(self.show_delta_state.get()) if hasattr(self, 'show_delta_state') else False,
+                'show_all_comparisons': bool(self.show_all_comparisons.get()) if hasattr(self, 'show_all_comparisons') else False,
+                'sync_scales': bool(self.sync_scales.get()) if hasattr(self, 'sync_scales') else False,
+                'show_metrics': bool(self.show_metrics.get()) if hasattr(self, 'show_metrics') else True,
+                'state_name': self.state_var.get() if hasattr(self, 'state_var') and self.state_var.get() else '',
+                'selected_other_data': list(self.selected_other_data) if hasattr(self, 'selected_other_data') else [],
+                'comparison_start_index': int(self.comparison_start_var.get()) if hasattr(self, 'comparison_start_var') else 0,
             }
             
             # Add default car model and parameters if available
@@ -412,10 +489,19 @@ class StateComparisonVisualizer:
             if hasattr(self, 'params_var') and self.params_var.get():
                 config_dict['default_car_parameters'] = self.params_var.get()
             
-            with open(self.config_file_path, 'w') as f:
+            # Write config file directly - this MUST work
+            abs_config_path = os.path.abspath(self.config_file_path)
+            with open(abs_config_path, 'w') as f:
                 json.dump(config_dict, f, indent=2)
+                f.flush()  # Force write to disk
+                os.fsync(f.fileno())  # Ensure it's written
+            
+            print(f"Config saved to: {abs_config_path}")
+            print(f"  csv_file_path = {csv_path}")
         except Exception as e:
-            print(f"Could not save config: {e}")
+            print(f"ERROR saving config: {e}")
+            import traceback
+            traceback.print_exc()
         
     def setup_ui(self):
         """Setup the user interface."""
@@ -569,6 +655,10 @@ class StateComparisonVisualizer:
                                         style='Large.TCombobox')
         self.params_combo.pack(pady=2)
         self.params_combo.bind('<<ComboboxSelected>>', self.on_params_changed)
+
+        # Status label to show currently loaded parameter summary
+        self.param_status_label = ttk.Label(comparison_frame, text="", style='Large.TLabel', foreground='gray')
+        self.param_status_label.pack(anchor='w', pady=(0, 4))
         
         ttk.Label(comparison_frame, text="Horizon Steps:", style='Bold.TLabel').pack()
         self.horizon_var = tk.StringVar(value="50")
@@ -740,9 +830,16 @@ class StateComparisonVisualizer:
         
         if file_path:
             try:
+                # Convert to absolute path to ensure consistency
+                file_path = os.path.abspath(file_path)
+                
                 # Read CSV, skipping comment lines
                 self.data = pd.read_csv(file_path, comment='#')
-                self.csv_file_path = file_path  # Store the file path
+                
+                # Store the file path - THIS MUST BE SET BEFORE save_config()
+                self.csv_file_path = file_path
+                self.common.csv_file_path = file_path
+                self.common.data = self.data
                 
                 # Update file label
                 filename = os.path.basename(file_path)
@@ -782,7 +879,7 @@ class StateComparisonVisualizer:
                 # Plot initial state
                 self.plot_state()
                 
-                # Save config after loading CSV
+                # Save config IMMEDIATELY after loading CSV - this is critical
                 self.save_config()
                 
                 messagebox.showinfo("Success", 
@@ -800,6 +897,9 @@ class StateComparisonVisualizer:
         try:
             # Read CSV, skipping comment lines
             self.data = pd.read_csv(self.csv_file_path, comment='#')
+            # Sync to common object
+            self.common.data = self.data
+            self.common.csv_file_path = self.csv_file_path
             
             # Update file label
             filename = os.path.basename(self.csv_file_path)
@@ -847,6 +947,7 @@ class StateComparisonVisualizer:
     def on_state_changed(self, event=None):
         """Handle state selection change."""
         self.plot_state()
+        self.save_config()
     
     def on_other_data_changed(self, event=None):
         """Handle other data selection change - add to list if not already present."""
@@ -859,6 +960,7 @@ class StateComparisonVisualizer:
                 # Reset dropdown selection
                 self.other_data_var.set("")
                 self.plot_state()
+                self.save_config()
     
     def update_other_data_listbox(self):
         """Update the listbox to show currently selected additional data items."""
@@ -882,11 +984,13 @@ class StateComparisonVisualizer:
         """Clear all selected additional data items."""
         self.selected_other_data = []
         self.update_other_data_listbox()
+        self.save_config()
     
     def on_sync_scales_toggled(self):
         """Handle sync scales checkbox toggle."""
         self.plot_state()
         self.plot_state()
+        self.save_config()
         
     def _update_plot_layout(self):
         """Update the plot layout based on which plots are enabled."""
@@ -945,11 +1049,13 @@ class StateComparisonVisualizer:
         """Handle show controls checkbox toggle."""
         self._update_plot_layout()
         self.plot_state()
+        self.save_config()
     
     def on_show_delta_state_toggled(self):
         """Handle show delta state checkbox toggle."""
         self._update_plot_layout()
         self.plot_state()
+        self.save_config()
         
     def on_show_all_comparisons_toggled(self):
         """Handle show all comparisons checkbox toggle."""
@@ -963,10 +1069,12 @@ class StateComparisonVisualizer:
                 self.comparison_slider.config(state='normal')
         
         self.plot_state()
+        self.save_config()
         
     def on_show_metrics_toggled(self):
         """Handle show metrics checkbox toggle."""
         self.update_metrics_display()
+        self.save_config()
         
     def on_font_multiplier_changed(self, event=None):
         """Handle font multiplier change."""
@@ -1057,12 +1165,29 @@ class StateComparisonVisualizer:
         self._reload_car_models()
         if self.enable_comparison.get():
             self.plot_state()
+        self.save_config()
             
     def on_params_changed(self, event=None):
         """Handle car parameters selection change."""
+        # Reset watcher state to new file
+        self._reset_param_file_watch()
+
+        # Clear cached comparisons when parameters change
+        if hasattr(self, 'comparison_data_dict'):
+            self.comparison_data_dict = {}
+
+        # If comparison is enabled, recompute based on current mode
         if self.enable_comparison.get():
-            return
-            # self.plot_state()
+            try:
+                if hasattr(self, 'show_all_comparisons') and self.show_all_comparisons.get():
+                    self.run_full_comparison()
+                else:
+                    comp_idx = self.comparison_start_var.get() if hasattr(self, 'comparison_start_var') else 0
+                    if self.run_single_comparison(comp_idx):
+                        self.plot_state()
+            except Exception:
+                pass
+        self.save_config()
             
     def on_horizon_changed(self, event=None):
         """Handle horizon value change."""
@@ -1663,9 +1788,11 @@ class StateComparisonVisualizer:
         if self.enable_comparison.get() and self.comparison_start_index not in self.comparison_data_dict:
             if self.run_single_comparison(self.comparison_start_index):
                 self.plot_state()
+                self.save_config()
         elif self.enable_comparison.get():
             # We have the data, just replot
             self.plot_state()
+            self.save_config()
             
     def on_scroll(self, event):
         """Handle mouse scroll for zooming."""
@@ -1763,6 +1890,39 @@ class StateComparisonVisualizer:
     def get_car_parameters_filename(self, display_name):
         """Get the actual filename from display name."""
         return self.common.get_car_parameters_filename(display_name)
+
+    def _get_selected_param_file_path(self):
+        """Resolve absolute path of currently selected car parameter file."""
+        try:
+            filename = self.get_car_parameters_filename(self.params_var.get()) if hasattr(self, 'params_var') else None
+            if not filename:
+                return None
+            car_dir = os.path.join(parent_dir, 'utilities', 'car_files')
+            return os.path.join(car_dir, filename)
+        except Exception:
+            return None
+
+    def _update_param_status_label(self):
+        """Update UI label with a concise summary of current car parameters."""
+        try:
+            path = self._get_selected_param_file_path()
+            if not path or not os.path.exists(path):
+                if hasattr(self, 'param_status_label'):
+                    self.param_status_label.config(text="Parameters: (none)")
+                return
+            # Load raw params for readable names
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+            vp = VehicleParameters(os.path.basename(path))
+            d = vp.to_dict()
+            # Build concise summary
+            summary = (
+                f"{os.path.basename(path)} | mu={d.get('mu'):.3f}, lf={d.get('lf'):.3f}, lr={d.get('lr'):.3f}, m={d.get('m'):.1f}, "
+                f"Bf={d.get('C_Pf')[0]:.3f}, Cf={d.get('C_Pf')[1]:.2f}, Dr={d.get('C_Pr')[2]:.2f}, c_rr={d.get('c_rr'):.4f}, brake_mult={d.get('brake_multiplier'):.2f}"
+            )
+            self.param_status_label.config(text=summary)
+        except Exception:
+            if hasattr(self, 'param_status_label'):
+                self.param_status_label.config(text="Parameters: (unavailable)")
         
     def get_model_key(self, display_name):
         """Get the model key from display name."""
@@ -1774,6 +1934,66 @@ class StateComparisonVisualizer:
         if result is None:
             messagebox.showerror("Error", f"Error loading car parameters from {param_file}")
         return result
+
+    def _init_param_file_watch(self):
+        """Start periodic watch for changes to the selected car parameter file."""
+        self._param_watch_timer = None
+        self._param_file_path = None
+        self._param_file_mtime = None
+        self._reset_param_file_watch()
+        self._update_param_status_label()
+        self._schedule_param_watch()
+
+    def _reset_param_file_watch(self):
+        """Reset watch state to the currently selected parameter file."""
+        path = self._get_selected_param_file_path()
+        self._param_file_path = path
+        try:
+            self._param_file_mtime = os.path.getmtime(path) if path and os.path.exists(path) else None
+        except Exception:
+            self._param_file_mtime = None
+        self._update_param_status_label()
+
+    def _schedule_param_watch(self):
+        """Schedule next parameter file check."""
+        try:
+            # Check every 1s; lightweight and avoids external deps
+            self._param_watch_timer = self.root.after(1000, self._check_param_file_changed)
+        except Exception:
+            self._param_watch_timer = None
+
+    def _check_param_file_changed(self):
+        """Detect parameter file changes and refresh predictions if needed."""
+        try:
+            current_path = self._get_selected_param_file_path()
+            if current_path != self._param_file_path:
+                # Selection changed; reset base and continue
+                self._reset_param_file_watch()
+            else:
+                if current_path and os.path.exists(current_path):
+                    mtime = os.path.getmtime(current_path)
+                    if self._param_file_mtime is not None and mtime > self._param_file_mtime:
+                        self._param_file_mtime = mtime
+                        self._on_param_file_changed()
+        finally:
+            self._schedule_param_watch()
+
+    def _on_param_file_changed(self):
+        """Handle car parameter file updates by recomputing predictions."""
+        # Clear cached comparisons
+        if hasattr(self, 'comparison_data_dict'):
+            self.comparison_data_dict = {}
+
+        # If comparison is enabled, recompute
+        if self.enable_comparison.get():
+            if hasattr(self, 'show_all_comparisons') and self.show_all_comparisons.get():
+                self.run_full_comparison()
+                return
+            comp_idx = self.comparison_start_var.get() if hasattr(self, 'comparison_start_var') else 0
+            if self.run_single_comparison(comp_idx):
+                self.plot_state()
+        # Update status label
+        self._update_param_status_label()
             
     def _validate_comparison_requirements(self):
         """Validate that comparison can be run."""
@@ -2610,6 +2830,9 @@ class StateComparisonVisualizer:
                 try:
                     self.data = pd.read_csv(default_csv, comment='#')
                     self.csv_file_path = default_csv  # Store the file path
+                    # Sync to common object
+                    self.common.data = self.data
+                    self.common.csv_file_path = default_csv
                     filename = os.path.basename(default_csv)
                     self.file_label.config(text=f"Loaded: {filename} (auto)")
                     
