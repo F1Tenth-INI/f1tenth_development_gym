@@ -20,6 +20,8 @@ class CurriculumSupervisor:
 
         self.dynamic_difficulty_step = 0.05
 
+        self.track_width_factor = 1.0
+
         self.speed_adjust_mode = Settings.SAC_CURRICULUM_SPEED_ADJUST_MODE # 'vel_factor' or 'speed_cap'
 
 
@@ -30,7 +32,6 @@ class CurriculumSupervisor:
         return self.progress
     
 
-    #TODO: maybe update difficulty should be one function, with param for linear vs dynamic
     def update_difficulty_linear(self):
         if self.progress <= self.sac_curriculum_t1:
                 self.difficulty = self.initial_difficulty #starting difficulty
@@ -82,6 +83,21 @@ class CurriculumSupervisor:
             if self.debug:
                 print(f"[Curriculum Debug] New Speed Cap: {Settings.SAC_CURRICULUM_SPEED_LIMIT:.3f}")
 
+        return
+    
+    def adjust_track_width(self, base_width):
+        width_factor = max(base_width, 2.0 - self.difficulty)
+        Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR = width_factor
+        if self.debug:
+            print(f"[Curriculum Debug] New track width factor: {Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR:.3f}")
+        return
+    
+    def adjust_noise(self, base_noise):
+        Settings.NOISE_LEVEL_CAR_STATE = [x * self.difficulty for x in Settings.SAC_NOISE_LEVEL_CAR_STATE_MAX]
+        Settings.NOISE_LEVEL_CONTROL = [x * self.difficulty for x in Settings.SAC_NOISE_LEVEL_CONTROL_MAX]
+        if self.debug:
+            print(f"[Curriculum Debug] New car state noise levels: [{', '.join(f'{x:.3f}' for x in Settings.NOISE_LEVEL_CAR_STATE)}]")
+            print(f"[Curriculum Debug] New control noise levels: [{', '.join(f'{x:.3f}' for x in Settings.NOISE_LEVEL_CONTROL)}]")
         return
     
     def update_completed_episodes(self, success):

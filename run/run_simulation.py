@@ -82,7 +82,9 @@ class RacingSimulation:
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
 
-        if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and Settings.SAC_SPEED_CURRICULUM_LEARNING:
+        if (Settings.CONTROLLER == 'sac_agent' and Settings.SAC_INFERENCE_MODEL_NAME == None and
+            (Settings.SAC_CURRICULUM_SPEED or Settings.SAC_CURRICULUM_TRACK_WIDTH_SCALING or Settings.SAC_CURRICULUM_NOISE_SCALING)):
+
             self.curriculum_supervisor = CurriculumSupervisor(
                 initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,
                 max_difficulty = Settings.SAC_CURRICULUM_MAX_DIFFICULTY,
@@ -234,20 +236,29 @@ class RacingSimulation:
 
             # print("[DEBUG] Episode Index:", self.episode_index)
             # print("[DEBUG] Value:", (int(self.episode_index >= Settings.MAX_EPISODE_LENGTH)))
-            intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+
+
+            #TODO: linear vs dynamic handled via settings
+            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
+            self.curriculum_supervisor.update_difficulty_linear()
 
             """SUCCESS RATE VERSION"""
-            #TODO: ask, is it not possible that this is just EXPERIMENT_MAX_LENGTH = 8000  from Settings
+            # intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
             # self.curriculum_supervisor.update_completed_episodes(int(self.episode_index >= intermediate_steps * Settings.MAX_EPISODE_LENGTH))
             # print(self.curriculum_supervisor.completed_episodes)
             # self.curriculum_supervisor.calculate_success_rate()
             # self.curriculum_supervisor.update_difficulty_dynamic()
-            """SUCCESS RATE VERSION END """
+            """SUCCESS RATE VERSION END"""
 
-            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
-            self.curriculum_supervisor.update_difficulty_linear()
+            if Settings.SAC_CURRICULUM_SPEED_ADJUST_MODE == 'speed_cap':
+                self.curriculum_supervisor.adjust_speed(speed_max = 1.1)
 
-            self.curriculum_supervisor.adjust_speed(speed_max = 1.1)
+            if Settings.SAC_CURRICULUM_TRACK_WIDTH_SCALING:
+                self.curriculum_supervisor.adjust_track_width(base_width = 1.0)
+            
+            if Settings.SAC_CURRICULUM_NOISE_SCALING:
+                self.curriculum_supervisor.adjust_noise(base_noise = 1.0)
+
 
             # self.curriculum_supervisor.adjust_speed_cap
             # print("Current Curriculum Difficulty:", self.difficulty)

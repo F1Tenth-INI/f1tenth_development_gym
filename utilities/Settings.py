@@ -11,7 +11,7 @@ class Settings():
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
-    BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
+    BLANK_MAP = True  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
     CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
@@ -84,7 +84,7 @@ class Settings():
     CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
-    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
@@ -179,7 +179,7 @@ class Settings():
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     
     #SAC Sampling Weights
-    USE_CUSTOM_SAC_SAMPLING = True
+    USE_CUSTOM_SAC_SAMPLING = False
 
     SAC_WP_OFFSET_WEIGHT = 0.0
     SAC_WP_HEADING_ERROR_WEIGHT = 0.0
@@ -202,7 +202,6 @@ class Settings():
 
     SAC_RANK_BASED_SAMPLING = True
 
-    SAC_SPEED_CURRICULUM_LEARNING = True
     SAC_CURRICULUM_DEBUG = True
 
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
@@ -211,8 +210,8 @@ class Settings():
     SAC_CURRICULUM_T2 = 0.8
     SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
-
-    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed_cap' or 'vel_factor'
+    SAC_CURRICULUM_SPEED = False
+    SAC_CURRICULUM_SPEED_ADJUST_MODE = None #'speed cap' or 'vel_factor'
 
     SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
     SAC_ACCEL_CAP = 3.0
@@ -221,6 +220,24 @@ class Settings():
     SAC_CURRICULUM_SPEED_LIMIT = 20
 
     SAC_STAT_TRACKER = True
+
+    SAC_CURRICULUM_TRACK_WIDTH_SCALING = True
+    SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
+
+    SAC_CURRICULUM_NOISE_SCALING = True
+    SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+
+    SAC_CURRICULUM_TRACK_WIDTH_SCALING = True
+    SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
+
+    SAC_CURRICULUM_NOISE_SCALING = True
+    SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
 
     
     ## Friction ##

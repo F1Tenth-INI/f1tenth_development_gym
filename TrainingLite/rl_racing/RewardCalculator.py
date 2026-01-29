@@ -74,6 +74,11 @@ class RewardCalculator:
 
         wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
+
+        if Settings.SAC_CURRICULUM_TRACK_WIDTH_SCALING:
+            wp_distances_l *= Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR
+            wp_distances_r *= Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR
+
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
         if leave_bounds or crash or interruption:
             crash_penalty = -self.w_crash

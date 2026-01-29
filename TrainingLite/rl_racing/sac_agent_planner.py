@@ -206,7 +206,7 @@ class RLAgentPlanner(template_planner):
         steering, accel = action * self.action_denormalization_array
 
         #TODO: nikita: add clipping here
-        if Settings.SAC_SPEED_CURRICULUM_LEARNING:
+        if Settings.SAC_CURRICULUM_SPEED:
             # accel = np.clip(accel, -Settings.SAC_ACCEL_CAP, Settings.SAC_ACCEL_CAP)
             # speed = np.sqrt(np.power(raw_obs[LINEAR_VEL_X_IDX], 2) + np.power(raw_obs[LINEAR_VEL_Y_IDX], 2))
             vx = self.car_state[LINEAR_VEL_X_IDX]
