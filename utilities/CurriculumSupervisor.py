@@ -86,7 +86,7 @@ class CurriculumSupervisor:
         return
     
     def adjust_track_width(self, base_width):
-        width_factor = max(base_width, 2.0 - self.difficulty)
+        width_factor = max(base_width, 3.0 - 2*self.difficulty)
         Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR = width_factor
         if self.debug:
             print(f"[Curriculum Debug] New track width factor: {Settings.SAC_CURRICULUM_TRACK_WIDTH_FACTOR:.3f}")

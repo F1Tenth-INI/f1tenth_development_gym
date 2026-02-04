@@ -6,7 +6,7 @@ import matplotlib.gridspec as gridspec
 from math import ceil
 
 # ================= CONFIGURATION =================
-ROOT_DIR = os.path.join("TrainingLite", "rl_racing", "models")
+ROOT_DIR = os.path.join("TrainingLite", "rl_racing", "30JanModels")
 OUTPUT_DIR = "summary_plots"
 METRIC_FILENAME = "training_metrics.png"
 
@@ -25,9 +25,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def parse_folder_name(folder_name):
     # pattern = r"Sweep_rank_noclip_Ex1_A([0-9\.]+)_B([0-9\.]+)_R([0-9\.]+)"
-    pattern = r"Sweep_BETTER_Cur_from_Cur1_A([0-9\.]+)_CUR_T2([0-9\.]+)_Run([0-9\.]+)"
+    # pattern = r"Sweep_BETTER_Cur_from_Cur1_A([0-9\.]+)_CUR_T2([0-9\.]+)_Run([0-9\.]+)"
+    pattern = r"30Jan_Sweep_S_(\w+)_W_(\w+)_N_(\w+)_Run(\d+)"
     match = re.search(pattern, folder_name)
     if match:
+        s_value = match.group(1)      # "None" or "speed_cap"
+        w_value = match.group(2)      # "True" or "False"
+        n_value = match.group(3)      # "True" or "False"
+        run_num = int(match.group(4)) # 3 or 5
         return float(match.group(1)), float(match.group(2)), float(match.group(3))
     return None
 

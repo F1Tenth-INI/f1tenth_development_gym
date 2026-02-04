@@ -12,13 +12,13 @@ NSTEPS=(1)
 CURRICULUM_T2=(0.5 0.8)
 BASELINE_T2=0.8
 
-# SOURCE_MODEL="Example-1"
-# SOURCE_MODEL_SHORT="Ex1"
-# NEW_MAP_NAME="RCA2"
-
-SOURCE_MODEL="Curriculum1PC"
-SOURCE_MODEL_SHORT="Cur1"
+SOURCE_MODEL="Example-1"
+SOURCE_MODEL_SHORT="Ex1"
 NEW_MAP_NAME="RCA2"
+
+# SOURCE_MODEL="Curriculum1PC"
+# SOURCE_MODEL_SHORT="Cur1"
+# NEW_MAP_NAME="RCA2"
 
 CURRCULUM_START=0.5
 
@@ -63,9 +63,19 @@ USE_SPEED_CURRICULUM_LIST=(True False)
 #     done
 #   done
 # done
-for index in 1 2 3; do
-  for curriculum in "${USE_SPEED_CURRICULUM_LIST[@]}"; do
-    MODEL_NAME="Sweep_Cur_20_${curriculum}_from_${SOURCE_MODEL_SHORT}_A0.0_T20.0__Run${index}"
+
+CAR_STATE_NOISE="[0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]"
+CONTROL_NOISE="[0.35, 0.7]"
+
+USE_SPEED_CURRICULUM_LIST=(True True True False False)
+SPEED_MODE=("speed_cap" "vel_factor" "speed_cap" None None)
+USE_WIDTH_CUR=(False False True True False)
+USE_NOISE_CUR=(False False False False True)
+
+
+for main_index in 1 2 3 4 5; do
+  for list_index in 0 1 2 3 4; do
+    MODEL_NAME="30Jan_Sweep_S_${SPEED_MODE[$list_index]}_W_${USE_WIDTH_CUR[$list_index]}_N_${USE_NOISE_CUR[$list_index]}_Run${main_index}"
     echo "=================================================="
     echo " STARTING: $MODEL_NAME"
     echo " Alpha: 0.0 | Beta: 0.4 | Ratio: 0.0"
@@ -82,8 +92,15 @@ for index in 1 2 3; do
       --alpha 0.0 \
       --beta_start 0.4 \
       --td_ratio 0.0 \
-      --SAC_SPEED_CURRICULUM_LEARNING "$curriculum" \
-      --SAC_CURRICULUM_T2 $BASELINE_T2 \
+      --SAC_CURRICULUM_SPEED "${USE_SPEED_CURRICULUM_LIST[$list_index]}" \
+      --SAC_CURRICULUM_SPEED_ADJUST_MODE "${SPEED_MODE[$list_index]}" \
+      --SAC_CURRICULUM_SPEED_LIMIT_MAX 15 \
+      --SAC_CURRICULUM_SPEED_LIMIT 15 \
+      --SAC_CURRICULUM_TRACK_WIDTH_SCALING "${USE_WIDTH_CUR[$list_index]}" \
+      --SAC_CURRICULUM_TRACK_WIDTH_FACTOR 1.0 \
+      --SAC_CURRICULUM_NOISE_SCALING "${USE_NOISE_CUR[$list_index]}" \
+      --SAC_NOISE_LEVEL_CAR_STATE_MAX "$CAR_STATE_NOISE" \
+      --SAC_NOISE_LEVEL_CONTROL_MAX "$CONTROL_NOISE" \
 
     sleep 5
   done

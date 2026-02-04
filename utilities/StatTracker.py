@@ -63,14 +63,13 @@ class StatTracker:
             TD_error: Temporal difference error (optional)
             
         Returns:
-            Transition ID for later lookup/update
+            Transition ID for later lookup/updateF
         """
          
         transition_entry = {
             'id': self.ID_counter,
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now().time().isoformat(),
             'buffer_position': buffer_position,
-            'obs_shape': obs.shape,
             'sample_count': 0,  # Track how many times this transition was sampled
             'reward': float(reward),
             'done': bool(done),
@@ -86,33 +85,24 @@ class StatTracker:
             'd_raw': float(obs[160]),
             'e_raw': float(obs[161]),
         }
+
         # Add raw state values
         transition_entry.update(obs_dict)
+
+        transition_entry.update({'TD_error_list': []})
         
         # Add optional values
         if TD_error is not None:
-            transition_entry['TD_error'] = float(TD_error)
+            transition_entry['TD_error_list'].append(float(TD_error))
         
-        #ad to transition dict and increment ID 
-        transition_id = self.ID_counter
-        self.transition_dict[transition_id] = transition_entry
-        self.buffer_position_to_id[buffer_position] = transition_id
+        self.transition_dict[self.ID_counter] = transition_entry
+        self.buffer_position_to_id[buffer_position] = self.ID_counter
 
         self.ID_counter += 1
         
-        return transition_id
+        return
     
     def update_transition(self, transition_id, TD_error=None, reward=None):
-        """
-        Update an existing transition (called when it's sampled again from replay buffer).
-        O(1) lookup and update.
-        
-        Args:
-            transition_id: ID returned from register_transition
-            TD_error: New TD error value (optional)
-            reward: New reward value (optional)
-            sample_count_increment: Increment sample count by this amount (default 0)
-        """
         if transition_id not in self.transition_dict:
             print(f"[StatTracker] Warning: Transition ID {transition_id} not found")
             return False
@@ -120,13 +110,32 @@ class StatTracker:
         t = self.transition_dict[transition_id]
         
         if TD_error is not None:
-            t['TD_error'] = float(TD_error)
+            t['TD_error_list'].append(float(TD_error))
         if reward is not None:
             t['reward'] = float(reward)
-        # if sample_count_increment > 0:
-        #     t['sample_count'] = t.get('sample_count', 1) + sample_count_increment
-        
+
         return True
+    
+    # def batch_update_transition(self, transition_id, TD_error=None, reward=None):
+    #     if transition_id not in self.transition_dict:
+    #         print(f"[StatTracker] Warning: Transition ID {transition_id} not found")
+    #         return False
+        
+    #     t = self.transition_dict[transition_id]
+        
+    #     if TD_error is not None:
+    #         t['TD_error_list'].append(float(TD_error))
+    #     if reward is not None:
+    #         t['reward'] = float(reward)
+
+    #     return True
+    
+    def batch_update_TD_errors(self, buffer_indices: np.ndarray, TD_errors: np.ndarray):
+        for i, buffer_idx in enumerate(buffer_indices):
+            transition_id = self.buffer_position_to_id.get(buffer_idx)
+            if transition_id is not None and transition_id in self.transition_dict:
+                self.transition_dict[transition_id]['TD_error_list'].append(float(TD_errors[i]))
+    
     
     def batch_update_sample_count(self, buffer_indices):
         # print('im updating')
@@ -146,13 +155,8 @@ class StatTracker:
         
         file_exists = os.path.isfile(self.file_path) and append
         
-        # Get all unique keys from all transitions
-        all_keys = set()
-        for t in self.transition_dict.values():
-            all_keys.update(t.keys())
-        
-        # Order keys consistently
-        ordered_keys = sorted(list(all_keys))
+        first = next(iter(self.transition_dict.values()))
+        ordered_keys = ['id'] + [k for k in first.keys() if k != 'id']
         
         try:
             mode = 'a' if file_exists else 'w'
@@ -206,7 +210,7 @@ class StatTracker:
         
         # Get all numeric keys
         numeric_keys = ['linear_vel_x', 'linear_vel_y', 'angular_vel_z', 
-                       'steering_angle', 'TD_error', 'reward', 'sample_count']
+                       'steering_angle', 'reward', 'sample_count']
         
         for key in numeric_keys:
             values = [t[key] for t in self.transition_dict.values() if key in t and t[key] is not None]

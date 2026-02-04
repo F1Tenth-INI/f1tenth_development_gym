@@ -78,10 +78,12 @@ class CustomReplayBuffer(ReplayBuffer):
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
 
-        if Settings.SAC_STAT_TRACKER:
-            self.stat_tracker = StatTracker()
-        else:
-            self.stat_tracker = None
+        # if Settings.SAC_STAT_TRACKER:
+        #     self.stat_tracker = StatTracker()
+        # else:
+        #     self.stat_tracker = None
+
+        #TODO: Nikita: implement higher weighting on recently added experiences
 
 
     def add(self, obs, next_obs, action, reward, done, infos, steps_taken: int):
@@ -495,6 +497,13 @@ class LearnerServer:
             handle_timeout_termination=False,
         )
 
+        if Settings.SAC_STAT_TRACKER:
+            stat_save_dir = os.path.join(self.model_dir, "stat_logs")
+            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv")
+            self._last_stat_save_ts = 0.0
+        else:
+            self.replay_buffer.stat_tracker = None
+
         self.model.replay_buffer = self.replay_buffer
 
         # Device diagnostics: verify model and replay buffer are on the correct device
@@ -815,8 +824,6 @@ class LearnerServer:
                     self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
                     print("Beta has been updated to: " + str(self.replay_buffer.beta))
 
-                if self.replay_buffer.stat_tracker is not None:
-                    self.replay_buffer.stat_tracker.print_stats()
                                 
                 for step in range(grad_steps):
                     
@@ -893,30 +900,6 @@ class LearnerServer:
 
                         current_q1, current_q2 = critic(obs, actions)
 
-                        #get TD-error
-                        if self.replay_buffer.custom_sampling:
-                            with torch.no_grad():
-                                #target_q already contains the entropy term and is a correct formulation of the TD target
-                                # -> TD-error = TD_target - current_q
-                                TD_error_1 = torch.abs(target_q - current_q1)
-                                TD_error_2 = torch.abs(target_q - current_q2)
-
-                                # also normalize by n-step
-                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
-
-                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
-
-                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
-
-                                TD_update_priorities += 1e-6
-
-                                # optional clipping
-                                if replay_buffer.clip_weights:
-                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
-
-                                # print(TD_update_priorities.mean(), TD_update_priorities.max())
-                                
-                                replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
                         ###Nikita: this is my critic loss!
                         critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
@@ -925,6 +908,30 @@ class LearnerServer:
                         critic_optimizer.zero_grad()
                         critic_loss.backward()
                         critic_optimizer.step()
+
+                        #get TD-error
+                        if self.replay_buffer.custom_sampling:
+                            with torch.no_grad():
+                                # -> TD-error = TD_target - current_q
+                                current_q1_new, current_q2_new = critic(obs, actions)
+                                TD_error_1 = torch.abs(target_q - current_q1_new)
+                                TD_error_2 = torch.abs(target_q - current_q2_new)
+
+                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
+
+                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
+                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
+                                TD_update_priorities += 1e-6
+
+                                if self.replay_buffer.stat_tracker:
+                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(replay_buffer.current_sampled_inds, TD_update_priorities)
+
+                                # optional clipping
+                                if replay_buffer.clip_weights:
+                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+
+                                replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+
 
                         # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
 
@@ -965,6 +972,14 @@ class LearnerServer:
                         if self.device == "cuda":
                             torch.cuda.empty_cache()
                         continue
+
+                # Nikita: stat tracker save
+                if self.replay_buffer.stat_tracker is not None:
+                    now = time.time()
+                    if now - self._last_stat_save_ts > 60.0:  # save every 5 minutes
+                        self.replay_buffer.stat_tracker.print_stats()
+                        # self.replay_buffer.stat_tracker.save_csv(append = False)
+                        self._last_stat_save_ts = now
                 
                 # Check if we should terminate before saving/broadcasting
                 async with self._terminate_lock:
@@ -1225,6 +1240,10 @@ class LearnerServer:
             # Close server
             server.close()
             await server.wait_closed()
+
+            # Nikita: final stat tracker save
+            if self.replay_buffer is not None and self.replay_buffer.stat_tracker is not None:
+                self.replay_buffer.stat_tracker.save_csv(append=False)
             
             # Save model one last time
             print("[server] Saving model before exit...")
