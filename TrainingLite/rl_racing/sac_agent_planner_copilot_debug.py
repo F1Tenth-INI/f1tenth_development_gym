@@ -185,7 +185,7 @@ class RLAgentPlanner(template_planner):
                         
                         # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
                         dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
-                        _ = self.model.policy.actor(dummy_obs)
+                        _ = self.model.policy.forward(dummy_obs, deterministic=(not self.training_mode))
                         
                     self._received_weights = True
                     nikita_t2 = time.time()
@@ -206,8 +206,10 @@ class RLAgentPlanner(template_planner):
         nikita_t5 = time.time()
         if self._received_weights:
             with torch.no_grad():
-                # NIKITA: for slowdown testing
-                action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
+                # NIKITA: Use policy.forward() to bypass SB3 predict() overhead while handling stochastic/deterministic correctly
+                obs_tensor = torch.as_tensor(obs_for_policy, dtype=torch.float32).unsqueeze(0)
+                actions = self.model.policy.forward(obs_tensor, deterministic=(not self.training_mode))
+                action = actions.cpu().numpy()[0]
             action = np.asarray(action, dtype=np.float32).reshape(-1)
         else:
             if not self._warned_no_weights:
@@ -353,6 +355,11 @@ class RLAgentPlanner(template_planner):
         pass
     
     def _fallback_action(self) -> np.ndarray:
+        # Guard against uninitialized car_state (can happen on first step)
+        if self.car_state is None:
+            return self.warmup_action
+        
+        self.fallback_planner.car_state = self.car_state
         fallback_control = self.fallback_planner.process_observation()
         fallback_action = fallback_control / self.action_denormalization_array
         # return [0., 0.]

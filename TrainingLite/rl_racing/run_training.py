@@ -33,7 +33,7 @@ if PROJECT_ROOT.exists():
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
 
-from learner_server import LearnerServer  # noqa: E402
+# Import LearnerServer will be done dynamically in main() based on --learner-impl flag
 from utilities.parser_utilities import parse_settings_args  # noqa: E402
 
 
@@ -89,8 +89,18 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         ),
     )
 
-    # ### 2. ADD SWEEP ARGUMENTS HERE
-    # These match the flags sent by your bash script
+    parser.add_argument(
+        "--learner-impl",
+        choices=["threaded", "original"],
+        default="original",
+        help=(
+            "Choose learner server implementation: "
+            "'original' (default, standard blocking implementation) or "
+            "'threaded' (episodes flow during training)"
+        ),
+    )
+
+    #Sweep bash script args
     parser.add_argument("--USE_CUSTOM_SAC_SAMPLING", type=str, default="True", help="Enable custom sampling")
     parser.add_argument("--alpha", type=float, default=None, help="Override SAC_PRIORITY_FACTOR")
     parser.add_argument("--beta_start", type=float, default=None, help="Override SAC_IMPORANCE_SAMPLING_CORRECTOR")
@@ -99,6 +109,17 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
     
     known_args, remaining = parser.parse_known_args(argv)
     return known_args, remaining
+
+
+def load_learner_server_class(impl_choice: str):
+    """Dynamically import the chosen LearnerServer implementation."""
+    if impl_choice == "threaded":
+        from learner_server_threaded import LearnerServer
+        print("[run_training] Using threaded LearnerServer implementation")
+    else:  # original
+        from learner_server import LearnerServer
+        print("[run_training] Using original LearnerServer implementation")
+    return LearnerServer
 
 
 def parse_settings_overrides(settings_args: list[str]) -> argparse.Namespace:
@@ -219,6 +240,9 @@ async def _run_with_optional_client(server: LearnerServer, args: argparse.Namesp
 
 def main() -> None:
     run_args, settings_args = parse_args()
+
+    # Load the appropriate LearnerServer implementation
+    LearnerServer = load_learner_server_class(run_args.learner_impl)
 
     #TODO: check if needed
     settings_args.extend(["--SIMULATION_LENGTH", str(run_args.SIMULATION_LENGTH)])

@@ -4,6 +4,8 @@ import asyncio
 import os
 import subprocess
 from typing import List, Optional, NamedTuple
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import argparse
 
@@ -135,10 +137,7 @@ class CustomReplayBuffer(ReplayBuffer):
         vel = (1 - min(e, 0.9)) * vel #we only care about speed into the right direction
         # print(rew)
 
-        state_w = self.w_d * abs(d) + self.w_e * abs(e) + self.velocity_weight * abs(vel)
-        reward_w = self.reward_weight * abs(reward_per_step)
-        w = state_w + reward_w
-
+        w = self.w_d * abs(d) + self.w_e * abs(e) + self.reward_weight * abs(reward_per_step) + self.velocity_weight * abs(vel)
         w = np.clip(w, 1e-6, 1e3)
 
         if self.clip_weights:
@@ -386,11 +385,19 @@ class LearnerServer:
         self.grad_steps = grad_steps
 
         self.init_from_scratch = None
+        # Store reference to event loop for worker threads
+        self._loop_ref: Optional[asyncio.AbstractEventLoop] = None
+        # Create dedicated executor with minimal workers to reduce CPU contention
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="learner_worker")
         # networking
         self._clients: set[asyncio.StreamWriter] = set()
         self._client_lock = asyncio.Lock()
         self._should_terminate = False
         self._terminate_lock = asyncio.Lock()
+        self._training_in_progress = False  # Flag to prevent concurrent training
+        self._training_lock = asyncio.Lock()
+        self._last_weight_broadcast_time = 0.0  # Track last broadcast to rate-limit them
+        self._min_broadcast_interval = 5.0  # Only broadcast at most every 5 seconds
 
         # data
         self.episode_buffer = EpisodeReplayBuffer(capacity_episodes=2000)
@@ -742,10 +749,20 @@ class LearnerServer:
 
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
+        loop_iteration_count = 0
+        last_log_time = time.time()
+        
         while True:
-            #TODO: DEBUG:::::
-            # print(f"Current waypoint vel factor: {Settings.GLOBAL_WAYPOINT_VEL_FACTOR}")
-
+            loop_iteration_count += 1
+            loop_start = time.time()
+            
+            # Log loop rate every 5 seconds
+            now = time.time()
+            if now - last_log_time >= 5.0:
+                print(f"[server] Loop rate: {loop_iteration_count / (now - last_log_time):.1f} iterations/sec")
+                loop_iteration_count = 0
+                last_log_time = now
+            
             # Custom stopping logic for bash, doesnt always stop normally...
             if Settings.EXTENDED_AUTO_STOP and self.total_actor_timesteps > Settings.SIMULATION_LENGTH and len(self._clients) == 0:
                 print("[server] All clients disconnected. Assuming simulation finished. Shutting down.")
@@ -753,18 +770,12 @@ class LearnerServer:
                     self._should_terminate = True
                 return
             
-
             # Check termination flag at the start of each iteration
             async with self._terminate_lock:
                 if self._should_terminate:
                     print("[server] Training loop detected termination flag, exiting...")
                     return
             
-            await asyncio.sleep(self.train_every_seconds)
-
-            # debug_time1 = time.time()
-
-
             # Drain whatever the actor sent since last round
             episodes = self.episode_buffer.drain_all()
 
@@ -773,9 +784,8 @@ class LearnerServer:
                 print(f"\n[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
                 
-            # debug_time_2 = time.time()
             # =================================================================
-            # NEW: Auto-Shutdown Check
+            # Auto-Shutdown Check
             # =================================================================
             if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH:
                 print(f"[server] Training Goal Reached! ({self.total_actor_timesteps}/{Settings.SIMULATION_LENGTH} steps). Initiating Shutdown.")
@@ -801,251 +811,334 @@ class LearnerServer:
                 await asyncio.sleep(self.train_every_seconds)
                 continue
 
-            # debug_time_3 = time.time()
-
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
-                # gradient steps proportional to newly ingested data (UTD ≈ 4)
-                grad_steps = self.grad_steps
-
-
-                print(f"\n[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
-                time_start_training = time.time()
-
-
-                # Manual training loop for SAC using torch
-                actor = self.model.policy.actor
-                critic = self.model.policy.critic
-                critic_target = self.model.policy.critic_target
-                actor_optimizer = self.model.policy.actor.optimizer
-                critic_optimizer = self.model.policy.critic.optimizer
-                batch_size = self.model.batch_size
-                replay_buffer = self.model.replay_buffer
-                gamma = self.model.gamma
-                n_step_gamma = gamma ** self.n_step
-                tau = self.model.tau
-                ent_coef = self.model.ent_coef
-                target_entropy = self.model.target_entropy
-                log_ent_coef = getattr(self.model, "log_ent_coef", None)
-                ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
-
-                if self.custom_sampling and self.replay_buffer.dynamic_importance_sampling_corrector:
-                    progress = min(1, self.total_actor_timesteps / self.replay_buffer.beta_annealing_horizon)
-                    self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
-                    print("Beta has been updated to: " + str(self.replay_buffer.beta))
-
-                # debug_time_4 = time.time()
-
-                                
-                for step in range(grad_steps):
-                    
-                    if step % 10 == 0:
-                        await asyncio.sleep(0.01)
-                        async with self._terminate_lock:
-                            # print("CHECKING TERMINATION AT STEP " + str(step))
-                            if self._should_terminate:
-                                # print("SHOULD TERMINATE FLAG DETECTED DURING TRAINING")
-                                print(f"[server] Training interrupted at step {step}/{grad_steps} due to termination request")
-                                return
-                    
-                    then = time.time()
-                    try:
-                        # Reduce batch size to avoid OOM
-                        safe_batch_size = min(batch_size, 4096)
-                        data = replay_buffer.sample(safe_batch_size)
-
-                        obs      = data.observations
-                        actions  = data.actions
-                        next_obs = data.next_observations
-                        rewards  = data.rewards  # shape handling below
-                        dones    = data.dones
-                        steps_taken = data.steps_taken
-
-                        #TODO: Have the IS sampling weights be returned here
-                        is_weights = data.is_weights
-
-                        # print("IS WEIGHTS WORKED?????")
-                        # print(is_weights)
-                        # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
-
-                        # Critic update
-                        with torch.no_grad():
-                            next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
-                            # print(next_log_prob)
-                            target_q1, target_q2 = critic_target(next_obs, next_actions)
-                            target_q = torch.min(target_q1, target_q2)
-                            discounts = torch.pow(gamma, steps_taken)
-
-                            if log_ent_coef is not None:
-                                ent_coef = torch.exp(log_ent_coef.detach())
-                            # Ensure next_log_prob shape is [batch_size, 1]
-                            if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
-                                next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
-                            else:
-                                next_log_prob = next_log_prob.view(-1, 1)
-
-                            # print(next_log_prob)
-                            """
-                            R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} -> rewards handled when saving to replay buffer
-                                  + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))      -> here
-                                  + gamma^n * Q(s_{t+n}) -> here
-                            """
-                            target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
-
-                            # Debug: print sampled-batch statistics occasionally
-                            try:
-                                if Settings.SAC_DEBUG_LOGGING and (step % 50 == 0):
-                                    rt = rewards.detach().cpu().numpy().reshape(-1)
-                                    st = steps_taken.detach().cpu().numpy().reshape(-1)
-                                    disc = discounts.detach().cpu().numpy().reshape(-1)
-                                    nlp = next_log_prob.detach().cpu().numpy().reshape(-1)
-                                    tq = target_q.detach().cpu().numpy().reshape(-1)
-                                    iw = is_weights.detach().cpu().numpy().reshape(-1)
-                                    import numpy as _np
-                                    print(f"[SAC DEBUG][step={step}] batch_size={rt.shape[0]} | steps mean={st.mean():.3f}, min={st.min()}, max={st.max()} | reward mean={rt.mean():.4f}, std={rt.std():.4f}")
-                                    print(f"[SAC DEBUG][step={step}] discounts mean={disc.mean():.4f} | next_logprob mean={nlp.mean():.4f}, ent_coef={float(ent_coef) if 'ent_coef' in locals() else None}")
-                                    print(f"[SAC DEBUG][step={step}] target_q mean={tq.mean():.4f}, min={tq.min():.4f}, max={tq.max():.4f} | is_weights mean={iw.mean():.4f}")
-                            except Exception:
-                                pass
-                            # target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
-                        # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
-
-                        current_q1, current_q2 = critic(obs, actions)
-
-
-                        ###Nikita: this is my critic loss!
-                        critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
-                                       + (is_weights * ((current_q2 - target_q).pow(2))).mean())
-                        # critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
-                        critic_optimizer.zero_grad()
-                        critic_loss.backward()
-                        critic_optimizer.step()
-
-                        #get TD-error
-                        if self.replay_buffer.custom_sampling:
-                            with torch.no_grad():
-                                # -> TD-error = TD_target - current_q
-                                current_q1_new, current_q2_new = critic(obs, actions)
-                                TD_error_1 = torch.abs(target_q - current_q1_new)
-                                TD_error_2 = torch.abs(target_q - current_q2_new)
-
-                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
-
-                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
-                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
-                                TD_update_priorities += 1e-6
-
-                                if self.replay_buffer.stat_tracker:
-                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(replay_buffer.current_sampled_inds, TD_update_priorities)
-
-                                # optional clipping
-                                if replay_buffer.clip_weights:
-                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
-
-                                replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
-
-
-                        # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
-
-                        # Actor update
-                        new_actions, log_prob = actor.action_log_prob(obs)
-                        q1_new, q2_new = critic(obs, new_actions)
-                        q_new = torch.min(q1_new, q2_new)
-                        ####Nikita: this is my actor loss
-                        # actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
-                        actor_loss = (ent_coef * log_prob - q_new).mean() #is_weights should not be here TODO: find out why!
-                        actor_optimizer.zero_grad()
-                        actor_loss.backward()
-                        actor_optimizer.step()
-
-                        # print(f"[server] Actor updated in {(time.time() - then):.5f} seconds.")
-
-                        # Entropy coefficient update
-                        if log_ent_coef is not None and ent_coef_optimizer is not None:
-                            ent_coef_loss = -(log_ent_coef * (log_prob + target_entropy).detach()).mean()
-                            ent_coef_optimizer.zero_grad()
-                            ent_coef_loss.backward()
-                            ent_coef_optimizer.step()
-
-                        # print(f"[server] Entropy coefficient updated in {(time.time() - then):.5f} seconds.")
-
-                        # Soft update of target network
-                        for param, target_param in zip(critic.parameters(), critic_target.parameters()):
-                            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-                        # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
-                        self.total_weight_updates += 1
-
-                        # Free unused memory
-                        # if self.device == "cuda":
-                        #     torch.cuda.empty_cache()
-                    except torch.cuda.OutOfMemoryError as e:
-                        print(f"[server] CUDA OOM during training step {step}: {e}")
-                        if self.device == "cuda":
-                            torch.cuda.empty_cache()
+                # Check if training is already in progress (prevent concurrent training)
+                async with self._training_lock:
+                    if self._training_in_progress:
+                        print(f"[server] ⚠️ CONCURRENT TRAINING DETECTED! Training already running. Skipping this round.")
+                        await asyncio.sleep(self.train_every_seconds)
                         continue
-
+                    self._training_in_progress = True
+                    print(f"[server] [LOOP_CONTROL] Starting training from event loop (loop iteration {loop_iteration_count})")
                 
-                
-                # Check if we should terminate before saving/broadcasting
-                async with self._terminate_lock:
-                    if self._should_terminate:
-                        print("[server] Termination requested, skipping post-training save/broadcast")
-                        return
-                
-                # You can now interfere with actor, critic, optimizers, etc. in this loop
-                log_dict = {
-                    "actor_loss": actor_loss.item(),
-                    "critic_loss": critic_loss.item(),
-                    "ent_coef_loss": ent_coef_loss.item(),
-                    "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
-                    "total_weight_updates": self.total_weight_updates,
-                    "training_duration": time.time() - time_start_training,
-                    "total_timesteps": self.total_actor_timesteps,
-                    "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
-                }
-                training_time = time.time() - time_start_training
-                print(f"\n[server] Training completed in {training_time:.2f} seconds.")
-
-                save_time = time.time()
-
-                # Nikita: stat tracker save
-                if self.replay_buffer.stat_tracker is not None:
-                    self.replay_buffer.stat_tracker.update_training_length_list(training_time)
-                    now = time.time()
-                    if now - self._last_stat_save_ts > 60.0:  # save every 5 minutes
-                        self.replay_buffer.stat_tracker.print_stats()
-                        # self.replay_buffer.stat_tracker.save_csv(append = False)
-                        self._last_stat_save_ts = now
-
-                if(len(episodes) > 0):
-                    print(log_dict)
-                    self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
-
-                new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
-                self._weights_blob = new_blob
-                await self._broadcast_weights(new_blob)
-                print("\n[server] Trained SAC and broadcast updated actor weights.")
-
-                # Nikita: debug
+                # Run training in a separate thread to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
                 try:
-                    target = os.path.join(self.model_dir, str(self.save_model_name))
-                    self.model.save(target)
-                    # print(f"[server] Auto-saved model to {target}")
+                    await loop.run_in_executor(self._executor, self._train_step_blocking)
                 except Exception as e:
-                    print(f"[server] Error auto-saving model: {e}")
-                print(f"[server] Rest of train loop after training completed: {(time.time() - save_time):.2f} seconds.")
-                # print(f"[server] 1 to 2: {(debug_time_2 - debug_time_1):.2f} seconds.")
-                # print(f"[server] 1 to 3: {(debug_time_3 - debug_time_1):.2f} seconds.")
-                # print(f"[server] 1 to 4: {(debug_time_4 - debug_time_1):.2f} seconds.")
+                    print(f"[server] Error during training: {e}")
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    # Mark training as complete
+                    async with self._training_lock:
+                        self._training_in_progress = False
+                    elapsed = time.time() - loop_start
+                    print(f"[server] [LOOP_CONTROL] Training and sync completed, total loop time: {elapsed:.2f}s")
             else:
                 needed = self.learning_starts - (self.replay_buffer.size() if self.replay_buffer else 0)
                 print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
+            
+            # Wait before next training iteration
+            await asyncio.sleep(self.train_every_seconds)
 
+
+    def _train_step_blocking(self):
+        """
+        The actual training loop - runs in a worker thread to avoid blocking the asyncio event loop.
+        This is the blocking version of training that was previously in _train_loop.
+        """
+        # Pin this thread to specific CPU cores to avoid contention with event loop
+        import os
+        import threading
+        try:
+            cpu_count = os.cpu_count() or 4
+            # Use cores 8-15 for training (leaves cores 1-7 for client simulator)
+            # Core 0 is reserved for event loop
+            training_cores = set(range(8, min(16, cpu_count)))  # Cores 8-15 (or up to cpu_count)
+            
+            if os.name == 'nt':
+                # Windows: use SetThreadAffinityMask
+                import ctypes
+                mask = 0
+                for core in training_cores:
+                    mask |= (1 << core)
+                ctypes.windll.kernel32.SetThreadAffinityMask(ctypes.windll.kernel32.GetCurrentThread(), mask)
+                print(f"[server] Training thread pinned to CPU cores: {training_cores}")
+            else:
+                # Linux/macOS: use sched_setaffinity
+                os.sched_setaffinity(0, training_cores)
+                print(f"[server] Training thread pinned to CPU cores: {training_cores}")
+        except Exception as e:
+            print(f"[server] Warning: Could not set CPU affinity: {e}")
+        
+        # Also reduce thread priority
+        try:
+            if os.name == 'nt':
+                import ctypes
+                ctypes.windll.kernel32.SetThreadPriority(ctypes.windll.kernel32.GetCurrentThread(), -1)
+            else:
+                os.nice(5)
+        except Exception as e:
+            print(f"[server] Warning: Could not reduce thread priority: {e}")
+        
+        t_total_start = time.time()
+        
+        # Check termination before starting training
+        async_task = asyncio.run_coroutine_threadsafe(self._check_should_terminate(), self._loop_ref)
+        if async_task.result():
+            return
+
+        grad_steps = self.grad_steps
+        current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+        print(f"\n[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
+        time_start_training = time.time()
+
+        # Manual training loop for SAC using torch
+        actor = self.model.policy.actor
+        critic = self.model.policy.critic
+        critic_target = self.model.policy.critic_target
+        actor_optimizer = self.model.policy.actor.optimizer
+        critic_optimizer = self.model.policy.critic.optimizer
+        batch_size = self.model.batch_size
+        replay_buffer = self.model.replay_buffer
+        gamma = self.model.gamma
+        n_step_gamma = gamma ** self.n_step
+        tau = self.model.tau
+        ent_coef = self.model.ent_coef
+        target_entropy = self.model.target_entropy
+        log_ent_coef = getattr(self.model, "log_ent_coef", None)
+        ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
+
+        if self.custom_sampling and self.replay_buffer.dynamic_importance_sampling_corrector:
+            progress = min(1, self.total_actor_timesteps / self.replay_buffer.beta_annealing_horizon)
+            self.replay_buffer.beta = self.replay_buffer.initial_beta + progress *(self.replay_buffer.beta_end - self.replay_buffer.initial_beta)
+            print("Beta has been updated to: " + str(self.replay_buffer.beta))
+
+        actor_loss = None
+        critic_loss = None
+        ent_coef_loss = None
+                            
+        for step in range(grad_steps):
+            # Check termination periodically (less frequently to avoid overhead)
+            if step % 100 == 0:
+                async_task = asyncio.run_coroutine_threadsafe(self._check_should_terminate(), self._loop_ref)
+                if async_task.result():
+                    print(f"[server] Training interrupted at step {step}/{grad_steps} due to termination request")
+                    return
+            
+            then = time.time()
+            try:
+                # Reduce batch size to avoid OOM
+                safe_batch_size = min(batch_size, 4096)
+                data = replay_buffer.sample(safe_batch_size)
+
+                obs      = data.observations
+                actions  = data.actions
+                next_obs = data.next_observations
+                rewards  = data.rewards
+                dones    = data.dones
+                steps_taken = data.steps_taken
+                is_weights = data.is_weights
+
+                # Critic update
+                with torch.no_grad():
+                    next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                    target_q1, target_q2 = critic_target(next_obs, next_actions)
+                    target_q = torch.min(target_q1, target_q2)
+                    discounts = torch.pow(gamma, steps_taken)
+
+                    if log_ent_coef is not None:
+                        ent_coef = torch.exp(log_ent_coef.detach())
+                    # Ensure next_log_prob shape is [batch_size, 1]
+                    if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
+                        next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
+                    else:
+                        next_log_prob = next_log_prob.view(-1, 1)
+
+                    target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
+
+                    # Debug: print sampled-batch statistics occasionally
+                    try:
+                        if Settings.SAC_DEBUG_LOGGING and (step % 50 == 0):
+                            rt = rewards.detach().cpu().numpy().reshape(-1)
+                            st = steps_taken.detach().cpu().numpy().reshape(-1)
+                            disc = discounts.detach().cpu().numpy().reshape(-1)
+                            nlp = next_log_prob.detach().cpu().numpy().reshape(-1)
+                            tq = target_q.detach().cpu().numpy().reshape(-1)
+                            iw = is_weights.detach().cpu().numpy().reshape(-1)
+                            import numpy as _np
+                            print(f"[SAC DEBUG][step={step}] batch_size={rt.shape[0]} | steps mean={st.mean():.3f}, min={st.min()}, max={st.max()} | reward mean={rt.mean():.4f}, std={rt.std():.4f}")
+                            print(f"[SAC DEBUG][step={step}] discounts mean={disc.mean():.4f} | next_logprob mean={nlp.mean():.4f}, ent_coef={float(ent_coef) if 'ent_coef' in locals() else None}")
+                            print(f"[SAC DEBUG][step={step}] target_q mean={tq.mean():.4f}, min={tq.min():.4f}, max={tq.max():.4f} | is_weights mean={iw.mean():.4f}")
+                    except Exception:
+                        pass
+
+                current_q1, current_q2 = critic(obs, actions)
+
+                critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
+                               + (is_weights * ((current_q2 - target_q).pow(2))).mean())
+                critic_optimizer.zero_grad()
+                critic_loss.backward()
+                critic_optimizer.step()
+
+                # Get TD-error
+                if self.replay_buffer.custom_sampling:
+                    with torch.no_grad():
+                        current_q1_new, current_q2_new = critic(obs, actions)
+                        TD_error_1 = torch.abs(target_q - current_q1_new)
+                        TD_error_2 = torch.abs(target_q - current_q2_new)
+
+                        TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
+                        TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
+                        TD_update_priorities += 1e-6
+
+                        if self.replay_buffer.stat_tracker:
+                            self.replay_buffer.stat_tracker.batch_update_TD_errors(replay_buffer.current_sampled_inds, TD_update_priorities)
+
+                        # optional clipping
+                        if replay_buffer.clip_weights:
+                            TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+
+                        replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+
+                # Actor update
+                new_actions, log_prob = actor.action_log_prob(obs)
+                q1_new, q2_new = critic(obs, new_actions)
+                q_new = torch.min(q1_new, q2_new)
+                actor_loss = (ent_coef * log_prob - q_new).mean()
+                actor_optimizer.zero_grad()
+                actor_loss.backward()
+                actor_optimizer.step()
+
+                # Entropy coefficient update
+                if log_ent_coef is not None and ent_coef_optimizer is not None:
+                    ent_coef_loss = -(log_ent_coef * (log_prob + target_entropy).detach()).mean()
+                    ent_coef_optimizer.zero_grad()
+                    ent_coef_loss.backward()
+                    ent_coef_optimizer.step()
+
+                # Soft update of target network
+                for param, target_param in zip(critic.parameters(), critic_target.parameters()):
+                    target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+                self.total_weight_updates += 1
+                
+                # Yield CPU time periodically to let client/event loop breathe
+                if step % 8 == 0:  # Every 8 steps (~3% of 256 total steps = 32 yields)
+                    time.sleep(0.002)  # 2ms sleep to yield CPU
+
+            except torch.cuda.OutOfMemoryError as e:
+                print(f"[server] CUDA OOM during training step {step}: {e}")
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                continue
+
+        # Stat tracker save
+        if self.replay_buffer.stat_tracker is not None:
+            now = time.time()
+            if now - self._last_stat_save_ts > 60.0:
+                self.replay_buffer.stat_tracker.print_stats()
+                self._last_stat_save_ts = now
+        
+        # Check termination before broadcasting
+        async_task = asyncio.run_coroutine_threadsafe(self._check_should_terminate(), self._loop_ref)
+        if async_task.result():
+            print("[server] Termination requested, skipping post-training save/broadcast")
+            return
+        
+        # Send updates back via the event loop
+        try:
+            episodes = self.episode_buffer.drain_all()  # Get episodes from buffer
+            
+            log_dict = {
+                "actor_loss": actor_loss.item() if actor_loss is not None else 0,
+                "critic_loss": critic_loss.item() if critic_loss is not None else 0,
+                "ent_coef_loss": ent_coef_loss.item() if ent_coef_loss is not None else 0,
+                "ent_coef": ent_coef if isinstance(ent_coef, float) else (ent_coef.item() if ent_coef is not None else 0),
+                "total_weight_updates": self.total_weight_updates,
+                "training_duration": time.time() - time_start_training,
+                "total_timesteps": self.total_actor_timesteps,
+                "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
+            }
+            print(f"\n[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
+            if(len(episodes) > 0):
+                print(log_dict)
+                
+                # Timing: CSV logging
+                t_csv_start = time.time()
+                self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
+                t_csv_elapsed = time.time() - t_csv_start
+                print(f"[TIMING] CSV logging took {t_csv_elapsed:.3f}s")
+                
+                # Schedule plotting asynchronously if needed (don't block worker thread)
+                if self.trainingLogHelper.should_plot():
+                    asyncio.run_coroutine_threadsafe(
+                        self._schedule_plot(),
+                        self._loop_ref
+                    )
+
+            # Timing: Weight serialization
+            t_weights_start = time.time()
+            new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
+            self._weights_blob = new_blob
+            t_weights_elapsed = time.time() - t_weights_start
+            print(f"[TIMING] Weight serialization took {t_weights_elapsed:.3f}s")
+            
+            # Broadcast weights via the async loop (rate-limited to avoid flooding client)
+            now = time.time()
+            time_since_last_broadcast = now - self._last_weight_broadcast_time
+            if time_since_last_broadcast >= self._min_broadcast_interval:
+                asyncio.run_coroutine_threadsafe(self._broadcast_weights(new_blob), self._loop_ref)
+                self._last_weight_broadcast_time = now
+                print("\n[server] Trained SAC and broadcast updated actor weights.")
+            else:
+                print(f"\n[server] Trained SAC (weights broadcast rate-limited, {self._min_broadcast_interval - time_since_last_broadcast:.1f}s until next broadcast).")
+
+            # Schedule model saving asynchronously (don't block worker thread)
+            model_save_path = os.path.join(self.model_dir, str(self.save_model_name))
+            asyncio.run_coroutine_threadsafe(
+                self._schedule_model_save(model_save_path),
+                self._loop_ref
+            )
+            
+            # Overall timing
+            t_total_elapsed = time.time() - t_total_start
+            # if t_total_elapsed > 5.0:
+            print(f"[TIMING] TOTAL train_step_blocking took {t_total_elapsed:.2f}s")
+        except Exception as e:
+            print(f"[server] Error in post-training operations: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _check_should_terminate(self) -> bool:
+        """Helper to check termination flag from worker thread"""
+        async with self._terminate_lock:
+            return self._should_terminate
+
+    async def _schedule_plot(self):
+        """Schedule plotting in a background task (non-blocking)."""
+        try:
+            # Run plotting in executor to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self._executor, self.trainingLogHelper.plot_training_metrics)
+        except Exception as e:
+            print(f"[server] Error scheduling plot: {e}")
+
+    async def _schedule_model_save(self, save_path: str):
+        """Schedule model saving in a background task (non-blocking)."""
+        try:
+            # Run model saving in executor to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self._executor, self.model.save, save_path)
+        except Exception as e:
+            print(f"[server] Error auto-saving model: {e}")
 
     # ---------- networking ----------
     async def _broadcast_weights(self, blob: bytes):
         """Send weights to all currently connected clients."""
+        t_bc_start = time.time()
         frame = {"type": "weights", "data": {"blob": blob, "format": "torch_state_dict", "algo": "SAC", "module": "actor"}}
         async with self._client_lock:
             dead: List[asyncio.StreamWriter] = []
@@ -1057,6 +1150,9 @@ class LearnerServer:
                     dead.append(w)
             for w in dead:
                 self._clients.discard(w)
+        t_bc_elapsed = time.time() - t_bc_start
+        if t_bc_elapsed > 0.1:
+            print(f"[TIMING] Broadcast weights took {t_bc_elapsed:.3f}s (blob size: {len(blob)} bytes)")
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
@@ -1186,6 +1282,27 @@ class LearnerServer:
             print(f"[server] Client disconnected: {addr}")
 
     async def run(self):
+        # Pin event loop thread to single core for isolation (leave rest for training)
+        import os
+        try:
+            cpu_count = os.cpu_count() or 4
+            # Use only core 0 for event loop (it's truly single-threaded for asyncio)
+            event_loop_cores = {0}
+            
+            if os.name == 'nt':
+                import ctypes
+                mask = 1  # Mask for core 0
+                ctypes.windll.kernel32.SetThreadAffinityMask(ctypes.windll.kernel32.GetCurrentThread(), mask)
+                print(f"[server] Event loop thread pinned to CPU core: 0")
+            else:
+                os.sched_setaffinity(0, event_loop_cores)
+                print(f"[server] Event loop thread pinned to CPU core: 0")
+        except Exception as e:
+            print(f"[server] Warning: Could not set event loop CPU affinity: {e}")
+        
+        # Store reference to the event loop for worker threads
+        self._loop_ref = asyncio.get_event_loop()
+        
         # Eagerly initialize so we have weights ready for the first client:
         if self.model is None:
             self._load_base_model() 
@@ -1269,9 +1386,21 @@ class LearnerServer:
             if self.replay_buffer is not None and self.replay_buffer.stat_tracker is not None:
                 self.replay_buffer.stat_tracker.save_csv(append=False)
             
-            # Save model one last time
+            # Save model one last time (with timeout)
             print("[server] Saving model before exit...")
-            self._save_model()
+            try:
+                save_task = asyncio.create_task(self._schedule_model_save(
+                    os.path.join(self.model_dir, self.save_model_name)
+                ))
+                await asyncio.wait_for(save_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                print("[server] Model save timed out, skipping...")
+            except Exception as e:
+                print(f"[server] Error saving model: {e}")
+            
+            # Shutdown executor
+            print("[server] Shutting down executor...")
+            self._executor.shutdown(wait=False, cancel_futures=True)
             
             print("[server] Shutdown complete")
 

@@ -168,53 +168,58 @@ class RLAgentPlanner(template_planner):
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
-        nikita_t_start = time.time()
-        
+
         if not self.autonomous_driving:
             return self._fallback_action()
         
+        # Sync car_state with fallback planner
+        if self.car_state is not None:
+            self.fallback_planner.car_state = self.car_state
+        
+        # --- build raw obs (manual normalization happens inside) ---
+        raw_obs = self._build_observation()
+        obs_for_policy = raw_obs
+        if self.vec_normalize is not None:
+            obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
+        
         # pull latest weights if any
-        nikita_t1 = time.time()
         if self.training_mode or self.inference_model_name is None:
             sd = self.client.pop_latest_state_dict()
             if sd is not None:
                 try:
-                    with torch.no_grad():
-                        self.model.policy.actor.load_state_dict(sd, strict=True)
-                        self.model.policy.actor.eval()
-                        
-                        # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
-                        dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
-                        _ = self.model.policy.actor(dummy_obs)
-                        
+                    t0 = time.time()
+                    self.model.policy.actor.load_state_dict(sd, strict=True)
+                    t1 = time.time()
+                    self.model.policy.actor.eval()
+                    t2 = time.time()
                     self._received_weights = True
-                    nikita_t2 = time.time()
-                    print(f"\n[RLAgentPlanner] ✅ Actor weights updated. (took {(nikita_t2-nikita_t1)*1000:.2f}ms)")
+                    load_time = (t1 - t0) * 1000
+                    eval_time = (t2 - t1) * 1000
+                    print(f"\n[RLAgentPlanner] ✅ Actor weights updated. (load_state_dict: {load_time:.2f}ms, eval: {eval_time:.2f}ms)")
+                    
+                    # Warm up cache with dummy prediction using actual observation shape
+                    _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
+                    t3 = time.time()
+                    warmup_time = (t3 - t2) * 1000
+                    print(f"[RLAgentPlanner] Cache warmup took {warmup_time:.2f}ms")
                 except Exception as e:
                     print(f"\n[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
-        nikita_t_weights = time.time()
 
-        # --- build raw obs (manual normalization happens inside) ---
-        nikita_t3 = time.time()
-        raw_obs = self._build_observation()
-        nikita_t4 = time.time()
-        obs_for_policy = raw_obs
-        if self.vec_normalize is not None:
-            obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
 
         # choose action
-        nikita_t5 = time.time()
         if self._received_weights:
-            with torch.no_grad():
-                # NIKITA: for slowdown testing
-                action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
+            t_pred_start = time.time()
+            action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
+            t_pred_end = time.time()
+            pred_time_ms = (t_pred_end - t_pred_start) * 1000
+            if pred_time_ms > 10:  # Only log if slower than 10ms
+                print(f"[TIMING] model.predict took {pred_time_ms:.2f}ms")
             action = np.asarray(action, dtype=np.float32).reshape(-1)
         else:
             if not self._warned_no_weights:
                 print("\n[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
                 self._warned_no_weights = True
             action = self._fallback_action()
-        nikita_t6 = time.time()
 
         # action = self._fallback_action()
         # scale to simulator units
@@ -257,22 +262,11 @@ class RLAgentPlanner(template_planner):
         self.state_history.append(self.car_state)
         
         self.control_index += 1
-        
-        # NIKITA TIMING
-        nikita_t_end = time.time()
-        nikita_t_total = (nikita_t_end - nikita_t_start) * 1000
-        if nikita_t_total > 10.0:  # Only print if > 10ms
-            print(f"[TIMING] process_observation: total={nikita_t_total:.2f}ms | "
-                  f"weights={((nikita_t_weights-nikita_t1)*1000):.2f}ms | "
-                  f"obs_build={((nikita_t4-nikita_t3)*1000):.2f}ms | "
-                  f"predict={((nikita_t6-nikita_t5)*1000):.2f}ms")
-        
         return self.angular_control, self.translational_control
 
 
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
-        nikita_t_step_start = time.time()
-        
+
         reward = driver_obs['reward']
         done = driver_obs['done']
         info = driver_obs['info']
@@ -284,9 +278,8 @@ class RLAgentPlanner(template_planner):
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
-        nikita_t7 = time.time()
+
         next_obs = self._build_observation()
-        nikita_t8 = time.time()
 
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
@@ -296,11 +289,9 @@ class RLAgentPlanner(template_planner):
             "done":     bool(done),
             "info":     info or {},
         }
-        nikita_t9 = time.time()
         self._episode.append(transition)
         if self.save_transitions:
             self.transition_logger.log(transition)
-        nikita_t10 = time.time()
 
         # print(self.control_index)
         if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
@@ -309,12 +300,10 @@ class RLAgentPlanner(template_planner):
             if self.training_mode and self.autonomous_driving:
                 try:
                     if len(self._episode) > 1:
-                        nikita_t11 = time.time()
                         self.client.send_transition_batch(self._episode)
-                        nikita_t12 = time.time()
                         self.total_sent += len(self._episode)
                         total_reward = sum(t["reward"] for t in self._episode)
-                        print(f"\n[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}. (send took {(nikita_t12-nikita_t11)*1000:.2f}ms)")
+                        print(f"\n[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
                     
                 except Exception as e:
                     print(f"\n[RLAgentPlanner] Failed to send episode: {e}")
@@ -325,15 +314,6 @@ class RLAgentPlanner(template_planner):
                     self.prev_action = None
             else:
                 print(f"\n[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
-        
-        # NIKITA TIMING
-        nikita_t_step_end = time.time()
-        nikita_t_step_total = (nikita_t_step_end - nikita_t_step_start) * 1000
-        if nikita_t_step_total > 5.0:  # Only print if > 5ms
-            print(f"[TIMING] on_step_end: total={nikita_t_step_total:.2f}ms | "
-                  f"obs_build={((nikita_t8-nikita_t7)*1000):.2f}ms | "
-                  f"transition_create={((nikita_t9-nikita_t8)*1000):.2f}ms | "
-                  f"append={((nikita_t10-nikita_t9)*1000):.2f}ms")
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
@@ -353,6 +333,10 @@ class RLAgentPlanner(template_planner):
         pass
     
     def _fallback_action(self) -> np.ndarray:
+        # Guard: if car_state is None (first observation before any car state received), return zero action
+        if self.car_state is None:
+            return np.array([0.0, 0.0], dtype=np.float32)
+        
         fallback_control = self.fallback_planner.process_observation()
         fallback_action = fallback_control / self.action_denormalization_array
         # return [0., 0.]

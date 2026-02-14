@@ -2,6 +2,7 @@ import numpy as np
 import csv
 import os
 import time
+import matplotlib.pyplot as plt
 from datetime import datetime
 from utilities.state_utilities import STATE_INDICES
 
@@ -18,13 +19,15 @@ class StatTracker:
     - obs[3]: steering_angle (scaled by 1/0.4)
     """
     
-    def __init__(self, save_dir: str = "stat_logs", save_name: str = "stats_log.csv"):
+    def __init__(self, save_dir: str = "stat_logs", save_name: str = "stats_log.csv", max_buffer_size: int = 100000):
         self.save_dir = save_dir
         self.file_path = os.path.join(save_dir, save_name)
         self.transition_dict = {}  # {ID: transition_dict}
         self.ID_counter = 0
 
         self.buffer_position_to_id = {} #
+
+        self.max_buffer_size = max_buffer_size
  
         os.makedirs(save_dir, exist_ok=True)
         
@@ -32,6 +35,12 @@ class StatTracker:
         self.state_norm_factors = np.array([0.1, 1.0, 0.5, 1/0.4], dtype=np.float32)
 
         self.d_e_norm_factors = np.array([0.5, 0.5], dtype=np.float32)  # reward, done
+
+        self.training_length_list = []
+
+        self.buffer_size_list = []
+
+        self.total_sample_calls = 0
     
     # def unnormalize_obs(self, obs: np.ndarray) -> dict:    # -> i would maybe also like x and y pos to be saved
     #     if len(obs) < 4:
@@ -71,6 +80,8 @@ class StatTracker:
             'timestamp': datetime.now().time().isoformat(),
             'buffer_position': buffer_position,
             'sample_count': 0,  # Track how many times this transition was sampled
+            'sample_calls_at_birth': self.total_sample_calls, 
+            'sample_calls_at_death': None, 
             'reward': float(reward),
             'done': bool(done),
         }
@@ -89,13 +100,35 @@ class StatTracker:
         # Add raw state values
         transition_entry.update(obs_dict)
 
-        transition_entry.update({'TD_error_list': []})
+        weight_dict = {
+            'state_weight': None,
+            'reward_weight': None,
+            'combined_weight': None,
+        }
+
+        transition_entry.update(weight_dict)
+
+        TD_dict = {
+            'TD_error_list': [],
+            'TD_error_mean': None,
+            'TD_error_max': None,
+            'TD_error_min': None,
+            'TD_error_latest': None,
+            'TD_error_first': None,
+        }
+
+        transition_entry.update(TD_dict)
         
         # Add optional values
         if TD_error is not None:
             transition_entry['TD_error_list'].append(float(TD_error))
         
         self.transition_dict[self.ID_counter] = transition_entry
+
+        old_id = self.buffer_position_to_id.get(buffer_position)
+        if old_id is not None:
+            self.transition_dict[old_id]['sample_calls_at_death'] = self.total_sample_calls
+
         self.buffer_position_to_id[buffer_position] = self.ID_counter
 
         self.ID_counter += 1
@@ -115,35 +148,36 @@ class StatTracker:
             t['reward'] = float(reward)
 
         return True
-    
-    # def batch_update_transition(self, transition_id, TD_error=None, reward=None):
-    #     if transition_id not in self.transition_dict:
-    #         print(f"[StatTracker] Warning: Transition ID {transition_id} not found")
-    #         return False
-        
-    #     t = self.transition_dict[transition_id]
-        
-    #     if TD_error is not None:
-    #         t['TD_error_list'].append(float(TD_error))
-    #     if reward is not None:
-    #         t['reward'] = float(reward)
 
-    #     return True
-    
     def batch_update_TD_errors(self, buffer_indices: np.ndarray, TD_errors: np.ndarray):
         for i, buffer_idx in enumerate(buffer_indices):
             transition_id = self.buffer_position_to_id.get(buffer_idx)
             if transition_id is not None and transition_id in self.transition_dict:
                 self.transition_dict[transition_id]['TD_error_list'].append(float(TD_errors[i]))
-    
+
+    def add_transition_static_weights(self, buffer_idx, state_weight=None, reward_weight=None):
+        transition_id = self.buffer_position_to_id.get(buffer_idx)
+        if transition_id is not None and transition_id in self.transition_dict:
+                self.transition_dict[transition_id]['state_weight'] = float(state_weight)
+                self.transition_dict[transition_id]['reward_weight'] = float(reward_weight)
+
+    def update_training_length_list(self, length):
+        self.training_length_list.append(float(length))
+        self.buffer_size_list.append(min(self.max_buffer_size, self.ID_counter))
+        return
     
     def batch_update_sample_count(self, buffer_indices):
-        # print('im updating')
-        updated_ids = [self.buffer_position_to_id[idx] for idx in buffer_indices]
-
-        for transition_id in updated_ids:
-            t = self.transition_dict[transition_id]
-            t['sample_count'] = t.get('sample_count', 0) + 1
+        """
+        Update sample count for sampled transitions.
+        Can be disabled for performance during training via Settings.SAC_STAT_TRACKER_SAMPLE_COUNT_ENABLED.
+        """
+        self.total_sample_calls += 1
+        
+        # Optimized: Direct iteration without list comprehension
+        for idx in buffer_indices:
+            transition_id = self.buffer_position_to_id.get(idx)
+            if transition_id is not None and transition_id in self.transition_dict:
+                self.transition_dict[transition_id]['sample_count'] += 1
         return
     
     def get_transition(self, transition_id):
@@ -239,3 +273,24 @@ class StatTracker:
             print(f"{key:20s}: mean={values['mean']:10.4f}, std={values['std']:10.4f}, "
                   f"min={values['min']:10.4f}, max={values['max']:10.4f} (n={values['count']})")
         print("=" * 80 + "\n")
+
+        if len(self.training_length_list) > 0:
+            fig, ax1 = plt.subplots()
+    
+            ax1.set_xlabel('Training iteration')
+            ax1.set_ylabel('Training Length', color='tab:blue')
+            ax1.plot(self.training_length_list, color='tab:blue', label='Training Length')
+            ax1.tick_params(axis='y', labelcolor='tab:blue')
+            
+            ax2 = ax1.twinx()  # Second y-axis
+            ax2.set_ylabel('Buffer Size', color='tab:orange')
+            ax2.plot(self.buffer_size_list, color='tab:orange', label='Buffer Size')
+            ax2.tick_params(axis='y', labelcolor='tab:orange')
+            
+            plt.title('Training Progress Over Time')
+            fig.tight_layout()
+            
+            plot_path = os.path.join(self.save_dir, 'training_length_plot.png')
+            plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"[StatTracker] Saved training plot to {plot_path}")

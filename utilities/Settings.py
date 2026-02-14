@@ -85,8 +85,8 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     
@@ -186,11 +186,11 @@ class Settings():
     SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.4   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.0   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     SAC_DYNAMIC_IS_CORRECTOR = True
-    SAC_BETA_ANNEALING_RATIO = 0.8 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
+    SAC_BETA_ANNEALING_RATIO = 0.6 #at how much % of total agent timesteps should beta have grown to 1.0
+    SAC_STATE_TO_TD_RATIO = 0.3 #if 0, only TD error based priorities
 
     SAC_N_STEP = 1 #lookahead steps for reward calculations
 

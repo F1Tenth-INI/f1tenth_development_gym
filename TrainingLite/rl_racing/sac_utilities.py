@@ -11,7 +11,12 @@ import os
 import sys
 import csv
 from typing import Any, Dict, List, Optional, Tuple
+
+# Force matplotlib to use non-interactive backend (fixes threading issues on Windows)
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 from stable_baselines3.common.vec_env import DummyVecEnv
 import yaml
 
@@ -290,20 +295,19 @@ class TrainingLogHelper():
 
         self.training_index += 1
 
+        # NOTE: Don't call plot_training_metrics() here - it will be scheduled async
         if self.training_index % self.plot_every == 0:
             self.plot_training_metrics()
 
     def plot_training_metrics(self):
         model_dir = self.model_dir
         csv_path=self.csv_path
-
         if not os.path.exists(csv_path):
             print(f"CSV file not found: {csv_path}")
             return
 
         # Load the CSV
         df = pd.read_csv(csv_path)
-        print(df.columns)
 
 
         # Downsample and window settings
@@ -379,6 +383,20 @@ class TrainingLogHelper():
 
         plt.tight_layout()
         plt.savefig(os.path.join(model_dir, 'training_metrics.png'))
+        plt.close(fig)
+
+    def should_plot(self) -> bool:
+        """Check if plotting should happen (without actually plotting).
+        
+        NOTE: Disabled during training to test if plotting causes slowdowns.
+        Set to False to skip all plots during training.
+        """
+        # DIAGNOSTIC: Set to False to disable plotting entirely during training
+        DISABLE_PLOTTING_DURING_TRAINING = True
+        if DISABLE_PLOTTING_DURING_TRAINING:
+            return False
+        
+        return self.training_index % self.plot_every == 0
 
 
 

@@ -6,7 +6,7 @@ import ast
 # Load CSV - only load columns we need to save memory
 print("Loading CSV...")
 df = pd.read_csv(
-    'TrainingLite\\rl_racing\\models\\TD_graph_test_04_prio_no_csv\\stat_logs\\stats_log.csv',
+    'TrainingLite\\rl_racing\\models\\STAT_TRACK_50k_buffer_train_every_10_03state\\stat_logs\\stats_log.csv',
     usecols=['id', 'TD_error_list', 'sample_count']  # Only load what we need
 )
 print(f"Loaded {len(df)} rows")
