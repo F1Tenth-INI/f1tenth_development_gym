@@ -60,7 +60,7 @@ class StatTracker:
     #     }
 
 
-    def register_transition(self, obs, buffer_position, reward, done, TD_error=None):
+    def register_transition(self, obs, buffer_position, reward, done, TD_error=None, info=None):
         """
         Register a transition for logging. Returns ID for later updates.
         
@@ -107,6 +107,13 @@ class StatTracker:
         }
 
         transition_entry.update(weight_dict)
+
+        pose_dict = {
+            'pose_x': info.get('pose_x') if info else None,
+            'pose_y': info.get('pose_y') if info else None,
+        }
+
+        transition_entry.update(pose_dict)
 
         TD_dict = {
             'TD_error_list': [],

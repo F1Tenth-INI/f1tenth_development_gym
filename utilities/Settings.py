@@ -181,16 +181,18 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
+    SAC_CUSTOM_SAMPLING_REPLACE = True #True -> means same sample can be drawn multiple times, this is default
+
     SAC_WP_OFFSET_WEIGHT = 0.0
     SAC_WP_HEADING_ERROR_WEIGHT = 0.0
     SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.0   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.5   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_BETA_ANNEALING_RATIO = 0.6 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.3 #if 0, only TD error based priorities
+    SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
 
     SAC_N_STEP = 1 #lookahead steps for reward calculations
 

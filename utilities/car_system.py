@@ -272,7 +272,9 @@ class CarSystem:
             "lap_times": self.laptimes,
             "truncated": self.reward_calculator.truncated or next_obs['collision'] or next_obs['interrupted'],
             "terminated": next_obs['terminated'],
-            "collision": next_obs['collision']
+            "collision": next_obs['collision'],
+            "pose_x": car_state[POSE_X_IDX],
+            "pose_y": car_state[POSE_Y_IDX],
             # "reward_difficulty": self.reward_calculator.difficulty
         }
 

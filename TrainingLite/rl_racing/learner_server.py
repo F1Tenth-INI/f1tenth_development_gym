@@ -68,7 +68,16 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.rank_based_sampling = Settings.SAC_RANK_BASED_SAMPLING
 
+        self.custom_sampling_replace = Settings.SAC_CUSTOM_SAMPLING_REPLACE
+
         self.steps_taken = np.ones(self.buffer_size, dtype=np.int32)
+
+        self.recalc_every = 20  # choose N
+        self._sample_calls = 0
+        self._cached_p = None
+        self._cached_possible_inds = None
+        self._cached_ranked_inds = None
+        self._cached_length = 0
 
         # if 
 
@@ -101,7 +110,7 @@ class CustomReplayBuffer(ReplayBuffer):
         obs = self.observations[idx, 0, :]
 
         if self.stat_tracker is not None:
-            self.stat_tracker.register_transition(obs, idx, reward, done) #gets the unnormalized obs directly
+            self.stat_tracker.register_transition(obs, idx, reward, done, info=infos) #gets the unnormalized obs directly
             # self.stat_tracker.print_stats()
 
         if not self.custom_sampling:
@@ -155,6 +164,75 @@ class CustomReplayBuffer(ReplayBuffer):
         self.new_weight_priority = max(self.new_weight_priority, TD_update_priorities.max())
 
         return
+    
+    def _recompute_probs(self, possible_inds):
+        w_vec = self.state_weights[possible_inds].astype(np.float64)
+        TD_vec = self.TD_weights[possible_inds].astype(np.float64)
+        combined = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
+        combined = np.log1p(combined)
+
+        if self.rank_based_sampling:
+            sorted_inds = np.argsort(-combined)
+            ranked_buffer_inds = possible_inds[sorted_inds]
+            ranks = np.arange(1, len(possible_inds) + 1)
+            p = ranks ** -self.alpha
+        else:
+            p = combined ** self.alpha
+            ranked_buffer_inds = None
+
+        p_tot = p.sum()
+        if p_tot <= 0 or not np.isfinite(p_tot):
+            p = np.ones_like(p) / len(possible_inds)
+        else:
+            p /= p_tot
+
+        self._cached_p = p
+        self._cached_possible_inds = possible_inds
+        self._cached_ranked_inds = ranked_buffer_inds
+        self._cached_length = len(possible_inds)
+
+    def sample_recompute(self, safe_batch_size, env=None):
+        if not self.custom_sampling:
+            return super().sample(batch_size=safe_batch_size, env=env)
+
+        # compute possible_inds (same as you already do)
+        if self.full:
+            possible_inds = np.arange(self.buffer_size)
+            mask = possible_inds != self.pos #mask which would set the self.pos index as false
+            possible_inds = possible_inds[mask]
+        else:
+            possible_inds = np.arange(self.pos)
+
+        self._sample_calls += 1
+        need_recalc = (
+            self._cached_p is None
+            or self._sample_calls % self.recalc_every == 0
+            or self._cached_length != len(possible_inds)
+        )
+
+        if need_recalc:
+            # print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
+            self._recompute_probs(possible_inds)
+        # else:
+            # print("not recomputing prob :()")
+
+        p = self._cached_p
+        sampled_p_index = np.random.choice(self._cached_length, size=safe_batch_size, p=p)
+
+        if self.rank_based_sampling:
+            batch_inds = self._cached_ranked_inds[sampled_p_index]
+        else:
+            batch_inds = self._cached_possible_inds[sampled_p_index]
+
+        # IS weights based on cached p
+        sample_probs = p[sampled_p_index]
+        is_weights = (1 / (self._cached_length * sample_probs)) ** self.beta
+        is_weights = is_weights / is_weights.max()
+
+        self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
+        self.current_sampled_inds = batch_inds
+
+        return self._get_samples(batch_inds, env=env)
 
     def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""
@@ -199,38 +277,9 @@ class CustomReplayBuffer(ReplayBuffer):
             p = np.ones_like(p) / length
         else:
             p /= p_tot
-        """"""""""""""""""""""""""""""""""""""""""""""""
-        """DEBUG DEBUG DEBUG"""
-
-        # if self.counter % 1000 == 0:
-        #     # test_idx = np.random.choice(length, size=1)[0]
-        #     print("--- Debug Info ---")
-        #     # print("idx: " + str(test_idx))
-        #     # print("w: " + str(w_vec[test_idx]))
-        #     # uni_p = 1.0 / max(1, self.size())
-        #     # print("TD_vec: " + str(TD_vec[test_idx]))
-        #     # print("combined weight: " + str(combined_weight[test_idx]))
-        #     # print("uniform sampling prob: " + str(uni_p))
-        #     print("max weight: " + str(combined_weight.max()))
-        #     print("min weight: " + str(combined_weight.min()))
-
-        #     print("max prob: " + str(p.max()))
-        #     print("min prob: " + str(p.min()))
-
-        #     # # Find who is holding this static max value
-        #     # max_weight_idx_in_possible = np.argmax(combined_weight)
-        #     # max_weight_val = combined_weight[max_weight_idx_in_possible]
-        #     # actual_buffer_idx = possible_inds[max_weight_idx_in_possible]
-
-        #     # print(f"--- Max Weight Debug ---")
-        #     # print(f"Max Weight: {max_weight_val}")
-        #     # print(f"Held by Buffer Index: {actual_buffer_idx}")
-
-        """"""""""""""""""""""""""""""""""""""""""""""""
-        """DEBUG DEBUG DEBUG"""
 
         #TODO: do i want replace or not? :/
-        sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p)
+        sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p, replace=self.custom_sampling_replace)
         
         if self.rank_based_sampling:
             batch_inds = ranked_buffer_inds[sampled_p_index]
@@ -266,22 +315,6 @@ class CustomReplayBuffer(ReplayBuffer):
         self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
 
         self.current_sampled_inds = batch_inds
-
-        # self.importance_sampling_correctors[batch_inds] = is_weights
-
-        # self.current_sampled_inds = batch_inds
-        
-        # ###TODO: this is slow and inefficient
-        # for idx in batch_inds:
-        #     if idx > self.pos:
-        #         self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx-1])) ** self.beta
-        #     else:
-        #         self.importance_sampling_correctors[idx] = (1 / (self.buffer_size * p[idx])) ** self.beta
-        
-        # self.batch_is_correctors = self.importance_sampling_correctors[batch_inds]
-        
-        # self.batch_is_correctors = self.batch_is_correctors.reshape(-1, 1).astype(np.float32)
-        # assert np.all(np.isin(batch_inds, possible_inds))
 
         return self._get_samples(batch_inds, env=env)
     
@@ -404,7 +437,7 @@ class LearnerServer:
         self.total_weight_updates = 0
 
         self.last_episode_time = None 
-        self.episode_timeout = 100.0
+        self.episode_timeout = 500.0
 
         #used for n-step buffer, for standard buffer set = 1
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
@@ -502,7 +535,7 @@ class LearnerServer:
 
         if Settings.SAC_STAT_TRACKER:
             stat_save_dir = os.path.join(self.model_dir, "stat_logs")
-            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv")
+            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv", max_buffer_size=self.replay_capacity)
             self._last_stat_save_ts = 0.0
         else:
             self.replay_buffer.stat_tracker = None
@@ -584,7 +617,7 @@ class LearnerServer:
                     action=action,
                     reward=reward,
                     done=done,
-                    infos={}, # could pass TimeLimit info here if you track it
+                    infos=t["info"], # could pass TimeLimit info here if you track it
                     steps_taken=steps_taken  
                     # sampling_weight = sampling_weight
                 )
