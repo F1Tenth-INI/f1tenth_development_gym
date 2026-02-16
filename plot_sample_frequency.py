@@ -16,8 +16,8 @@ from PIL import Image
 # ============================================================================
 # CONFIGURATION - Edit these paths directly
 # ============================================================================
-DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/laptop_pc_custom_TD_error_only_5s/stat_logs/stats_log.csv'
-DEFAULT_MAP_NAME = 'RCA1'
+DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/1502_from_Ex1_A0.4_Rank_False_Run1/stat_logs/stats_log.csv'
+DEFAULT_MAP_NAME = 'RCA2'
 # ============================================================================
 
 def load_map_image(map_name='RCA1'):
@@ -98,7 +98,7 @@ def plot_sample_frequency_distribution(df, save_path=None):
     # 2. Sample count vs samples per batch
     ax = axes[0, 1]
     scatter = ax.scatter(df['sample_count'], df['samples_per_batch'], 
-                        alpha=0.5, s=10, c=df['possible_samples'], 
+                        alpha=0.5, s=1, c=df['possible_samples'], 
                         cmap='viridis')
     ax.set_xlabel('Absolute Sample Count')
     ax.set_ylabel('Samples per Batch')
@@ -109,7 +109,7 @@ def plot_sample_frequency_distribution(df, save_path=None):
     
     # 3. Samples per batch over transition lifetime (time in buffer)
     ax = axes[1, 0]
-    ax.scatter(df['possible_samples'], df['samples_per_batch'], alpha=0.5, s=10)
+    ax.scatter(df['possible_samples'], df['samples_per_batch'], alpha=0.5, s=1)
     ax.set_xlabel('Transition Lifetime (possible samples)')
     ax.set_ylabel('Samples per Batch')
     ax.set_title('Samples per Batch vs Lifetime in Buffer')
@@ -178,14 +178,17 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     ax = axes[0]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)  # Fade map to reduce border visibility
     
+    # Sort by samples_per_batch so higher values are drawn on top
+    df_sorted = df_with_pos.sort_values('samples_per_batch')
+    
     # Flip y-coordinates for proper display
     img_height = img_array.shape[0]
     scatter = ax.scatter(
-        df_with_pos['pixel_x'],
-        img_height - df_with_pos['pixel_y'],
-        c=df_with_pos['samples_per_batch'],
+        df_sorted['pixel_x'],
+        img_height - df_sorted['pixel_y'],
+        c=df_sorted['samples_per_batch'],
         cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
-        s=3,  # Much smaller dots to see individual points
+        s=0.5,  # Much smaller dots to see individual points
         alpha=0.6,
         vmin=0,
         vmax=df_with_pos['samples_per_batch'].max()  # Scale to actual max
