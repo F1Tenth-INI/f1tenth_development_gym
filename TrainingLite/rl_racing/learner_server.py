@@ -35,7 +35,7 @@ class LearnerServer:
         replay_capacity: int = 100_000,
         learning_starts: int = 2000,
         batch_size: int = 1024,
-        learning_rate: float = 1e-4,
+        learning_rate: float = 3e-4,
         discount_factor: float = 0.99,
         train_frequency: int = 1,
     ):

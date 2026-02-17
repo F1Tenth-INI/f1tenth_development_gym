@@ -311,7 +311,8 @@ class RLAgentPlanner(template_planner):
         border_distances = np.concatenate([border_distances_right, border_distances_left])
         
         [border_points_left, border_points_right] = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
-        border_points = np.concatenate([border_points_right.flatten(), border_points_left.flatten()])
+        border_points = np.concatenate([border_points_right[::3].flatten(), border_points_left[::3].flatten()])
+
 
         # Get frenet coordinates
         s, d, e, k = self.waypoint_utils.frenet_coordinates

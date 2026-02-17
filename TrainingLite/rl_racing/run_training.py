@@ -56,7 +56,7 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         default="cuda" if torch.cuda.is_available() else "cpu",
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--train-every-seconds", type=float, default=0.2)
+    parser.add_argument("--train-every-seconds", type=float, default=0.1)
     parser.add_argument("--gradient-steps", type=int, default=256)
     parser.add_argument("--replay-capacity", type=int, default=100_000)
     parser.add_argument("--learning-starts", type=int, default=500)
