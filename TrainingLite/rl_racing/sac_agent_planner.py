@@ -88,8 +88,8 @@ class RLAgentPlanner(template_planner):
         # --- networking ---
 
         if self.training_mode or self.inference_model_name is None:
-            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=2)
-            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+            self.client = _TCPActorClient(host="192.168.1.76", port=5555, actor_id=1)
+            # self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
             self.client.start()
             
             # Send clear buffer message on initialization
@@ -179,13 +179,13 @@ class RLAgentPlanner(template_planner):
             sd = self.client.pop_latest_state_dict()
             if sd is not None:
                 try:
-                    with torch.no_grad():
-                        self.model.policy.actor.load_state_dict(sd, strict=True)
-                        self.model.policy.actor.eval()
+                    # with torch.no_grad():
+                    self.model.policy.actor.load_state_dict(sd, strict=True)
+                    self.model.policy.actor.eval()
                         
-                        # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
-                        dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
-                        _ = self.model.policy.actor(dummy_obs)
+                        # # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
+                        # dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
+                        # _ = self.model.policy.actor(dummy_obs)
                         
                     self._received_weights = True
                     nikita_t2 = time.time()

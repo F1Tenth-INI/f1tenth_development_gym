@@ -322,7 +322,7 @@ class CustomReplayBuffer(ReplayBuffer):
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
 
         if self.stat_tracker is not None:
-            self.stat_tracker.batch_update_sample_count(batch_inds)
+            self.stat_tracker.batch_update_sample_count(batch_inds) #this is where stat_tracker gets +1 on sample count
 
         if not self.custom_sampling:
             samples = super()._get_samples(batch_inds, env=env)

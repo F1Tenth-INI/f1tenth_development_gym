@@ -6,6 +6,7 @@ Plot sample frequency statistics from StatTracker CSV:
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.colors import TwoSlopeNorm, Normalize
 import pandas as pd
 import numpy as np
 import os
@@ -16,8 +17,11 @@ from PIL import Image
 # ============================================================================
 # CONFIGURATION - Edit these paths directly
 # ============================================================================
-DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/1502_from_Ex1_A0.4_Rank_False_Run1/stat_logs/stats_log.csv'
+# DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/1502_pc_custom_uniform_10s/stat_logs/stats_log.csv'
+DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/1502_from_Ex1_A0.4_Rank_True_Run2/stat_logs/stats_log.csv'
 DEFAULT_MAP_NAME = 'RCA2'
+DEFAULT_TOTAL_SAMPLE_CALLS = None  # Total sample calls if not in CSV
+DEFAULT_MIN_POSSIBLE_SAMPLES_PERCENTILE = 5  # Drop bottom percentile of possible_samples
 # ============================================================================
 
 def load_map_image(map_name='RCA1'):
@@ -43,7 +47,50 @@ def world_to_pixel(x, y, origin, resolution):
     # Flip y-axis (image origin is top-left, world origin is bottom-left)
     return pixel_x, pixel_y
 
-def compute_sample_frequency(df):
+def compute_total_sample_calls_from_learning_metrics(csv_path):
+    """
+    Compute total sample calls from learning_metrics.csv.
+    Takes the final total_weight_updates and adds batch size (256 or 512).
+    
+    Returns the computed total or None if file not found.
+    """
+    try:
+        # Get parent directory of stats_log.csv (go up one level from stat_logs folder)
+        parent_dir = os.path.dirname(os.path.dirname(csv_path))
+        learning_metrics_path = os.path.join(parent_dir, 'learning_metrics.csv')
+        
+        if not os.path.exists(learning_metrics_path):
+            return None
+        
+        # Read learning metrics CSV
+        lm_df = pd.read_csv(learning_metrics_path)
+        
+        # Get the final total_weight_updates value
+        if 'total_weight_updates' not in lm_df.columns:
+            return None
+        
+        final_weight_updates = lm_df['total_weight_updates'].iloc[-1]
+        
+        # Get batch size from the last row (typically 256)
+        batch_size = lm_df['batch_size'].iloc[-1] if 'batch_size' in lm_df.columns else 256
+        
+        # Add batch size to weight updates to get total sample calls
+        total_sample_calls = int(final_weight_updates + batch_size)
+        
+        print(f"Computed total_sample_calls from learning_metrics.csv: {total_sample_calls}")
+        print(f"  (final_weight_updates={final_weight_updates} + batch_size={batch_size})")
+        
+        return total_sample_calls
+    except Exception as e:
+        print(f"Warning: Could not compute total_sample_calls from learning_metrics.csv: {e}")
+        return None
+
+def compute_sample_frequency(
+    df,
+    csv_path=None,
+    total_sample_calls=DEFAULT_TOTAL_SAMPLE_CALLS,
+    min_possible_samples_percentile=DEFAULT_MIN_POSSIBLE_SAMPLES_PERCENTILE,
+):
     """
     Compute samples per batch for each transition.
     
@@ -53,18 +100,19 @@ def compute_sample_frequency(df):
     
     Note: Can be >1 when sampling with replacement (transition appears multiple times per batch)
     """
-    # Get total sample calls from the maximum sample_calls_at_death value
-    # This represents the final sample call count when training ended
-    if 'sample_calls_at_death' in df.columns:
-        # Use max of sample_calls_at_death (ignoring NaN) as the total
-        total_sample_calls = df['sample_calls_at_death'].max()
-        if pd.isna(total_sample_calls):
-            # All transitions are still alive, use max birth time as fallback
-            total_sample_calls = df['sample_calls_at_birth'].max()
-    else:
-        # Fallback if column doesn't exist
-        total_sample_calls = df['sample_calls_at_birth'].max()
+    # Try to compute from learning_metrics.csv first
+    if csv_path:
+        computed_total = compute_total_sample_calls_from_learning_metrics(csv_path)
+        if computed_total is not None:
+            total_sample_calls = computed_total
     
+    # Get total sample calls from the CSV if available, otherwise use provided value
+    if 'sample_calls_at_death' in df.columns and not df['sample_calls_at_death'].isna().all():
+        # Use max of sample_calls_at_death (ignoring NaN) as the total
+        csv_total = df['sample_calls_at_death'].max()
+        if not pd.isna(csv_total):
+            total_sample_calls = csv_total
+
     # For transitions that died: use their death time
     # For transitions still alive (NaN death): use total_sample_calls
     df['sample_calls_end'] = df['sample_calls_at_death'].fillna(total_sample_calls)
@@ -75,6 +123,17 @@ def compute_sample_frequency(df):
     
     # Compute samples per batch (can be >1 if sampling with replacement)
     df['samples_per_batch'] = df['sample_count'] / df['possible_samples']
+
+    # Optional: filter out bottom percentile of possible_samples
+    if min_possible_samples_percentile is not None:
+        percentile = min_possible_samples_percentile / 100.0
+        if 0 < percentile < 1:
+            cutoff = df['possible_samples'].quantile(percentile)
+            df = df[df['possible_samples'] >= cutoff].copy()
+            print(
+                f"Filtered transitions with possible_samples < {cutoff:.2f} "
+                f"(bottom {min_possible_samples_percentile:.1f}%)"
+            )
     
     return df
 
@@ -254,6 +313,93 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     
     plt.show()
 
+    # Optional: Reward-based heatmaps
+    if 'reward' not in df_with_pos.columns:
+        print("Warning: No 'reward' column found. Skipping reward heatmap.")
+        return
+
+    df_reward = df_with_pos.dropna(subset=['reward'])
+    if len(df_reward) == 0:
+        print("Warning: No reward data found. Skipping reward heatmap.")
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Left: Track overlay with reward coloring
+    ax = axes[0]
+    ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+
+    # Sort by reward so higher values are drawn on top
+    df_reward_sorted = df_reward.sort_values('reward')
+
+    img_height = img_array.shape[0]
+    reward_min = df_reward['reward'].min()
+    reward_max = df_reward['reward'].max()
+    if reward_min < 0 < reward_max:
+        reward_norm = TwoSlopeNorm(vmin=reward_min, vcenter=0.0, vmax=reward_max)
+    else:
+        reward_norm = Normalize(vmin=reward_min, vmax=reward_max)
+    scatter = ax.scatter(
+        df_reward_sorted['pixel_x'],
+        img_height - df_reward_sorted['pixel_y'],
+        c=df_reward_sorted['reward'],
+        cmap='RdBu_r',
+        s=0.5,
+        alpha=0.6,
+        norm=reward_norm
+    )
+
+    ax.set_title(f'Reward Heatmap on {map_name}')
+    ax.axis('off')
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label('Reward')
+
+    # Right: 2D histogram heatmap (average reward per bin)
+    ax = axes[1]
+    ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+
+    x_bins = np.linspace(df_reward['pixel_x'].min(),
+                         df_reward['pixel_x'].max(), 50)
+    y_bins = np.linspace(df_reward['pixel_y'].min(),
+                         df_reward['pixel_y'].max(), 50)
+
+    H, xedges, yedges = np.histogram2d(
+        df_reward['pixel_x'],
+        df_reward['pixel_y'],
+        bins=[x_bins, y_bins],
+        weights=df_reward['reward']
+    )
+
+    H_count, _, _ = np.histogram2d(
+        df_reward['pixel_x'],
+        df_reward['pixel_y'],
+        bins=[x_bins, y_bins]
+    )
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        H_avg = H / H_count
+        H_avg[~np.isfinite(H_avg)] = 0
+
+    H_avg = np.flipud(H_avg.T)
+
+    im = ax.imshow(
+        H_avg,
+        extent=[xedges[0], xedges[-1],
+                img_height - yedges[-1], img_height - yedges[0]],
+        cmap='RdBu_r',
+        alpha=0.7,
+        origin='upper',
+        norm=reward_norm
+    )
+
+    ax.set_title('Aggregated Reward Heatmap')
+    ax.axis('off')
+    cbar2 = plt.colorbar(im, ax=ax)
+    cbar2.set_label('Avg Reward')
+
+    plt.tight_layout()
+    plt.show()
+
 def print_statistics(df):
     """Print summary statistics"""
     print("\n" + "="*80)
@@ -285,6 +431,11 @@ def main():
                        help='Map name for spatial heatmap (default: RCA1)')
     parser.add_argument('--save-dir', type=str, default=None,
                        help='Directory to save plots (default: same as CSV)')
+    parser.add_argument('--total-samples', type=int, default=DEFAULT_TOTAL_SAMPLE_CALLS,
+                       help=f'Total sample calls if not in CSV (default: {DEFAULT_TOTAL_SAMPLE_CALLS})')
+    parser.add_argument('--min-possible-samples-percentile', type=float,
+                       default=DEFAULT_MIN_POSSIBLE_SAMPLES_PERCENTILE,
+                       help='Drop bottom percentile of possible_samples (e.g. 5 for bottom 5%)')
     args = parser.parse_args()
     
     # Load CSV
@@ -292,8 +443,13 @@ def main():
     df = pd.read_csv(args.csv_path)
     print(f"Loaded {len(df)} transitions")
     
-    # Compute sample frequency
-    df = compute_sample_frequency(df)
+    # Compute sample frequency (will try to read from learning_metrics.csv)
+    df = compute_sample_frequency(
+        df,
+        csv_path=args.csv_path,
+        total_sample_calls=args.total_samples,
+        min_possible_samples_percentile=args.min_possible_samples_percentile,
+    )
     
     # Print statistics
     print_statistics(df)
