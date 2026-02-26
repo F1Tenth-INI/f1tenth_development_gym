@@ -4,12 +4,12 @@
 # BETAS=(0.2 0.4) # Starting beta for importance sampling bias correction-> 0.0 = no IS, 1.0 = full IS
 # RATIOS=(0.0 0.25 0.5) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 
-ALPHAS=(0.0 0.4) # How much to mix with uniform -> 0.0 = uniform only, 1.0 = priority only
+ALPHAS=(0.0 0.4 0.8) # How much to mix with uniform -> 0.0 = uniform only, 1.0 = priority only
 BETAS=(0.4) # Starting beta for importance sampling bias correction-> 0.0 = no IS, 1.0 = full IS
-RATIOS=(0.0) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
+RATIOS=(0.0 0.5 1.0) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 NSTEPS=(1)
 # CURRICULUM_START=(0.5 0.3 0.7)
-CURRICULUM_T2=(0.5 0.8)
+CURRICULUM_T2=(0.6 1.0)
 BASELINE_T2=0.8
 
 SOURCE_MODEL="Example-1"
@@ -27,73 +27,73 @@ CURRCULUM_START=0.5
 USE_CUSTOM_SAMPLING=True
 USE_SPEED_CURRICULUM_LIST=(True False)
 
-RANK_BASED_LIST=(True False)
+RANK_BASED_LIST=(False)
 
+LOG_SQUISH_LIST=(True False)
+
+IS_WEIGHTS_FOR_ACTOR_LIST=(True False)
+
+# for alpha in "${ALPHAS[@]}"; do
+#   for rank_based in "${RANK_BASED_LIST[@]}"; do
+#     for index in 1 2; do
+#       # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
+#       MODEL_NAME="2002_from_${SOURCE_MODEL_SHORT}_A${alpha}_Rank_${rank_based}_Run${index}"
+    
+#       # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
+      
+#       echo "=================================================="
+#       echo " STARTING: $MODEL_NAME"
+#       echo " Alpha: $alpha | Rank Based: $rank_based"
+#       echo "=================================================="
+
+#       python -u TrainingLite/rl_racing/run_training.py \
+#         --auto-start-client \
+#         --USE_CUSTOM_SAC_SAMPLING "$USE_CUSTOM_SAMPLING" \
+#         --device cpu \
+#         --SIMULATION_LENGTH 75000 \
+#         --load-model-name "$SOURCE_MODEL" \
+#         --save-model-name "$MODEL_NAME" \
+#         --MAP_NAME "$NEW_MAP_NAME" \
+#         --alpha $alpha \
+#         --SAC_RANK_BASED_SAMPLING $rank_based \
+
+#       sleep 5
+#     done
+#   done
+# done
+
+# Loop
 for alpha in "${ALPHAS[@]}"; do
-  for rank_based in "${RANK_BASED_LIST[@]}"; do
-    for index in 1 2; do
+  for ratio in "${RATIOS[@]}"; do
+    for cur_t2 in "${CURRICULUM_T2[@]}"; do
       # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
-      MODEL_NAME="1502_from_${SOURCE_MODEL_SHORT}_A${alpha}_Rank_${rank_based}_Run${index}"
+      MODEL_NAME="2602_${SOURCE_MODEL_SHORT}_A${alpha}_R_${ratio}_T2_${cur_t2}"
     
       # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
       
       echo "=================================================="
       echo " STARTING: $MODEL_NAME"
-      echo " Alpha: $alpha | Rank Based: $rank_based"
+      echo " Alpha: $alpha | Cur T2: $cur_t2 | Ratio: $ratio"
       echo "=================================================="
 
-      python -u TrainingLite/rl_racing/run_training.py \
-        --auto-start-client \
-        --USE_CUSTOM_SAC_SAMPLING "$USE_CUSTOM_SAMPLING" \
-        --device cpu \
-        --SIMULATION_LENGTH 75000 \
-        --load-model-name "$SOURCE_MODEL" \
-        --save-model-name "$MODEL_NAME" \
-        --MAP_NAME "$NEW_MAP_NAME" \
-        --alpha $alpha \
-        --SAC_RANK_BASED_SAMPLING $rank_based \
-
+      cmd=(python -u TrainingLite/rl_racing/run_training.py
+        --auto-start-client
+        --USE_CUSTOM_SAC_SAMPLING True
+        --device cpu
+        --SIMULATION_LENGTH 75000
+        --load-model-name "$SOURCE_MODEL"
+        --save-model-name "$MODEL_NAME"
+        --MAP_NAME "$NEW_MAP_NAME"
+        --alpha "$alpha"
+        --td_ratio "$ratio"
+        --SAC_CURRICULUM_T2 "$cur_t2"
+        --replay-capacity 50000
+      )
+      "${cmd[@]}"
       sleep 5
     done
   done
 done
-
-# Loop
-# for alpha in "${ALPHAS[@]}"; do
-#   for beta in "${BETAS[@]}"; do
-#     for ratio in "${RATIOS[@]}"; do
-#       for t2 in "${CURRICULUM_T2[@]}"; do
-#         for index in 1 2 3; do
-#           # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
-#           MODEL_NAME="Sweep_DEBUG_SPEED_CAP_${SOURCE_MODEL_SHORT}_A${alpha}_CUR_T2${t2}_Run${index}"
-        
-#           # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
-          
-#           echo "=================================================="
-#           echo " STARTING: $MODEL_NAME"
-#           echo " Alpha: $alpha | Beta: $beta | Ratio: $ratio"
-#           echo "=================================================="
-
-#           python -u TrainingLite/rl_racing/run_training.py \
-#             --auto-start-client \
-#             --USE_CUSTOM_SAC_SAMPLING "$USE_CUSTOM_SAMPLING" \
-#             --device cpu \
-#             --SIMULATION_LENGTH 50000 \
-#             --load-model-name "$SOURCE_MODEL" \
-#             --save-model-name "$MODEL_NAME" \
-#             --MAP_NAME "$NEW_MAP_NAME" \
-#             --alpha $alpha \
-#             --beta_start $beta \
-#             --td_ratio $ratio \
-#             --SAC_SPEED_CURRICULUM_LEARNING True \
-#             --SAC_CURRICULUM_T2 $t2 \
-
-#           sleep 5
-#         done
-#       done
-#     done
-#   done
-# done
 
 # CAR_STATE_NOISE="[0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]"
 # CONTROL_NOISE="[0.35, 0.7]"

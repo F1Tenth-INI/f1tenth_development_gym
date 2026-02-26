@@ -41,6 +41,11 @@ class StatTracker:
         self.buffer_size_list = []
 
         self.total_sample_calls = 0
+        
+        # Track post-training operation timings
+        self.csv_logging_time_list = []
+        self.serialization_time_list = []
+        self.broadcast_time_list = []
     
     # def unnormalize_obs(self, obs: np.ndarray) -> dict:    # -> i would maybe also like x and y pos to be saved
     #     if len(obs) < 4:
@@ -173,6 +178,18 @@ class StatTracker:
         self.buffer_size_list.append(min(self.max_buffer_size, self.ID_counter))
         return
     
+    def update_csv_logging_time(self, duration):
+        """Track time spent logging to CSV"""
+        self.csv_logging_time_list.append(float(duration))
+    
+    def update_serialization_time(self, duration):
+        """Track time spent serializing state dict"""
+        self.serialization_time_list.append(float(duration))
+    
+    def update_broadcast_time(self, duration):
+        """Track time spent broadcasting weights"""
+        self.broadcast_time_list.append(float(duration))
+    
     def batch_update_sample_count(self, buffer_indices):
         """
         Update sample count for sampled transitions.
@@ -282,22 +299,53 @@ class StatTracker:
         print("=" * 80 + "\n")
 
         if len(self.training_length_list) > 0:
-            fig, ax1 = plt.subplots()
-    
+            # Create 2x2 subplot layout
+            fig, axs = plt.subplots(2, 2, figsize=(14, 10))
+            
+            # Plot 1: Training Length + Buffer Size
+            ax1 = axs[0, 0]
             ax1.set_xlabel('Training iteration')
-            ax1.set_ylabel('Training Length', color='tab:blue')
+            ax1.set_ylabel('Training Length (s)', color='tab:blue')
             ax1.plot(self.training_length_list, color='tab:blue', label='Training Length')
             ax1.tick_params(axis='y', labelcolor='tab:blue')
+            ax1.set_title('Core Training Time')
             
-            ax2 = ax1.twinx()  # Second y-axis
-            ax2.set_ylabel('Buffer Size', color='tab:orange')
-            ax2.plot(self.buffer_size_list, color='tab:orange', label='Buffer Size')
-            ax2.tick_params(axis='y', labelcolor='tab:orange')
+            ax1_twin = ax1.twinx()
+            ax1_twin.set_ylabel('Buffer Size', color='tab:orange')
+            ax1_twin.plot(self.buffer_size_list, color='tab:orange', label='Buffer Size')
+            ax1_twin.tick_params(axis='y', labelcolor='tab:orange')
             
-            plt.title('Training Progress Over Time')
+            # Plot 2: CSV Logging Time
+            if len(self.csv_logging_time_list) > 0:
+                ax2 = axs[0, 1]
+                ax2.plot(self.csv_logging_time_list, color='tab:green', label='CSV Logging Time')
+                ax2.set_xlabel('Training iteration')
+                ax2.set_ylabel('CSV Logging Time (s)', color='tab:green')
+                ax2.set_title('CSV Logging Overhead')
+                ax2.tick_params(axis='y', labelcolor='tab:green')
+            
+            # Plot 3: Serialization Time
+            if len(self.serialization_time_list) > 0:
+                ax3 = axs[1, 0]
+                ax3.plot(self.serialization_time_list, color='tab:purple', label='Serialization Time')
+                ax3.set_xlabel('Training iteration')
+                ax3.set_ylabel('Serialization Time (s)', color='tab:purple')
+                ax3.set_title('State Dict Serialization Time')
+                ax3.tick_params(axis='y', labelcolor='tab:purple')
+            
+            # Plot 4: Broadcast Time
+            if len(self.broadcast_time_list) > 0:
+                ax4 = axs[1, 1]
+                ax4.plot(self.broadcast_time_list, color='tab:red', label='Broadcast Time')
+                ax4.set_xlabel('Training iteration')
+                ax4.set_ylabel('Broadcast Time (s)', color='tab:red')
+                ax4.set_title('Weight Broadcast Time')
+                ax4.tick_params(axis='y', labelcolor='tab:red')
+            
+            plt.suptitle('Training Performance Metrics Over Time', fontsize=14, y=1.00)
             fig.tight_layout()
             
-            plot_path = os.path.join(self.save_dir, 'training_length_plot.png')
+            plot_path = os.path.join(self.save_dir, 'training_performance_plot.png')
             plt.savefig(plot_path, dpi=150, bbox_inches='tight')
             plt.close()
-            print(f"[StatTracker] Saved training plot to {plot_path}")
+            print(f"[StatTracker] Saved training performance plot to {plot_path}")

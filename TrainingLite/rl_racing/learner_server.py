@@ -61,6 +61,7 @@ class CustomReplayBuffer(ReplayBuffer):
         self.TD_weights = np.zeros(self.buffer_size, dtype=np.float64)
         self.new_weight_priority = 1.0
         self.dynamic_importance_sampling_corrector = Settings.SAC_DYNAMIC_IS_CORRECTOR
+        self.use_is_weights_for_actor = Settings.SAC_USE_IS_WEIGHTS_FOR_ACTOR
 
         self.current_sampled_inds = None #indexes of the data which was just sampled in last sample() call
 
@@ -78,6 +79,8 @@ class CustomReplayBuffer(ReplayBuffer):
         self._cached_possible_inds = None
         self._cached_ranked_inds = None
         self._cached_length = 0
+
+        self.log_squish = Settings.SAC_LOG_SQUISH
 
         # if 
 
@@ -160,8 +163,18 @@ class CustomReplayBuffer(ReplayBuffer):
     def update_TD_priorities(self, TD_update_inds: np.ndarray, TD_update_priorities: np.ndarray):
         self.TD_weights[TD_update_inds] = TD_update_priorities
 
-        #get newest max prio values for new transitions
-        self.new_weight_priority = max(self.new_weight_priority, TD_update_priorities.max())
+        """NIKITA: testing out more rigorous implementation, however makes more computation: TODO: see if this is worth, maybe remove"""
+        # Calculate true maximum of combined weights across entire buffer
+        # Account for the buffer not being fully filled initially
+        valid_length = self.pos if not self.full else self.buffer_size
+        combined_all = (self.TD_weights[:valid_length] * (1 - self.state_to_TD_ratio) + 
+                        self.state_weights[:valid_length] * self.state_to_TD_ratio)
+        
+        self.new_weight_priority = combined_all.max() if len(combined_all) > 0 else 1.0
+
+        """ OLD """
+        # #get newest max prio values for new transitions
+        # self.new_weight_priority = max(self.new_weight_priority, TD_update_priorities.max())
 
         return
     
@@ -211,7 +224,7 @@ class CustomReplayBuffer(ReplayBuffer):
         )
 
         if need_recalc:
-            # print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
+            print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
             self._recompute_probs(possible_inds)
         # else:
             # print("not recomputing prob :()")
@@ -262,7 +275,8 @@ class CustomReplayBuffer(ReplayBuffer):
         combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
 
         # Squish priorities logarithmically to dampen outliers while preserving rank
-        combined_weight = np.log1p(combined_weight)
+        if self.log_squish:
+            combined_weight = np.log1p(combined_weight)
 
         if self.rank_based_sampling:
             sorted_inds = np.argsort(-combined_weight) #highest to lowest
@@ -280,6 +294,9 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #TODO: do i want replace or not? :/
         sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p, replace=self.custom_sampling_replace)
+
+        #DEBUG
+        # print(p)
         
         if self.rank_based_sampling:
             batch_inds = ranked_buffer_inds[sampled_p_index]
@@ -437,7 +454,7 @@ class LearnerServer:
         self.total_weight_updates = 0
 
         self.last_episode_time = None 
-        self.episode_timeout = 500.0
+        self.episode_timeout = 100.0
 
         #used for n-step buffer, for standard buffer set = 1
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
@@ -575,9 +592,8 @@ class LearnerServer:
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
-                target = os.path.join(self.model_dir, self.save_model_name)
-                self.model.save(target)
-                print(f"[server] Model saved to {target}")
+                self.model.save(self.save_model_path)
+                print(f"[server] Model saved to {self.save_model_path}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
 
@@ -885,7 +901,7 @@ class LearnerServer:
                     try:
                         # Reduce batch size to avoid OOM
                         safe_batch_size = min(batch_size, 4096)
-                        data = replay_buffer.sample(safe_batch_size)
+                        data = self.replay_buffer.sample(safe_batch_size)
 
                         obs      = data.observations
                         actions  = data.actions
@@ -969,13 +985,13 @@ class LearnerServer:
                                 TD_update_priorities += 1e-6
 
                                 if self.replay_buffer.stat_tracker:
-                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(replay_buffer.current_sampled_inds, TD_update_priorities)
+                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
 
                                 # optional clipping
-                                if replay_buffer.clip_weights:
+                                if self.replay_buffer.clip_weights:
                                     TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
 
-                                replay_buffer.update_TD_priorities(TD_update_inds = replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+                                self.replay_buffer.update_TD_priorities(TD_update_inds = self.replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
 
                         # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
@@ -984,9 +1000,13 @@ class LearnerServer:
                         new_actions, log_prob = actor.action_log_prob(obs)
                         q1_new, q2_new = critic(obs, new_actions)
                         q_new = torch.min(q1_new, q2_new)
+
                         ####Nikita: this is my actor loss
-                        # actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
-                        actor_loss = (ent_coef * log_prob - q_new).mean() #is_weights should not be here TODO: find out why!
+                        if self.replay_buffer.use_is_weights_for_actor:
+                            actor_loss = (is_weights * (ent_coef * log_prob - q_new)).mean()
+                        else:
+                            actor_loss = (ent_coef * log_prob - q_new).mean()
+                        
                         actor_optimizer.zero_grad()
                         actor_loss.backward()
                         actor_optimizer.step()
@@ -1053,18 +1073,36 @@ class LearnerServer:
 
                 if(len(episodes) > 0):
                     print(log_dict)
+                    
+                    # Time CSV logging
+                    csv_start = time.time()
                     self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
+                    csv_duration = time.time() - csv_start
+                    if self.replay_buffer.stat_tracker is not None:
+                        self.replay_buffer.stat_tracker.update_csv_logging_time(csv_duration)
 
+                # Time state dict serialization
+                serial_start = time.time()
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
+                serial_duration = time.time() - serial_start
+                if self.replay_buffer.stat_tracker is not None:
+                    self.replay_buffer.stat_tracker.update_serialization_time(serial_duration)
+
                 self._weights_blob = new_blob
+
+                # Time weight broadcasting
+                broadcast_start = time.time()
                 await self._broadcast_weights(new_blob)
+                broadcast_duration = time.time() - broadcast_start
+                if self.replay_buffer.stat_tracker is not None:
+                    self.replay_buffer.stat_tracker.update_broadcast_time(broadcast_duration)
+
                 print("\n[server] Trained SAC and broadcast updated actor weights.")
 
                 # Nikita: debug
                 try:
-                    target = os.path.join(self.model_dir, str(self.save_model_name))
-                    self.model.save(target)
-                    # print(f"[server] Auto-saved model to {target}")
+                    self.model.save(self.save_model_path)
+                    # print(f"[server] Auto-saved model to {self.save_model_path}")
                 except Exception as e:
                     print(f"[server] Error auto-saving model: {e}")
                 print(f"[server] Rest of train loop after training completed: {(time.time() - save_time):.2f} seconds.")

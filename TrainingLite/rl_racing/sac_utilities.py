@@ -118,7 +118,7 @@ class SacUtilities:
         """
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         model_dir = os.path.join(root_dir, "TrainingLite", "rl_racing", "models", model_name)
-        model_path = os.path.join(model_dir, model_name)
+        model_path = os.path.join(model_dir, model_name + ".zip")
         os.makedirs(model_dir, exist_ok=True)
         # if not os.path.exists(model_path + ".zip") and not os.path.exists(model_path):
         #     raise FileNotFoundError(f"Model not found: {model_path}(.zip)")

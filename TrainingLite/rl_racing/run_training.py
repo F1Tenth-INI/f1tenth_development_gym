@@ -35,6 +35,7 @@ if PROJECT_ROOT.exists():
 
 # Import LearnerServer will be done dynamically in main() based on --learner-impl flag
 from utilities.parser_utilities import parse_settings_args  # noqa: E402
+from utilities.command_logger import save_run_metadata, print_run_summary  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[str]]:
@@ -301,6 +302,15 @@ def main() -> None:
         # Ensure annealing horizon uses the new simulation length
         ratio = getattr(Settings, 'SAC_BETA_ANNEALING_RATIO', 0.75)
         server.replay_buffer.beta_annealing_horizon = ratio * run_args.SIMULATION_LENGTH
+
+    # Save run metadata (command line args + Settings) for experiment reproducibility
+    try:
+        csv_path = os.path.join(server.model_dir, "learning_metrics.csv")
+        cli_args_dict = vars(run_args)
+        save_run_metadata(csv_path, cli_args_dict, Settings)
+        print_run_summary(cli_args_dict, Settings)
+    except Exception as e:
+        print(f"[run_training] Warning: Failed to save run metadata: {e}")
 
     try:
         asyncio.run(_run_with_optional_client(server, run_args))

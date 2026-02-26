@@ -20,17 +20,18 @@ for alpha in "${ALPHAS[@]}"; do
         echo " Alpha: $alpha | Beta: $beta | Ratio: $ratio"
         echo "=================================================="
 
-        python -u TrainingLite/rl_racing/run_training.py \
-          --auto-start-client \
-          --USE_CUSTOM_SAC_SAMPLING True \
-          --device cpu \
-          --SIMULATION_LENGTH 250000 \
-          --model-name "$MODEL_NAME" \
-          --alpha $alpha \
-          --beta_start $beta \
-          --td_ratio $ratio \
-          --SAC_SPEED_CURRICULUM_LEARNING $cur \
-
+        cmd=(python -u TrainingLite/rl_racing/run_training.py
+          --auto-start-client
+          --USE_CUSTOM_SAC_SAMPLING True
+          --device cpu
+          --SIMULATION_LENGTH 250000
+          --model-name "$MODEL_NAME"
+          --alpha "$alpha"
+          --beta_start "$beta"
+          --td_ratio "$ratio"
+          --SAC_SPEED_CURRICULUM_LEARNING "$cur"
+        )
+        "${cmd[@]}"
         sleep 5
       done
     done
@@ -50,17 +51,18 @@ for alpha in "${ALPHAS[@]}"; do
         echo " Alpha: $alpha | Beta: $beta | Ratio: $ratio"
         echo "=================================================="
 
-        python -u TrainingLite/rl_racing/run_training.py \
-          --auto-start-client \
-          --USE_CUSTOM_SAC_SAMPLING True \
-          --device cpu \
-          --SIMULATION_LENGTH 250000 \
-          --model-name "$MODEL_NAME" \
-          --alpha $alpha \
-          --beta_start $beta \
-          --td_ratio $ratio \
-          --SAC_SPEED_CURRICULUM_LEARNING $cur \
-
+        cmd=(python -u TrainingLite/rl_racing/run_training.py
+          --auto-start-client
+          --USE_CUSTOM_SAC_SAMPLING True
+          --device cpu
+          --SIMULATION_LENGTH 250000
+          --model-name "$MODEL_NAME"
+          --alpha "$alpha"
+          --beta_start "$beta"
+          --td_ratio "$ratio"
+          --SAC_SPEED_CURRICULUM_LEARNING "$cur"
+        )
+        "${cmd[@]}"
         sleep 5
       done
     done

@@ -6,6 +6,7 @@ Plot sample frequency statistics from StatTracker CSV:
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.widgets import Slider
 from matplotlib.colors import TwoSlopeNorm, Normalize
 import pandas as pd
 import numpy as np
@@ -17,11 +18,14 @@ from PIL import Image
 # ============================================================================
 # CONFIGURATION - Edit these paths directly
 # ============================================================================
-# DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/1502_pc_custom_uniform_10s/stat_logs/stats_log.csv'
-DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/1502_from_Ex1_A0.4_Rank_True_Run2/stat_logs/stats_log.csv'
-DEFAULT_MAP_NAME = 'RCA2'
+DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/2002_with_custom_03state_norank_slowdown_test/stat_logs/stats_log.csv'
+# DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/2002_with_custom_07state_norank_slowdown_test/stat_logs/stats_log.csv'
+DEFAULT_MAP_NAME = 'RCA1'
 DEFAULT_TOTAL_SAMPLE_CALLS = None  # Total sample calls if not in CSV
 DEFAULT_MIN_POSSIBLE_SAMPLES_PERCENTILE = 5  # Drop bottom percentile of possible_samples
+ENABLE_TIME_SLIDER = True
+TIME_SLIDER_COLUMN = 'timestamp'
+TIME_SLIDER_FALLBACK_COLUMN = 'sample_calls_at_birth'
 # ============================================================================
 
 def load_map_image(map_name='RCA1'):
@@ -137,8 +141,49 @@ def compute_sample_frequency(
     
     return df
 
-def plot_sample_frequency_distribution(df, save_path=None):
+def prepare_time_data(df, enable_slider=ENABLE_TIME_SLIDER):
+    """Prepare time data for slider if enabled. Returns (df, time_col) or (df, None)"""
+    if not enable_slider:
+        return df, None
+    
+    time_col = None
+    if TIME_SLIDER_COLUMN in df.columns:
+        time_col = TIME_SLIDER_COLUMN
+        print(f"Using '{time_col}' for time slider")
+        # Convert timestamp to numeric if it's a string
+        if df[time_col].dtype == 'object':
+            try:
+                df = df.copy()
+                df[time_col] = pd.to_datetime(df[time_col])
+                df['time_numeric'] = (df[time_col] - df[time_col].min()).dt.total_seconds()
+                time_col = 'time_numeric'
+                print(f"Converted timestamp to numeric (seconds from start)")
+            except Exception as e:
+                print(f"Warning: Could not convert timestamp to datetime: {e}")
+                print(f"Falling back to '{TIME_SLIDER_FALLBACK_COLUMN}'")
+                time_col = TIME_SLIDER_FALLBACK_COLUMN if TIME_SLIDER_FALLBACK_COLUMN in df.columns else None
+    elif TIME_SLIDER_FALLBACK_COLUMN in df.columns:
+        time_col = TIME_SLIDER_FALLBACK_COLUMN
+        print(f"'{TIME_SLIDER_COLUMN}' not found, using fallback '{time_col}' for time slider")
+    
+    if time_col is None or time_col not in df.columns:
+        print(f"Warning: No valid time column found. Disabling slider.")
+        return df, None
+    
+    return df, time_col
+
+def plot_sample_frequency_distribution(df, save_path=None, enable_slider=ENABLE_TIME_SLIDER):
     """Plot 1: Distribution of sample frequencies"""
+    # Prepare time data if slider enabled
+    df, time_col = prepare_time_data(df, enable_slider)
+    
+    if enable_slider and time_col:
+        plot_sample_frequency_distribution_interactive(df, time_col, save_path)
+    else:
+        plot_sample_frequency_distribution_static(df, save_path)
+
+def plot_sample_frequency_distribution_static(df, save_path=None):
+    """Static version of sample frequency distribution"""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     
     # 1. Histogram of samples per batch
@@ -207,7 +252,160 @@ def plot_sample_frequency_distribution(df, save_path=None):
     
     plt.show()
 
-def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
+def plot_sample_frequency_distribution_interactive(df, time_col, save_path=None):
+    """Interactive version of sample frequency distribution with time range slider"""
+    # Get time range
+    time_min = df[time_col].min()
+    time_max = df[time_col].max()
+    
+    # Create figure with space for sliders (2 separate sliders)
+    fig = plt.figure(figsize=(14, 11))
+    gs = fig.add_gridspec(5, 2, height_ratios=[0.05, 0.05, 1, 1, 0.05], hspace=0.25, wspace=0.25)
+    
+    # Create axes
+    ax_slider_start = fig.add_subplot(gs[0, :])
+    ax_slider_end = fig.add_subplot(gs[1, :])
+    ax_hist = fig.add_subplot(gs[2, 0])
+    ax_scatter = fig.add_subplot(gs[2, 1])
+    ax_lifetime = fig.add_subplot(gs[3, 0])
+    ax_categories = fig.add_subplot(gs[3, 1])
+    ax_text = fig.add_subplot(gs[4, :])
+    ax_text.axis('off')
+    
+    # Track current time range
+    current_range = [time_min, time_max]
+    
+    def filter_data():
+        """Filter data to show only transitions in current time range"""
+        return df[(df[time_col] >= current_range[0]) & (df[time_col] <= current_range[1])].copy()
+    
+    def format_time_text():
+        """Format time range for display"""
+        if time_col == 'time_numeric':
+            def format_seconds(s):
+                h, m, sec = int(s // 3600), int((s % 3600) // 60), int(s % 60)
+                return f"{h:02d}:{m:02d}:{sec:02d}"
+            return f"Time range: {format_seconds(current_range[0])} - {format_seconds(current_range[1])}"
+        else:
+            return f"Time range: {current_range[0]:.2f} - {current_range[1]:.2f}"
+    
+    def update_plots(val=None):
+        """Update all plots based on current time range"""
+        # Clear all axes
+        for ax in [ax_hist, ax_scatter, ax_lifetime, ax_categories]:
+            ax.clear()
+        
+        # Filter data
+        df_filtered = filter_data()
+        
+        if len(df_filtered) == 0:
+            ax_hist.text(0.5, 0.5, 'No data in this time range', ha='center', va='center', transform=ax_hist.transAxes)
+            return
+        
+        # 1. Histogram of samples per batch
+        ax_hist.hist(df_filtered['samples_per_batch'], bins=50, edgecolor='black', alpha=0.7)
+        ax_hist.axvline(df_filtered['samples_per_batch'].mean(), color='r', linestyle='--',
+                       label=f'Mean: {df_filtered["samples_per_batch"].mean():.3f}')
+        ax_hist.axvline(df_filtered['samples_per_batch'].median(), color='g', linestyle='--',
+                       label=f'Median: {df_filtered["samples_per_batch"].median():.3f}')
+        ax_hist.set_xlabel('Samples per Batch')
+        ax_hist.set_ylabel('Number of Transitions')
+        ax_hist.set_title(f'Distribution of Samples per Batch\n({len(df_filtered)}/{len(df)} transitions)')
+        ax_hist.legend()
+        ax_hist.grid(alpha=0.3)
+        
+        # 2. Sample count vs samples per batch
+        scatter = ax_scatter.scatter(df_filtered['sample_count'], df_filtered['samples_per_batch'],
+                                    alpha=0.5, s=1, c=df_filtered['possible_samples'],
+                                    cmap='viridis')
+        ax_scatter.set_xlabel('Absolute Sample Count')
+        ax_scatter.set_ylabel('Samples per Batch')
+        ax_scatter.set_title('Sample Count vs Samples per Batch')
+        ax_scatter.grid(alpha=0.3)
+        
+        # 3. Samples per batch over transition lifetime
+        ax_lifetime.scatter(df_filtered['possible_samples'], df_filtered['samples_per_batch'], alpha=0.5, s=1)
+        ax_lifetime.set_xlabel('Transition Lifetime (possible samples)')
+        ax_lifetime.set_ylabel('Samples per Batch')
+        ax_lifetime.set_title('Samples per Batch vs Lifetime in Buffer')
+        ax_lifetime.grid(alpha=0.3)
+        
+        # 4. Top vs bottom samples per batch
+        top_percentile = df_filtered['samples_per_batch'].quantile(0.9)
+        bottom_percentile = df_filtered['samples_per_batch'].quantile(0.1)
+        
+        categories = ['Bottom 10%', 'Middle 80%', 'Top 10%']
+        counts = [
+            (df_filtered['samples_per_batch'] <= bottom_percentile).sum(),
+            ((df_filtered['samples_per_batch'] > bottom_percentile) &
+             (df_filtered['samples_per_batch'] < top_percentile)).sum(),
+            (df_filtered['samples_per_batch'] >= top_percentile).sum()
+        ]
+        colors = ['red', 'gray', 'green']
+        
+        ax_categories.bar(categories, counts, color=colors, alpha=0.7, edgecolor='black')
+        ax_categories.set_ylabel('Number of Transitions')
+        ax_categories.set_title('Samples per Batch Distribution')
+        ax_categories.grid(alpha=0.3, axis='y')
+        
+        # Add percentages
+        total = len(df_filtered)
+        for i, (cat, count) in enumerate(zip(categories, counts)):
+            if count > 0:
+                ax_categories.text(i, count, f'{count}\n({100*count/total:.1f}%)',
+                                 ha='center', va='bottom')
+        
+        # Update info text
+        ax_text.clear()
+        ax_text.axis('off')
+        ax_text.text(0.5, 0.5, format_time_text(), ha='center', va='center',
+                    transform=ax_text.transAxes, fontsize=10)
+        
+        fig.canvas.draw_idle()
+    
+    # Create separate sliders for start and end time
+    slider_label = 'Training Time (seconds)' if time_col == 'time_numeric' else time_col
+    
+    slider_start = Slider(
+        ax=ax_slider_start,
+        label=f'Start {slider_label}',
+        valmin=time_min,
+        valmax=time_max,
+        valinit=time_min,
+        valstep=(time_max - time_min) / 200
+    )
+    
+    slider_end = Slider(
+        ax=ax_slider_end,
+        label=f'End {slider_label}',
+        valmin=time_min,
+        valmax=time_max,
+        valinit=time_max,
+        valstep=(time_max - time_min) / 200
+    )
+    
+    def update_start(val):
+        current_range[0] = min(val, current_range[1])  # Ensure start <= end
+        update_plots()
+    
+    def update_end(val):
+        current_range[1] = max(val, current_range[0])  # Ensure end >= start
+        update_plots()
+    
+    # Connect sliders to update functions
+    slider_start.on_changed(update_start)
+    slider_end.on_changed(update_end)
+    
+    # Initial plot
+    update_plots()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved sample frequency distribution to {save_path}")
+    
+    plt.show()
+
+def plot_spatial_heatmap(df, map_name='RCA1', save_path=None, enable_slider=ENABLE_TIME_SLIDER):
     """Plot 2: Spatial heatmap of sample frequencies on race track"""
     # Load map
     img_array, config = load_map_image(map_name)
@@ -230,6 +428,21 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
     df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
     
+    # Prepare time data if slider enabled
+    df_with_pos, time_col = prepare_time_data(df_with_pos, enable_slider)
+    
+    if enable_slider and time_col:
+        # Use interactive version
+        plot_spatial_heatmap_interactive(df_with_pos, img_array, config, map_name, time_col, save_path)
+    else:
+        # Use static version
+        plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_path)
+    
+    # Plot reward heatmap (always static, shown separately)
+    plot_reward_heatmap(df_with_pos, img_array, map_name)
+
+def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_path=None):
+    """Static version of spatial heatmap (no slider)"""
     # Create figure
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
     
@@ -262,16 +475,17 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     ax = axes[1]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
     
-    # Create 2D histogram
+    # Create 2D histogram using the same y-axis convention as the scatter plot
+    y_flipped = img_height - df_with_pos['pixel_y']
     x_bins = np.linspace(df_with_pos['pixel_x'].min(), 
                          df_with_pos['pixel_x'].max(), 50)
-    y_bins = np.linspace(df_with_pos['pixel_y'].min(), 
-                         df_with_pos['pixel_y'].max(), 50)
+    y_bins = np.linspace(y_flipped.min(), 
+                         y_flipped.max(), 50)
     
     # Compute weighted histogram (weighted by samples per batch)
     H, xedges, yedges = np.histogram2d(
         df_with_pos['pixel_x'],
-        df_with_pos['pixel_y'],
+        y_flipped,
         bins=[x_bins, y_bins],
         weights=df_with_pos['samples_per_batch']
     )
@@ -279,7 +493,7 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     # Count histogram for normalization
     H_count, _, _ = np.histogram2d(
         df_with_pos['pixel_x'],
-        df_with_pos['pixel_y'],
+        y_flipped,
         bins=[x_bins, y_bins]
     )
     
@@ -288,13 +502,10 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
         H_avg = H / H_count
         H_avg[~np.isfinite(H_avg)] = 0
     
-    # Flip y-axis for display
-    H_avg = np.flipud(H_avg.T)
-    
     im = ax.imshow(
-        H_avg,
+        H_avg.T,
         extent=[xedges[0], xedges[-1], 
-                img_height - yedges[-1], img_height - yedges[0]],
+            yedges[0], yedges[-1]],
         cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
         alpha=0.7,
         origin='upper'
@@ -313,6 +524,174 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     
     plt.show()
 
+def plot_spatial_heatmap_interactive(df_with_pos, img_array, config, map_name, time_col, save_path=None):
+    """Interactive version of spatial heatmap with time slider"""
+    img_height = img_array.shape[0]
+    
+    # Get time range
+    time_min = df_with_pos[time_col].min()
+    time_max = df_with_pos[time_col].max()
+    
+    # Create figure with space for sliders (2 separate sliders)
+    fig = plt.figure(figsize=(16, 9))
+    gs = fig.add_gridspec(4, 2, height_ratios=[0.05, 0.05, 1, 0.05], hspace=0.15, wspace=0.15)
+    
+    # Create axes
+    ax_slider_start = fig.add_subplot(gs[0, :])
+    ax_slider_end = fig.add_subplot(gs[1, :])
+    ax_left = fig.add_subplot(gs[2, 0])
+    ax_right = fig.add_subplot(gs[2, 1])
+    ax_text = fig.add_subplot(gs[3, :])
+    ax_text.axis('off')
+    
+    # Track current time range
+    current_range = [time_min, time_max]
+    
+    # Filter data by time range
+    def filter_data():
+        """Filter data to show only transitions in current time range"""
+        return df_with_pos[(df_with_pos[time_col] >= current_range[0]) & 
+                           (df_with_pos[time_col] <= current_range[1])].copy()
+    
+    # Setup bins for histogram (computed once)
+    y_flipped_all = img_height - df_with_pos['pixel_y']
+    x_bins = np.linspace(df_with_pos['pixel_x'].min(), 
+                         df_with_pos['pixel_x'].max(), 50)
+    y_bins = np.linspace(y_flipped_all.min(), 
+                         y_flipped_all.max(), 50)
+    
+    def format_time_text():
+        """Format time range for display"""
+        if time_col == 'time_numeric':
+            def format_seconds(s):
+                h, m, sec = int(s // 3600), int((s % 3600) // 60), int(s % 60)
+                return f"{h:02d}:{m:02d}:{sec:02d}"
+            return f"Time range: {format_seconds(current_range[0])} - {format_seconds(current_range[1])}"
+        else:
+            return f"Time range: {current_range[0]:.2f} - {current_range[1]:.2f}"
+    
+    # Plot function
+    def update_plots(val=None):
+        """Update both plots based on current time range"""
+        ax_left.clear()
+        ax_right.clear()
+        
+        # Filter data
+        df_filtered = filter_data()
+        
+        if len(df_filtered) == 0:
+            ax_left.text(0.5, 0.5, 'No data in this time range', ha='center', va='center', transform=ax_left.transAxes)
+            ax_right.text(0.5, 0.5, 'No data in this time range', ha='center', va='center', transform=ax_right.transAxes)
+            ax_left.set_title(f'Samples per Batch Heatmap on {map_name}')
+            ax_right.set_title('Aggregated Samples per Batch Heatmap')
+            return
+        
+        # Left: Track overlay with sample frequency coloring
+        ax_left.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+        
+        df_sorted = df_filtered.sort_values('samples_per_batch')
+        scatter = ax_left.scatter(
+            df_sorted['pixel_x'],
+            img_height - df_sorted['pixel_y'],
+            c=df_sorted['samples_per_batch'],
+            cmap='viridis',
+            s=0.5,
+            alpha=0.6,
+            vmin=0,
+            vmax=df_with_pos['samples_per_batch'].max()  # Use full range for consistency
+        )
+        
+        ax_left.set_title(f'Samples per Batch Heatmap on {map_name}\n({len(df_filtered)}/{len(df_with_pos)} transitions)')
+        ax_left.axis('off')
+        
+        # Right: 2D histogram heatmap
+        ax_right.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+        
+        if len(df_filtered) > 0:
+            y_flipped = img_height - df_filtered['pixel_y']
+            
+            # Compute weighted histogram
+            H, xedges, yedges = np.histogram2d(
+                df_filtered['pixel_x'],
+                y_flipped,
+                bins=[x_bins, y_bins],
+                weights=df_filtered['samples_per_batch']
+            )
+            
+            H_count, _, _ = np.histogram2d(
+                df_filtered['pixel_x'],
+                y_flipped,
+                bins=[x_bins, y_bins]
+            )
+            
+            with np.errstate(divide='ignore', invalid='ignore'):
+                H_avg = H / H_count
+                H_avg[~np.isfinite(H_avg)] = 0
+            
+            im = ax_right.imshow(
+                H_avg.T,
+                extent=[xedges[0], xedges[-1], 
+                        yedges[0], yedges[-1]],
+                cmap='viridis',
+                alpha=0.7,
+                origin='upper'
+            )
+        
+        ax_right.set_title('Aggregated Samples per Batch Heatmap')
+        ax_right.axis('off')
+        
+        # Update info text
+        ax_text.clear()
+        ax_text.axis('off')
+        ax_text.text(0.5, 0.5, format_time_text(), ha='center', va='center',
+                    transform=ax_text.transAxes, fontsize=10)
+        
+        fig.canvas.draw_idle()
+    
+    # Create separate sliders for start and end time
+    slider_label = 'Training Time (seconds)' if time_col == 'time_numeric' else time_col
+    
+    slider_start = Slider(
+        ax=ax_slider_start,
+        label=f'Start {slider_label}',
+        valmin=time_min,
+        valmax=time_max,
+        valinit=time_min,
+        valstep=(time_max - time_min) / 200
+    )
+    
+    slider_end = Slider(
+        ax=ax_slider_end,
+        label=f'End {slider_label}',
+        valmin=time_min,
+        valmax=time_max,
+        valinit=time_max,
+        valstep=(time_max - time_min) / 200
+    )
+    
+    def update_start(val):
+        current_range[0] = min(val, current_range[1])  # Ensure start <= end
+        update_plots()
+    
+    def update_end(val):
+        current_range[1] = max(val, current_range[0])  # Ensure end >= start
+        update_plots()
+    
+    # Connect sliders to update functions
+    slider_start.on_changed(update_start)
+    slider_end.on_changed(update_end)
+    
+    # Initial plot
+    update_plots()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved spatial heatmap to {save_path}")
+    
+    plt.show()
+
+def plot_reward_heatmap(df_with_pos, img_array, map_name):
+    """Plot reward-based heatmaps"""
     # Optional: Reward-based heatmaps
     if 'reward' not in df_with_pos.columns:
         print("Warning: No 'reward' column found. Skipping reward heatmap.")
@@ -358,21 +737,22 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
     ax = axes[1]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
 
+    y_flipped = img_height - df_reward['pixel_y']
     x_bins = np.linspace(df_reward['pixel_x'].min(),
                          df_reward['pixel_x'].max(), 50)
-    y_bins = np.linspace(df_reward['pixel_y'].min(),
-                         df_reward['pixel_y'].max(), 50)
+    y_bins = np.linspace(y_flipped.min(),
+                         y_flipped.max(), 50)
 
     H, xedges, yedges = np.histogram2d(
         df_reward['pixel_x'],
-        df_reward['pixel_y'],
+        y_flipped,
         bins=[x_bins, y_bins],
         weights=df_reward['reward']
     )
 
     H_count, _, _ = np.histogram2d(
         df_reward['pixel_x'],
-        df_reward['pixel_y'],
+        y_flipped,
         bins=[x_bins, y_bins]
     )
 
@@ -380,12 +760,10 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None):
         H_avg = H / H_count
         H_avg[~np.isfinite(H_avg)] = 0
 
-    H_avg = np.flipud(H_avg.T)
-
     im = ax.imshow(
-        H_avg,
+        H_avg.T,
         extent=[xedges[0], xedges[-1],
-                img_height - yedges[-1], img_height - yedges[0]],
+            yedges[0], yedges[-1]],
         cmap='RdBu_r',
         alpha=0.7,
         origin='upper',
