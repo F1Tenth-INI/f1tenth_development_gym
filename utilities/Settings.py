@@ -7,7 +7,7 @@ class Settings():
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -187,14 +187,14 @@ class Settings():
 
     SAC_WP_OFFSET_WEIGHT = 1.0
     SAC_WP_HEADING_ERROR_WEIGHT = 1.0
-    SAC_REWARD_WEIGHT = 1.0
+    SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 1.0
 
     SAC_PRIORITY_FACTOR = 0.5   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     
     SAC_BETA_ANNEALING_RATIO = 0.6 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
+    SAC_STATE_TO_TD_RATIO = 0.4 #if 0, only TD error based priorities
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -219,7 +219,7 @@ class Settings():
     SAC_CURRICULUM_T2 = 0.6
     SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
-    SAC_CURRICULUM_SPEED = False
+    SAC_CURRICULUM_SPEED = True
     SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
 
     SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
@@ -228,7 +228,7 @@ class Settings():
     SAC_CURRICULUM_SPEED_LIMIT_MAX = 15 #absolute max speed limit during curriculum learning
     SAC_CURRICULUM_SPEED_LIMIT = 15
 
-    SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
+    SAC_CURRICULUM_TRACK_WIDTH_SCALING = True
     SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
 
     SAC_CURRICULUM_NOISE_SCALING = False

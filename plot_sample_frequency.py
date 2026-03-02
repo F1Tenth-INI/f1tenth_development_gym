@@ -18,7 +18,7 @@ from PIL import Image
 # ============================================================================
 # CONFIGURATION - Edit these paths directly
 # ============================================================================
-DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/2002_with_custom_03state_norank_slowdown_test/stat_logs/stats_log.csv'
+DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/2802_widsth_norank_04state/stat_logs/stats_log.csv'
 # DEFAULT_CSV_PATH = 'TrainingLite/rl_racing/models/Nachtrainiert/2002_with_custom_07state_norank_slowdown_test/stat_logs/stats_log.csv'
 DEFAULT_MAP_NAME = 'RCA1'
 DEFAULT_TOTAL_SAMPLE_CALLS = None  # Total sample calls if not in CSV
@@ -722,7 +722,7 @@ def plot_reward_heatmap(df_with_pos, img_array, map_name):
         df_reward_sorted['pixel_x'],
         img_height - df_reward_sorted['pixel_y'],
         c=df_reward_sorted['reward'],
-        cmap='RdBu_r',
+        cmap='viridis',
         s=0.5,
         alpha=0.6,
         norm=reward_norm
@@ -764,7 +764,7 @@ def plot_reward_heatmap(df_with_pos, img_array, map_name):
         H_avg.T,
         extent=[xedges[0], xedges[-1],
             yedges[0], yedges[-1]],
-        cmap='RdBu_r',
+        cmap='viridis',
         alpha=0.7,
         origin='upper',
         norm=reward_norm

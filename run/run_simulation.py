@@ -674,7 +674,7 @@ class RacingSimulation:
             self.reset()
         else:
             self.on_simulation_end()
-            raise CarCrashException()
+            raise CarCrashException("Car crashed or simulation ended")
 
                 
     '''
