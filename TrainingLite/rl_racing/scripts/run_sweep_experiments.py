@@ -120,20 +120,34 @@ class SweepExperimentRunner:
 
         Settings.SAC_INFERENCE_MODEL_NAME = model_name
         Settings.SIMULATION_LENGTH = self.max_length
+        Settings.MAX_EPISODE_LENGTH = self.max_length
         Settings.NUMBER_OF_EXPERIMENTS = 1
         Settings.RESET_ON_DONE = True
 
         simulation = RacingSimulation()
         lap_times_buffer: List[float] = []
+        crash_count = 0  # Count all crashes: collisions + off-track terminations
 
         original_lap_complete_cb = CarSystem.lap_complete_cb
+        original_handle_done = simulation.handle_done
 
         def patched_lap_complete_cb(driver_self, lap_time, mean_distance, std_distance, max_distance):
             lap_times_buffer.append(float(lap_time))
             return original_lap_complete_cb(driver_self, lap_time, mean_distance, std_distance, max_distance)
 
+        def patched_handle_done():
+            nonlocal crash_count
+            if simulation.drivers and len(simulation.drivers) > 0:
+                driver_obs = getattr(simulation.drivers[0], 'obs', None)
+                if isinstance(driver_obs, dict):
+                    # Count truncated events as crashes (includes leave_bounds, collision, spinning, stuck)
+                    if driver_obs.get('truncated', False):
+                        crash_count += 1
+            return original_handle_done()
+
         try:
             CarSystem.lap_complete_cb = patched_lap_complete_cb
+            simulation.handle_done = patched_handle_done
             try:
                 simulation.run_experiments()
             except Exception as e:
@@ -152,9 +166,12 @@ class SweepExperimentRunner:
                 traceback.print_exc()
         finally:
             CarSystem.lap_complete_cb = original_lap_complete_cb
+            simulation.handle_done = original_handle_done
 
         if result['status'] != 'failed' and simulation.drivers and len(simulation.drivers) > 0:
             main_driver = simulation.drivers[0]
+            result['num_crashes'] = crash_count
+            result['crash_occurred'] = result['num_crashes'] > 0
 
             if lap_times_buffer:
                 result['lap_times'] = list(lap_times_buffer)
@@ -349,7 +366,7 @@ class SweepExperimentRunner:
                 
                 f.write(f"\n  === SAFETY ===")
                 f.write(f"\n  Crash: {'YES' if result['crash_occurred'] else 'NO'}\n")
-                f.write(f"  Num Crashes: {result['num_crashes']}\n")
+                f.write(f"  Num Crashes (collisions + off-track): {result['num_crashes']}\n")
                 
                 f.write(f"\n  === DATA QUALITY ===")
                 f.write(f"\n  Car States Recorded: {result['num_car_states_recorded']}\n")

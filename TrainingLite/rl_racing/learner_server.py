@@ -178,74 +178,74 @@ class CustomReplayBuffer(ReplayBuffer):
 
         return
     
-    def _recompute_probs(self, possible_inds):
-        w_vec = self.state_weights[possible_inds].astype(np.float64)
-        TD_vec = self.TD_weights[possible_inds].astype(np.float64)
-        combined = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
-        combined = np.log1p(combined)
+    # def _recompute_probs(self, possible_inds):
+    #     w_vec = self.state_weights[possible_inds].astype(np.float64)
+    #     TD_vec = self.TD_weights[possible_inds].astype(np.float64)
+    #     combined = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
+    #     combined = np.log1p(combined)
 
-        if self.rank_based_sampling:
-            sorted_inds = np.argsort(-combined)
-            ranked_buffer_inds = possible_inds[sorted_inds]
-            ranks = np.arange(1, len(possible_inds) + 1)
-            p = ranks ** -self.alpha
-        else:
-            p = combined ** self.alpha
-            ranked_buffer_inds = None
+    #     if self.rank_based_sampling:
+    #         sorted_inds = np.argsort(-combined)
+    #         ranked_buffer_inds = possible_inds[sorted_inds]
+    #         ranks = np.arange(1, len(possible_inds) + 1)
+    #         p = ranks ** -self.alpha
+    #     else:
+    #         p = combined ** self.alpha
+    #         ranked_buffer_inds = None
 
-        p_tot = p.sum()
-        if p_tot <= 0 or not np.isfinite(p_tot):
-            p = np.ones_like(p) / len(possible_inds)
-        else:
-            p /= p_tot
+    #     p_tot = p.sum()
+    #     if p_tot <= 0 or not np.isfinite(p_tot):
+    #         p = np.ones_like(p) / len(possible_inds)
+    #     else:
+    #         p /= p_tot
 
-        self._cached_p = p
-        self._cached_possible_inds = possible_inds
-        self._cached_ranked_inds = ranked_buffer_inds
-        self._cached_length = len(possible_inds)
+    #     self._cached_p = p
+    #     self._cached_possible_inds = possible_inds
+    #     self._cached_ranked_inds = ranked_buffer_inds
+    #     self._cached_length = len(possible_inds)
 
-    def sample_recompute(self, safe_batch_size, env=None):
-        if not self.custom_sampling:
-            return super().sample(batch_size=safe_batch_size, env=env)
+    # def sample_recompute(self, safe_batch_size, env=None):
+    #     if not self.custom_sampling:
+    #         return super().sample(batch_size=safe_batch_size, env=env)
 
-        # compute possible_inds (same as you already do)
-        if self.full:
-            possible_inds = np.arange(self.buffer_size)
-            mask = possible_inds != self.pos #mask which would set the self.pos index as false
-            possible_inds = possible_inds[mask]
-        else:
-            possible_inds = np.arange(self.pos)
+    #     # compute possible_inds (same as you already do)
+    #     if self.full:
+    #         possible_inds = np.arange(self.buffer_size)
+    #         mask = possible_inds != self.pos #mask which would set the self.pos index as false
+    #         possible_inds = possible_inds[mask]
+    #     else:
+    #         possible_inds = np.arange(self.pos)
 
-        self._sample_calls += 1
-        need_recalc = (
-            self._cached_p is None
-            or self._sample_calls % self.recalc_every == 0
-            or self._cached_length != len(possible_inds)
-        )
+    #     self._sample_calls += 1
+    #     need_recalc = (
+    #         self._cached_p is None
+    #         or self._sample_calls % self.recalc_every == 0
+    #         or self._cached_length != len(possible_inds)
+    #     )
 
-        if need_recalc:
-            print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
-            self._recompute_probs(possible_inds)
-        # else:
-            # print("not recomputing prob :()")
+    #     if need_recalc:
+    #         print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
+    #         self._recompute_probs(possible_inds)
+    #     # else:
+    #         # print("not recomputing prob :()")
 
-        p = self._cached_p
-        sampled_p_index = np.random.choice(self._cached_length, size=safe_batch_size, p=p)
+    #     p = self._cached_p
+    #     sampled_p_index = np.random.choice(self._cached_length, size=safe_batch_size, p=p)
 
-        if self.rank_based_sampling:
-            batch_inds = self._cached_ranked_inds[sampled_p_index]
-        else:
-            batch_inds = self._cached_possible_inds[sampled_p_index]
+    #     if self.rank_based_sampling:
+    #         batch_inds = self._cached_ranked_inds[sampled_p_index]
+    #     else:
+    #         batch_inds = self._cached_possible_inds[sampled_p_index]
 
-        # IS weights based on cached p
-        sample_probs = p[sampled_p_index]
-        is_weights = (1 / (self._cached_length * sample_probs)) ** self.beta
-        is_weights = is_weights / is_weights.max()
+    #     # IS weights based on cached p
+    #     sample_probs = p[sampled_p_index]
+    #     is_weights = (1 / (self._cached_length * sample_probs)) ** self.beta
+    #     is_weights = is_weights / is_weights.max()
 
-        self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
-        self.current_sampled_inds = batch_inds
+    #     self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
+    #     self.current_sampled_inds = batch_inds
 
-        return self._get_samples(batch_inds, env=env)
+    #     return self._get_samples(batch_inds, env=env)
 
     def sample(self, safe_batch_size: int, env=None):
         """custom sample function, if none then use default SB3"""

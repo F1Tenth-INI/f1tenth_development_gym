@@ -182,9 +182,13 @@ def plot_sample_frequency_distribution(df, save_path=None, enable_slider=ENABLE_
     else:
         plot_sample_frequency_distribution_static(df, save_path)
 
-def plot_sample_frequency_distribution_static(df, save_path=None):
+def plot_sample_frequency_distribution_static(df, save_path=None, global_stats=None):
     """Static version of sample frequency distribution"""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Use global stats if provided, otherwise use local data
+    samples_max = global_stats['samples_per_batch_max'] if global_stats else df['samples_per_batch'].max()
+    possible_samples_max = global_stats['possible_samples_max'] if global_stats else df['possible_samples'].max()
     
     # 1. Histogram of samples per batch
     ax = axes[0, 0]
@@ -196,6 +200,7 @@ def plot_sample_frequency_distribution_static(df, save_path=None):
     ax.set_xlabel('Samples per Batch (sample_count / possible_samples)')
     ax.set_ylabel('Number of Transitions')
     ax.set_title('Distribution of Samples per Batch')
+    ax.set_xlim(0, samples_max)  # Fixed x-axis scale
     ax.legend()
     ax.grid(alpha=0.3)
     
@@ -203,9 +208,26 @@ def plot_sample_frequency_distribution_static(df, save_path=None):
     ax = axes[0, 1]
     scatter = ax.scatter(df['sample_count'], df['samples_per_batch'], 
                         alpha=0.5, s=1, c=df['possible_samples'], 
-                        cmap='viridis')
+                        cmap='viridis', vmin=global_stats.get('possible_samples_min', 0) if global_stats else 0,
+                        vmax=possible_samples_max)
+    max_idx = df['sample_count'].idxmax()
+    max_x = float(df.loc[max_idx, 'sample_count'])
+    max_y = float(df.loc[max_idx, 'samples_per_batch'])
+    ax.scatter([max_x], [max_y], marker='x', s=60, color='red', linewidths=1.5, zorder=5)
+    ax.annotate(
+        f"max x={max_x:.0f}",
+        (max_x, max_y),
+        textcoords="offset points",
+        xytext=(-6, 8),
+        ha='right',
+        fontsize=8,
+        color='red'
+    )
     ax.set_xlabel('Absolute Sample Count')
     ax.set_ylabel('Samples per Batch')
+    ax.set_ylim(0, samples_max)  # Fixed y-axis scale
+    if global_stats and 'sample_count_max' in global_stats:
+        ax.set_xlim(0, global_stats['sample_count_max'])  # Fixed x-axis scale
     ax.set_title('Sample Count vs Samples per Batch')
     ax.grid(alpha=0.3)
     cbar = plt.colorbar(scatter, ax=ax)
@@ -216,6 +238,9 @@ def plot_sample_frequency_distribution_static(df, save_path=None):
     ax.scatter(df['possible_samples'], df['samples_per_batch'], alpha=0.5, s=1)
     ax.set_xlabel('Transition Lifetime (possible samples)')
     ax.set_ylabel('Samples per Batch')
+    ax.set_ylim(0, samples_max)  # Fixed y-axis scale
+    if global_stats:
+        ax.set_xlim(global_stats['possible_samples_min'], possible_samples_max)  # Fixed x-axis scale
     ax.set_title('Samples per Batch vs Lifetime in Buffer')
     ax.grid(alpha=0.3)
     
@@ -237,6 +262,10 @@ def plot_sample_frequency_distribution_static(df, save_path=None):
     ax.set_ylabel('Number of Transitions')
     ax.set_title('Samples per Batch Distribution')
     ax.grid(alpha=0.3, axis='y')
+    
+    # Use global max for y-axis if provided
+    if global_stats:
+        ax.set_ylim(0, global_stats['num_transitions_max'])
     
     # Add percentages
     total = len(df)
@@ -441,10 +470,13 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None, enable_slider=ENAB
     # Plot reward heatmap (always static, shown separately)
     plot_reward_heatmap(df_with_pos, img_array, map_name)
 
-def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_path=None):
+def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_path=None, global_stats=None):
     """Static version of spatial heatmap (no slider)"""
     # Create figure
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # Use global max for color scaling if provided
+    samples_max = global_stats['samples_per_batch_max'] if global_stats else df_with_pos['samples_per_batch'].max()
     
     # Left: Track overlay with sample frequency coloring
     ax = axes[0]
@@ -463,7 +495,7 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
         s=0.5,  # Much smaller dots to see individual points
         alpha=0.6,
         vmin=0,
-        vmax=df_with_pos['samples_per_batch'].max()  # Scale to actual max
+        vmax=samples_max  # Use global max for consistent color scaling
     )
     
     ax.set_title(f'Samples per Batch Heatmap on {map_name}')
@@ -477,10 +509,24 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
     
     # Create 2D histogram using the same y-axis convention as the scatter plot
     y_flipped = img_height - df_with_pos['pixel_y']
-    x_bins = np.linspace(df_with_pos['pixel_x'].min(), 
-                         df_with_pos['pixel_x'].max(), 50)
-    y_bins = np.linspace(y_flipped.min(), 
-                         y_flipped.max(), 50)
+    
+    # Use global ranges if provided for consistent binning
+    if global_stats and 'pose_x_min' in global_stats:
+        # Convert world coords to pixel coords for consistent bins
+        origin = config['origin']
+        resolution = config['resolution']
+        x_min_px = (global_stats['pose_x_min'] - origin[0]) / resolution
+        x_max_px = (global_stats['pose_x_max'] - origin[0]) / resolution
+        y_min_flipped = img_height - (global_stats['pose_y_max'] - origin[1]) / resolution
+        y_max_flipped = img_height - (global_stats['pose_y_min'] - origin[1]) / resolution
+        
+        x_bins = np.linspace(x_min_px, x_max_px, 50)
+        y_bins = np.linspace(y_min_flipped, y_max_flipped, 50)
+    else:
+        x_bins = np.linspace(df_with_pos['pixel_x'].min(), 
+                             df_with_pos['pixel_x'].max(), 50)
+        y_bins = np.linspace(y_flipped.min(), 
+                             y_flipped.max(), 50)
     
     # Compute weighted histogram (weighted by samples per batch)
     H, xedges, yedges = np.histogram2d(
@@ -508,7 +554,9 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
             yedges[0], yedges[-1]],
         cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
         alpha=0.7,
-        origin='upper'
+        origin='upper',
+        vmin=0,
+        vmax=samples_max  # Use global max for consistent color scaling
     )
     
     ax.set_title('Aggregated Samples per Batch Heatmap')
