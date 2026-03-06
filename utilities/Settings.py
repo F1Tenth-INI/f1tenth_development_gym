@@ -185,16 +185,16 @@ class Settings():
 
     SAC_CUSTOM_SAMPLING_REPLACE = True #True -> means same sample can be drawn multiple times, this is default
 
-    SAC_WP_OFFSET_WEIGHT = 1.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 1.0
+    SAC_WP_OFFSET_WEIGHT = 0.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 0.0
     SAC_REWARD_WEIGHT = 3.0
-    SAC_VELOCITY_WEIGHT = 1.0
+    SAC_VELOCITY_WEIGHT = 0.0
 
     SAC_PRIORITY_FACTOR = 0.5   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
     
-    SAC_BETA_ANNEALING_RATIO = 0.6 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.4 #if 0, only TD error based priorities
+    SAC_BETA_ANNEALING_RATIO = 0.7 #at how much % of total agent timesteps should beta have grown to 1.0
+    SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -213,13 +213,17 @@ class Settings():
 
     SAC_STAT_TRACKER = True
 
+    
+    # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
+    SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+    
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
     SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.6
     SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
-    SAC_CURRICULUM_SPEED = True
+    SAC_CURRICULUM_SPEED = False
     SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
 
     SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
@@ -228,7 +232,7 @@ class Settings():
     SAC_CURRICULUM_SPEED_LIMIT_MAX = 15 #absolute max speed limit during curriculum learning
     SAC_CURRICULUM_SPEED_LIMIT = 15
 
-    SAC_CURRICULUM_TRACK_WIDTH_SCALING = True
+    SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
     SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
 
     SAC_CURRICULUM_NOISE_SCALING = False

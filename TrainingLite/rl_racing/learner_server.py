@@ -113,8 +113,10 @@ class CustomReplayBuffer(ReplayBuffer):
         obs = self.observations[idx, 0, :]
 
         if self.stat_tracker is not None:
-            self.stat_tracker.register_transition(obs, idx, reward, done, info=infos) #gets the unnormalized obs directly
+            self.stat_tracker.register_transition(obs, action, idx, reward, done, info=infos) #gets the unnormalized obs directly
             # self.stat_tracker.print_stats()
+            # if self.stat_tracker_full_obs_action_save:
+            #     self.stat_tracker.save_full_obs_action(obs, action)
 
         if not self.custom_sampling:
             return
@@ -552,10 +554,14 @@ class LearnerServer:
 
         if Settings.SAC_STAT_TRACKER:
             stat_save_dir = os.path.join(self.model_dir, "stat_logs")
-            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv", max_buffer_size=self.replay_capacity)
+            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv", max_buffer_size=self.replay_capacity, extended_obs_action_save=Settings.SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE)
             self._last_stat_save_ts = 0.0
         else:
             self.replay_buffer.stat_tracker = None
+
+    
+        self.replay_buffer.stat_tracker_full_obs_action_save = Settings.SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE
+
 
         self.model.replay_buffer = self.replay_buffer
 
@@ -596,6 +602,8 @@ class LearnerServer:
                 print(f"[server] Model saved to {self.save_model_path}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
+    
+    # def _save_model_checkpoint(self, checkpoint_name: str):
 
     # ---------- ingestion + training ----------
     # No normalization for now: obs arrive normalized already

@@ -738,68 +738,81 @@ def plot_spatial_heatmap_interactive(df_with_pos, img_array, config, map_name, t
     
     plt.show()
 
-def plot_reward_heatmap(df_with_pos, img_array, map_name):
-    """Plot reward-based heatmaps"""
-    # Optional: Reward-based heatmaps
-    if 'reward' not in df_with_pos.columns:
-        print("Warning: No 'reward' column found. Skipping reward heatmap.")
+def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_label, save_path=None):
+    """
+    Generic heatmap plotter for any spatial value column (reward, critic output, etc.)
+    
+    Args:
+        df_with_pos: DataFrame with pixel_x, pixel_y, and value column
+        img_array: Map image array
+        map_name: Name of the map
+        value_column: Column name to plot (e.g., 'reward', 'critic_q_min')
+        value_label: Label for the colorbar (e.g., 'Reward', 'Q-value')
+        save_path: Optional path to save the figure
+    """
+    # Check for required columns
+    if value_column not in df_with_pos.columns:
+        print(f"Warning: No '{value_column}' column found. Skipping {value_label.lower()} heatmap.")
         return
 
-    df_reward = df_with_pos.dropna(subset=['reward'])
-    if len(df_reward) == 0:
-        print("Warning: No reward data found. Skipping reward heatmap.")
+    df_values = df_with_pos.dropna(subset=[value_column])
+    if len(df_values) == 0:
+        print(f"Warning: No {value_label.lower()} data found. Skipping heatmap.")
         return
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
 
-    # Left: Track overlay with reward coloring
+    # Left: Track overlay with value coloring
     ax = axes[0]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
 
-    # Sort by reward so higher values are drawn on top
-    df_reward_sorted = df_reward.sort_values('reward')
+    # Sort by value so higher values are drawn on top
+    df_values_sorted = df_values.sort_values(value_column)
 
     img_height = img_array.shape[0]
-    reward_min = df_reward['reward'].min()
-    reward_max = df_reward['reward'].max()
-    if reward_min < 0 < reward_max:
-        reward_norm = TwoSlopeNorm(vmin=reward_min, vcenter=0.0, vmax=reward_max)
+    value_min = df_values[value_column].min()
+    value_max = df_values[value_column].max()
+    
+    # Use TwoSlopeNorm if values cross zero, otherwise use standard Normalize
+    if value_min < 0 < value_max:
+        value_norm = TwoSlopeNorm(vmin=value_min, vcenter=0.0, vmax=value_max)
     else:
-        reward_norm = Normalize(vmin=reward_min, vmax=reward_max)
+        value_norm = Normalize(vmin=value_min, vmax=value_max)
+    
     scatter = ax.scatter(
-        df_reward_sorted['pixel_x'],
-        img_height - df_reward_sorted['pixel_y'],
-        c=df_reward_sorted['reward'],
+        df_values_sorted['pixel_x'],
+        img_height - df_values_sorted['pixel_y'],
+        c=df_values_sorted[value_column],
         cmap='viridis',
         s=0.5,
         alpha=0.6,
-        norm=reward_norm
+        norm=value_norm
     )
 
-    ax.set_title(f'Reward Heatmap on {map_name}')
+    ax.set_title(f'{value_label} Heatmap on {map_name}')
     ax.axis('off')
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Reward')
+    cbar.set_label(value_label)
 
-    # Right: 2D histogram heatmap (average reward per bin)
+    # Right: 2D histogram heatmap (average value per bin)
     ax = axes[1]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
 
-    y_flipped = img_height - df_reward['pixel_y']
-    x_bins = np.linspace(df_reward['pixel_x'].min(),
-                         df_reward['pixel_x'].max(), 50)
+    y_flipped = img_height - df_values['pixel_y']
+    x_bins = np.linspace(df_values['pixel_x'].min(),
+                         df_values['pixel_x'].max(), 50)
     y_bins = np.linspace(y_flipped.min(),
                          y_flipped.max(), 50)
 
     H, xedges, yedges = np.histogram2d(
-        df_reward['pixel_x'],
+        df_values['pixel_x'],
         y_flipped,
         bins=[x_bins, y_bins],
-        weights=df_reward['reward']
+        weights=df_values[value_column]
     )
 
     H_count, _, _ = np.histogram2d(
-        df_reward['pixel_x'],
+        df_values['pixel_x'],
         y_flipped,
         bins=[x_bins, y_bins]
     )
@@ -815,16 +828,25 @@ def plot_reward_heatmap(df_with_pos, img_array, map_name):
         cmap='viridis',
         alpha=0.7,
         origin='upper',
-        norm=reward_norm
+        norm=value_norm
     )
 
-    ax.set_title('Aggregated Reward Heatmap')
+    ax.set_title(f'Aggregated {value_label} Heatmap')
     ax.axis('off')
     cbar2 = plt.colorbar(im, ax=ax)
-    cbar2.set_label('Avg Reward')
+    cbar2.set_label(f'Avg {value_label}')
 
     plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved {value_label.lower()} heatmap to {save_path}")
+    
     plt.show()
+
+def plot_reward_heatmap(df_with_pos, img_array, map_name, save_path=None):
+    """Plot reward-based heatmaps (convenience wrapper)"""
+    plot_value_heatmap(df_with_pos, img_array, map_name, 'reward', 'Reward', save_path)
 
 def print_statistics(df):
     """Print summary statistics"""

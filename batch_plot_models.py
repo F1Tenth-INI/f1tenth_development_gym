@@ -7,11 +7,15 @@ Usage:
     python batch_plot_models.py --prefix "2602" --map-name RCA2
 """
 
+import json
 import os
 import sys
 import argparse
 from pathlib import Path
 import matplotlib
+import torch
+
+
 matplotlib.use('Agg')  # Non-interactive backend - must be before pyplot import
 import matplotlib.pyplot as plt
 
@@ -25,12 +29,17 @@ from plot_sample_frequency import (
     plot_sample_frequency_distribution_static,
     plot_spatial_heatmap_static,
     plot_reward_heatmap,
+    plot_value_heatmap,
     load_map_image,
     world_to_pixel
 )
 
 import pandas as pd
 import numpy as np
+
+from stable_baselines3 import SAC
+from stable_baselines3.common.env_util import DummyVecEnv
+from TrainingLite.rl_racing.sac_utilities import SacUtilities
 
 
 def compute_global_stats(csv_paths, min_possible_samples_percentile=5):
@@ -123,7 +132,7 @@ def compute_global_stats(csv_paths, min_possible_samples_percentile=5):
 class BatchPlotter:
     """Batch process plotting for multiple models"""
     
-    def __init__(self, prefix: str, map_name: str = 'RCA1', output_base_dir: str = None):
+    def __init__(self, prefix: str, map_name: str = 'RCA1', output_base_dir: str = None, plot_critic_output: bool = False):
         """
         Initialize batch plotter.
         
@@ -131,9 +140,12 @@ class BatchPlotter:
             prefix: Model name prefix to filter (e.g., "2602")
             map_name: Map name for spatial heatmap
             output_base_dir: Base directory for organized outputs
+            plot_critic_output: Whether to plot critic output
         """
+
         self.prefix = prefix
         self.map_name = map_name
+        self.plot_critic_output = plot_critic_output
         
         self.models_dir = Path(root_dir) / "TrainingLite" / "rl_racing" / "models"
         
@@ -279,6 +291,152 @@ class BatchPlotter:
             print(f"  ✗ Failed to process {model_name}: {e}")
             import traceback
             traceback.print_exc()
+
+    def create_critic_output_plot(self, model_name: str):
+
+        print(f"\n{'='*80}")
+        print(f"Calculating and plotting critic output: {model_name}")
+        print(f"{'='*80}")
+
+        csv_path = self.models_dir / model_name / "stat_logs" / "stats_log.csv"
+        model_path = self.models_dir / model_name / f"{model_name}.zip"
+        
+        dummy_env = SacUtilities.create_vec_env()
+        model = SAC.load(model_path, env=dummy_env, device="cpu")
+        # actor = self.model.policy.actor
+        critic = model.policy.critic
+
+        try:
+            df = pd.read_csv(csv_path)
+            if 'obs' not in df.columns or 'action' not in df.columns:
+                print(f"ERROR: CSV missing obs/action columns. Enable extended_obs_action_save.")
+                return
+            print(f"  Loaded {len(df)} transitions for critic output")
+        except Exception as e:
+            print(f"  ✗ Failed to load CSV for critic output: {e}")
+            return
+        
+        try:
+            print(f"  Parsing observations...")
+            obs_list = [np.array(eval(x)) for x in df['obs']]
+            # obs_list = [x for x in obs_list if x is not None]
+            obs_np = np.vstack(obs_list).astype(np.float32)
+            
+            print(f"  Parsing actions...")
+            act_list = [np.array(eval(x)) for x in df['action']]
+            # act_list = [x for x in act_list if x is not None]
+            act_np = np.vstack(act_list).astype(np.float32)
+            
+            print(f"  ✓ Parsed obs shape: {obs_np.shape}, action shape: {act_np.shape}")
+        except Exception as e:
+            print(f"  ✗ Failed to parse obs/action: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+        # print(df['obs'])
+
+        with torch.no_grad():
+            obs_t = torch.as_tensor(obs_np, dtype=torch.float32, device="cpu")
+            act_t = torch.as_tensor(act_np, dtype=torch.float32, device="cpu")
+            q1, q2 = critic(obs_t, act_t)
+            q_values = torch.minimum(q1, q2).squeeze(-1).cpu().numpy()
+
+        print(f"  Computed {len(q_values)} Q-values")
+
+        #plot the things
+        # Save CSV with Q-values
+        df['critic_q_min'] = q_values
+        
+        critic_dir = self.output_base_dir / "4_critic_outputs"
+        critic_dir.mkdir(exist_ok=True, parents=True)
+
+        
+        
+        csv_out = critic_dir / f"{model_name}_critic_output.csv"
+        png_out = critic_dir / f"{model_name}_critic_output.png"
+        
+        try:
+            df.to_csv(csv_out, index=False)
+            print(f"  ✓ Saved CSV: {csv_out.name}")
+        except Exception as e:
+            print(f"  ✗ Failed to save CSV: {e}")
+        
+        # Create plot
+        try:
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8))
+            
+            # Plot 1: Q-values over time
+            ax1.plot(q_values, linewidth=0.8, alpha=0.7, color='steelblue', label='Q(s,a)')
+            ax1.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Zero')
+            ax1.fill_between(range(len(q_values)), q_values, alpha=0.2, color='steelblue')
+            ax1.set_title(f"{model_name} — Critic Output Q(s,a)", fontsize=14, fontweight='bold')
+            ax1.set_xlabel("Transition Index")
+            ax1.set_ylabel("min(Q1, Q2)")
+            ax1.grid(alpha=0.3, linestyle='--')
+            ax1.legend()
+            
+            # Plot 2: Q-value distribution
+            ax2.hist(q_values, bins=100, alpha=0.7, color='steelblue', edgecolor='black')
+            ax2.axvline(x=q_values.mean(), color='red', linestyle='--', linewidth=2, label=f'Mean: {q_values.mean():.4f}')
+            ax2.set_title("Q-Value Distribution", fontsize=12)
+            ax2.set_xlabel("Q-value")
+            ax2.set_ylabel("Frequency")
+            ax2.legend()
+            ax2.grid(alpha=0.3, axis='y')
+            
+            plt.tight_layout()
+            plt.savefig(str(png_out), dpi=150, bbox_inches='tight')
+            plt.close('all')
+            print(f"  ✓ Saved plot: {png_out.name}")
+        except Exception as e:
+            print(f"  ✗ Failed to create plot: {e}")
+
+        #Heatmap
+        critic_heatmap_dir = self.output_base_dir / "5_critic_spatial_heatmaps"
+        critic_heatmap_dir.mkdir(exist_ok=True, parents=True)
+        png_out_heatmap = critic_heatmap_dir / f"{model_name}_critic_spatial_heatmap.png"
+
+        print("  Generating critic Q-value heatmap...")
+        try:
+            df_with_pos = df.dropna(subset=['pose_x', 'pose_y'])
+            
+            if len(df_with_pos) > 0 and 'critic_q_min' in df_with_pos.columns:
+                # Load map
+                img_array, config = load_map_image(self.map_name)
+                
+                # We need pixel coordinates - recompute if needed
+                if 'pixel_x' not in df_with_pos.columns:
+                    origin = config['origin']
+                    resolution = config['resolution']
+                    pixel_coords = []
+                    for _, row in df_with_pos.iterrows():
+                        px, py = world_to_pixel(row['pose_x'], row['pose_y'], origin, resolution)
+                        pixel_coords.append((px, py))
+                    df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
+                    df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
+                
+                # Plot the critic Q-value heatmap
+                plot_value_heatmap(
+                    df_with_pos, img_array, self.map_name, 
+                    'critic_q_min', 'Q-value (min)',
+                    save_path=str(png_out_heatmap)
+                )
+                plt.close('all')
+                print(f"    ✓ Saved to {png_out_heatmap.name}")
+            else:
+                print(f"    ⊘ No critic Q-value data available")
+        except Exception as e:
+            print(f"    ✗ Error: {e}")
+    
+        # Print statistics
+        print(f"\n  Critic Q-value statistics:")
+        print(f"    Min:    {q_values.min():.6f}")
+        print(f"    Max:    {q_values.max():.6f}")
+        print(f"    Mean:   {q_values.mean():.6f}")
+        print(f"    Median: {np.median(q_values):.6f}")
+        print(f"    Std:    {q_values.std():.6f}")
+        # print(obs_np, act_np)
+        # critic(obs_t, act_t)
     
     def process_all(self):
         """Process all matching models with synchronized scales"""
@@ -302,6 +460,8 @@ class BatchPlotter:
         for i, model_name in enumerate(models, 1):
             print(f"[{i}/{len(models)}]", end=" ")
             self.plot_model(model_name, global_stats=global_stats)
+            if self.plot_critic_output:
+                self.create_critic_output_plot(model_name)
         
         print(f"\n{'='*80}")
         print("BATCH PLOTTING COMPLETE")
@@ -335,15 +495,23 @@ def main():
         default=None,
         help="Base output directory (default: batch_plot_results/batch_{prefix})"
     )
+    parser.add_argument(
+        "--plot-critic-output",
+        type=bool,
+        default=True,
+        help="Whether to plot critic forward pass (default: True)"
+    )
     
     args = parser.parse_args()
     
     plotter = BatchPlotter(
         prefix=args.prefix,
         map_name=args.map_name,
-        output_base_dir=args.output_dir
+        output_base_dir=args.output_dir,
+        plot_critic_output=args.plot_critic_output
     )
     plotter.process_all()
+
 
 
 if __name__ == '__main__':

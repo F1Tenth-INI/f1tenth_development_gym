@@ -3,6 +3,7 @@ import csv
 import os
 import time
 import matplotlib.pyplot as plt
+import json
 from datetime import datetime
 from utilities.state_utilities import STATE_INDICES
 
@@ -19,7 +20,7 @@ class StatTracker:
     - obs[3]: steering_angle (scaled by 1/0.4)
     """
     
-    def __init__(self, save_dir: str = "stat_logs", save_name: str = "stats_log.csv", max_buffer_size: int = 100000):
+    def __init__(self, save_dir: str = "stat_logs", save_name: str = "stats_log.csv", max_buffer_size: int = 100000, extended_obs_action_save: bool = False):
         self.save_dir = save_dir
         self.file_path = os.path.join(save_dir, save_name)
         self.transition_dict = {}  # {ID: transition_dict}
@@ -46,6 +47,8 @@ class StatTracker:
         self.csv_logging_time_list = []
         self.serialization_time_list = []
         self.broadcast_time_list = []
+
+        self.save_full_obs_action_enabled = extended_obs_action_save
     
     # def unnormalize_obs(self, obs: np.ndarray) -> dict:    # -> i would maybe also like x and y pos to be saved
     #     if len(obs) < 4:
@@ -65,7 +68,7 @@ class StatTracker:
     #     }
 
 
-    def register_transition(self, obs, buffer_position, reward, done, TD_error=None, info=None):
+    def register_transition(self, obs, action, buffer_position, reward, done, TD_error=None, info=None):
         """
         Register a transition for logging. Returns ID for later updates.
         
@@ -134,6 +137,11 @@ class StatTracker:
         # Add optional values
         if TD_error is not None:
             transition_entry['TD_error_list'].append(float(TD_error))
+
+        if self.save_full_obs_action_enabled:
+            # Store as arrays in memory (serialize only when saving CSV)
+            transition_entry['obs'] = obs.copy() if isinstance(obs, np.ndarray) else np.array(obs, dtype=np.float32)
+            transition_entry['action'] = action.copy() if isinstance(action, np.ndarray) else np.array(action, dtype=np.float32)
         
         self.transition_dict[self.ID_counter] = transition_entry
 
@@ -146,6 +154,8 @@ class StatTracker:
         self.ID_counter += 1
         
         return
+    
+
     
     def update_transition(self, transition_id, TD_error=None, reward=None):
         if transition_id not in self.transition_dict:
