@@ -1,21 +1,23 @@
 # State features
-obs[0]  # velocity x
-obs[1]  # velocity y
-obs[2]  # angular velocity z
-obs[3]  # steering angle
+obs[0]   # velocity x
+obs[1]   # velocity y
+obs[2]   # angular velocity z
+obs[3]   # steering angle
 
-# Curvatures (waypoint curvatures for next 15 waypoints)
-obs[4:34]  # 30 values
+# Curvatures (next_waypoints[:, WP_KAPPA_IDX])
+obs[4:34]   # 30 values
 
-# Border points (relative positions of track borders)
-obs[34:154]  # 120 values (right border 60 + left border 60)
+# Border points (relative XY, downsampled every 3rd waypoint)
+# border_points = concat(right[::3].flatten(), left[::3].flatten())
+obs[34:54]  # right border points, 20 values (10 points * x,y)
+obs[54:74]  # left border points, 20 values (10 points * x,y)
 
 # Last 3 actions
-obs[154:160]  # 6 values
+obs[74:80]  # 6 values
 
 # Frenet coordinates
-obs[160]  # lateral offset (d)
-obs[161]  # heading error (e)
+obs[80]     # lateral offset d
+obs[81]     # heading error e
 
 # Velocity factor
-obs[162]  # Settings.GLOBAL_WAYPOINT_VEL_FACTOR
+obs[82]     # Settings.GLOBAL_WAYPOINT_VEL_FACTOR

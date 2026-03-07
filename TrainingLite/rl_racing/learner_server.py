@@ -130,8 +130,8 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #TODO: the observations are normalized, is that bad or not?
         #compute weight
-        d = obs[-2]
-        e = obs[-1]
+        d = obs[80] #-> these were off by one the whole time......
+        e = obs[81]
         # rew = self.rewards[idx, 0] + 1
         rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
 

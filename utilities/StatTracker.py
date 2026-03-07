@@ -101,8 +101,8 @@ class StatTracker:
             'linear_vel_y': float(obs[1]),
             'angular_vel_z': float(obs[2]),
             'steering_angle': float(obs[3]),
-            'd_raw': float(obs[160]),
-            'e_raw': float(obs[161]),
+            'd_raw': float(obs[80]),
+            'e_raw': float(obs[81]),
         }
 
         # Add raw state values
