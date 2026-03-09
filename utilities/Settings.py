@@ -213,6 +213,8 @@ class Settings():
 
     SAC_STAT_TRACKER = True
 
+    SAC_SAVE_MODEL_CHECKPOINTS = True
+    SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
     
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
