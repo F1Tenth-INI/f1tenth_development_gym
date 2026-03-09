@@ -1,7 +1,22 @@
 import jax
 import jax.numpy as jnp
 from functools import partial
+from utilities.Settings import Settings
 
+
+
+def speed_pi_to_acceleration(desired_speed, current_speed, speed_error_integral, dt_sub, a_max, v_max):
+    """Convert desired speed to acceleration command using PI control."""
+    speed_kp = 10.0 * a_max / jnp.maximum(v_max, 1e-3)
+    speed_ki = 0.5 * speed_kp
+    speed_integral_limit = 5.0
+
+    speed_error = desired_speed - current_speed
+    speed_error_integral = speed_error_integral + speed_error * dt_sub
+    speed_error_integral = jnp.clip(speed_error_integral, -speed_integral_limit, speed_integral_limit)
+    translational_control = speed_kp * speed_error + speed_ki * speed_error_integral
+
+    return translational_control, speed_error_integral
 
 
 @partial(jax.jit, static_argnames=['intermediate_steps'])
@@ -13,7 +28,8 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         
         control (jnp.ndarray): Control input vector with the following elements:
             - control[0]: desired_steering_angle (desired steering angle input)
-            - control[1]: acceleration (translational control input)
+            - control[1]: desired_speed if Settings.MOTOR_PID_IN_CAR_MODEL is True,
+                          otherwise direct acceleration command
 
         car_params (jnp.ndarray): Array of car parameters as defined in VehicleParameters.to_np_array().
 
@@ -34,14 +50,16 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     # Calculate sub-timestep for intermediate integration
     dt_sub = dt / intermediate_steps
     
+    use_speed_pi = Settings.MOTOR_PID_IN_CAR_MODEL
+
     # Define single integration step function
     def single_step(carry, _):
-        state_input = carry
+        state_input, speed_error_integral = carry
         # Unpack state
         psi_dot, v_x, v_y, psi, _, _, s_x, s_y, _, delta = state_input
 
         # Unpack control inputs
-        desired_steering_angle, translational_control = control
+        desired_steering_angle, desired_speed = control
 
         # Apply Servo PID Control (match original exactly)
         steering_angle_difference = desired_steering_angle - delta
@@ -56,6 +74,20 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         delta_dot = jnp.where(jnp.logical_or(at_min_limit, at_max_limit), 0.0, delta_dot)
         
         delta_dot = jnp.clip(delta_dot, sv_min, sv_max)
+
+        # PI speed controller: desired speed -> acceleration command.
+        # If disabled in Settings, control[1] is interpreted as direct acceleration.
+        if use_speed_pi:
+            translational_control, speed_error_integral = speed_pi_to_acceleration(
+                desired_speed=desired_speed,
+                current_speed=v_x,
+                speed_error_integral=speed_error_integral,
+                dt_sub=dt_sub,
+                a_max=a_max,
+                v_max=v_max
+            )
+        else:
+            translational_control = desired_speed
 
         # Apply acceleration constraints with asymmetric braking
         # Use brake_multiplier parameter for asymmetric acceleration/braking
@@ -155,10 +187,12 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
 
         next_state = jnp.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta], dtype=jnp.float32)
         
-        return next_state, None
+        return (next_state, speed_error_integral), None
     
     # Apply intermediate steps using lax.scan for differentiability
-    final_state, _ = jax.lax.scan(single_step, state, None, length=intermediate_steps)
+    init_carry = (state, jnp.array(0.0, dtype=jnp.float32))
+    final_carry, _ = jax.lax.scan(single_step, init_carry, None, length=intermediate_steps)
+    final_state, _ = final_carry
     
     return final_state
 
