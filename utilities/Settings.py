@@ -185,7 +185,16 @@ class Settings():
     SAC_CURRICULUM_DEBUG = True
 
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.5 
+    SAC_STAT_TRACKER = True
+
+    SAC_SAVE_MODEL_CHECKPOINTS = True
+    SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
+    
+    # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
+    SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+    
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
 
