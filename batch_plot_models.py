@@ -16,7 +16,19 @@ import matplotlib
 import torch
 
 
-matplotlib.use('Agg')  # Non-interactive backend - must be before pyplot import
+# Select matplotlib backend early (before pyplot/imports that may import pyplot).
+# Default stays non-interactive for batch runs.
+_backend_parser = argparse.ArgumentParser(add_help=False)
+_backend_group = _backend_parser.add_mutually_exclusive_group()
+_backend_group.add_argument("--interactive-plots", action="store_true")
+_backend_group.add_argument("--non-interactive-plots", action="store_true")
+_backend_args, _ = _backend_parser.parse_known_args()
+
+if _backend_args.interactive_plots:
+    matplotlib.use('TkAgg')
+else:
+    matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
 
 # Add root to path
@@ -307,11 +319,19 @@ class BatchPlotter:
         critic = model.policy.critic
 
         try:
-            df = pd.read_csv(csv_path)
-            if 'obs' not in df.columns or 'action' not in df.columns:
+            df_full = pd.read_csv(csv_path)
+            if 'obs' not in df_full.columns or 'action' not in df_full.columns:
                 print(f"ERROR: CSV missing obs/action columns. Enable extended_obs_action_save.")
                 return
-            print(f"  Loaded {len(df)} transitions for critic output")
+            
+            # Use only the final third of transitions for faster computation
+            # total_transitions = len(df_full)
+            # start_idx = (2 * total_transitions) // 3
+            # df = df_full.iloc[start_idx:].copy()
+
+            df = df_full.copy()  # Use all transitions for now, can filter later if needed
+            
+            # print(f"  Loaded {total_transitions} transitions, using final third ({len(df)} transitions) for critic output")
         except Exception as e:
             print(f"  ✗ Failed to load CSV for critic output: {e}")
             return
@@ -369,8 +389,8 @@ class BatchPlotter:
             ax1.plot(q_values, linewidth=0.8, alpha=0.7, color='steelblue', label='Q(s,a)')
             ax1.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Zero')
             ax1.fill_between(range(len(q_values)), q_values, alpha=0.2, color='steelblue')
-            ax1.set_title(f"{model_name} — Critic Output Q(s,a)", fontsize=14, fontweight='bold')
-            ax1.set_xlabel("Transition Index")
+            ax1.set_title(f"{model_name} — Critic Output Q(s,a) (Final Third)", fontsize=14, fontweight='bold')
+            ax1.set_xlabel("Transition Index (Final Third)")
             ax1.set_ylabel("min(Q1, Q2)")
             ax1.grid(alpha=0.3, linestyle='--')
             ax1.legend()
@@ -378,7 +398,7 @@ class BatchPlotter:
             # Plot 2: Q-value distribution
             ax2.hist(q_values, bins=100, alpha=0.7, color='steelblue', edgecolor='black')
             ax2.axvline(x=q_values.mean(), color='red', linestyle='--', linewidth=2, label=f'Mean: {q_values.mean():.4f}')
-            ax2.set_title("Q-Value Distribution", fontsize=12)
+            ax2.set_title("Q-Value Distribution (Final Third)", fontsize=12)
             ax2.set_xlabel("Q-value")
             ax2.set_ylabel("Frequency")
             ax2.legend()
@@ -429,7 +449,7 @@ class BatchPlotter:
             print(f"    ✗ Error: {e}")
     
         # Print statistics
-        print(f"\n  Critic Q-value statistics:")
+        print(f"\n  Critic Q-value statistics (final third):")
         print(f"    Min:    {q_values.min():.6f}")
         print(f"    Max:    {q_values.max():.6f}")
         print(f"    Mean:   {q_values.mean():.6f}")
@@ -501,8 +521,22 @@ def main():
         default=True,
         help="Whether to plot critic forward pass (default: True)"
     )
+    backend_group = parser.add_mutually_exclusive_group()
+    backend_group.add_argument(
+        "--interactive-plots",
+        action="store_true",
+        help="Use an interactive matplotlib backend (TkAgg)."
+    )
+    backend_group.add_argument(
+        "--non-interactive-plots",
+        action="store_true",
+        help="Force non-interactive backend (Agg, default)."
+    )
     
     args = parser.parse_args()
+
+    selected_backend = matplotlib.get_backend()
+    print(f"Matplotlib backend: {selected_backend}")
     
     plotter = BatchPlotter(
         prefix=args.prefix,

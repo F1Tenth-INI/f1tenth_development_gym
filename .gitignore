@@ -82,6 +82,8 @@ scripts/EulerCluster/out/*
 
 RaceTuner/CopiedSettings/*
 ppo_models/*
+batch_plot_results/
+sweep_experiment_results/
 
 
 *.egg-info
@@ -105,4 +107,5 @@ TrainingLite/rl_racing/models.zip
 
 batch_plot_results
 sweep_experiment_results
-summary_plots
+summary_plotscumulative_reward_components.png
+utilities/maps/hangar16/hangar16_speed_scaling.csv
