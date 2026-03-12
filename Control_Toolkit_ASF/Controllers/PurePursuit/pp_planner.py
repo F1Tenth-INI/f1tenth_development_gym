@@ -163,11 +163,13 @@ class PurePursuitPlanner(template_planner):
             self.correcting_index = 0
 
     
-        
-        acceleration = self.controller_utils.motor_pid(speed, v_x)
+        if(not Settings.MOTOR_PID_IN_CAR_MODEL):
+            translational_control = self.controller_utils.motor_pid(speed, v_x)
+        else:
+            translational_control = speed
         
         self.angular_control = steering_angle
-        self.translational_control = acceleration
+        self.translational_control = translational_control
 
         if hasattr(self.render_utils, 'update_pp'):
             self.render_utils.update_pp(

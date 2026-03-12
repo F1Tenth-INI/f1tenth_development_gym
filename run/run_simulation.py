@@ -16,7 +16,7 @@ from utilities.Settings import Settings
 from utilities.car_system import CarSystem
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     )
@@ -594,14 +594,22 @@ class RacingSimulation:
         # Starting from random position near a waypoint (overwrite)
         if Settings.START_FROM_RANDOM_POSITION:
             import random
-            
-            wu = WaypointUtils()
-            random_wp = random.choice(wu.waypoints)
-            random_wp[WP_X_IDX] += random.uniform(0., 0.2)
-            random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
-            random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-            
-            starting_positions[0] = random_wp[1:4]
+
+            # Reuse waypoints already owned by the main driver.
+            # Creating a new WaypointUtils on every reset starts a background reload
+            # thread each time and causes long-run slowdown when crashes are frequent.
+            random_wp_source = None
+            if self.drivers and hasattr(self.drivers[0], "waypoint_utils"):
+                random_wp_source = self.drivers[0].waypoint_utils.waypoints
+
+            if random_wp_source is not None and len(random_wp_source) > 0:
+                random_wp = np.array(random.choice(random_wp_source), copy=True)
+                random_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
+                random_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
+                random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+                starting_positions[0] = random_wp[1:4]
+            else:
+                print("Warning: Could not sample random waypoint; falling back to configured start.")
             # print("Starting position: ", random_wp[1:4])
             
         
