@@ -136,19 +136,18 @@ class RLAgentPlanner(template_planner):
 
         # episode accumulation
         self._episode: list[dict] = []
-
-        self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
+        self.fallback_planner: PurePursuitPlanner = PurePursuitPlanner()
         self.fallback_planner.waypoint_utils = self.waypoint_utils
         self.fallback_planner.lidar_utils = self.lidar_utils
         self.transition_logger = TransitionLogger()
         self.save_transitions = False
-
         self.autonomous_driving = True
         self.control_index = 0
 
-        # Init Curriculum Supervisor
+        # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
-        if self.training_mode and Settings.SAC_SPEED_CURRICULUM_LEARNING:
+        curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
+        if self.training_mode and curriculum_enabled:
             self.curriculum_supervisor = CurriculumSupervisor()
 
         self.reset()
@@ -184,7 +183,8 @@ class RLAgentPlanner(template_planner):
                     self.model.policy.actor.load_state_dict(sd, strict=True)
                     self.model.policy.actor.eval()
                     self._received_weights = True
-                    print("[RLAgentPlanner] ✅ Actor weights updated.")
+                    if Settings.SAC_AGENT_DEBUG:
+                        print("[RLAgentPlanner] ✅ Actor weights updated.")
                 except Exception as e:
                     print(f"[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
 
@@ -218,7 +218,6 @@ class RLAgentPlanner(template_planner):
         # filtered = alpha * new_value + (1 - alpha) * previous_value
         self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
         self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
-        
         # Update previous values for next iteration
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
@@ -263,7 +262,6 @@ class RLAgentPlanner(template_planner):
         if self.save_transitions:
             self.transition_logger.log(transition)
 
-        # print(self.control_index)
         if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
             total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
             #Update Curriculum Supervisor
@@ -332,6 +330,7 @@ class RLAgentPlanner(template_planner):
         [border_points_left, border_points_right] = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
         border_points = np.concatenate([border_points_right[::3].flatten(), border_points_left[::3].flatten()])
 
+        target_speed = self.waypoint_utils.next_waypoints[0, WP_VX_IDX]
 
         # Get frenet coordinates
         s, d, e, k = self.waypoint_utils.frenet_coordinates
@@ -360,7 +359,8 @@ class RLAgentPlanner(template_planner):
             border_points,
             last_actions, 
             [d, e], 
-            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
+            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR],
+            [target_speed]
         ]).astype(np.float32)
 
         # match env normalization
@@ -372,7 +372,8 @@ class RLAgentPlanner(template_planner):
             [0.2] * len(border_points),
             [1.0] * len(last_actions), 
             [0.5, 0.5]
-            , [1]
+            , [1],
+            [1]
             )) # Adjust normalization factors for each feature
         
         # SAC Training loop

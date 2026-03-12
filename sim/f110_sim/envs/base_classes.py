@@ -266,6 +266,8 @@ class RaceCar(object):
         self.in_collision = False
         # clear state
         self.state = initial_state
+        if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > StateIndices.v_x:
+            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
@@ -377,6 +379,10 @@ class RaceCar(object):
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
+
+        # clip linear_vel_x to SpeedCap when set
+        if Settings.GLOBAL_SPEED_LIMIT is not None:
+            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         # update scan
         pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])

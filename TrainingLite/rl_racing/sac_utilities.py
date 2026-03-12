@@ -161,7 +161,7 @@ class TrainingLogHelper():
         self.start_time = self.initialize_start_time() # Training time start
 
         self.training_index = 0
-        self.plot_every = 5
+        self.plot_every = 1  # Plot every log (was 5; 1 ensures metrics appear quickly)
 
 
     
@@ -239,6 +239,7 @@ class TrainingLogHelper():
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
         metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
         metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
+        metric_dict['difficulty'] = last_info.get("difficulty", None)  # curriculum difficulty
         
         metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
         metric_dict['training_duration'] = getattr(model, 'training_duration', None)
@@ -272,7 +273,10 @@ class TrainingLogHelper():
         self.training_index += 1
 
         if self.training_index % self.plot_every == 0:
-            self.plot_training_metrics()
+            try:
+                self.plot_training_metrics()
+            except Exception as e:
+                print(f"[TrainingLogHelper] Failed to plot training metrics: {e}")
 
     def plot_training_metrics(self):
         model_dir = self.model_dir
@@ -284,7 +288,6 @@ class TrainingLogHelper():
 
         # Load the CSV
         df = pd.read_csv(csv_path)
-        print(df.columns)
 
 
         # Downsample and window settings
@@ -359,7 +362,9 @@ class TrainingLogHelper():
                 ax.set_xlabel('timestamp')
 
         plt.tight_layout()
-        plt.savefig(os.path.join(model_dir, 'training_metrics.png'))
+        png_path = os.path.join(model_dir, 'training_metrics.png')
+        plt.savefig(png_path)
+        plt.close(fig)
 
 
 

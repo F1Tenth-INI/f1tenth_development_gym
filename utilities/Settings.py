@@ -4,7 +4,7 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
@@ -86,8 +86,8 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     
@@ -128,7 +128,7 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.5
 
-    RELOAD_WP_IN_BACKGROUND = True  # If True, waypoints are reloaded in a separate thread
+    RELOAD_WP_IN_BACKGROUND = False  # If True, waypoints are reloaded in a separate thread
 
     
     ## MPC Controller ##
@@ -149,8 +149,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -184,6 +184,8 @@ class Settings():
     SAC_SPEED_CURRICULUM_LEARNING = False
     SAC_CURRICULUM_DEBUG = False
 
+    SAC_CURRICULUM_ENABLED = True
+
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
     ## t1=0 ensures difficulty rises from the first boost; t1=0.3 required 6+ boosts before any visible change
     SAC_CURRICULUM_STARTING_DIFFICULTY = 0.0 
@@ -210,6 +212,12 @@ class Settings():
     SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
 
     
+    ## Speed cap ##
+    ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
+    GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = False
+    GLOBAL_SPEED_LIMIT_MIN = 2.0   # at low difficulty [m/s]
+    GLOBAL_SPEED_LIMIT_MAX = 15.0  # at high difficulty [m/s]
+
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
     
