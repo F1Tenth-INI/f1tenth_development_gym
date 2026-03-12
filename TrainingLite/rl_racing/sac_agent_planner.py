@@ -320,6 +320,7 @@ class RLAgentPlanner(template_planner):
         # car state
         car_state = self.car_state
 
+
         # border_points_left, border_points_right = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
         curvatures = self.waypoint_utils.next_waypoints[:, WP_KAPPA_IDX]
 
@@ -360,7 +361,7 @@ class RLAgentPlanner(template_planner):
             last_actions, 
             [d, e], 
             [Settings.GLOBAL_WAYPOINT_VEL_FACTOR],
-            # [target_speed]
+            [target_speed]
         ]).astype(np.float32)
 
         # match env normalization
@@ -373,7 +374,7 @@ class RLAgentPlanner(template_planner):
             [1.0] * len(last_actions), 
             [0.5, 0.5]
             , [1],
-            # [1]
+            [1]
             )) # Adjust normalization factors for each feature
         
         # SAC Training loop

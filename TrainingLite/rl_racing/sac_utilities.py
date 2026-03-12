@@ -11,6 +11,7 @@ import os
 import sys
 import csv
 from typing import Any, Dict, List, Optional, Tuple
+import matplotlib
 import matplotlib.pyplot as plt
 from stable_baselines3.common.vec_env import DummyVecEnv
 import yaml
@@ -49,7 +50,7 @@ class SacUtilities:
         [-1] * 40 + 
         [-1]*6 +
         [-1]*2 
-        + [0] * 1
+        + [0] * 2
         ,dtype=np.float32)
     
     obs_high = np.array(
@@ -60,7 +61,7 @@ class SacUtilities:
         [ 1] * 40 +
         [ 1]*6 + 
         [ 1]*2
-        + [0] * 1
+        + [0] * 2
         ,dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
