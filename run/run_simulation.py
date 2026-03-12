@@ -314,17 +314,28 @@ class RacingSimulation:
 
        
         
-        # limit fps
-        if self.step_end_time is not None:
-            time_taken = time.time() - step_start_time
-            if(Settings.RENDER_MODE == "human_fast")  and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
-                time.sleep(0.25 * Settings.TIMESTEP_CONTROL - time_taken)
-            if Settings.RENDER_MODE == 'human' and time_taken < Settings.TIMESTEP_CONTROL:
-                time.sleep(Settings.TIMESTEP_CONTROL - time_taken)
-        self.step_end_time = time.time()
-        
         # Store state history for respawn functionality
         self._update_state_history()
+
+
+        # limit fps
+        time_taken = time.time() - step_start_time
+        sleep_time = 0.0
+
+        # human fast mode: realtime
+        if Settings.RENDER_MODE == "human_fast" and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
+            sleep_time = max(sleep_time, 0.25 * Settings.TIMESTEP_CONTROL - time_taken)
+
+        # Max frequency: if step took less than 1/freq, wait remaining time so it takes exactly 1/freq
+        if Settings.MAX_SIM_FREQUENCY is not None:
+            min_step_time = 1.0 / Settings.MAX_SIM_FREQUENCY
+            if time_taken < min_step_time:
+                sleep_time = max(sleep_time, min_step_time - time_taken)
+
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+        
+        self.step_end_time = time.time()
 
         # End of controller time step
 
