@@ -360,7 +360,7 @@ class RLAgentPlanner(template_planner):
             last_actions, 
             [d, e], 
             [Settings.GLOBAL_WAYPOINT_VEL_FACTOR],
-            [target_speed]
+            # [target_speed]
         ]).astype(np.float32)
 
         # match env normalization
@@ -373,7 +373,7 @@ class RLAgentPlanner(template_planner):
             [1.0] * len(last_actions), 
             [0.5, 0.5]
             , [1],
-            [1]
+            # [1]
             )) # Adjust normalization factors for each feature
         
         # SAC Training loop
