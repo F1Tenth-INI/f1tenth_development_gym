@@ -58,6 +58,7 @@ from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
 from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
+from utilities.CurriculumSupervisor import CurriculumSupervisor
 
 import torch
 torch.set_num_threads(1)          # intra-op parallelism
@@ -144,6 +145,11 @@ class RLAgentPlanner(template_planner):
 
         self.autonomous_driving = True
         self.control_index = 0
+
+        # Init Curriculum Supervisor
+        self.curriculum_supervisor = None
+        if self.training_mode and Settings.SAC_SPEED_CURRICULUM_LEARNING:
+            self.curriculum_supervisor = CurriculumSupervisor()
 
         self.reset()
 
@@ -240,13 +246,18 @@ class RLAgentPlanner(template_planner):
 
         next_obs = self._build_observation()
 
+        # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
+        info_out = dict(info or {})
+        if self.curriculum_supervisor is not None:
+            info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
+
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),
             "next_obs": next_obs.astype(np.float32),
             "reward":   float(reward),
             "done":     bool(done),
-            "info":     info or {},
+            "info":     info_out,
         }
         self._episode.append(transition)
         if self.save_transitions:
@@ -254,15 +265,20 @@ class RLAgentPlanner(template_planner):
 
         # print(self.control_index)
         if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
+            total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
+            #Update Curriculum Supervisor
+            if self.curriculum_supervisor is not None:
+                self.curriculum_supervisor.on_episode_end(total_reward, len(self._episode))
+            #Save Transitions
             if self.save_transitions:
                 self.transition_logger.save_csv()
+            #Send Transitions to Learner Server
             if self.training_mode and self.autonomous_driving:
                 try:
                     if len(self._episode) > 1:
                         self.client.send_transition_batch(self._episode)
-                        total_reward = sum(t["reward"] for t in self._episode)
-                        print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
-                    
+                        if Settings.SAC_AGENT_DEBUG:
+                            print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send episode: {e}")
                 finally:
@@ -271,7 +287,10 @@ class RLAgentPlanner(template_planner):
                     self.prev_obs_raw = None
                     self.prev_action = None
             else:
-                print(f"[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
+                self._episode = []
+                self.control_index = 0
+                self.prev_obs_raw = None
+                self.prev_action = None
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""

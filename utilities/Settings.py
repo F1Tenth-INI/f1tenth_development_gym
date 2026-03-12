@@ -178,15 +178,36 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
-   
+    SAC_AGENT_DEBUG = False
+    LEARNER_SERVER_DEBUG = False
 
-    SAC_SPEED_CURRICULUM_LEARNING = True
-    SAC_CURRICULUM_DEBUG = True
+    SAC_SPEED_CURRICULUM_LEARNING = False
+    SAC_CURRICULUM_DEBUG = False
 
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.5 
-    SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
-    SAC_CURRICULUM_T2 = 0.8
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    ## t1=0 ensures difficulty rises from the first boost; t1=0.3 required 6+ boosts before any visible change
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.0 
+    SAC_CURRICULUM_T1 = 0.0        # progress threshold: difficulty stays at initial until progress > t1
+    SAC_CURRICULUM_T2 = 0.9
+
+    ## Translational control clipping: curriculum increases clip from min to max as difficulty increases
+    SAC_TRANSLATIONAL_CLIP_MIN = 2.5   # clip at low difficulty (conservative)
+    SAC_TRANSLATIONAL_CLIP_MAX = 6.0   # clip at high difficulty (full range)
+    SAC_TRANSLATIONAL_CONTROL_CLIP = 2.5  # runtime value, updated by curriculum (default for inference)
+
+    ## Curriculum speed limit: v_max in car model increases with difficulty (works with acceleration control)
+    SAC_CURRICULUM_V_MAX_ENABLED = True
+    SAC_CURRICULUM_V_MAX_MIN = 3.0   # v_max at low difficulty [m/s]
+    SAC_CURRICULUM_V_MAX_MAX = 10.0  # v_max at high difficulty [m/s], or use vehicle default
+    SAC_CURRICULUM_V_MAX = None      # runtime value, set by curriculum (None = use vehicle default)
+
+    ## Adaptive curriculum: when avg reward over last N episodes > threshold, boost progress
+    SAC_CURRICULUM_ADAPTIVE = True
+    SAC_CURRICULUM_REWARD_THRESHOLD = 10.0  # avg reward above this triggers difficulty boost (0 = break-even)
+    SAC_CURRICULUM_REWARD_WINDOW = 4       # number of episodes for rolling average (smaller = more responsive)
+    SAC_CURRICULUM_FAST_TRACK_BOOST = 0.05  # progress increment when threshold exceeded
+    ## Episode-length curriculum: when X% of last N episodes reach max length, increase difficulty
+    SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
 
     
     ## Friction ##
