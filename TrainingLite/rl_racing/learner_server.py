@@ -276,7 +276,8 @@ class LearnerServer:
 
             n_added = self._ingest_episodes_into_replay(episodes)
             if( n_added > 0 ):
-                print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
+                if Settings.LEARNER_SERVER_DEBUG:
+                    print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
 
             # Calculate trainign steps per sample
@@ -414,7 +415,8 @@ class LearnerServer:
                     "total_timesteps": self.total_actor_timesteps,
                     "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
                 }
-                print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
+                if Settings.LEARNER_SERVER_DEBUG:
+                    print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 if(len(episodes) > 0):
                     self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
 
@@ -469,7 +471,6 @@ class LearnerServer:
                 print(f"[server] Weights sent to {addr} (bytes={len(self._weights_blob)})")
             except Exception as e:
                 print(f"[server] Failed to send initial weights to {addr}: {e}")
-
         # read loop
         try:
             while True:
