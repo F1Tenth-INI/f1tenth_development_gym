@@ -19,7 +19,11 @@ class _TCPActorClient:
         self._send_q: "queue.Queue[dict]" = queue.Queue(maxsize=10000)
         self._latest_sd_lock = threading.Lock()
         self._latest_state_dict: Optional[dict] = None
+        self._training_status_lock = threading.Lock()
+        self._training_ready: Optional[bool] = None
         self._stop_evt = threading.Event()
+        self._connect_failures = 0
+        self._episode_ack_count = 0
 
     # --- public API ---
     def start(self) -> None:
@@ -91,6 +95,10 @@ class _TCPActorClient:
             self._latest_state_dict = None
             return sd
 
+    def get_training_ready(self) -> Optional[bool]:
+        with self._training_status_lock:
+            return self._training_ready
+
     # --- internals ---
     def _run_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
@@ -111,7 +119,10 @@ class _TCPActorClient:
     async def _main(self):
         while not self._stop_evt.is_set():
             try:
+                print(f"[TCPActorClient] Connecting to {self.host}:{self.port} (actor_id={self.actor_id})")
                 reader, writer = await asyncio.open_connection(self.host, self.port)
+                self._connect_failures = 0
+                print(f"[TCPActorClient] Connected to {self.host}:{self.port}")
                 # Expect ack and maybe initial weights
                 try:
                     msg = await asyncio.wait_for(read_frame(reader), timeout=5.0)
@@ -137,6 +148,9 @@ class _TCPActorClient:
                 except Exception:
                     pass
             except Exception:
+                self._connect_failures += 1
+                if self._connect_failures == 1 or self._connect_failures % 10 == 0:
+                    print(f"[TCPActorClient] Connection failed x{self._connect_failures}; retrying in 1s ({self.host}:{self.port})")
                 # reconnect after short delay
                 await asyncio.sleep(1.0)
 
@@ -159,6 +173,14 @@ class _TCPActorClient:
             sd = bytes_to_state_dict(blob)
             with self._latest_sd_lock:
                 self._latest_state_dict = sd
+        elif typ == "training_status":
+            ready = bool(msg.get("data", {}).get("training_ready", False))
+            with self._training_status_lock:
+                self._training_ready = ready
+        elif typ == "episode_ack":
+            self._episode_ack_count += 1
+            if self._episode_ack_count % 5 == 0:
+                print(f"[TCPActorClient] Received episode_ack count={self._episode_ack_count}")
         # ignore others
 
     async def _writer_loop(self, writer: asyncio.StreamWriter):

@@ -71,7 +71,7 @@ class Settings():
     
     TRUNCATE_ON_LEAVE_TRACK = True
     RESET_ON_DONE = True  # Reset the environment when done
-    RESPAWN_ON_RESET = True  # If True, respawn to state N timesteps ago instead of complete reset
+    RESPAWN_ON_RESET = False  # If True, respawn to state N timesteps ago instead of complete reset
     RESPAWN_SETBACK_TIMESTEPS = 125  # Number of timesteps to go back when respawning
     RESPAWN_PROBABILITY = 0.5 #% chance (0 to 1) to respawn on crash
 
@@ -121,7 +121,7 @@ class Settings():
 
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = False
-    PP_WAYPOINT_VELOCITY_FACTOR = 1.0
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.4
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
@@ -247,6 +247,9 @@ class Settings():
 
     SAC_AMPLIFY_NEGATIVE_PROGRESS_REWARD = False
     SAC_NEGATIVE_PROGRESS_REWARD_AMPLIFICATION_FACTOR = 20
+
+    SAC_PREFILL_BUFFER_WITH_PP = True
+    SAC_PREFILL_BUFFER_WITH_PP_AMOUNT = 10000 #number of transitions to prefill
 
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

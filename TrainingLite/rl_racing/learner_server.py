@@ -466,6 +466,15 @@ class LearnerServer:
         self.save_model_checkpoints = Settings.SAC_SAVE_MODEL_CHECKPOINTS
         self.checkpoint_frequency = Settings.SAC_CHECKPOINT_FREQUENCY
         self.last_checkpoint_timestep = 0
+        self._last_broadcast_training_ready: Optional[bool] = None
+
+        self.pre_fill_with_pp = Settings.SAC_PREFILL_BUFFER_WITH_PP
+        self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
+
+        #if we want to prefill with PP, change learning starts to be equal to prefill amount
+        if self.pre_fill_with_pp:
+            self.learning_starts = self.pre_fill_amount
+            print(f"[LearnerServer] Pre-filling enabled: setting learning_starts to {self.learning_starts}.")
 
 
         # file paths: default save name fallback
@@ -880,6 +889,7 @@ class LearnerServer:
             if n_added > 0:
                 print(f"\n[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
+                await self._broadcast_training_status()
                 
             # debug_time_2 = time.time()
             # =================================================================
@@ -1174,6 +1184,40 @@ class LearnerServer:
 
 
     # ---------- networking ----------
+    def _can_start_training(self) -> bool:
+        if self.replay_buffer is None:
+            return False
+        return self.replay_buffer.size() >= self.learning_starts
+
+    def _training_status_frame(self) -> dict:
+        return {
+            "type": "training_status",
+            "data": {
+                "training_ready": self._can_start_training(),
+                "replay_size": self.replay_buffer.size() if self.replay_buffer is not None else 0,
+                "learning_starts": self.learning_starts,
+            },
+        }
+
+    async def _broadcast_training_status(self, force: bool = False):
+        training_ready = self._can_start_training()
+        if not force and self._last_broadcast_training_ready == training_ready:
+            return
+
+        frame = self._training_status_frame()
+        async with self._client_lock:
+            dead: List[asyncio.StreamWriter] = []
+            for w in self._clients:
+                try:
+                    w.write(pack_frame(frame))
+                    await w.drain()
+                except Exception:
+                    dead.append(w)
+            for w in dead:
+                self._clients.discard(w)
+
+        self._last_broadcast_training_ready = training_ready
+
     async def _broadcast_weights(self, blob: bytes):
         """Send weights to all currently connected clients."""
         frame = {"type": "weights", "data": {"blob": blob, "format": "torch_state_dict", "algo": "SAC", "module": "actor"}}
@@ -1197,6 +1241,13 @@ class LearnerServer:
         # ack
         try:
             writer.write(pack_frame({"type": "ack", "data": {"msg": "connected"}}))
+            await writer.drain()
+        except Exception:
+            pass
+
+        # send current training-ready status immediately on connect
+        try:
+            writer.write(pack_frame(self._training_status_frame()))
             await writer.drain()
         except Exception:
             pass
@@ -1266,6 +1317,7 @@ class LearnerServer:
                     if self.replay_buffer is not None:
                         replay_size_before = self.replay_buffer.size()
                         self.replay_buffer.reset()
+                        self._last_broadcast_training_ready = None
                         print(f"[server] Cleared replay buffer (had {replay_size_before} transitions)")
                     
                     print(f"[server] Cleared {episodes_cleared} episodes from buffer (requested by actor {actor_id})")
@@ -1276,6 +1328,8 @@ class LearnerServer:
                         await writer.drain()
                     except Exception:
                         pass
+
+                    await self._broadcast_training_status(force=True)
                 elif msg.get("type") == "terminate":
                     d = msg.get("data", {})
                     actor_id = int(d.get("actor_id", -1))

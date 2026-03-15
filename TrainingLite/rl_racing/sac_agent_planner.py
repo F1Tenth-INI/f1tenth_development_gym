@@ -81,6 +81,14 @@ class RLAgentPlanner(template_planner):
         else:
             print(f"\n[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
 
+        self.pre_fill_with_pp = Settings.SAC_PREFILL_BUFFER_WITH_PP
+        self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
+        # server_training_ready: starts True if no prefill, False if prefill is active.
+        # Flipped to True when learner broadcasts training_status(training_ready=True).
+        self.server_training_ready = not self.pre_fill_with_pp
+
+        if self.pre_fill_with_pp and self.training_mode:
+            print(f"\n[RLAgentPlanner] Pre-filling replay buffer with {self.pre_fill_amount} PurePursuit transitions")
 
         self.clear_buffer_on_reset = True
         self.terminate_server_after_simulation = True
@@ -88,8 +96,10 @@ class RLAgentPlanner(template_planner):
         # --- networking ---
 
         if self.training_mode or self.inference_model_name is None:
-            self.client = _TCPActorClient(host="192.168.1.76", port=5555, actor_id=1)
-            # self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+            learner_host = getattr(Settings, "SAC_LEARNER_HOST", "127.0.0.1")
+            learner_port = int(getattr(Settings, "SAC_LEARNER_PORT", 5555))
+            print(f"[RLAgentPlanner] Connecting to learner at {learner_host}:{learner_port}")
+            self.client = _TCPActorClient(host=learner_host, port=learner_port, actor_id=1)
             self.client.start()
             
             # Send clear buffer message on initialization
@@ -104,6 +114,7 @@ class RLAgentPlanner(template_planner):
             self.model = SacUtilities.create_model(dummy_env, device="cpu")
             self._received_weights = False
             self._warned_no_weights = False
+            self._warned_fallback_unavailable = False
         else:
             model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
             self.model = SAC.load(model_path, env=dummy_env, device="cpu")
@@ -111,6 +122,7 @@ class RLAgentPlanner(template_planner):
 
             self._received_weights = True  # no waiting for weights in inference
             self._warned_no_weights = False
+            self._warned_fallback_unavailable = False
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         self.warmup_action = np.array([0.0, 0.30], dtype=np.float32)  # slight forward
@@ -176,6 +188,12 @@ class RLAgentPlanner(template_planner):
         # pull latest weights if any
         nikita_t1 = time.time()
         if self.training_mode or self.inference_model_name is None:
+            training_ready = self.client.get_training_ready()
+            if training_ready is not None and training_ready != self.server_training_ready:
+                self.server_training_ready = training_ready
+                if self.server_training_ready:
+                    print("\n[RLAgentPlanner] Learner reports training-ready; enabling policy actions")
+
             sd = self.client.pop_latest_state_dict()
             if sd is not None:
                 try:
@@ -204,7 +222,7 @@ class RLAgentPlanner(template_planner):
 
         # choose action
         nikita_t5 = time.time()
-        if self._received_weights:
+        if self._received_weights and self.server_training_ready:
             with torch.no_grad():
                 # NIKITA: for slowdown testing
                 action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
@@ -213,6 +231,8 @@ class RLAgentPlanner(template_planner):
             if not self._warned_no_weights:
                 print("\n[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
                 self._warned_no_weights = True
+            # if self.pre_fill_with_pp and not self.server_training_ready:
+                # print(f"\n[RLAgentPlanner] ⚠️ Pre-filling replay buffer with PurePursuit transitions; using fallback action")
             action = self._fallback_action()
         nikita_t6 = time.time()
 
@@ -353,9 +373,29 @@ class RLAgentPlanner(template_planner):
         pass
     
     def _fallback_action(self) -> np.ndarray:
-        fallback_control = self.fallback_planner.process_observation()
+        # Keep the PP fallback planner synchronized with the current runtime context.
+        self.fallback_planner.waypoint_utils = self.waypoint_utils
+        self.fallback_planner.lidar_utils = self.lidar_utils
+        self.fallback_planner.render_utils = self.render_utils
+
+        if self.car_state is None:
+            if not self._warned_fallback_unavailable:
+                print("\n[RLAgentPlanner] Fallback PP unavailable (car_state not initialized); using warmup action")
+                self._warned_fallback_unavailable = True
+            return self.warmup_action.copy()
+
+        self.fallback_planner.set_car_state(self.car_state)
+
+        try:
+            fallback_control = self.fallback_planner.process_observation()
+            self._warned_fallback_unavailable = False
+        except Exception as e:
+            if not self._warned_fallback_unavailable:
+                print(f"\n[RLAgentPlanner] Fallback PP failed ({e}); using warmup action")
+                self._warned_fallback_unavailable = True
+            return self.warmup_action.copy()
+
         fallback_action = fallback_control / self.action_denormalization_array
-        # return [0., 0.]
         return fallback_action
 
     # ---- helpers ----
