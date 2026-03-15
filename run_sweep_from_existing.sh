@@ -5,7 +5,7 @@
 # RATIOS=(0.0 0.25 0.5) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 
 ALPHAS=(0.0 0.4 0.8) # How much to mix with uniform -> 0.0 = uniform only, 1.0 = priority only
-BETAS=(0.4) # Starting beta for importance sampling bias correction-> 0.0 = no IS, 1.0 = full IS
+BETAS=(0.4 0.6 0.8) # Starting beta for importance sampling bias correction-> 0.0 = no IS, 1.0 = full IS
 RATIOS=(0.0 0.5 1.0) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 NSTEPS=(1)
 # CURRICULUM_START=(0.5 0.3 0.7)
@@ -33,67 +33,72 @@ LOG_SQUISH_LIST=(True False)
 
 IS_WEIGHTS_FOR_ACTOR_LIST=(True False)
 
-# for alpha in "${ALPHAS[@]}"; do
-#   for rank_based in "${RANK_BASED_LIST[@]}"; do
-#     for index in 1 2; do
-#       # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
-#       MODEL_NAME="2002_from_${SOURCE_MODEL_SHORT}_A${alpha}_Rank_${rank_based}_Run${index}"
-    
-#       # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
-      
-#       echo "=================================================="
-#       echo " STARTING: $MODEL_NAME"
-#       echo " Alpha: $alpha | Rank Based: $rank_based"
-#       echo "=================================================="
+RESPAWN_SETBACK_TIMESTEPS_LIST=(50)
+RESPAWN_PROBABILITY_LIST=(0.0 0.3 0.5)
 
-#       python -u TrainingLite/rl_racing/run_training.py \
-#         --auto-start-client \
-#         --USE_CUSTOM_SAC_SAMPLING "$USE_CUSTOM_SAMPLING" \
-#         --device cpu \
-#         --SIMULATION_LENGTH 75000 \
-#         --load-model-name "$SOURCE_MODEL" \
-#         --save-model-name "$MODEL_NAME" \
-#         --MAP_NAME "$NEW_MAP_NAME" \
-#         --alpha $alpha \
-#         --SAC_RANK_BASED_SAMPLING $rank_based \
-
-#       sleep 5
-#     done
-#   done
-# done
-
-# Loop
-for alpha in "${ALPHAS[@]}"; do
-  for ratio in "${RATIOS[@]}"; do
-    for cur_t2 in "${CURRICULUM_T2[@]}"; do
+for respawn_timestep in "${RESPAWN_SETBACK_TIMESTEPS_LIST[@]}"; do
+  for respawn_probability in "${RESPAWN_PROBABILITY_LIST[@]}"; do
+    for index in 1 2; do
       # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
-      MODEL_NAME="2602_${SOURCE_MODEL_SHORT}_A${alpha}_R_${ratio}_T2_${cur_t2}"
+      MODEL_NAME="0314_from_${SOURCE_MODEL_SHORT}_ResProb_${respawn_probability}_ResStep_${respawn_timestep}_Run${index}"
     
       # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
       
       echo "=================================================="
       echo " STARTING: $MODEL_NAME"
-      echo " Alpha: $alpha | Cur T2: $cur_t2 | Ratio: $ratio"
+      echo " Respawn Probability: $respawn_probability | Respawn Setback Timesteps: $respawn_timestep"
       echo "=================================================="
 
-      cmd=(python -u TrainingLite/rl_racing/run_training.py
-        --auto-start-client
-        --USE_CUSTOM_SAC_SAMPLING True
-        --device cpu
-        --SIMULATION_LENGTH 75000
-        --load-model-name "$SOURCE_MODEL"
-        --save-model-name "$MODEL_NAME"
-        --MAP_NAME "$NEW_MAP_NAME"
-        --alpha "$alpha"
-        --td_ratio "$ratio"
-        --SAC_CURRICULUM_T2 "$cur_t2"
-        --replay-capacity 50000
-      )
-      "${cmd[@]}"
+      python -u TrainingLite/rl_racing/run_training.py \
+        --auto-start-client \
+        --USE_CUSTOM_SAC_SAMPLING "$USE_CUSTOM_SAMPLING" \
+        --device cpu \
+        --SIMULATION_LENGTH 75000 \
+        --load-model-name "$SOURCE_MODEL" \
+        --save-model-name "$MODEL_NAME" \
+        --MAP_NAME "$NEW_MAP_NAME" \
+        --RESPAWN_SETBACK_TIMESTEPS $respawn_timestep \
+        --RESPAWN_PROBABILITY $respawn_probability \
+
       sleep 5
     done
   done
 done
+
+# Loop
+# for alpha in "${ALPHAS[@]}"; do
+#   for ratio in "${RATIOS[@]}"; do
+#     for cur_t2 in "${CURRICULUM_T2[@]}"; do
+#       for index in 1 2 3; do
+#         # MODEL_NAME="Sweep_Cur_from_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_CUR${CURRICULUM_T2}"
+#         MODEL_NAME="2602_A${alpha}_R_${ratio}_T2_${cur_t2}"
+      
+#         # MODEL_NAME="Sweep_nstep_${SOURCE_MODEL_SHORT}_A${alpha}_B${beta}_R${ratio}_N${}"
+        
+#         echo "=================================================="
+#         echo " STARTING: $MODEL_NAME"
+#         echo " Alpha: $alpha | Cur T2: $cur_t2 | Ratio: $ratio"
+#         echo "=================================================="
+
+#         cmd=(python -u TrainingLite/rl_racing/run_training.py
+#           --auto-start-client
+#           --USE_CUSTOM_SAC_SAMPLING True
+#           --device cpu
+#           --SIMULATION_LENGTH 350000
+#           --load-model-name "$SOURCE_MODEL"
+#           --save-model-name "$MODEL_NAME"
+#           --MAP_NAME "$NEW_MAP_NAME"
+#           --alpha "$alpha"
+#           --td_ratio "$ratio"
+#           --SAC_CURRICULUM_T2 "$cur_t2"
+#           --replay-capacity 50000
+#         )
+#         "${cmd[@]}"
+#         sleep 5
+#       done
+#     done
+#   done
+# done
 
 # CAR_STATE_NOISE="[0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]"
 # CONTROL_NOISE="[0.35, 0.7]"

@@ -94,6 +94,10 @@ class RewardCalculator:
             self.last_s = s
         delta_s = s - self.last_s
         progress_reward = delta_s * self.w_progress
+        if Settings.SAC_AMPLIFY_NEGATIVE_PROGRESS_REWARD and progress_reward < 0:
+            # print(f"[RewardCalculator] Amplifying negative progress reward: {progress_reward:.3f} -> ")
+            progress_reward *= Settings.SAC_NEGATIVE_PROGRESS_REWARD_AMPLIFICATION_FACTOR
+            # print(f"[RewardCalculator] Amplified progress reward: {progress_reward:.3f}")
         reward += progress_reward
 
 

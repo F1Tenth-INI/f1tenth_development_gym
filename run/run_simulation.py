@@ -225,8 +225,10 @@ class RacingSimulation:
         
         # Check if respawn is enabled and we have enough history
         if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
-            self.respawn()
-            return
+            if np.random.rand() < Settings.RESPAWN_PROBABILITY:
+                print(f"Respawning instead of full reset (P[respawn]: {Settings.RESPAWN_PROBABILITY}).")
+                self.respawn()
+                return
         
         #TODO: add alpha scaling according to progress
         if self.curriculum_supervisor is not None:
@@ -264,7 +266,7 @@ class RacingSimulation:
             # print("Current Curriculum Difficulty:", self.difficulty)
             # print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
         
-         # Normal reset
+        # Normal reset
         self.episode_index = 0
 
         # Populate control delay buffer
