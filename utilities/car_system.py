@@ -45,7 +45,7 @@ if Settings.FORGE_HISTORY: # will import TF
 
 class CarSystem:
     
-    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}):
+    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}, lightweight_mode=False):
 
         self.time = 0.0
         self.time_increment = Settings.TIMESTEP_CONTROL
@@ -56,6 +56,7 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.lidar_utils = LidarHelper()
+        self.lightweight_mode = lightweight_mode
         self.laptimes = []
 
         # Pure control without noise
@@ -102,9 +103,6 @@ class CarSystem:
             self.render_utils.waypoints_alternative = self.waypoint_utils_alternative.waypoint_positions
         self.allow_rendering = True
         
-        # Obstacles
-        self.obstacle_detector = ObstacleDetector()
-        
 
         # Waypoints from MPC
         self.use_waypoints_from_mpc = Settings.WAYPOINTS_FROM_MPC
@@ -117,8 +115,12 @@ class CarSystem:
             self.waypoints_planner.waypoint_utils = self.waypoint_utils
 
     
-        # Rewards
-        self.reward_calculator = RewardCalculator()
+        if self.lightweight_mode:
+            self.obstacle_detector = None
+            self.reward_calculator = None
+        else:
+            self.obstacle_detector = ObstacleDetector()
+            self.reward_calculator = RewardCalculator()
         self.reward = 0
 
         ### Planner
@@ -128,7 +130,7 @@ class CarSystem:
 
         # Other utilities
         self.tuner_connector = None  # Initialize before potential assignment
-        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
+        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR and not self.lightweight_mode:
             self.launch_tuner_connector()
 
         if Settings.FRICTION_FOR_CONTROLLER is not None:
@@ -146,17 +148,21 @@ class CarSystem:
 
         self.emergency_slowdown = EmergencySlowdown()
 
-        self.config_onlinelearning = yaml.load(
-                open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
-                Loader=yaml.FullLoader
+        if self.lightweight_mode:
+            self.config_onlinelearning = {'activated': False}
+            self.online_learning_activated = False
+            self.lap_analyzer = None
+        else:
+            self.config_onlinelearning = yaml.load(
+                    open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
+                    Loader=yaml.FullLoader
+                )
+            self.online_learning_activated = self.config_onlinelearning.get('activated', False)
+            self.lap_analyzer = LapAnalyzer(
+                total_waypoints=len(self.waypoint_utils.waypoints),
+                lap_finished_callback=self.lap_complete_cb
             )
-        self.online_learning_activated = self.config_onlinelearning.get('activated', False)
 
-        self.lap_analyzer = LapAnalyzer(
-            total_waypoints=len(self.waypoint_utils.waypoints),
-            lap_finished_callback=self.lap_complete_cb
-        )
-        
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
 
@@ -165,7 +171,7 @@ class CarSystem:
                     
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
-        if Settings.FORGE_HISTORY:
+        if Settings.FORGE_HISTORY and not self.lightweight_mode:
             self.history_forger = HistoryForger()
 
        
@@ -188,8 +194,10 @@ class CarSystem:
         self.car_state_history = []
         self.lidar_utils.reset()
         self.waypoint_utils.reset()
-        self.reward_calculator.reset()
-        self.lap_analyzer.reset()
+        if self.reward_calculator is not None:
+            self.reward_calculator.reset()
+        if self.lap_analyzer is not None:
+            self.lap_analyzer.reset()
         self.render_utils.reset()
         self.planner.reset()
         self.waypoint_utils.reset_frenet_progress()
@@ -201,6 +209,7 @@ class CarSystem:
         self.planner.render_utils = self.render_utils
         self.planner.waypoint_utils = self.waypoint_utils
         self.planner.lidar_utils = self.lidar_utils
+        self.planner.obstacle_detector = self.obstacle_detector
         
         
     def launch_tuner_connector(self):
@@ -217,6 +226,8 @@ class CarSystem:
 
 
     def set_scans(self, ranges):
+        if self.lightweight_mode:
+            return
         ranges = np.array(ranges)
         self.lidar_utils.update_ranges(ranges, self.car_state)
 
@@ -263,6 +274,18 @@ class CarSystem:
         self.set_car_state(car_state)
         self.set_scans(ranges)
         self.set_waypoints()
+        
+        if self.lightweight_mode:
+            next_obs.update({
+                "reward": 0.0,
+                "info": {},
+                "truncated": next_obs['collision'],
+                "done": next_obs['terminated'] or next_obs['collision'] or next_obs['interrupted'] or next_obs['done'],
+            })
+            self.obs = next_obs
+            if self.planner is not None and hasattr(self.planner, 'on_step_end'):
+                self.planner.on_step_end(self.obs)
+            return
 
         # TODO: Recording
         info = {
@@ -300,11 +323,22 @@ class CarSystem:
     def set_waypoints(self):
 
         car_state = self.car_state
+        # # Obstacle (opponent) detection: only when opponents are present
+        # if Settings.NUMBER_OF_OPPONENTS > 0 and self.lidar_utils.all_lidar_ranges is not None:
+        #     try:
+        #         obstacles = self.obstacle_detector.get_obstacles(self.lidar_utils.all_lidar_ranges, car_state)
+        #         if len(obstacles) > 0:
+        #             print(f"Obstacle spotted: {len(obstacles)} at relative positions {obstacles}")
+        #     except FileNotFoundError:
+        #         pass
         # Update waypoints
         self.waypoint_utils.update_next_waypoints(car_state)
+        if self.lightweight_mode:
+            self.waypoints_for_controller = self.waypoint_utils.next_waypoints
+            return
         self.waypoint_utils.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
         if self.waypoint_utils_alternative is not None:
-            self.waypoint_utils_alternative.update_next_waypoints(car_state)
+            self.waypoint_utils_alternative.update_next_waypoints(self.car_state)
             self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
         
         # Adjust waypoints
@@ -435,7 +469,8 @@ class CarSystem:
             )
     
     def process_data_post_control(self):
-    
+        if self.lightweight_mode:
+            return
         # Update data post control
         if self.render_utils is not None:
             self.update_render_utils()
@@ -467,7 +502,7 @@ class CarSystem:
                 updated_attributes={"next_waypoints": self.waypoint_utils.next_waypoints},
             )
             
-        if Settings.FORGE_HISTORY:
+        if Settings.FORGE_HISTORY and hasattr(self, 'history_forger'):
             basic_dict = get_basic_data_dict(self)
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
@@ -528,7 +563,7 @@ class CarSystem:
             # Add data from outside the car stysem
             self.recorder.dict_data_to_save_basic.update(recorder_dict)
        
-            if Settings.FORGE_HISTORY:
+            if Settings.FORGE_HISTORY and hasattr(self, 'history_forger'):
                 self.recorder.dict_data_to_save_basic.update(
                     {
                         'forged_history_applied': lambda: self.history_forger.forged_history_applied,
@@ -610,7 +645,7 @@ class CarSystem:
 
         self._simulation_ended = True
 
-        if Settings.SAVE_REWARDS:
+        if Settings.SAVE_REWARDS and self.reward_calculator is not None:
             if self.reward_calculator is not None:
                 self.reward_calculator.plot_history(save_path="./")
 

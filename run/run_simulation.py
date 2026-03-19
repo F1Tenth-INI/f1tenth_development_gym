@@ -196,7 +196,8 @@ class RacingSimulation:
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
         for _ in range(Settings.NUMBER_OF_OPPONENTS):
-            opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
+            lightweight_opponent = Settings.OPPONENTS_CONTROLLER == 'pp'
+            opponent = CarSystem(Settings.OPPONENTS_CONTROLLER, lightweight_mode=lightweight_opponent)
             opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
             opponent.save_recordings = False
             opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
@@ -564,14 +565,27 @@ class RacingSimulation:
                 random_wp_source = self.drivers[0].waypoint_utils.waypoints
 
             if random_wp_source is not None and len(random_wp_source) > 0:
-                random_wp = np.array(random.choice(random_wp_source), copy=True)
+                n_waypoints = len(random_wp_source)
+                # Main car: random waypoint
+                base_idx = random.randint(0, n_waypoints - 1)
+                random_wp = np.array(random_wp_source[base_idx], copy=True)
                 random_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
                 random_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
                 random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
                 starting_positions[0] = random_wp[1:4]
+
+                # Opponents: spawn on next waypoints, each 10-40 waypoints ahead from the previous
+                current_idx = base_idx
+                for i in range(1, self.number_of_drivers):
+                    offset = random.randint(10, 40)
+                    current_idx = (current_idx + offset) % n_waypoints
+                    opp_wp = np.array(random_wp_source[current_idx], copy=True)
+                    opp_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
+                    opp_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
+                    opp_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+                    starting_positions[i] = opp_wp[1:4]
             else:
                 print("Warning: Could not sample random waypoint; falling back to configured start.")
-            # print("Starting position: ", random_wp[1:4])
             
         
         self.starting_positions = starting_positions
@@ -609,13 +623,17 @@ class RacingSimulation:
             driver.car_state_noiseless = driver.car_state
         else:
             car_state_clean = self.sim.agents[agent_index].state
-            car_state_with_noise = self.add_state_noise(car_state_clean)
-
-            driver.set_car_state(car_state_with_noise)
+            if getattr(driver, "lightweight_mode", False):
+                # Opponent fast-path: avoid per-step state noise + IMU bookkeeping.
+                driver.set_car_state(car_state_clean)
+            else:
+                car_state_with_noise = self.add_state_noise(car_state_clean)
+                driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
             
             # Pass simulation obsrvations to driver for IMU data access
-            driver.sim_obs = self.obs
+            if not getattr(driver, "lightweight_mode", False):
+                driver.sim_obs = self.obs
 
             driver.car_state_noiseless = car_state_clean
 

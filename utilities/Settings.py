@@ -54,10 +54,11 @@ class Settings():
     CONNECT_RACETUNER_TO_MAIN_CAR = True
 
     # Oponents
-    NUMBER_OF_OPPONENTS = 0
+    NUMBER_OF_OPPONENTS = 2
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
+    OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
     
     # Head2Head Settings
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
