@@ -87,8 +87,8 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    # NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     
@@ -121,7 +121,7 @@ class Settings():
 
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = False
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.4
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.7
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
@@ -183,16 +183,18 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
+    SAC_CUSTOM_UNIFORM_CRITIC = False #if true forces uniform critic sampling anyways
+
     SAC_LOG_SQUISH = True
 
     SAC_CUSTOM_SAMPLING_REPLACE = True #True -> means same sample can be drawn multiple times, this is default
 
-    SAC_WP_OFFSET_WEIGHT = 1.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 1.0
-    SAC_REWARD_WEIGHT = 3.0
-    SAC_VELOCITY_WEIGHT = 1.0
+    SAC_WP_OFFSET_WEIGHT = 0.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 0.0
+    SAC_REWARD_WEIGHT = 5.0
+    SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.5   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.7 #(beta), corrects the introduced bias from prioritized sampling
     
     SAC_BETA_ANNEALING_RATIO = 0.4 #at how much % of total agent timesteps should beta have grown to 1.0
@@ -248,8 +250,8 @@ class Settings():
     SAC_AMPLIFY_NEGATIVE_PROGRESS_REWARD = False
     SAC_NEGATIVE_PROGRESS_REWARD_AMPLIFICATION_FACTOR = 20
 
-    SAC_PREFILL_BUFFER_WITH_PP = True
-    SAC_PREFILL_BUFFER_WITH_PP_AMOUNT = 10000 #number of transitions to prefill
+    SAC_PREFILL_BUFFER_WITH_PP = False
+    SAC_PREFILL_BUFFER_WITH_PP_AMOUNT = 30000 #number of transitions to prefill
 
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

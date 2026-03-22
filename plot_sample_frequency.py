@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.widgets import Slider
 from matplotlib.colors import TwoSlopeNorm, Normalize
+from matplotlib.ticker import MaxNLocator
 import pandas as pd
 import numpy as np
 import os
@@ -738,7 +739,16 @@ def plot_spatial_heatmap_interactive(df_with_pos, img_array, config, map_name, t
     
     plt.show()
 
-def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_label, save_path=None):
+def plot_value_heatmap(
+    df_with_pos,
+    img_array,
+    map_name,
+    value_column,
+    value_label,
+    save_path=None,
+    value_min=None,
+    value_max=None,
+):
     """
     Generic heatmap plotter for any spatial value column (reward, critic output, etc.)
     
@@ -749,6 +759,8 @@ def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_lab
         value_column: Column name to plot (e.g., 'reward', 'critic_q_min')
         value_label: Label for the colorbar (e.g., 'Reward', 'Q-value')
         save_path: Optional path to save the figure
+        value_min: Optional fixed minimum for color normalization
+        value_max: Optional fixed maximum for color normalization
     """
     # Check for required columns
     if value_column not in df_with_pos.columns:
@@ -770,8 +782,16 @@ def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_lab
     df_values_sorted = df_values.sort_values(value_column)
 
     img_height = img_array.shape[0]
-    value_min = df_values[value_column].min()
-    value_max = df_values[value_column].max()
+    data_min = float(df_values[value_column].min())
+    data_max = float(df_values[value_column].max())
+    value_min = data_min if value_min is None else float(value_min)
+    value_max = data_max if value_max is None else float(value_max)
+
+    # Guard against degenerate ranges to avoid singular normalization.
+    if np.isclose(value_min, value_max):
+        pad = max(1e-6, abs(value_max) * 1e-6)
+        value_min -= pad
+        value_max += pad
     
     # Use TwoSlopeNorm if values cross zero, otherwise use standard Normalize
     if value_min < 0 < value_max:
@@ -793,6 +813,16 @@ def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_lab
     ax.axis('off')
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label(value_label)
+    cbar.locator = MaxNLocator(nbins=7)
+    cbar.update_ticks()
+
+    # Ensure important anchors are always visible on the colorbar.
+    anchor_ticks = [value_min, value_max]
+    if value_min < 0 < value_max:
+        anchor_ticks.append(0.0)
+    ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar.get_ticks(), anchor_ticks]))))
+    ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
+    cbar.set_ticks(ticks)
 
     # Right: 2D histogram heatmap (average value per bin)
     ax = axes[1]
@@ -835,6 +865,11 @@ def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_lab
     ax.axis('off')
     cbar2 = plt.colorbar(im, ax=ax)
     cbar2.set_label(f'Avg {value_label}')
+    cbar2.locator = MaxNLocator(nbins=7)
+    cbar2.update_ticks()
+    cbar2_ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar2.get_ticks(), anchor_ticks]))))
+    cbar2_ticks = cbar2_ticks[(cbar2_ticks >= value_min) & (cbar2_ticks <= value_max)]
+    cbar2.set_ticks(cbar2_ticks)
 
     plt.tight_layout()
     
@@ -844,9 +879,18 @@ def plot_value_heatmap(df_with_pos, img_array, map_name, value_column, value_lab
     
     plt.show()
 
-def plot_reward_heatmap(df_with_pos, img_array, map_name, save_path=None):
+def plot_reward_heatmap(df_with_pos, img_array, map_name, save_path=None, value_min=None, value_max=None):
     """Plot reward-based heatmaps (convenience wrapper)"""
-    plot_value_heatmap(df_with_pos, img_array, map_name, 'reward', 'Reward', save_path)
+    plot_value_heatmap(
+        df_with_pos,
+        img_array,
+        map_name,
+        'reward',
+        'Reward',
+        save_path,
+        value_min=value_min,
+        value_max=value_max,
+    )
 
 def print_statistics(df):
     """Print summary statistics"""

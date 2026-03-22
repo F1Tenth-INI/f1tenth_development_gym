@@ -288,7 +288,15 @@ class BatchPlotter:
                         df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
                     
                     # Create figure manually and save
-                    plot_reward_heatmap(df_with_pos, img_array, self.map_name)
+                    reward_vmin = global_stats.get('reward_min') if global_stats else None
+                    reward_vmax = global_stats.get('reward_max') if global_stats else None
+                    plot_reward_heatmap(
+                        df_with_pos,
+                        img_array,
+                        self.map_name,
+                        value_min=reward_vmin,
+                        value_max=reward_vmax,
+                    )
                     plt.savefig(str(reward_save_path), dpi=150, bbox_inches='tight')
                     plt.close('all')
                     print(f"    ✓ Saved to {reward_save_path.name}")

@@ -133,15 +133,21 @@ class CustomReplayBuffer(ReplayBuffer):
         d = obs[80] #-> these were off by one the whole time......
         e = obs[81]
         # rew = self.rewards[idx, 0] + 1
-        rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
+        # rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
+
+
+        rew = float(self.rewards[idx, 0])
+        rew_clipped = np.clip(rew, -15.0, 1.0)
+        rew_norm = (rew_clipped + 15.0) / 16.0
+        rew_final = (1e-3 + rew_norm) ** 2.0
 
         # Scale the reward contribution to the priority by the number of steps in the n-step transition.
         # Without this, longer n-step transitions are over-prioritised.
         # Use per-step average reward for priority computation.
         try:
-            reward_per_step = float(rew) / max(1, int(steps_taken))
+            reward_per_step = float(rew_final) / max(1, int(steps_taken))
         except Exception:
-            reward_per_step = float(rew)
+            reward_per_step = float(rew_final)
 
         #velx = obs[0] and vely = obs[1]
         vel = np.sqrt(obs[0]**2 + obs[1]**2)
@@ -249,7 +255,7 @@ class CustomReplayBuffer(ReplayBuffer):
 
     #     return self._get_samples(batch_inds, env=env)
 
-    def sample(self, safe_batch_size: int, env=None):
+    def sample(self, safe_batch_size: int, invert_TD = False, env=None):
         """custom sample function, if none then use default SB3"""
         #weights already calculated in add(), here we just normalize and sample
 
@@ -273,6 +279,11 @@ class CustomReplayBuffer(ReplayBuffer):
 
         """TD error based priorities"""
         TD_vec = self.TD_weights[possible_inds].astype(np.float64)
+
+        if invert_TD:
+            TD_vec = np.clip(TD_vec, 1e-6, None) #avoid exploding
+            TD_vec = 1 / TD_vec
+            TD_vec = TD_vec / TD_vec.max() #rescale so that max is 1 again
 
         combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
 
@@ -336,6 +347,11 @@ class CustomReplayBuffer(ReplayBuffer):
         self.current_sampled_inds = batch_inds
 
         return self._get_samples(batch_inds, env=env)
+    
+
+    def sample_uniform(self, safe_batch_size: int, env=None):
+        """default SB3 uniform sampling"""
+        return super().sample(batch_size=safe_batch_size, env=env)
     
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> WeightedReplayBufferSamples:
@@ -970,7 +986,19 @@ class LearnerServer:
                     try:
                         # Reduce batch size to avoid OOM
                         safe_batch_size = min(batch_size, 4096)
-                        data = self.replay_buffer.sample(safe_batch_size)
+
+                        #NIKITA: testing testing testing
+                        # old_alpha = self.replay_buffer.alpha
+                        # self.replay_buffer.alpha = 0.0
+                        if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
+                            old_alpha = self.replay_buffer.alpha
+                            self.replay_buffer.alpha = 0.0
+
+                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=False)
+
+                        if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
+                            self.replay_buffer.alpha = old_alpha
+                        # self.replay_buffer.alpha = old_alpha
 
                         obs      = data.observations
                         actions  = data.actions
@@ -980,7 +1008,7 @@ class LearnerServer:
                         steps_taken = data.steps_taken
 
                         #TODO: Have the IS sampling weights be returned here
-                        is_weights = data.is_weights
+                        is_weights = data.is_weights if hasattr(data, "is_weights") else torch.ones((safe_batch_size, 1), device=obs.device)
 
                         # print("IS WEIGHTS WORKED?????")
                         # print(is_weights)
@@ -1052,9 +1080,14 @@ class LearnerServer:
                                 # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
                                 TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
                                 TD_update_priorities += 1e-6
+                                
 
                                 if self.replay_buffer.stat_tracker:
                                     self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
+
+                                # # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
+                                # TD_update_priorities = 1.0 / TD_update_priorities
+                                # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
 
                                 # optional clipping
                                 if self.replay_buffer.clip_weights:
@@ -1064,6 +1097,70 @@ class LearnerServer:
 
 
                         # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
+
+                        # NIKITA: testing seperate sample for actor and critic
+                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=True)
+
+                        obs      = data.observations
+                        actions  = data.actions
+                        next_obs = data.next_observations
+                        rewards  = data.rewards  # shape handling below
+                        dones    = data.dones
+                        steps_taken = data.steps_taken
+
+                        #TODO: Have the IS sampling weights be returned here
+                        is_weights = data.is_weights
+
+                        #NIKITA: get TD error wtice, for actor batch also
+                        with torch.no_grad():
+                            next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                            # print(next_log_prob)
+                            target_q1, target_q2 = critic_target(next_obs, next_actions)
+                            target_q = torch.min(target_q1, target_q2)
+                            discounts = torch.pow(gamma, steps_taken)
+
+                            if log_ent_coef is not None:
+                                ent_coef = torch.exp(log_ent_coef.detach())
+                            # Ensure next_log_prob shape is [batch_size, 1]
+                            if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
+                                next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
+                            else:
+                                next_log_prob = next_log_prob.view(-1, 1)
+
+                            # print(next_log_prob)
+                            """
+                            R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} -> rewards handled when saving to replay buffer
+                                  + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))      -> here
+                                  + gamma^n * Q(s_{t+n}) -> here
+                            """
+                            target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
+
+                        if self.replay_buffer.custom_sampling:
+                            with torch.no_grad():
+                                # -> TD-error = TD_target - current_q
+                                current_q1_new, current_q2_new = critic(obs, actions)
+                                TD_error_1 = torch.abs(target_q - current_q1_new)
+                                TD_error_2 = torch.abs(target_q - current_q2_new)
+
+                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
+
+                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
+                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
+                                TD_update_priorities += 1e-6
+                                
+
+                                if self.replay_buffer.stat_tracker:
+                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
+
+                                # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
+                                # TD_update_priorities = 1.0 / TD_update_priorities
+                                # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
+
+                                # optional clipping
+                                if self.replay_buffer.clip_weights:
+                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+
+                                self.replay_buffer.update_TD_priorities(TD_update_inds = self.replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
                         # Actor update
                         new_actions, log_prob = actor.action_log_prob(obs)
