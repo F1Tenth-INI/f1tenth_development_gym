@@ -37,7 +37,7 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
     SAVE_VIDEOS = True #False

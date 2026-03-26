@@ -885,7 +885,7 @@ class LearnerServer:
                     return
 
             if self.save_model_checkpoints and self.model is not None:
-                if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH * 0.6:
+                if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH * 0.8:
                     if self.total_actor_timesteps  - self.last_checkpoint_timestep >= self.checkpoint_frequency:
                         checkpoint_name = f"{self.save_model_name}_ckpt_{self.total_actor_timesteps}"
                         self._save_model_checkpoint(checkpoint_name)
