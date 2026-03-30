@@ -106,6 +106,9 @@ class SweepExperimentRunner:
             'crash_occurred': False,
             'num_crashes': 0,
             'off_track_events': 0,
+            'total_reward': None,
+            'mean_step_reward': None,
+            'num_reward_samples': 0,
             'max_lateral_deviation': None,
             'num_car_states_recorded': 0,
             'num_control_inputs': 0,
@@ -126,10 +129,12 @@ class SweepExperimentRunner:
 
         simulation = RacingSimulation()
         lap_times_buffer: List[float] = []
+        reward_buffer: List[float] = []
         crash_count = 0  # Count all crashes: collisions + off-track terminations
 
         original_lap_complete_cb = CarSystem.lap_complete_cb
         original_handle_done = simulation.handle_done
+        original_sim_on_step_end = simulation.on_step_end
 
         def patched_lap_complete_cb(driver_self, lap_time, mean_distance, std_distance, max_distance):
             lap_times_buffer.append(float(lap_time))
@@ -145,9 +150,25 @@ class SweepExperimentRunner:
                         crash_count += 1
             return original_handle_done()
 
+        def patched_on_step_end():
+            # Let the simulation update driver.obs first, then sample reward.
+            original_sim_on_step_end()
+            if simulation.episode_index <= 0:
+                return
+            if simulation.drivers and len(simulation.drivers) > 0:
+                driver_obs = getattr(simulation.drivers[0], 'obs', None)
+                if isinstance(driver_obs, dict):
+                    reward = driver_obs.get('reward')
+                    if reward is not None:
+                        try:
+                            reward_buffer.append(float(reward))
+                        except (TypeError, ValueError):
+                            pass
+
         try:
             CarSystem.lap_complete_cb = patched_lap_complete_cb
             simulation.handle_done = patched_handle_done
+            simulation.on_step_end = patched_on_step_end
             try:
                 simulation.run_experiments()
             except Exception as e:
@@ -167,11 +188,18 @@ class SweepExperimentRunner:
         finally:
             CarSystem.lap_complete_cb = original_lap_complete_cb
             simulation.handle_done = original_handle_done
+            simulation.on_step_end = original_sim_on_step_end
 
         if result['status'] != 'failed' and simulation.drivers and len(simulation.drivers) > 0:
             main_driver = simulation.drivers[0]
             result['num_crashes'] = crash_count
             result['crash_occurred'] = result['num_crashes'] > 0
+
+            if reward_buffer:
+                rewards_array = np.array(reward_buffer, dtype=np.float64)
+                result['num_reward_samples'] = len(reward_buffer)
+                result['total_reward'] = float(np.sum(rewards_array))
+                result['mean_step_reward'] = float(np.mean(rewards_array))
 
             if lap_times_buffer:
                 result['lap_times'] = list(lap_times_buffer)

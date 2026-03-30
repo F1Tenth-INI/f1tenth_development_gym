@@ -12,6 +12,7 @@ Usage examples:
 
 import argparse
 import csv
+import hashlib
 import os
 import re
 import shutil
@@ -75,11 +76,19 @@ class CheckpointSelector:
 
     @staticmethod
     def _checkpoint_step(checkpoint_name: str) -> int:
-        """Extract timestep from a checkpoint filename like *_ckpt_50000.zip."""
-        match = re.search(r"_ckpt_(\d+)$", checkpoint_name)
+        """Extract timestep from a checkpoint filename like *_ckpt_50000 or *_ckpt_50000.zip."""
+        match = re.search(r"_ckpt_(\d+)(?:\.zip)?$", checkpoint_name)
         if match:
             return int(match.group(1))
         return -1
+
+    @staticmethod
+    def _checkpoint_candidate_name(checkpoint_path: Path) -> str:
+        """Return a stable candidate name for checkpoint artifacts."""
+        name = checkpoint_path.name
+        if name.lower().endswith(".zip"):
+            return name[:-4]
+        return name
 
     def find_checkpoints(self, model_name: str) -> List[Path]:
         """Find all checkpoint zip files for a given model."""
@@ -93,7 +102,7 @@ class CheckpointSelector:
             p for p in checkpoints_dir.iterdir()
             if p.is_file() and ("_ckpt_" in p.name or p.suffix.lower() == ".zip")
         ]
-        checkpoints.sort(key=lambda p: self._checkpoint_step(p.stem))
+        checkpoints.sort(key=lambda p: self._checkpoint_step(p.name))
         return checkpoints
 
     def find_final_model(self, model_name: str) -> Optional[Path]:
@@ -105,8 +114,10 @@ class CheckpointSelector:
 
     def _build_eval_alias(self, model_name: str, artifact_path: Path, artifact_label: str) -> Tuple[str, Path]:
         """Create temporary model alias folder so existing loader can open a candidate artifact."""
-        safe_label = re.sub(r"[^A-Za-z0-9_\-]", "_", artifact_label)
-        eval_model_name = f"{model_name}__eval__{safe_label}"
+        safe_model = re.sub(r"[^A-Za-z0-9_\-]", "_", model_name)[:24]
+        # Keep temp alias short to avoid MAX_PATH failures on Windows.
+        fingerprint = hashlib.sha1(str(artifact_path).encode("utf-8")).hexdigest()[:10]
+        eval_model_name = f"eval_{safe_model}_{fingerprint}"
         eval_model_dir = self.models_dir / eval_model_name
 
         if eval_model_dir.exists():
@@ -283,7 +294,7 @@ class CheckpointSelector:
         if final_model_path is not None:
             candidates.append((model_name, "final", final_model_path))
         for checkpoint in checkpoints_to_eval:
-            candidates.append((checkpoint.stem, "checkpoint", checkpoint))
+            candidates.append((self._checkpoint_candidate_name(checkpoint), "checkpoint", checkpoint))
 
         if not candidates:
             print(f"No candidates to evaluate for model: {model_name}")
@@ -362,7 +373,15 @@ class CheckpointSelector:
             print(f"No matching model directories found for: {target}")
             return
 
+        if model_prefix:
+            batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_prefix)
+        elif model_name:
+            batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_name)
+        else:
+            batch_tag = "selection"
+
         print(f"Target models: {len(models)}")
+        print(f"Batch tag: {batch_tag}")
         all_summaries: List[Dict] = []
 
         for model in models:
@@ -374,7 +393,7 @@ class CheckpointSelector:
             print("No models were processed successfully.")
             return
 
-        overall_csv = self.results_dir / "checkpoint_eval_overall_summary.csv"
+        overall_csv = self.results_dir / f"checkpoint_eval_overall_summary_{batch_tag}.csv"
         with open(overall_csv, "w", newline="", encoding="utf-8") as f:
             fieldnames = [
                 "model_name",
@@ -399,20 +418,47 @@ class CheckpointSelector:
 
         if global_candidates:
             global_best = max(global_candidates, key=self._ranking_key)
+            top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:5]
             global_best_model = str(global_best["model_name"])
             global_best_source = Path(global_best["candidate_path"])
-            global_best_target = self.models_dir / global_best_model / f"{global_best_model}{self.best_suffix}_global.zip"
+            global_txt = self.results_dir / f"checkpoint_eval_batch_best_{batch_tag}.txt"
+            global_best_target = (
+                self.models_dir
+                / global_best_model
+                / f"{global_best_model}{self.best_suffix}_batch_{batch_tag}.zip"
+            )
 
             if global_best_target.exists() and self.no_overwrite_best:
                 print(f"[INFO] Skipping global best promotion (already exists): {global_best_target.name}")
             else:
                 shutil.copy2(global_best_source, global_best_target)
 
-            if not (global_best_target.exists() and self.no_overwrite_best):
-                global_txt = self.results_dir / "checkpoint_eval_global_best.txt"
-                with open(global_txt, "w", encoding="utf-8") as f:
-                    f.write("GLOBAL BEST CANDIDATE (ALL MODELS)\n")
-                    f.write("=" * 80 + "\n")
+            with open(global_txt, "w", encoding="utf-8") as f:
+                f.write("BATCH BEST CANDIDATE (THIS SCRIPT RUN ONLY)\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"batch_tag: {batch_tag}\n")
+                for key in [
+                    "model_name",
+                    "candidate_name",
+                    "candidate_type",
+                    "candidate_path",
+                    "num_runs",
+                    "num_completed_runs",
+                    "num_lap_runs",
+                    "lap_completion_rate",
+                    "avg_laps_completed",
+                    "avg_lap_time",
+                    "avg_speed",
+                    "avg_reward",
+                    "avg_num_crashes",
+                ]:
+                    f.write(f"{key}: {global_best.get(key)}\n")
+                f.write(f"promoted_global_artifact: {global_best_target}\n\n")
+
+                f.write("TOP 5 CANDIDATES (RANKED)\n")
+                f.write("-" * 80 + "\n")
+                for rank, candidate in enumerate(top_candidates, 1):
+                    f.write(f"rank: {rank}\n")
                     for key in [
                         "model_name",
                         "candidate_name",
@@ -428,8 +474,8 @@ class CheckpointSelector:
                         "avg_reward",
                         "avg_num_crashes",
                     ]:
-                        f.write(f"{key}: {global_best.get(key)}\n")
-                    f.write(f"promoted_global_artifact: {global_best_target}\n")
+                        f.write(f"{key}: {candidate.get(key)}\n")
+                    f.write("\n")
 
             print(
                 f"\nGlobal best candidate: {global_best['candidate_name']} "
