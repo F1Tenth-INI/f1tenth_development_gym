@@ -487,6 +487,8 @@ class LearnerServer:
         self.pre_fill_with_pp = Settings.SAC_PREFILL_BUFFER_WITH_PP
         self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
 
+        self._bc_prefill_done = False
+
         #if we want to prefill with PP, change learning starts to be equal to prefill amount
         if self.pre_fill_with_pp:
             self.learning_starts = self.pre_fill_amount
@@ -790,6 +792,68 @@ class LearnerServer:
             
         return n_step_transitions
     
+    def _behavior_clone_on_prefill(self, num_epochs: int = 5, batch_size: int = 256):
+        """
+        Pre train actor only on PP data before real training, to combat the policy mismatch seen in early training of critic
+        """
+
+        print(f"\n[LearnerServer] Starting Behavior Cloning warmup ({num_epochs} epochs, {batch_size} batch_size)...")
+
+        actor_optimizer = torch.optim.Adam(
+            self.model.policy.actor.parameters(), 
+            lr=self.model.learning_rate
+        )
+
+        for epoch in range(num_epochs):
+            epoch_losses = []
+
+            for step in range(100):
+                try:
+                    batch = self.replay_buffer.sample(safe_batch_size=batch_size, env=None)
+
+                    obs_tensor = torch.tensor(
+                        batch.observations, 
+                        dtype=torch.float32, 
+                        device=self.device
+                    )
+
+                    pp_actions = torch.tensor(
+                        batch.actions, 
+                        dtype=torch.float32, 
+                        device=self.device
+                    )
+
+                    # Forward pass through actor (deterministic BC target)
+                    with torch.enable_grad():
+                        # SB3 SAC actor returns action tensor of shape [batch, action_dim]
+                        predicted_actions = self.model.policy.actor(obs_tensor, deterministic=True)
+
+                    # MSE loss: match PP actions
+                    bc_loss = torch.nn.functional.mse_loss(predicted_actions, pp_actions)
+                    
+                    # Backward pass
+                    actor_optimizer.zero_grad()
+                    bc_loss.backward()
+                    
+                    # Gradient clipping
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.policy.actor.parameters(), 
+                        max_norm=0.5
+                    )
+                    actor_optimizer.step()
+                    
+                    epoch_losses.append(bc_loss.item())
+                    
+                except Exception as e:
+                    print(f"[LearnerServer] BC step error: {e}")
+                    break
+            
+            if epoch_losses:
+                avg_loss = np.mean(epoch_losses)
+                print(f"  [BC Epoch {epoch+1}/{num_epochs}] Avg Loss: {avg_loss:.6f}")
+        
+        print(f"[LearnerServer] ✅ Behavior Cloning warmup complete!\n")
+    
     
     def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
         """
@@ -934,6 +998,18 @@ class LearnerServer:
                 print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
                 await asyncio.sleep(self.train_every_seconds)
                 continue
+
+            if self.pre_fill_with_pp and not self._bc_prefill_done:
+                print(f"[server] Starting one-time behavior cloning warmup for actor")
+
+                old_alpha = self.replay_buffer.alpha
+                self.replay_buffer.alpha = 0.0
+                self._behavior_clone_on_prefill(num_epochs=5, batch_size=min(self.batch_size, 1024))
+                self.replay_buffer.alpha = old_alpha
+
+                self._bc_prefill_done = True
+                self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
+                await self._broadcast_weights(self._weights_blob)
 
             # debug_time_3 = time.time()
 
