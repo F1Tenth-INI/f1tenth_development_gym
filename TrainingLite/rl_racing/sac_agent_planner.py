@@ -25,6 +25,7 @@ import csv
 import os
 import sys
 import time
+import hashlib
 
 # Configure unbuffered output for immediate print statements (important for ROS nodes)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -68,6 +69,14 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # RL Agent Planner (drop-in replacement for PurePursuitPlanner)
 # ------------------------
 class RLAgentPlanner(template_planner):
+    @staticmethod
+    def _actor_fingerprint_from_state_dict(sd: dict) -> str:
+        hasher = hashlib.sha256()
+        for name, tensor in sorted(sd.items(), key=lambda x: x[0]):
+            hasher.update(name.encode("utf-8"))
+            hasher.update(tensor.detach().cpu().numpy().tobytes())
+        return hasher.hexdigest()[:16]
+
     def __init__(self):
         super().__init__()
         print("Initializing RLAgentPlanner (actor client)")
@@ -86,6 +95,7 @@ class RLAgentPlanner(template_planner):
         # server_training_ready: starts True if no prefill, False if prefill is active.
         # Flipped to True when learner broadcasts training_status(training_ready=True).
         self.server_training_ready = not self.pre_fill_with_pp
+        self.server_bc_in_progress = False
 
         if self.pre_fill_with_pp and self.training_mode:
             print(f"\n[RLAgentPlanner] Pre-filling replay buffer with {self.pre_fill_amount} PurePursuit transitions")
@@ -189,17 +199,22 @@ class RLAgentPlanner(template_planner):
         nikita_t1 = time.time()
         if self.training_mode or self.inference_model_name is None:
             training_ready = self.client.get_training_ready()
+            bc_in_progress = self.client.get_bc_in_progress()
             if training_ready is not None and training_ready != self.server_training_ready:
                 self.server_training_ready = training_ready
                 if self.server_training_ready:
                     print("\n[RLAgentPlanner] Learner reports training-ready; enabling policy actions")
+            if bc_in_progress != self.server_bc_in_progress:
+                self.server_bc_in_progress = bc_in_progress
 
             sd = self.client.pop_latest_state_dict()
             if sd is not None:
                 try:
+                    expected_fp = self.client.get_latest_weights_fingerprint()
                     # with torch.no_grad():
                     self.model.policy.actor.load_state_dict(sd, strict=True)
                     self.model.policy.actor.eval()
+                    local_fp = self._actor_fingerprint_from_state_dict(self.model.policy.actor.state_dict())
                         
                         # # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
                         # dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
@@ -208,6 +223,13 @@ class RLAgentPlanner(template_planner):
                     self._received_weights = True
                     nikita_t2 = time.time()
                     print(f"\n[RLAgentPlanner] ✅ Actor weights updated. (took {(nikita_t2-nikita_t1)*1000:.2f}ms)")
+                    if expected_fp is not None:
+                        if expected_fp == local_fp:
+                            print(f"[RLAgentPlanner] ✅ Actor fingerprint verified: {local_fp}")
+                        else:
+                            print(f"[RLAgentPlanner] ❌ Actor fingerprint mismatch. server={expected_fp} local={local_fp}")
+                    else:
+                        print(f"[RLAgentPlanner] Actor fingerprint (local): {local_fp}")
                 except Exception as e:
                     print(f"\n[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
         nikita_t_weights = time.time()
@@ -299,6 +321,13 @@ class RLAgentPlanner(template_planner):
 
         # if(done and self.autonomous_driving):
         #     print(f"DONE CALLED.")
+
+        if self.server_bc_in_progress:
+            self._episode = []
+            self.control_index = 0
+            self.prev_obs_raw = None
+            self.prev_action = None
+            return
 
         """Called by env AFTER stepping. Pass the obs returned by env.step"""
         if self.prev_obs_raw is None or self.prev_action is None:

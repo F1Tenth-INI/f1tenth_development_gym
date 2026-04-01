@@ -204,10 +204,15 @@ async def _run_with_optional_client(server: LearnerServer, args: argparse.Namesp
     try:
         if args.auto_start_client:
             await asyncio.sleep(1.0)
+
+            client_settings_args = list(getattr(args, "forwarded_settings_args", []))
+            if getattr(args, "client_simulation_length", None) is not None:
+                client_settings_args.extend(["--SIMULATION_LENGTH", str(args.client_simulation_length)])
+
             client_process = start_client_process(
                 "run.py",
                 forward_output=args.forward_client_output,
-                extra_args=getattr(args, "forwarded_settings_args", []),
+                extra_args=client_settings_args,
             )
             if (
                 not args.forward_client_output
@@ -267,6 +272,18 @@ def main() -> None:
 
     setattr(run_args, "forwarded_settings_args", settings_args)
     setattr(run_args, "settings_namespace", settings_namespace)
+
+    prefill_enabled = bool(getattr(settings_namespace, "SAC_PREFILL_BUFFER_WITH_PP", False))
+    prefill_amount_raw = getattr(settings_namespace, "SAC_PREFILL_BUFFER_WITH_PP_AMOUNT", 0)
+    prefill_amount = int(prefill_amount_raw) if prefill_amount_raw is not None else 0
+    client_simulation_length = int(run_args.SIMULATION_LENGTH)
+    if prefill_enabled and prefill_amount > 0:
+        client_simulation_length += prefill_amount
+        print(
+            f"[run_training] Prefill enabled: client SIMULATION_LENGTH set to {client_simulation_length} "
+            f"(server target remains {run_args.SIMULATION_LENGTH}, prefill={prefill_amount})."
+        )
+    setattr(run_args, "client_simulation_length", client_simulation_length)
 
     # Backwards-compatible handling: if save_model_name not provided, fall back to legacy model_name
     if getattr(run_args, "save_model_name", None) is None:

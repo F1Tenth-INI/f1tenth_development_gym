@@ -69,26 +69,52 @@ CURRICULUM=(True False)
 #   done
 # done
 
-STATE_TO_TD_RATIOS=(0.0 0.1 0.25 0.5 0.75 0.9 1.0)
-PP_BUFFER_SIZE=(10000 30000 50000 70000)
-for pp_size in "${PP_BUFFER_SIZE[@]}"; do
-  MODEL_NAME="0321_actorInverseTD_critiUniform_PP_prefillSize${pp_size}"
+# STATE_TO_TD_RATIOS=(0.0 0.1 0.25 0.5 0.75 0.9 1.0)
+# PP_BUFFER_SIZE=(10000 30000 50000 70000)
+# for pp_size in "${PP_BUFFER_SIZE[@]}"; do
+#   MODEL_NAME="0321_actorInverseTD_critiUniform_PP_prefillSize${pp_size}"
   
-  echo "=================================================="
-  echo " STARTING: $MODEL_NAME"
-  echo " PP Buffer Size: $pp_size "
-  echo "=================================================="
+#   echo "=================================================="
+#   echo " STARTING: $MODEL_NAME"
+#   echo " PP Buffer Size: $pp_size "
+#   echo "=================================================="
 
-  cmd=(python -u TrainingLite/rl_racing/run_training.py
-    --auto-start-client
-    --USE_CUSTOM_SAC_SAMPLING True
-    --device cpu
-    --SIMULATION_LENGTH 300000
-    --model-name "$MODEL_NAME"
-    --SAC_CUSTOM_UNIFORM_CRITIC True
-    --SAC_PREFILL_BUFFER_WITH_PP True
-    --SAC_PREFILL_BUFFER_WITH_PP_AMOUNT "$pp_size"
-  )
-  "${cmd[@]}"
-  sleep 1
+#   cmd=(python -u TrainingLite/rl_racing/run_training.py
+#     --auto-start-client
+#     --USE_CUSTOM_SAC_SAMPLING True
+#     --device cpu
+#     --SIMULATION_LENGTH 300000
+#     --model-name "$MODEL_NAME"
+#     --SAC_CUSTOM_UNIFORM_CRITIC True
+#     --SAC_PREFILL_BUFFER_WITH_PP True
+#     --SAC_PREFILL_BUFFER_WITH_PP_AMOUNT "$pp_size"
+#   )
+#   "${cmd[@]}"
+#   sleep 1
+# done
+
+
+CUSTOM_ON=(True False)
+
+for custom in "${CUSTOM_ON[@]}"; do
+  for idx in 1 2; do
+    MODEL_NAME="0401_MyExample-2_custom_${custom}_seed${idx}"
+  
+    echo "=================================================="
+    echo " STARTING: $MODEL_NAME"
+    echo " Custom Sampling: $custom "
+    echo "=================================================="
+
+    cmd=(python -u TrainingLite/rl_racing/run_training.py
+      --auto-start-client
+      --USE_CUSTOM_SAC_SAMPLING True
+      --device cpu
+      --SIMULATION_LENGTH 300000
+      --model-name "$MODEL_NAME"
+      --SAC_PRIORITY_FACTOR 0.0
+      --USE_CUSTOM_SAC_SAMPLING "$custom"
+    )
+    "${cmd[@]}"
+    sleep 1
+  done
 done

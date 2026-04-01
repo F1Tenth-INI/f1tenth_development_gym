@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import hashlib
 from typing import List, Optional, NamedTuple
 
 import argparse
@@ -488,6 +489,10 @@ class LearnerServer:
         self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
 
         self._bc_prefill_done = False
+        self._bc_in_progress = False
+        self.total_prefill_timesteps = 0
+        self._bc_actor_fingerprint: Optional[str] = None
+        self._printed_first_sac_fingerprint = False
 
         #if we want to prefill with PP, change learning starts to be equal to prefill amount
         if self.pre_fill_with_pp:
@@ -633,6 +638,18 @@ class LearnerServer:
                 print(f"[server] Model saved to {self.save_model_path}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
+
+    def _actor_fingerprint(self) -> str:
+        """Create a stable fingerprint of the current actor weights for debugging handoff integrity."""
+        if self.model is None:
+            return "none"
+
+        hasher = hashlib.sha256()
+        with torch.no_grad():
+            for name, tensor in sorted(self.model.policy.actor.state_dict().items(), key=lambda x: x[0]):
+                hasher.update(name.encode("utf-8"))
+                hasher.update(tensor.detach().cpu().numpy().tobytes())
+        return hasher.hexdigest()[:16]
 
 
     # ---------- ingestion + training ----------
@@ -792,7 +809,7 @@ class LearnerServer:
             
         return n_step_transitions
     
-    def _behavior_clone_on_prefill(self, num_epochs: int = 5, batch_size: int = 256):
+    async def _behavior_clone_on_prefill(self, num_epochs: int = 5, batch_size: int = 256):
         """
         Pre train actor only on PP data before real training, to combat the policy mismatch seen in early training of critic
         """
@@ -808,16 +825,18 @@ class LearnerServer:
             epoch_losses = []
 
             for step in range(100):
+                if step % 10 == 0:
+                    await asyncio.sleep(0)
                 try:
                     batch = self.replay_buffer.sample(safe_batch_size=batch_size, env=None)
 
-                    obs_tensor = torch.tensor(
+                    obs_tensor = torch.as_tensor(
                         batch.observations, 
                         dtype=torch.float32, 
                         device=self.device
                     )
 
-                    pp_actions = torch.tensor(
+                    pp_actions = torch.as_tensor(
                         batch.actions, 
                         dtype=torch.float32, 
                         device=self.device
@@ -949,7 +968,7 @@ class LearnerServer:
                     return
 
             if self.save_model_checkpoints and self.model is not None:
-                if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH * 0.8:
+                if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH * 0.85:
                     if self.total_actor_timesteps  - self.last_checkpoint_timestep >= self.checkpoint_frequency:
                         checkpoint_name = f"{self.save_model_name}_ckpt_{self.total_actor_timesteps}"
                         self._save_model_checkpoint(checkpoint_name)
@@ -958,6 +977,10 @@ class LearnerServer:
             
             
             await asyncio.sleep(self.train_every_seconds)
+
+            if self.pre_fill_with_pp and self._bc_in_progress:
+                print("[server] Behavior cloning warmup in progress; pausing ingestion and SAC training.")
+                continue
 
             # debug_time1 = time.time()
 
@@ -1002,14 +1025,36 @@ class LearnerServer:
             if self.pre_fill_with_pp and not self._bc_prefill_done:
                 print(f"[server] Starting one-time behavior cloning warmup for actor")
 
+                self._bc_in_progress = True
+                await self._broadcast_training_status(force=True)
+
+                dropped_before_bc = len(self.episode_buffer.episodes)
+                if dropped_before_bc > 0:
+                    self.episode_buffer.episodes.clear()
+                    print(f"[server] Dropped {dropped_before_bc} queued episodes before BC warmup.")
+
                 old_alpha = self.replay_buffer.alpha
                 self.replay_buffer.alpha = 0.0
-                self._behavior_clone_on_prefill(num_epochs=5, batch_size=min(self.batch_size, 1024))
-                self.replay_buffer.alpha = old_alpha
+                try:
+                    await self._behavior_clone_on_prefill(num_epochs=20, batch_size=min(self.batch_size, 1024))
+                finally:
+                    self.replay_buffer.alpha = old_alpha
+                    self._bc_in_progress = False
+
+                # Drop any episodes received while BC was running.
+                dropped_after_bc = len(self.episode_buffer.episodes)
+                if dropped_after_bc > 0:
+                    self.episode_buffer.episodes.clear()
+                    print(f"[server] Dropped {dropped_after_bc} queued episodes collected during BC warmup.")
 
                 self._bc_prefill_done = True
+                self._bc_actor_fingerprint = self._actor_fingerprint()
+                self._printed_first_sac_fingerprint = False
+                print(f"[server] BC actor fingerprint: {self._bc_actor_fingerprint}")
                 self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 await self._broadcast_weights(self._weights_blob)
+                await self._broadcast_training_status(force=True)
+                continue
 
             # debug_time_3 = time.time()
 
@@ -1020,6 +1065,16 @@ class LearnerServer:
 
 
                 print(f"\n[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
+
+                if self.pre_fill_with_pp and self._bc_prefill_done and not self._printed_first_sac_fingerprint:
+                    cur_fp = self._actor_fingerprint()
+                    print(f"[server] Actor fingerprint at first SAC start: {cur_fp}")
+                    if self._bc_actor_fingerprint is not None and cur_fp == self._bc_actor_fingerprint:
+                        print("[server] ✅ First SAC step starts from BC actor weights.")
+                    elif self._bc_actor_fingerprint is not None:
+                        print(f"[server] ⚠️ Actor fingerprint mismatch before first SAC step. BC={self._bc_actor_fingerprint} current={cur_fp}")
+                    self._printed_first_sac_fingerprint = True
+
                 time_start_training = time.time()
 
 
@@ -1360,6 +1415,8 @@ class LearnerServer:
     def _can_start_training(self) -> bool:
         if self.replay_buffer is None:
             return False
+        if self.pre_fill_with_pp and (not self._bc_prefill_done or self._bc_in_progress):
+            return False
         return self.replay_buffer.size() >= self.learning_starts
 
     def _training_status_frame(self) -> dict:
@@ -1369,6 +1426,9 @@ class LearnerServer:
                 "training_ready": self._can_start_training(),
                 "replay_size": self.replay_buffer.size() if self.replay_buffer is not None else 0,
                 "learning_starts": self.learning_starts,
+                "prefill_with_pp": self.pre_fill_with_pp,
+                "bc_in_progress": self._bc_in_progress,
+                "bc_prefill_done": self._bc_prefill_done,
             },
         }
 
@@ -1393,7 +1453,16 @@ class LearnerServer:
 
     async def _broadcast_weights(self, blob: bytes):
         """Send weights to all currently connected clients."""
-        frame = {"type": "weights", "data": {"blob": blob, "format": "torch_state_dict", "algo": "SAC", "module": "actor"}}
+        frame = {
+            "type": "weights",
+            "data": {
+                "blob": blob,
+                "format": "torch_state_dict",
+                "algo": "SAC",
+                "module": "actor",
+                "fingerprint": self._actor_fingerprint(),
+            },
+        }
         async with self._client_lock:
             dead: List[asyncio.StreamWriter] = []
             for w in self._clients:
@@ -1468,10 +1537,21 @@ class LearnerServer:
 
                     self.last_episode_time = time.time()
 
+                    if self.pre_fill_with_pp and self._bc_in_progress:
+                        try:
+                            writer.write(pack_frame({"type": "episode_ack", "data": {"n": len(episode), "ignored": True}}))
+                            await writer.drain()
+                        except Exception:
+                            pass
+                        continue
+
                     self.episode_buffer.add_episode(episode)
                     # print(f"[server] Stored episode: {len(episode)} transitions "
                     #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
-                    self.total_actor_timesteps += len(episode)
+                    if self.pre_fill_with_pp and not self._bc_prefill_done:
+                        self.total_prefill_timesteps += len(episode)
+                    else:
+                        self.total_actor_timesteps += len(episode)
                     # optional ack
                     try:
                         writer.write(pack_frame({"type": "episode_ack", "data": {"n": len(episode)}}))
