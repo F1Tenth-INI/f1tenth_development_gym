@@ -213,6 +213,16 @@ class Settings():
     ## Episode-length curriculum: when X% of last N episodes reach max length, increase difficulty
     SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
 
+    SAC_SAVE_MODEL_CHECKPOINTS = True
+    SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
+    
+    # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
+    SAC_STAT_TRACKER = False
+    SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+
+    USE_CUSTOM_SAC_SAMPLING = False
+    
+
     
     ## Speed cap ##
     ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
