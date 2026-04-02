@@ -75,6 +75,18 @@ class LearnerServer:
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
 
+        self.last_episode_time = None 
+        self.episode_timeout = 100.0
+
+        #used for n-step buffer, for standard buffer set = 1
+        self.n_step = getattr(Settings, "SAC_N_STEP", 1)
+        # self.n_step_discount_factor = self.discount_factor ** self.n_step
+        self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
+
+        self.save_model_checkpoints = Settings.SAC_SAVE_MODEL_CHECKPOINTS
+        self.checkpoint_frequency = Settings.SAC_CHECKPOINT_FREQUENCY
+        self.last_checkpoint_timestep = 0
+
 
         # file paths: default save name fallback
         if self.save_model_name is None:
@@ -297,6 +309,45 @@ class LearnerServer:
             t["reward"] -= shaped_penalty
         return episode
 
+    def _save_model_checkpoint(self, checkpoint_name: str):
+        checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+
+        try:
+            self.model.save(checkpoint_path)
+            print(f"[server] Checkpoint saved to {checkpoint_path} as {checkpoint_name}")
+            self.last_checkpoint_timestep = self.total_actor_timesteps
+        except Exception as e:
+            print(f"[server] Error saving checkpoint: {e}")
+
+    # def redistribute_crash_penalty(self, episode, ramp_steps: int = 20, crash_penalty: float = 15.0):
+    #     crash_idx = None
+    #     for i in reversed(range(len(episode))):
+    #         t = episode[i]
+    #         info = t.get("info", {})
+    #         if t.get("done", False) and info.get("truncated", False):
+    #             crash_idx = i
+    #             break
+    #     if crash_idx is None:
+    #         # no crash in this episode -> leave rewards unchanged
+    #         return episode
+
+    #     #remove original penalty
+    #     episode[crash_idx]["reward"] += crash_penalty
+
+    #     # closer to crash -> larger share
+    #     for k in range(ramp_steps):
+    #         idx = crash_idx - k
+    #         if idx < 0:
+    #             break
+    #         t = episode[idx]
+    #         # weight from 0..1, increasing towards crash
+    #         w = (ramp_steps - k) / ramp_steps
+    #         shaped_penalty = w * (crash_penalty/2) #divide by 2 so total penalty is not too high
+    #         t["reward"] -= shaped_penalty
+    #     return episode
+
 
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
@@ -306,6 +357,13 @@ class LearnerServer:
                 if self._should_terminate:
                     print("[server] Training loop detected termination flag, exiting...")
                     return
+
+            if self.save_model_checkpoints and self.model is not None:
+                if self.total_actor_timesteps  - self.last_checkpoint_timestep >= self.checkpoint_frequency:
+                    checkpoint_name = f"{self.save_model_name}_ckpt_{self.total_actor_timesteps}"
+                    self._save_model_checkpoint(checkpoint_name)
+
+            
             
             await asyncio.sleep(self.train_every_seconds)
             # Wait for the first observation to initialize model/replay buffer.
@@ -568,7 +626,7 @@ class LearnerServer:
                             print(f"[server] Failed to init model from first obs: {e}")
 
                     if Settings.RL_CRASH_REWQARD_RAMPING:
-                        episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=5.0)
+                        episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=15.0)
 
                     self.episode_buffer.add_episode(episode)
                     # print(f"[server] Stored episode: {len(episode)} transitions "
