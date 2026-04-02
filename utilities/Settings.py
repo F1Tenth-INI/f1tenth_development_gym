@@ -51,10 +51,10 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = True
+    CONNECT_RACETUNER_TO_MAIN_CAR = False
 
     # Oponents
-    NUMBER_OF_OPPONENTS = 2
+    NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
@@ -186,7 +186,7 @@ class Settings():
     SAC_SPEED_CURRICULUM_LEARNING = False
     SAC_CURRICULUM_DEBUG = False
 
-    SAC_CURRICULUM_ENABLED = True
+    SAC_CURRICULUM_ENABLED = False
 
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
     ## t1=0 ensures difficulty rises from the first boost; t1=0.3 required 6+ boosts before any visible change
@@ -217,7 +217,7 @@ class Settings():
     ## Speed cap ##
     ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
     GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = False
-    GLOBAL_SPEED_LIMIT_MIN = 2.0   # at low difficulty [m/s]
+    GLOBAL_SPEED_LIMIT_MIN = 3.0   # at low difficulty [m/s]
     GLOBAL_SPEED_LIMIT_MAX = 15.0  # at high difficulty [m/s]
 
     ## Friction ##

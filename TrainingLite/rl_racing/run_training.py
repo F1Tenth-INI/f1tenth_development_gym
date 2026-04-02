@@ -265,6 +265,27 @@ def main() -> None:
     if run_completed:
         model_name = getattr(run_args, "save_model_name", None)
         if model_name is not None:
+            # In some workflows (e.g. short smoke tests or interrupted runs), the
+            # expected `model_name.zip` may not exist yet. Avoid failing hard by
+            # skipping evaluation when no SAC zip is present.
+            try:
+                from TrainingLite.rl_racing.sac_utilities import SacUtilities
+
+                model_path, model_dir = SacUtilities.resolve_model_paths(str(model_name))
+                server_model_path = os.path.join(model_dir, "server", str(model_name))
+                server_zip_path = server_model_path + ".zip"
+                local_zip_path = model_path + ".zip"
+
+                if not os.path.exists(server_zip_path) and not os.path.exists(local_zip_path):
+                    print(
+                        f"[run_training] Skipping evaluation: model zip not found for '{model_name}'. "
+                        f"Tried: {server_zip_path} or {local_zip_path}"
+                    )
+                    return
+            except Exception as e:
+                # Evaluation is non-critical for training; just warn and continue.
+                print(f"[run_training] Warning: could not verify evaluation model existence: {e}")
+
             eval_args = [
                 "--CONTROLLER",
                 "sac_agent",

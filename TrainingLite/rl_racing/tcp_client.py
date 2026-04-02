@@ -1,6 +1,8 @@
 import threading
 import asyncio
 import queue
+import os
+import shutil
 
 from typing import Optional
 
@@ -19,6 +21,8 @@ class _TCPActorClient:
         self._send_q: "queue.Queue[dict]" = queue.Queue(maxsize=10000)
         self._latest_sd_lock = threading.Lock()
         self._latest_state_dict: Optional[dict] = None
+        self._latest_model_sync_lock = threading.Lock()
+        self._latest_model_sync: Optional[dict] = None
         self._stop_evt = threading.Event()
 
     # --- public API ---
@@ -91,6 +95,12 @@ class _TCPActorClient:
             self._latest_state_dict = None
             return sd
 
+    def pop_latest_model_sync(self) -> Optional[dict]:
+        with self._latest_model_sync_lock:
+            payload = self._latest_model_sync
+            self._latest_model_sync = None
+            return payload
+
     # --- internals ---
     def _run_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
@@ -115,10 +125,7 @@ class _TCPActorClient:
                 # Expect ack and maybe initial weights
                 try:
                     msg = await asyncio.wait_for(read_frame(reader), timeout=5.0)
-                    # ignore ack; next may be weights
-                    if msg.get("type") != "ack":
-                        # some servers might send weights first
-                        await self._handle_msg(msg)
+                    await self._handle_msg(msg)
                 except asyncio.TimeoutError:
                     pass
 
@@ -159,7 +166,39 @@ class _TCPActorClient:
             sd = bytes_to_state_dict(blob)
             with self._latest_sd_lock:
                 self._latest_state_dict = sd
+        elif typ in ("ack", "model_sync"):
+            payload = msg.get("data", {})
+            if isinstance(payload, dict):
+                self._maybe_mirror_model_folder(payload)
         # ignore others
+
+    def _maybe_mirror_model_folder(self, payload: dict) -> None:
+        model_name = payload.get("model_name")
+        source_model_dir = payload.get("source_model_dir") or payload.get("model_dir")
+        if not isinstance(model_name, str) or not model_name:
+            return
+        if not isinstance(source_model_dir, str) or not source_model_dir:
+            return
+        if not os.path.isdir(source_model_dir):
+            # Usually remote server path not visible locally.
+            return
+
+        source_client_dir = os.path.join(source_model_dir, "client")
+        source_dir = source_client_dir if os.path.isdir(source_client_dir) else source_model_dir
+        target_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "models", model_name, "client"))
+        try:
+            if os.path.abspath(source_dir) == os.path.abspath(target_dir):
+                with self._latest_model_sync_lock:
+                    self._latest_model_sync = {"model_name": model_name, "local_client_dir": target_dir, "mirrored": False}
+                return
+
+            os.makedirs(target_dir, exist_ok=True)
+            shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
+            with self._latest_model_sync_lock:
+                self._latest_model_sync = {"model_name": model_name, "local_client_dir": target_dir, "mirrored": True}
+            print(f"[TCPActorClient] Mirrored client folder: {source_dir} -> {target_dir}")
+        except Exception as e:
+            print(f"[TCPActorClient] Client folder mirror skipped ({source_dir} -> {target_dir}): {e}")
 
     async def _writer_loop(self, writer: asyncio.StreamWriter):
         while not self._stop_evt.is_set():

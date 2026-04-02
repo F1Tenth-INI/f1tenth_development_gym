@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
+import shutil
 from typing import List, Optional
 
 import numpy as np
@@ -83,29 +84,64 @@ class LearnerServer:
             else:
                 self.save_model_name = "SAC_RCA1_0"
 
-        # resolve save paths (where we will write checkpoints/logs)
+        # resolve model root and split into server/client subfolders
         self.save_model_path, self.model_dir = SacUtilities.resolve_model_paths(self.save_model_name)
+        self.server_model_dir = os.path.join(self.model_dir, "server")
+        self.client_model_dir = os.path.join(self.model_dir, "client")
+        os.makedirs(self.server_model_dir, exist_ok=True)
+        os.makedirs(self.client_model_dir, exist_ok=True)
+        self.save_model_path = os.path.join(self.server_model_dir, self.save_model_name)
 
         # resolve load path if different
         self.load_model_path = None
         if self.load_model_name is not None:
-            self.load_model_path, _ = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_model_path_root, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
+            self.load_model_path = load_model_path_server if os.path.exists(load_model_path_server + ".zip") else load_model_path_root
 
-        self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
+        self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.server_model_dir)
 
-        SacUtilities.zip_relevant_files(self.model_dir)
-
-        self._initialize_model()
+        self._ensure_client_observation_builder()
+        SacUtilities.zip_relevant_files(self.server_model_dir)
+        # Model + replay buffer are initialized lazily after we see the first observation.
+        # This allows per-model custom observation builders to define different obs_dim.
 
     # ---------- setup / init ----------
-    def _load_base_model(self):
+    def _ensure_client_observation_builder(self) -> None:
+        target_builder_path = os.path.join(self.client_model_dir, "observation_builder.py")
+
+        source_builder_path: Optional[str] = None
+        if self.load_model_name is not None:
+            _, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_client_builder = os.path.join(load_model_dir_root, "client", "observation_builder.py")
+            if os.path.isfile(load_client_builder):
+                source_builder_path = load_client_builder
+
+        if source_builder_path is None:
+            default_builder = os.path.join(os.path.dirname(__file__), "observation_builder_template.py")
+            if os.path.isfile(default_builder):
+                source_builder_path = default_builder
+
+        if source_builder_path is None:
+            print("[server] No observation_builder_template.py source found.")
+            return
+
+        try:
+            os.makedirs(self.client_model_dir, exist_ok=True)
+            if os.path.abspath(source_builder_path) != os.path.abspath(target_builder_path):
+                shutil.copyfile(source_builder_path, target_builder_path)
+            print(f"[server] Using client observation builder: {target_builder_path}")
+        except Exception as e:
+            print(f"[server] Failed to prepare client observation builder: {e}")
+
+    def _load_base_model(self, obs_dim: int):
         """
         Initialize the model + replay buffer.
 
         - If `load_model_name` is set, attempt to load from that path.
         - Else: create a new model (train from scratch).
         """
-        dummy_env = SacUtilities.create_vec_env()
+        dummy_env = SacUtilities.create_vec_env_from_obs_dim(obs_dim)
 
         # If no load model specified -> start from scratch
         if self.load_model_name is None:
@@ -178,16 +214,17 @@ class LearnerServer:
         )
 
 
-    def _initialize_model(self):
-        if self.model is not None: return
-        self._load_base_model()
-        print(f"[server] Initialized model")
+    def _initialize_model(self, obs_dim: int):
+        if self.model is not None:
+            return
+        self._load_base_model(obs_dim=obs_dim)
+        print(f"[server] Initialized model (obs_dim={obs_dim})")
 
     def _save_model(self):
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
-                target = os.path.join(self.model_dir, self.save_model_name)
+                target = os.path.join(self.server_model_dir, self.save_model_name)
                 self.model.save(target)
                 print(f"[server] Model saved to {target}")
             except Exception as e:
@@ -271,6 +308,10 @@ class LearnerServer:
                     return
             
             await asyncio.sleep(self.train_every_seconds)
+            # Wait for the first observation to initialize model/replay buffer.
+            if self.model is None or self.replay_buffer is None:
+                continue
+
             # Drain whatever the actor sent since last round
             episodes = self.episode_buffer.drain_all()
 
@@ -426,7 +467,7 @@ class LearnerServer:
                 print("[server] Trained SAC and broadcast updated actor weights.")
 
                 try:
-                    target = os.path.join(self.model_dir, str(self.save_model_name))
+                    target = os.path.join(self.server_model_dir, str(self.save_model_name))
                     self.model.save(target)
                     # print(f"[server] Auto-saved model to {target}")
                 except Exception as e:
@@ -464,6 +505,23 @@ class LearnerServer:
         except Exception:
             pass
 
+        # Tell clients where to mirror model artifacts from.
+        try:
+            writer.write(
+                pack_frame(
+                    {
+                        "type": "model_sync",
+                        "data": {
+                            "model_name": self.save_model_name,
+                            "source_model_dir": self.model_dir,
+                        },
+                    }
+                )
+            )
+            await writer.drain()
+        except Exception as e:
+            print(f"[server] Failed to send model sync info to {addr}: {e}")
+
         # ALWAYS send current weights if we have them (even when init_from_scratch=True)
         if self._weights_blob is not None:
             try:
@@ -497,12 +555,20 @@ class LearnerServer:
                             "actor_id": int(d.get("actor_id", -1)),
                         })
 
+                    # Lazily init model/replay once we see the first obs vector.
+                    if self.model is None:
+                        try:
+                            first_obs = obs_list[0]
+                            obs_dim = int(np.asarray(first_obs, dtype=np.float32).reshape(-1).shape[0])
+                            self._initialize_model(obs_dim=obs_dim)
+                            # Broadcast initial weights right after init so the actor can leave warmup.
+                            if self._weights_blob is not None:
+                                await self._broadcast_weights(self._weights_blob)
+                        except Exception as e:
+                            print(f"[server] Failed to init model from first obs: {e}")
+
                     if Settings.RL_CRASH_REWQARD_RAMPING:
                         episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=5.0)
-
-                    # initialize shapes if this is the very first episode
-                    if self.model is None:
-                        self._initialize_model()
 
                     self.episode_buffer.add_episode(episode)
                     # print(f"[server] Stored episode: {len(episode)} transitions "
@@ -576,9 +642,7 @@ class LearnerServer:
             print(f"[server] Client disconnected: {addr}")
 
     async def run(self):
-        # Eagerly initialize so we have weights ready for the first client:
-        if self.model is None:
-            self._load_base_model() 
+        # Initialize lazily after the first observation arrives.
 
         # start trainer task and keep reference for cleanup
         train_task = asyncio.create_task(self._train_loop())

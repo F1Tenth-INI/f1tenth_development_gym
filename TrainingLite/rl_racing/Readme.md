@@ -192,6 +192,64 @@ obs *= normalization
 
 ---
 
+## Custom observation builder
+
+You can fully customize the policy input by editing the observation builder function.
+
+**Where to edit**
+
+- Edit `TrainingLite/rl_racing/observation_builder_template.py`
+- Required entrypoint:
+
+```python
+def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> np.ndarray:
+    ...
+```
+
+The function must return a **1D `np.float32` array**.  
+`super_obs` is a dictionary produced by the planner and contains at least:
+
+- `car_state`
+- `next_waypoints`
+- `border_points`
+- `lidar_ranges`
+- `last_actions`
+- `frenet_coordinates`
+- `global_waypoint_vel_factor`
+
+`planner` is optional and can be used if you need planner context.
+
+**How it is used**
+
+- At training startup, the server copies the template into:
+  `TrainingLite/rl_racing/models/<model_name>/client/observation_builder.py`
+- The actor loads that file dynamically and calls `build_observation(...)` every step.
+- During training, when a model sync message arrives, the actor can reload the client-side builder.
+
+This lets you iterate on feature engineering without touching SAC internals.
+
+**Inference behavior**
+
+- In inference mode (`--SAC_INFERENCE_MODEL_NAME ...`), the actor loads:
+  `TrainingLite/rl_racing/models/<model_name>/client/observation_builder.py`
+- The same builder used during training should be kept with the model to avoid schema mismatch.
+
+**Important compatibility rule**
+
+If you change feature order, dimensions, or scaling, you should start a **new model name**.  
+Old checkpoints are tied to the observation schema they were trained with.
+
+Also treat the `super_obs` dictionary as a backward-compatible interface:
+
+- You can **add** new keys/fields to `super_obs`.
+- Do **not remove** existing keys.
+- Do **not change** the meaning/shape of existing keys.
+
+This keeps older `observation_builder.py` versions and older models working.  
+Removing/changing existing `super_obs` entries can break previously trained models.
+
+---
+
 ## Troubleshooting
 
 - **Actor doesn’t move**
@@ -229,6 +287,19 @@ Run multiple sims/actors (different `actor_id`s) pointing to the same learner to
 
 ---
 
-## License
 
-MIT (or your preference).
+## Running remotely
+For remote conenctions I recommend using screen.
+
+Start a screen called training:
+```
+screen -S training
+```
+
+Ctrl+a, d to exit
+
+to reconnect
+
+```
+screen -r training
+```
