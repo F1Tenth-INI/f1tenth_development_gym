@@ -183,7 +183,7 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
-    SAC_CUSTOM_UNIFORM_CRITIC = False #if true forces uniform critic sampling anyways
+    SAC_CUSTOM_UNIFORM_CRITIC = True #if true forces uniform critic sampling anyways
 
     SAC_LOG_SQUISH = True
 
@@ -252,6 +252,7 @@ class Settings():
 
     SAC_PREFILL_BUFFER_WITH_PP = False
     SAC_PREFILL_BUFFER_WITH_PP_AMOUNT = 30000 #number of transitions to prefill
+    SAC_PREFILL_BEHAVIOR_CLONING_EPOCHS = 20
 
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

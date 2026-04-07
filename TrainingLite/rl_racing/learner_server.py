@@ -134,7 +134,6 @@ class CustomReplayBuffer(ReplayBuffer):
         d = obs[80] #-> these were off by one the whole time......
         e = obs[81]
         # rew = self.rewards[idx, 0] + 1
-        # rew = abs(self.rewards[idx, 0]) # both positive and negative rewards contain lots of information
 
 
         rew = float(self.rewards[idx, 0])
@@ -487,6 +486,7 @@ class LearnerServer:
 
         self.pre_fill_with_pp = Settings.SAC_PREFILL_BUFFER_WITH_PP
         self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
+        self.pre_fill_sac_epochs = Settings.SAC_PREFILL_BEHAVIOR_CLONING_EPOCHS
 
         self._bc_prefill_done = False
         self._bc_in_progress = False
@@ -1036,7 +1036,7 @@ class LearnerServer:
                 old_alpha = self.replay_buffer.alpha
                 self.replay_buffer.alpha = 0.0
                 try:
-                    await self._behavior_clone_on_prefill(num_epochs=20, batch_size=min(self.batch_size, 1024))
+                    await self._behavior_clone_on_prefill(num_epochs=self.pre_fill_sac_epochs, batch_size=min(self.batch_size, 1024))
                 finally:
                     self.replay_buffer.alpha = old_alpha
                     self._bc_in_progress = False

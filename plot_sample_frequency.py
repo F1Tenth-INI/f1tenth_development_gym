@@ -748,6 +748,9 @@ def plot_value_heatmap(
     save_path=None,
     value_min=None,
     value_max=None,
+    robust_percentiles=None,
+    colorbar_tick_values=None,
+    colorbar_tick_labels=None,
 ):
     """
     Generic heatmap plotter for any spatial value column (reward, critic output, etc.)
@@ -761,6 +764,10 @@ def plot_value_heatmap(
         save_path: Optional path to save the figure
         value_min: Optional fixed minimum for color normalization
         value_max: Optional fixed maximum for color normalization
+        robust_percentiles: Optional (low, high) percentiles for clipping color range
+            before normalization (e.g., (2, 98)).
+        colorbar_tick_values: Optional tick positions in plotted value units.
+        colorbar_tick_labels: Optional labels (strings) for those tick positions.
     """
     # Check for required columns
     if value_column not in df_with_pos.columns:
@@ -784,6 +791,17 @@ def plot_value_heatmap(
     img_height = img_array.shape[0]
     data_min = float(df_values[value_column].min())
     data_max = float(df_values[value_column].max())
+
+    if robust_percentiles is not None:
+        low_pct, high_pct = robust_percentiles
+        low_pct = float(low_pct)
+        high_pct = float(high_pct)
+        if 0.0 <= low_pct < high_pct <= 100.0:
+            clipped_min = float(np.percentile(df_values[value_column].to_numpy(), low_pct))
+            clipped_max = float(np.percentile(df_values[value_column].to_numpy(), high_pct))
+            data_min = clipped_min
+            data_max = clipped_max
+
     value_min = data_min if value_min is None else float(value_min)
     value_max = data_max if value_max is None else float(value_max)
 
@@ -813,16 +831,23 @@ def plot_value_heatmap(
     ax.axis('off')
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label(value_label)
-    cbar.locator = MaxNLocator(nbins=7)
-    cbar.update_ticks()
+    if colorbar_tick_values is not None:
+        ticks = np.asarray(colorbar_tick_values, dtype=float)
+        ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
+        cbar.set_ticks(ticks)
+        if colorbar_tick_labels is not None and len(colorbar_tick_labels) == len(ticks):
+            cbar.set_ticklabels(colorbar_tick_labels)
+    else:
+        cbar.locator = MaxNLocator(nbins=7)
+        cbar.update_ticks()
 
-    # Ensure important anchors are always visible on the colorbar.
-    anchor_ticks = [value_min, value_max]
-    if value_min < 0 < value_max:
-        anchor_ticks.append(0.0)
-    ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar.get_ticks(), anchor_ticks]))))
-    ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
-    cbar.set_ticks(ticks)
+        # Ensure important anchors are always visible on the colorbar.
+        anchor_ticks = [value_min, value_max]
+        if value_min < 0 < value_max:
+            anchor_ticks.append(0.0)
+        ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar.get_ticks(), anchor_ticks]))))
+        ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
+        cbar.set_ticks(ticks)
 
     # Right: 2D histogram heatmap (average value per bin)
     ax = axes[1]
@@ -865,11 +890,18 @@ def plot_value_heatmap(
     ax.axis('off')
     cbar2 = plt.colorbar(im, ax=ax)
     cbar2.set_label(f'Avg {value_label}')
-    cbar2.locator = MaxNLocator(nbins=7)
-    cbar2.update_ticks()
-    cbar2_ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar2.get_ticks(), anchor_ticks]))))
-    cbar2_ticks = cbar2_ticks[(cbar2_ticks >= value_min) & (cbar2_ticks <= value_max)]
-    cbar2.set_ticks(cbar2_ticks)
+    if colorbar_tick_values is not None:
+        ticks = np.asarray(colorbar_tick_values, dtype=float)
+        ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
+        cbar2.set_ticks(ticks)
+        if colorbar_tick_labels is not None and len(colorbar_tick_labels) == len(ticks):
+            cbar2.set_ticklabels(colorbar_tick_labels)
+    else:
+        cbar2.locator = MaxNLocator(nbins=7)
+        cbar2.update_ticks()
+        cbar2_ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar2.get_ticks(), anchor_ticks]))))
+        cbar2_ticks = cbar2_ticks[(cbar2_ticks >= value_min) & (cbar2_ticks <= value_max)]
+        cbar2.set_ticks(cbar2_ticks)
 
     plt.tight_layout()
     

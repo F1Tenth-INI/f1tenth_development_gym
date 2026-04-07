@@ -8,6 +8,9 @@ but iterates over checkpoint zip files in each model's checkpoints directory.
 Usage examples:
     python TrainingLite/rl_racing/scripts/select_best_checkpoints.py --model-name 0603_checkpoint_test
     python TrainingLite/rl_racing/scripts/select_best_checkpoints.py --model-prefix Sweep_rank_Ex1_A0.0 --repeats 3 --max-length 10000
+
+    python -u TrainingLite/rl_racing/scripts/select_best_checkpoints.py --model-name 0603_checkpoint_test
+    python -u TrainingLite/rl_racing/scripts/select_best_checkpoints.py --model-prefix Sweep_rank_Ex1_A0.0 --repeats 3 --max-length 10000
 """
 
 import argparse
@@ -35,7 +38,7 @@ class CheckpointSelector:
         max_length: int = 8000,
         repeats: int = 3,
         verbose: bool = False,
-        results_dir: str = "sweep_experiment_results",
+        results_dir: str = "chkpt_eval_results",
         best_suffix: str = "_best",
         no_overwrite_best: bool = False,
         keep_eval_models: bool = False,
@@ -220,7 +223,7 @@ class CheckpointSelector:
 
         return best_model_zip
 
-    def _write_model_results(self, model_name: str, rows: List[Dict], best_row: Dict) -> Tuple[Path, Path]:
+    def _write_model_results(self, model_name: str, rows: List[Dict], best_row: Dict, sweep_name: str) -> Tuple[Path, Path]:
         """Write per-model checkpoint evaluation CSV and text summary."""
         csv_path = self.results_dir / f"checkpoint_eval_{model_name}.csv"
         txt_path = self.results_dir / f"checkpoint_eval_{model_name}.txt"
@@ -278,7 +281,7 @@ class CheckpointSelector:
 
         return csv_path, txt_path
 
-    def evaluate_model(self, model_name: str) -> Optional[Dict]:
+    def evaluate_model(self, model_name: str, model_prefix: str) -> Optional[Dict]:
         """Evaluate all checkpoints of a model and return selection summary."""
         final_model_path = self.find_final_model(model_name)
         checkpoints = self.find_checkpoints(model_name)
@@ -286,9 +289,12 @@ class CheckpointSelector:
             print(f"No checkpoints or final model found for model: {model_name}")
             return None
 
-        # Skip the first half of checkpoints (early training is often unstable)
-        skip_count = len(checkpoints) // 2
-        checkpoints_to_eval = checkpoints[skip_count:]
+        # #Skip the first half of checkpoints (early training is often unstable)
+        # skip_count = len(checkpoints) // 2
+        # checkpoints_to_eval = checkpoints[skip_count:]
+
+        skip_count = 0
+        checkpoints_to_eval = checkpoints
 
         candidates: List[Tuple[str, str, Path]] = []
         if final_model_path is not None:
@@ -343,7 +349,7 @@ class CheckpointSelector:
         best_row = max(aggregated_rows, key=self._ranking_key)
         best_checkpoint_path = Path(best_row["candidate_path"])
         best_model_path = self._promote_best_checkpoint(model_name, best_checkpoint_path)
-        csv_path, txt_path = self._write_model_results(model_name, aggregated_rows, best_row)
+        csv_path, txt_path = self._write_model_results(model_name, aggregated_rows, best_row, sweep_name = model_prefix if model_prefix else model_name)
 
         print(f"\nBest candidate for {model_name}: {best_row['candidate_name']} ({best_row['candidate_type']})")
         if best_model_path is not None:
@@ -380,12 +386,17 @@ class CheckpointSelector:
         else:
             batch_tag = "selection"
 
+        run_results_dir = self.results_dir / batch_tag
+        run_results_dir.mkdir(parents=True, exist_ok=True)
+        self.results_dir = run_results_dir
+
         print(f"Target models: {len(models)}")
         print(f"Batch tag: {batch_tag}")
+        print(f"Results directory: {self.results_dir}")
         all_summaries: List[Dict] = []
 
         for model in models:
-            summary = self.evaluate_model(model)
+            summary = self.evaluate_model(model, model_prefix)
             if summary is not None:
                 all_summaries.append(summary)
 
@@ -418,7 +429,7 @@ class CheckpointSelector:
 
         if global_candidates:
             global_best = max(global_candidates, key=self._ranking_key)
-            top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:5]
+            top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:30]
             global_best_model = str(global_best["model_name"])
             global_best_source = Path(global_best["candidate_path"])
             global_txt = self.results_dir / f"checkpoint_eval_batch_best_{batch_tag}.txt"
@@ -455,7 +466,7 @@ class CheckpointSelector:
                     f.write(f"{key}: {global_best.get(key)}\n")
                 f.write(f"promoted_global_artifact: {global_best_target}\n\n")
 
-                f.write("TOP 5 CANDIDATES (RANKED)\n")
+                f.write("TOP 30 CANDIDATES (RANKED)\n")
                 f.write("-" * 80 + "\n")
                 for rank, candidate in enumerate(top_candidates, 1):
                     f.write(f"rank: {rank}\n")
@@ -505,8 +516,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--results-dir",
-        default="sweep_experiment_results",
-        help="Directory for checkpoint selection outputs (default: sweep_experiment_results)",
+        default="chkpt_eval_results",
+        help="Directory for checkpoint selection outputs (default: chkpt_eval_results)",
     )
     parser.add_argument(
         "--best-suffix",
