@@ -173,6 +173,9 @@ class RLAgentPlanner(template_planner):
             return self._fallback_action()
         
         sd_to_load = self._sync_from_server()
+        
+
+        self.fallback_action = self._fallback_action()
 
 
         # --- build raw obs (manual normalization happens inside) ---
@@ -302,6 +305,7 @@ class RLAgentPlanner(template_planner):
             "last_actions": np.asarray(last_actions, dtype=np.float32),
             "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
+            "fallback_action": np.asarray(self.fallback_action, dtype=np.float32),
         }
 
     def _build_observation(self) -> np.ndarray:
