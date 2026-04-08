@@ -96,25 +96,24 @@ class LearnerServer:
             else:
                 self.save_model_name = "SAC_RCA1_0"
 
-        # resolve model root and split into server/client subfolders
+        # resolve model root and client subfolder
         self.save_model_path, self.model_dir = SacUtilities.resolve_model_paths(self.save_model_name)
-        self.server_model_dir = os.path.join(self.model_dir, "server")
         self.client_model_dir = os.path.join(self.model_dir, "client")
-        os.makedirs(self.server_model_dir, exist_ok=True)
         os.makedirs(self.client_model_dir, exist_ok=True)
-        self.save_model_path = os.path.join(self.server_model_dir, self.save_model_name)
+        self.save_model_path = os.path.join(self.model_dir, self.save_model_name)
 
         # resolve load path if different
         self.load_model_path = None
         if self.load_model_name is not None:
             load_model_path_root, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
             load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
-            self.load_model_path = load_model_path_server if os.path.exists(load_model_path_server + ".zip") else load_model_path_root
+            # Prefer the model root, but keep legacy support for older ".../server/" layouts.
+            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root + ".zip") else load_model_path_server
 
-        self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.server_model_dir)
+        self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
         self._ensure_client_observation_builder()
-        SacUtilities.zip_relevant_files(self.server_model_dir)
+        SacUtilities.zip_relevant_files(self.model_dir)
         # Model + replay buffer are initialized lazily after we see the first observation.
         # This allows per-model custom observation builders to define different obs_dim.
 
@@ -236,7 +235,7 @@ class LearnerServer:
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
-                target = os.path.join(self.server_model_dir, self.save_model_name)
+                target = os.path.join(self.model_dir, self.save_model_name)
                 self.model.save(target)
                 print(f"[server] Model saved to {target}")
             except Exception as e:
@@ -407,7 +406,6 @@ class LearnerServer:
                 critic_target = self.model.policy.critic_target
                 actor_optimizer = self.model.policy.actor.optimizer
                 critic_optimizer = self.model.policy.critic.optimizer
-                batch_size = self.model.batch_size
                 replay_buffer = self.model.replay_buffer
                 gamma = self.model.gamma
                 tau = self.model.tau
@@ -415,7 +413,8 @@ class LearnerServer:
                 target_entropy = self.model.target_entropy
                 log_ent_coef = getattr(self.model, "log_ent_coef", None)
                 ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
-                                
+
+                training_steps_done = 0
                 for step in range(grad_steps):
                     # Check termination flag periodically during training (every 10 steps)
                     if step % 10 == 0:
@@ -426,8 +425,8 @@ class LearnerServer:
                     
                     then = time.time()
                     try:
-                        # Reduce batch size to avoid OOM
-                        safe_batch_size = min(batch_size, 4096)
+                        # Reduce batch size to avoid OOM (read from model so a bad merge can't leave `batch_size` undefined)
+                        safe_batch_size = min(int(self.model.batch_size), 4096)
                         data = replay_buffer.sample(safe_batch_size)
                         obs      = data.observations
                         actions  = data.actions
@@ -487,6 +486,7 @@ class LearnerServer:
 
                         # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
                         self.total_weight_updates += 1
+                        training_steps_done += 1
 
                         # Free unused memory
                         # if self.device == "cuda":
@@ -502,12 +502,20 @@ class LearnerServer:
                     if self._should_terminate:
                         print("[server] Termination requested, skipping post-training save/broadcast")
                         return
-                
-                # You can now interfere with actor, critic, optimizers, etc. in this loop
+
+                if training_steps_done == 0:
+                    print("[server] No gradient steps completed (early exit or repeated OOM); skipping log/broadcast.")
+                    continue
+
+                ent_coef_loss_val = (
+                    float(ent_coef_loss.detach().item())
+                    if log_ent_coef is not None and ent_coef_optimizer is not None
+                    else 0.0
+                )
                 log_dict = {
                     "actor_loss": actor_loss.item(),
                     "critic_loss": critic_loss.item(),
-                    "ent_coef_loss": ent_coef_loss.item(),
+                    "ent_coef_loss": ent_coef_loss_val,
                     "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
                     "total_weight_updates": self.total_weight_updates,
                     "training_duration": time.time() - time_start_training,
@@ -525,7 +533,7 @@ class LearnerServer:
                 print("[server] Trained SAC and broadcast updated actor weights.")
 
                 try:
-                    target = os.path.join(self.server_model_dir, str(self.save_model_name))
+                    target = os.path.join(self.model_dir, str(self.save_model_name))
                     self.model.save(target)
                     # print(f"[server] Auto-saved model to {target}")
                 except Exception as e:

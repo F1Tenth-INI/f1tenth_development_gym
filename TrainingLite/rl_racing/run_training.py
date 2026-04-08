@@ -276,10 +276,10 @@ def main() -> None:
                 server_zip_path = server_model_path + ".zip"
                 local_zip_path = model_path + ".zip"
 
-                if not os.path.exists(server_zip_path) and not os.path.exists(local_zip_path):
+                if not os.path.exists(local_zip_path) and not os.path.exists(server_zip_path):
                     print(
                         f"[run_training] Skipping evaluation: model zip not found for '{model_name}'. "
-                        f"Tried: {server_zip_path} or {local_zip_path}"
+                        f"Tried: {local_zip_path} or {server_zip_path}"
                     )
                     return
             except Exception as e:
