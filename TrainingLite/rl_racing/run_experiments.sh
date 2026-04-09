@@ -1,1 +1,1 @@
-python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 128 --SAVE_RECORDINGS False --CONTROLLER sac_agent --SIMULATION_LENGTH 200000 --RANDOM_WAYPOINT_VEL_FACTOR True --MAX_SIM_FREQUENCY 250 --model-name Example-13e
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 128 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 50000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-1
