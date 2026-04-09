@@ -32,6 +32,9 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    RANDOM_WAYPOINT_VEL_FACTOR = False
+
+    
     GLOBAL_SPEED_LIMIT = 15.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
@@ -41,7 +44,7 @@ class Settings():
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = True #False
+    SAVE_VIDEOS = False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -79,7 +82,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 1000 #1_000_000 # In sim timesteps: Length until the simulation is terminated
+    SIMULATION_LENGTH = 2000 # In sim timesteps: Length until the simulation is terminated
     MAX_EPISODE_LENGTH = 2000 
 
 

@@ -218,6 +218,11 @@ class RacingSimulation:
         # Normal reset
         self.episode_index = 0
 
+
+        # Random Global Waypoint Velocity Factor
+        if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
+            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = np.random.uniform(0.5, 1.3)
+
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
         self.control_delay_buffer.clear()

@@ -306,6 +306,7 @@ class RLAgentPlanner(template_planner):
             "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
             "fallback_action": np.asarray(self.fallback_action, dtype=np.float32),
+            "pp_action": np.asarray(self.fallback_action, dtype=np.float32),
         }
 
     def _build_observation(self) -> np.ndarray:

@@ -39,6 +39,8 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
     target_speeds = next_waypoints[:, WP_VX_IDX].astype(np.float32)
     target_speeds = target_speeds[::5]
 
+    pp_action = super_obs["pp_action"].astype(np.float32)
+
     obs = np.concatenate(
         [
             [0.1, 1, 1, 2.5] * state_features,
@@ -47,6 +49,7 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             1.0 * last_actions,
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
+            [0.1, 1.0] * pp_action,
         ]
     ).astype(np.float32)
 
