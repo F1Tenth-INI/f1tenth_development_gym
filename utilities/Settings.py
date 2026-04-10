@@ -218,7 +218,12 @@ class Settings():
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
-    SAC_TARGET_UDT = None  # optional metadata target (not used for runtime control)
+    # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
+    # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
+    SAC_TARGET_UDT = None
+    SAC_UDT_DEADBAND_RATIO = 0.1
+    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
+    SAC_MIN_SIM_FREQUENCY = 20.0
 
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
     SAC_STAT_TRACKER = False

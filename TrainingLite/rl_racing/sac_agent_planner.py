@@ -86,6 +86,12 @@ class RLAgentPlanner(template_planner):
         self.model: Optional[SAC] = None
         self.client: Optional[_TCPActorClient] = None
         self.latest_training_info: Optional[Dict[str, Any]] = None
+        # Upper bound for UDT-driven MAX_SIM_FREQUENCY tweaks: never exceed initial Settings value.
+        self._udt_sim_frequency_ceiling: Optional[float] = (
+            float(Settings.MAX_SIM_FREQUENCY)
+            if self.training_mode and Settings.MAX_SIM_FREQUENCY is not None
+            else None
+        )
 
         # --- networking ---
 
@@ -400,6 +406,7 @@ class RLAgentPlanner(template_planner):
                 self._load_observation_builder(local_client_dir)
         if isinstance(training_info, dict):
             self.latest_training_info = training_info
+            self._apply_udt_training_info(training_info)
             if Settings.SAC_AGENT_DEBUG:
                 current_udt = (
                     training_info.get("metrics", {}).get("current_udt")
@@ -408,6 +415,64 @@ class RLAgentPlanner(template_planner):
                 )
                 print(f"[RLAgentPlanner] Received training_info: current_udt={current_udt}")
         return sd_to_load
+
+    def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
+        """
+        If server sent udt_control (SAC_TARGET_UDT set on learner), tune MAX_SIM_FREQUENCY:
+        UDT too low -> decrease Hz; UDT too high -> increase Hz.
+        """
+        metrics = training_info.get("metrics")
+        if not isinstance(metrics, dict):
+            return
+        current_udt = metrics.get("current_udt")
+        if not isinstance(current_udt, (int, float)):
+            return
+
+        udt_control = training_info.get("udt_control")
+        if isinstance(udt_control, dict) and udt_control.get("target_udt") is not None:
+            target_udt = float(udt_control["target_udt"])
+            deadband = float(udt_control.get("deadband_ratio", Settings.SAC_UDT_DEADBAND_RATIO))
+            step_ratio = float(udt_control.get("freq_adjust_step_ratio", Settings.SAC_UDT_FREQ_ADJUST_STEP_RATIO))
+            fmin = float(udt_control.get("min_sim_frequency_hz", Settings.SAC_MIN_SIM_FREQUENCY))
+        elif Settings.SAC_TARGET_UDT is not None:
+            target_udt = float(Settings.SAC_TARGET_UDT)
+            deadband = float(Settings.SAC_UDT_DEADBAND_RATIO)
+            step_ratio = float(Settings.SAC_UDT_FREQ_ADJUST_STEP_RATIO)
+            fmin = float(Settings.SAC_MIN_SIM_FREQUENCY)
+        else:
+            return
+
+        if target_udt <= 0 or step_ratio <= 0:
+            return
+        if Settings.MAX_SIM_FREQUENCY is None:
+            return
+        fmax = self._udt_sim_frequency_ceiling
+        if fmax is None:
+            return
+
+        lower = target_udt * (1.0 - deadband)
+        upper = target_udt * (1.0 + deadband)
+        prev = float(Settings.MAX_SIM_FREQUENCY)
+        updated = prev
+        reason = None
+        if float(current_udt) < lower:
+            updated = prev * (1.0 - step_ratio)
+            reason = "udt_low_decrease_freq"
+        elif float(current_udt) > upper:
+            updated = prev * (1.0 + step_ratio)
+            reason = "udt_high_increase_freq"
+
+        updated = float(np.clip(updated, fmin, fmax))
+        if reason is None or abs(updated - prev) < 1e-9:
+            return
+
+        Settings.MAX_SIM_FREQUENCY = updated
+        if Settings.SAC_AGENT_DEBUG:
+            print(
+                "[RLAgentPlanner] UDT control: "
+                f"MAX_SIM_FREQUENCY {prev:.2f} -> {updated:.2f} Hz "
+                f"(UDT={float(current_udt):.4f}, target={target_udt:.4f}, reason={reason})"
+            )
 
     def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:
         """

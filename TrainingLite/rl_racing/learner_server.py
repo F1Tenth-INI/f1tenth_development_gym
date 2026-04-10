@@ -578,7 +578,16 @@ class LearnerServer:
 
     def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
         """Build an extensible training telemetry payload."""
-        return {
+        target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
+        udt_control = None
+        if target_udt is not None:
+            udt_control = {
+                "target_udt": float(target_udt),
+                "deadband_ratio": float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1)),
+                "freq_adjust_step_ratio": float(getattr(Settings, "SAC_UDT_FREQ_ADJUST_STEP_RATIO", 0.05)),
+                "min_sim_frequency_hz": float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0)),
+            }
+        payload = {
             "schema_version": 1,
             "event": "post_training_update",
             "timestamp": time.time(),
@@ -592,6 +601,9 @@ class LearnerServer:
                 "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
             },
         }
+        if udt_control is not None:
+            payload["udt_control"] = udt_control
+        return payload
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
