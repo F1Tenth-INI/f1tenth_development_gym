@@ -51,7 +51,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
-        self.max_utd = 4.0  # max updates per data point
+        self._latest_training_info_payload: Optional[dict] = None
 
         # Settings
         self.learning_starts = learning_starts
@@ -380,10 +380,7 @@ class LearnerServer:
 
             # Calculate trainign steps per sample
             current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
-            if current_udt > self.max_utd:
-                print(f"[server] UDT too high ({current_udt:.4f}), skipping training this round. total_weight_updates={self.total_weight_updates}, total_actor_timesteps={self.total_actor_timesteps}")
-                await asyncio.sleep(1)
-                continue  # skip training if UDT is already high
+
 
             if( self.replay_buffer.size() < self.learning_starts ):
                 needed = self.learning_starts - self.replay_buffer.size()
@@ -530,6 +527,12 @@ class LearnerServer:
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
                 await self._broadcast_weights(new_blob)
+                current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+                training_info_payload = self._build_training_info_payload(
+                    current_udt=current_udt,
+                    training_steps_done=training_steps_done,
+                )
+                await self._broadcast_training_info(training_info_payload)
                 print("[server] Trained SAC and broadcast updated actor weights.")
 
                 try:
@@ -557,6 +560,38 @@ class LearnerServer:
                     dead.append(w)
             for w in dead:
                 self._clients.discard(w)
+
+    async def _broadcast_training_info(self, payload: dict):
+        """Send post-training telemetry as an extensible JSON payload."""
+        frame = {"type": "training_info", "data": payload}
+        self._latest_training_info_payload = payload
+        async with self._client_lock:
+            dead: List[asyncio.StreamWriter] = []
+            for w in self._clients:
+                try:
+                    w.write(pack_frame(frame))
+                    await w.drain()
+                except Exception:
+                    dead.append(w)
+            for w in dead:
+                self._clients.discard(w)
+
+    def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
+        """Build an extensible training telemetry payload."""
+        return {
+            "schema_version": 1,
+            "event": "post_training_update",
+            "timestamp": time.time(),
+            "metrics": {
+                "current_udt": float(current_udt),
+            },
+            "counters": {
+                "total_weight_updates": int(self.total_weight_updates),
+                "total_actor_timesteps": int(self.total_actor_timesteps),
+                "training_steps_done": int(training_steps_done),
+                "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+            },
+        }
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
@@ -595,6 +630,13 @@ class LearnerServer:
                 print(f"[server] Weights sent to {addr} (bytes={len(self._weights_blob)})")
             except Exception as e:
                 print(f"[server] Failed to send initial weights to {addr}: {e}")
+        # Send latest training telemetry (if available) to reconnecting actors.
+        if self._latest_training_info_payload is not None:
+            try:
+                writer.write(pack_frame({"type": "training_info", "data": self._latest_training_info_payload}))
+                await writer.drain()
+            except Exception as e:
+                print(f"[server] Failed to send training info to {addr}: {e}")
         # read loop
         try:
             while True:

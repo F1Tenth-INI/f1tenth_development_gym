@@ -23,6 +23,8 @@ class _TCPActorClient:
         self._latest_state_dict: Optional[dict] = None
         self._latest_model_sync_lock = threading.Lock()
         self._latest_model_sync: Optional[dict] = None
+        self._latest_training_info_lock = threading.Lock()
+        self._latest_training_info: Optional[dict] = None
         self._stop_evt = threading.Event()
 
     # --- public API ---
@@ -101,6 +103,12 @@ class _TCPActorClient:
             self._latest_model_sync = None
             return payload
 
+    def pop_latest_training_info(self) -> Optional[dict]:
+        with self._latest_training_info_lock:
+            payload = self._latest_training_info
+            self._latest_training_info = None
+            return payload
+
     # --- internals ---
     def _run_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
@@ -170,6 +178,11 @@ class _TCPActorClient:
             payload = msg.get("data", {})
             if isinstance(payload, dict):
                 self._maybe_mirror_model_folder(payload)
+        elif typ == "training_info":
+            payload = msg.get("data", {})
+            if isinstance(payload, dict):
+                with self._latest_training_info_lock:
+                    self._latest_training_info = payload
         # ignore others
 
     def _maybe_mirror_model_folder(self, payload: dict) -> None:

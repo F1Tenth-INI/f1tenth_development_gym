@@ -85,6 +85,7 @@ class RLAgentPlanner(template_planner):
         self.observation_builder_fn: Optional[Callable[[Dict[str, np.ndarray], Any], np.ndarray]] = None
         self.model: Optional[SAC] = None
         self.client: Optional[_TCPActorClient] = None
+        self.latest_training_info: Optional[Dict[str, Any]] = None
 
         # --- networking ---
 
@@ -392,10 +393,20 @@ class RLAgentPlanner(template_planner):
 
         sd_to_load = self.client.pop_latest_state_dict()
         model_sync = self.client.pop_latest_model_sync()
+        training_info = self.client.pop_latest_training_info()
         if isinstance(model_sync, dict):
             local_client_dir = model_sync.get("local_client_dir")
             if isinstance(local_client_dir, str):
                 self._load_observation_builder(local_client_dir)
+        if isinstance(training_info, dict):
+            self.latest_training_info = training_info
+            if Settings.SAC_AGENT_DEBUG:
+                current_udt = (
+                    training_info.get("metrics", {}).get("current_udt")
+                    if isinstance(training_info.get("metrics"), dict)
+                    else None
+                )
+                print(f"[RLAgentPlanner] Received training_info: current_udt={current_udt}")
         return sd_to_load
 
     def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:

@@ -218,7 +218,8 @@ class Settings():
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
-    
+    SAC_TARGET_UDT = None  # optional metadata target (not used for runtime control)
+
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
     SAC_STAT_TRACKER = False
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
