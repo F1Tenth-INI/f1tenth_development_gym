@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -28,6 +29,7 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "
 sys.path.insert(0, root_dir)
 
 from TrainingLite.rl_racing.scripts.run_sweep_experiments import SweepExperimentRunner
+from utilities.Settings import Settings
 
 
 class CheckpointSelector:
@@ -115,21 +117,26 @@ class CheckpointSelector:
             return final_path
         return None
 
-    def _build_eval_alias(self, model_name: str, artifact_path: Path, artifact_label: str) -> Tuple[str, Path]:
-        """Create temporary model alias folder so existing loader can open a candidate artifact."""
+    def _build_eval_alias(self, model_name: str) -> Tuple[str, Path, Path]:
+        """Create/reuse one temporary model alias folder for a model's candidate evaluations."""
         safe_model = re.sub(r"[^A-Za-z0-9_\-]", "_", model_name)[:24]
         # Keep temp alias short to avoid MAX_PATH failures on Windows.
-        fingerprint = hashlib.sha1(str(artifact_path).encode("utf-8")).hexdigest()[:10]
+        # Stable per model so we can reuse it across all candidate checkpoints.
+        fingerprint = hashlib.sha1(model_name.encode("utf-8")).hexdigest()[:10]
         eval_model_name = f"eval_{safe_model}_{fingerprint}"
+        # Must live under models/<name>/<name>.zip because SacUtilities.resolve_model_paths
+        # always resolves inference artifacts from that layout.
         eval_model_dir = self.models_dir / eval_model_name
-
-        if eval_model_dir.exists():
-            shutil.rmtree(eval_model_dir)
         eval_model_dir.mkdir(parents=True, exist_ok=True)
-
         eval_zip = eval_model_dir / f"{eval_model_name}.zip"
-        shutil.copy2(artifact_path, eval_zip)
-        return eval_model_name, eval_model_dir
+        return eval_model_name, eval_model_dir, eval_zip
+
+    @staticmethod
+    def _stage_candidate_artifact(candidate_path: Path, eval_zip: Path) -> None:
+        """Swap the staged candidate artifact used by the shared evaluation alias."""
+        if eval_zip.exists():
+            eval_zip.unlink()
+        shutil.copy2(candidate_path, eval_zip)
 
     @staticmethod
     def _mean(values: List[float]) -> Optional[float]:
@@ -315,36 +322,59 @@ class CheckpointSelector:
         print(f"{'=' * 80}")
 
         aggregated_rows: List[Dict] = []
+        all_run_durations: List[float] = []
+        eval_model_name, eval_model_dir, eval_zip = self._build_eval_alias(model_name)
 
-        for idx, (candidate_name, candidate_type, candidate_path) in enumerate(candidates, 1):
-            print(f"[{idx}/{len(candidates)}] Evaluating {candidate_name} ({candidate_type})")
-            eval_model_name, eval_model_dir = self._build_eval_alias(model_name, candidate_path, candidate_name)
+        try:
+            for idx, (candidate_name, candidate_type, candidate_path) in enumerate(candidates, 1):
+                print(f"[{idx}/{len(candidates)}] Evaluating {candidate_name} ({candidate_type})")
+                self._stage_candidate_artifact(candidate_path, eval_zip)
 
-            runs: List[Dict] = []
-            try:
+                runs: List[Dict] = []
                 for run_idx in range(self.repeats):
                     print(f"  run {run_idx + 1}/{self.repeats}", end="", flush=True)
+                    run_start = time.perf_counter()
                     result = self.runner.run_experiment_on_model(eval_model_name)
+                    run_duration = time.perf_counter() - run_start
+                    all_run_durations.append(run_duration)
+                    print(f" [{run_duration:.2f}s]", end="", flush=True)
                     runs.append(result)
                 print()
-            finally:
-                if not self.keep_eval_models and eval_model_dir.exists():
-                    shutil.rmtree(eval_model_dir)
 
-            aggregated = self._aggregate_candidate_runs(
-                model_name=model_name,
-                candidate_name=candidate_name,
-                candidate_type=candidate_type,
-                candidate_path=candidate_path,
-                runs=runs,
-            )
-            aggregated_rows.append(aggregated)
+                aggregated = self._aggregate_candidate_runs(
+                    model_name=model_name,
+                    candidate_name=candidate_name,
+                    candidate_type=candidate_type,
+                    candidate_path=candidate_path,
+                    runs=runs,
+                )
+                aggregated_rows.append(aggregated)
 
-            lap_time_text = f"{aggregated['avg_lap_time']:.4f}s" if aggregated["avg_lap_time"] is not None else "N/A"
+                lap_time_text = f"{aggregated['avg_lap_time']:.4f}s" if aggregated["avg_lap_time"] is not None else "N/A"
+                print(
+                    f"  -> completed_runs={aggregated['num_completed_runs']}/{aggregated['num_runs']}, "
+                    f"lap_runs={aggregated['num_lap_runs']}/{aggregated['num_runs']}, avg_lap_time={lap_time_text}"
+                )
+        finally:
+            if not self.keep_eval_models and eval_model_dir.exists():
+                shutil.rmtree(eval_model_dir)
+
+        if all_run_durations:
+            avg_run_time = sum(all_run_durations) / len(all_run_durations)
             print(
-                f"  -> completed_runs={aggregated['num_completed_runs']}/{aggregated['num_runs']}, "
-                f"lap_runs={aggregated['num_lap_runs']}/{aggregated['num_runs']}, avg_lap_time={lap_time_text}"
+                f"Timing summary ({model_name}): runs={len(all_run_durations)}, "
+                f"avg={avg_run_time:.2f}s, min={min(all_run_durations):.2f}s, max={max(all_run_durations):.2f}s"
             )
+
+            trend_window = min(10, len(all_run_durations) // 2)
+            if trend_window >= 1:
+                first_avg = sum(all_run_durations[:trend_window]) / trend_window
+                last_avg = sum(all_run_durations[-trend_window:]) / trend_window
+                delta = last_avg - first_avg
+                print(
+                    f"Timing trend ({model_name}): first_{trend_window}_avg={first_avg:.2f}s, "
+                    f"last_{trend_window}_avg={last_avg:.2f}s, delta={delta:+.2f}s"
+                )
 
         best_row = max(aggregated_rows, key=self._ranking_key)
         best_checkpoint_path = Path(best_row["candidate_path"])
@@ -373,103 +403,89 @@ class CheckpointSelector:
 
     def run(self, model_name: Optional[str], model_prefix: Optional[str]) -> None:
         """Execute checkpoint selection for the requested models."""
-        models = self.find_models(model_name=model_name, model_prefix=model_prefix)
-        if not models:
-            target = model_name if model_name else model_prefix
-            print(f"No matching model directories found for: {target}")
-            return
+        # This workload repeatedly constructs CarSystem/WaypointUtils during evaluation.
+        # Disable background waypoint reload threads for this script run to avoid
+        # thread creation overhead accumulating over long checkpoint batches.
+        previous_reload_setting = Settings.RELOAD_WP_IN_BACKGROUND
+        Settings.RELOAD_WP_IN_BACKGROUND = False
 
-        if model_prefix:
-            batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_prefix)
-        elif model_name:
-            batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_name)
-        else:
-            batch_tag = "selection"
+        try:
+            models = self.find_models(model_name=model_name, model_prefix=model_prefix)
+            if not models:
+                target = model_name if model_name else model_prefix
+                print(f"No matching model directories found for: {target}")
+                return
 
-        run_results_dir = self.results_dir / batch_tag
-        run_results_dir.mkdir(parents=True, exist_ok=True)
-        self.results_dir = run_results_dir
-
-        print(f"Target models: {len(models)}")
-        print(f"Batch tag: {batch_tag}")
-        print(f"Results directory: {self.results_dir}")
-        all_summaries: List[Dict] = []
-
-        for model in models:
-            summary = self.evaluate_model(model, model_prefix)
-            if summary is not None:
-                all_summaries.append(summary)
-
-        if not all_summaries:
-            print("No models were processed successfully.")
-            return
-
-        overall_csv = self.results_dir / f"checkpoint_eval_overall_summary_{batch_tag}.csv"
-        with open(overall_csv, "w", newline="", encoding="utf-8") as f:
-            fieldnames = [
-                "model_name",
-                "best_candidate_name",
-                "best_candidate_type",
-                "best_checkpoint_path",
-                "best_model_name",
-                "best_model_path",
-                "report_csv",
-                "report_txt",
-            ]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in all_summaries:
-                writer.writerow({k: row.get(k, "") for k in fieldnames})
-
-        # Global best across all models and all evaluated candidates (final + checkpoints).
-        global_candidates: List[Dict] = []
-        for summary in all_summaries:
-            for row in summary.get("evaluated_rows", []):
-                global_candidates.append(dict(row))
-
-        if global_candidates:
-            global_best = max(global_candidates, key=self._ranking_key)
-            top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:30]
-            global_best_model = str(global_best["model_name"])
-            global_best_source = Path(global_best["candidate_path"])
-            global_txt = self.results_dir / f"checkpoint_eval_batch_best_{batch_tag}.txt"
-            global_best_target = (
-                self.models_dir
-                / global_best_model
-                / f"{global_best_model}{self.best_suffix}_batch_{batch_tag}.zip"
-            )
-
-            if global_best_target.exists() and self.no_overwrite_best:
-                print(f"[INFO] Skipping global best promotion (already exists): {global_best_target.name}")
+            if model_prefix:
+                batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_prefix)
+            elif model_name:
+                batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", model_name)
             else:
-                shutil.copy2(global_best_source, global_best_target)
+                batch_tag = "selection"
 
-            with open(global_txt, "w", encoding="utf-8") as f:
-                f.write("BATCH BEST CANDIDATE (THIS SCRIPT RUN ONLY)\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"batch_tag: {batch_tag}\n")
-                for key in [
+            run_results_dir = self.results_dir / batch_tag
+            run_results_dir.mkdir(parents=True, exist_ok=True)
+            self.results_dir = run_results_dir
+
+            print(f"Target models: {len(models)}")
+            print(f"Batch tag: {batch_tag}")
+            print(f"Results directory: {self.results_dir}")
+            print("Waypoint background reload: disabled for this run")
+            all_summaries: List[Dict] = []
+
+            for model in models:
+                summary = self.evaluate_model(model, model_prefix)
+                if summary is not None:
+                    all_summaries.append(summary)
+
+            if not all_summaries:
+                print("No models were processed successfully.")
+                return
+
+            overall_csv = self.results_dir / f"checkpoint_eval_overall_summary_{batch_tag}.csv"
+            with open(overall_csv, "w", newline="", encoding="utf-8") as f:
+                fieldnames = [
                     "model_name",
-                    "candidate_name",
-                    "candidate_type",
-                    "candidate_path",
-                    "num_runs",
-                    "num_completed_runs",
-                    "num_lap_runs",
-                    "lap_completion_rate",
-                    "avg_laps_completed",
-                    "avg_lap_time",
-                    "avg_speed",
-                    "avg_reward",
-                    "avg_num_crashes",
-                ]:
-                    f.write(f"{key}: {global_best.get(key)}\n")
-                f.write(f"promoted_global_artifact: {global_best_target}\n\n")
+                    "best_candidate_name",
+                    "best_candidate_type",
+                    "best_checkpoint_path",
+                    "best_model_name",
+                    "best_model_path",
+                    "report_csv",
+                    "report_txt",
+                ]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in all_summaries:
+                    writer.writerow({k: row.get(k, "") for k in fieldnames})
 
-                f.write("TOP 30 CANDIDATES (RANKED)\n")
-                f.write("-" * 80 + "\n")
-                for rank, candidate in enumerate(top_candidates, 1):
-                    f.write(f"rank: {rank}\n")
+            # Global best across all models and all evaluated candidates (final + checkpoints).
+            global_candidates: List[Dict] = []
+            for summary in all_summaries:
+                for row in summary.get("evaluated_rows", []):
+                    global_candidates.append(dict(row))
+
+            if global_candidates:
+                global_best = max(global_candidates, key=self._ranking_key)
+                top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:30]
+                global_best_model = str(global_best["model_name"])
+                global_best_source = Path(global_best["candidate_path"])
+                global_txt = self.results_dir / f"checkpoint_eval_batch_best_{batch_tag}.txt"
+                global_best_target = (
+                    self.models_dir
+                    / global_best_model
+                    / f"{global_best_model}{self.best_suffix}_batch_{batch_tag}.zip"
+                )
+
+                if global_best_target.exists() and self.no_overwrite_best:
+                    print(f"[INFO] Skipping global best promotion (already exists): {global_best_target.name}")
+                else:
+                    shutil.copy2(global_best_source, global_best_target)
+
+                with open(global_txt, "w", encoding="utf-8") as f:
+                    f.write("BATCH BEST CANDIDATE (THIS SCRIPT RUN ONLY)\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"batch_tag: {batch_tag}\n")
                     for key in [
                         "model_name",
                         "candidate_name",
@@ -485,17 +501,41 @@ class CheckpointSelector:
                         "avg_reward",
                         "avg_num_crashes",
                     ]:
-                        f.write(f"{key}: {candidate.get(key)}\n")
-                    f.write("\n")
+                        f.write(f"{key}: {global_best.get(key)}\n")
+                    f.write(f"promoted_global_artifact: {global_best_target}\n\n")
 
-            print(
-                f"\nGlobal best candidate: {global_best['candidate_name']} "
-                f"({global_best['candidate_type']}) from model {global_best_model}"
-            )
-            print(f"Global promoted artifact: {global_best_target}")
-            print(f"Global summary: {global_txt}")
+                    f.write("TOP 30 CANDIDATES (RANKED)\n")
+                    f.write("-" * 80 + "\n")
+                    for rank, candidate in enumerate(top_candidates, 1):
+                        f.write(f"rank: {rank}\n")
+                        for key in [
+                            "model_name",
+                            "candidate_name",
+                            "candidate_type",
+                            "candidate_path",
+                            "num_runs",
+                            "num_completed_runs",
+                            "num_lap_runs",
+                            "lap_completion_rate",
+                            "avg_laps_completed",
+                            "avg_lap_time",
+                            "avg_speed",
+                            "avg_reward",
+                            "avg_num_crashes",
+                        ]:
+                            f.write(f"{key}: {candidate.get(key)}\n")
+                        f.write("\n")
 
-        print(f"\nOverall summary saved to: {overall_csv}")
+                print(
+                    f"\nGlobal best candidate: {global_best['candidate_name']} "
+                    f"({global_best['candidate_type']}) from model {global_best_model}"
+                )
+                print(f"Global promoted artifact: {global_best_target}")
+                print(f"Global summary: {global_txt}")
+
+            print(f"\nOverall summary saved to: {overall_csv}")
+        finally:
+            Settings.RELOAD_WP_IN_BACKGROUND = previous_reload_setting
 
 
 def main() -> None:
