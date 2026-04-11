@@ -19,6 +19,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
+    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -215,6 +216,7 @@ class Settings():
 
     SAC_CURRICULUM_DEBUG = True
 
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
     SAC_STAT_TRACKER = True
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
