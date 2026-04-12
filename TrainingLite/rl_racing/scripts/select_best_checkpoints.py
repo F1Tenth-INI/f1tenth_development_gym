@@ -209,6 +209,24 @@ class CheckpointSelector:
             -(avg_num_crashes if avg_num_crashes is not None else float("inf")),
         )
 
+    @staticmethod
+    def _to_int(value: Optional[str], default: int = 0) -> int:
+        if value is None or value == "":
+            return default
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_float(value: Optional[str], default: Optional[float] = None) -> Optional[float]:
+        if value is None or value == "":
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     def _promote_best_checkpoint(self, model_name: str, best_checkpoint_path: Path) -> Optional[Path]:
         """Copy best candidate into the original model directory as a dedicated best artifact."""
         model_dir = self.models_dir / model_name
@@ -537,11 +555,150 @@ class CheckpointSelector:
         finally:
             Settings.RELOAD_WP_IN_BACKGROUND = previous_reload_setting
 
+    def rebuild_batch_best_from_results(
+        self,
+        batch_tag: str,
+        promote_global_artifact: bool = False,
+    ) -> None:
+        """Rebuild batch-best summary from existing per-model CSV results."""
+        batch_results_dir = self.results_dir / batch_tag
+        if not batch_results_dir.is_dir():
+            raise FileNotFoundError(f"Batch results directory not found: {batch_results_dir}")
+
+        csv_files = sorted(batch_results_dir.glob("checkpoint_eval_*.csv"))
+        csv_files = [
+            p for p in csv_files
+            if not p.name.startswith("checkpoint_eval_overall_summary_")
+        ]
+
+        if not csv_files:
+            print(f"No per-model checkpoint CSV files found in: {batch_results_dir}")
+            return
+
+        global_candidates: List[Dict] = []
+        for csv_file in csv_files:
+            with open(csv_file, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    candidate = {
+                        "model_name": row.get("model_name", ""),
+                        "candidate_name": row.get("candidate_name", ""),
+                        "candidate_type": row.get("candidate_type", ""),
+                        "candidate_path": row.get("candidate_path", ""),
+                        "num_runs": self._to_int(row.get("num_runs"), 0),
+                        "num_completed_runs": self._to_int(row.get("num_completed_runs"), 0),
+                        "num_lap_runs": self._to_int(row.get("num_lap_runs"), 0),
+                        "success_rate": self._to_float(row.get("success_rate"), 0.0),
+                        "lap_completion_rate": self._to_float(row.get("lap_completion_rate"), 0.0),
+                        "avg_laps_completed": self._to_float(row.get("avg_laps_completed"), None),
+                        "avg_lap_time": self._to_float(row.get("avg_lap_time"), None),
+                        "avg_speed": self._to_float(row.get("avg_speed"), None),
+                        "avg_reward": self._to_float(row.get("avg_reward"), None),
+                        "avg_num_crashes": self._to_float(row.get("avg_num_crashes"), None),
+                    }
+                    if candidate["candidate_name"]:
+                        global_candidates.append(candidate)
+
+        if not global_candidates:
+            print(f"No candidate rows found in CSV files under: {batch_results_dir}")
+            return
+
+        global_best = max(global_candidates, key=self._ranking_key)
+        top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:30]
+        global_best_model = str(global_best["model_name"])
+        global_best_source = Path(str(global_best["candidate_path"]))
+        global_txt = batch_results_dir / f"checkpoint_eval_batch_best_{batch_tag}.txt"
+        global_best_target = (
+            self.models_dir
+            / global_best_model
+            / f"{global_best_model}{self.best_suffix}_batch_{batch_tag}.zip"
+        )
+
+        promoted_path: Optional[Path] = None
+        if promote_global_artifact:
+            if global_best_target.exists() and self.no_overwrite_best:
+                print(f"[INFO] Skipping global best promotion (already exists): {global_best_target.name}")
+            elif not global_best_source.is_file():
+                print(f"[WARN] Global best source artifact not found, skipping copy: {global_best_source}")
+            else:
+                global_best_target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(global_best_source, global_best_target)
+                promoted_path = global_best_target
+
+        with open(global_txt, "w", encoding="utf-8") as f:
+            f.write("BATCH BEST CANDIDATE (REBUILT FROM EXISTING CSV RESULTS)\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"batch_tag: {batch_tag}\n")
+            for key in [
+                "model_name",
+                "candidate_name",
+                "candidate_type",
+                "candidate_path",
+                "num_runs",
+                "num_completed_runs",
+                "num_lap_runs",
+                "lap_completion_rate",
+                "avg_laps_completed",
+                "avg_lap_time",
+                "avg_speed",
+                "avg_reward",
+                "avg_num_crashes",
+            ]:
+                f.write(f"{key}: {global_best.get(key)}\n")
+            if promoted_path is not None:
+                f.write(f"promoted_global_artifact: {promoted_path}\n\n")
+            else:
+                f.write("promoted_global_artifact: (not promoted in rebuild mode)\n\n")
+
+            f.write("TOP 30 CANDIDATES (RANKED)\n")
+            f.write("-" * 80 + "\n")
+            for rank, candidate in enumerate(top_candidates, 1):
+                f.write(f"rank: {rank}\n")
+                for key in [
+                    "model_name",
+                    "candidate_name",
+                    "candidate_type",
+                    "candidate_path",
+                    "num_runs",
+                    "num_completed_runs",
+                    "num_lap_runs",
+                    "lap_completion_rate",
+                    "avg_laps_completed",
+                    "avg_lap_time",
+                    "avg_speed",
+                    "avg_reward",
+                    "avg_num_crashes",
+                ]:
+                    f.write(f"{key}: {candidate.get(key)}\n")
+                f.write("\n")
+
+        print(f"Rebuilt batch-best summary: {global_txt}")
+        if promoted_path is not None:
+            print(f"Promoted global artifact: {promoted_path}")
+        print(
+            f"Global best candidate: {global_best['candidate_name']} "
+            f"({global_best['candidate_type']}) from model {global_best_model}"
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate checkpoints and promote best model")
     parser.add_argument("--model-name", help="Exact model directory name to process")
     parser.add_argument("--model-prefix", help="Process all model directories with this prefix")
+    parser.add_argument(
+        "--rebuild-batch-best-from-results",
+        action="store_true",
+        help="Rebuild batch-best summary from existing per-model CSV files",
+    )
+    parser.add_argument(
+        "--batch-tag",
+        help="Batch tag (results subfolder name) used for rebuild mode",
+    )
+    parser.add_argument(
+        "--promote-global-artifact",
+        action="store_true",
+        help="In rebuild mode, also copy the global best source artifact into the model folder",
+    )
     parser.add_argument(
         "--max-length",
         type=int,
@@ -582,9 +739,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if not args.model_name and not args.model_prefix:
-        parser.error("Provide either --model-name or --model-prefix")
-
     selector = CheckpointSelector(
         max_length=args.max_length,
         repeats=args.repeats,
@@ -594,6 +748,27 @@ def main() -> None:
         no_overwrite_best=args.no_overwrite_best,
         keep_eval_models=args.keep_eval_models,
     )
+
+    if args.rebuild_batch_best_from_results:
+        inferred_batch_tag = args.batch_tag
+        if not inferred_batch_tag:
+            if args.model_prefix:
+                inferred_batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", args.model_prefix)
+            elif args.model_name:
+                inferred_batch_tag = re.sub(r"[^A-Za-z0-9_\-]", "_", args.model_name)
+
+        if not inferred_batch_tag:
+            parser.error("Provide --batch-tag (or --model-prefix/--model-name) for rebuild mode")
+
+        selector.rebuild_batch_best_from_results(
+            batch_tag=inferred_batch_tag,
+            promote_global_artifact=args.promote_global_artifact,
+        )
+        return
+
+    if not args.model_name and not args.model_prefix:
+        parser.error("Provide either --model-name or --model-prefix")
+
     selector.run(model_name=args.model_name, model_prefix=args.model_prefix)
 
 

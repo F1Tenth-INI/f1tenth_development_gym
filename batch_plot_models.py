@@ -51,12 +51,8 @@ from plot_sample_frequency import (
 import pandas as pd
 import numpy as np
 
-from stable_baselines3 import SAC
-from stable_baselines3.common.env_util import DummyVecEnv
-from TrainingLite.rl_racing.sac_utilities import SacUtilities
 
-
-def compute_global_stats(csv_paths, min_possible_samples_percentile=5):
+def compute_global_stats(csv_paths, min_possible_samples_percentile=5, stat_log_start_fraction=0.0):
     """
     Load multiple CSVs and compute global statistics for consistent scaling.
     
@@ -92,6 +88,8 @@ def compute_global_stats(csv_paths, min_possible_samples_percentile=5):
     saw_pose = False
     
     print(f"  Applying {min_possible_samples_percentile}% possible_samples filtering to global stats...")
+    if stat_log_start_fraction > 0.0:
+        print(f"  Using tail of stat_logs with start fraction: {stat_log_start_fraction:.2f}")
     
     for csv_path in csv_paths:
         try:
@@ -106,6 +104,15 @@ def compute_global_stats(csv_paths, min_possible_samples_percentile=5):
                     'sample_calls_at_death',
                 },
             )
+            loaded_count = len(df_raw)
+            if stat_log_start_fraction > 0.0 and loaded_count > 0:
+                start_idx = int(loaded_count * stat_log_start_fraction)
+                df_raw = df_raw.iloc[start_idx:].copy()
+                print(
+                    f"    {csv_path.name}: using rows {start_idx}:{loaded_count} "
+                    f"-> {len(df_raw)} transitions"
+                )
+
             before_count = len(df_raw)
             
             # Apply same filtering as compute_sample_frequency to match plotted data
@@ -204,10 +211,15 @@ class BatchPlotter:
         prefix: str,
         map_name: str = 'RCA1',
         output_base_dir: str = None,
+        plot_base_metrics: bool = True,
         plot_critic_output: bool = False,
         plot_td_error: bool = False,
         plot_td_improvement: bool = False,
         td_sample_stride: int = 5,
+        plot_td_extremes: bool = False,
+        td_extreme_percent: float = 2.0,
+        td_extremes_only: bool = False,
+        stat_log_start_fraction: float = 0.0,
     ):
         """
         Initialize batch plotter.
@@ -216,18 +228,31 @@ class BatchPlotter:
             prefix: Model name prefix to filter (e.g., "2602")
             map_name: Map name for spatial heatmap
             output_base_dir: Base directory for organized outputs
+            plot_base_metrics: Whether to generate distribution/spatial/reward maps
             plot_critic_output: Whether to plot critic output
             plot_td_error: Whether to plot TD-error spatial heatmap
             plot_td_improvement: Whether to plot TD-error improvement heatmap
             td_sample_stride: Plot every Nth transition for TD-related maps
+            plot_td_extremes: Whether to add maps for top/bottom TD extremes only
+            td_extreme_percent: Percentile used for top and bottom TD extremes
+            td_extremes_only: If True, skip normal TD maps and write only extremes maps
+            stat_log_start_fraction: Keep only rows from this fraction to end (0.5 => second half)
         """
+
+        if not (0.0 <= float(stat_log_start_fraction) < 1.0):
+            raise ValueError("stat_log_start_fraction must be in [0.0, 1.0)")
 
         self.prefix = prefix
         self.map_name = map_name
+        self.plot_base_metrics = plot_base_metrics
         self.plot_critic_output = plot_critic_output
         self.plot_td_error = plot_td_error
         self.plot_td_improvement = plot_td_improvement
         self.td_sample_stride = max(1, int(td_sample_stride))
+        self.plot_td_extremes = plot_td_extremes
+        self.td_extreme_percent = float(np.clip(td_extreme_percent, 0.0, 49.9))
+        self.td_extremes_only = td_extremes_only
+        self.stat_log_start_fraction = float(stat_log_start_fraction)
         
         self.models_dir = Path(root_dir) / "TrainingLite" / "rl_racing" / "models"
         
@@ -251,6 +276,26 @@ class BatchPlotter:
         print(f"  Spatial heatmaps:   {self.heatmap_dir}")
         print(f"  Reward heatmaps:    {self.reward_dir}")
         print(f"  TD sample stride:   {self.td_sample_stride}")
+        if self.stat_log_start_fraction > 0.0:
+            print(f"  Stat log segment:   rows [{self.stat_log_start_fraction:.2f}, 1.00)")
+        if self.plot_td_extremes:
+            print(f"  TD extremes:        bottom/top {self.td_extreme_percent:.2f}%")
+        if self.td_extremes_only:
+            print("  TD mode:            extremes-only")
+
+    def _slice_stat_log_frame(self, df: pd.DataFrame, csv_path: Path) -> pd.DataFrame:
+        """Keep only the tail of a stat_log dataframe based on configured start fraction."""
+        if self.stat_log_start_fraction <= 0.0 or len(df) == 0:
+            return df
+
+        total = len(df)
+        start_idx = int(total * self.stat_log_start_fraction)
+        df_sliced = df.iloc[start_idx:].copy()
+        print(
+            f"  Applying stat_log_start_fraction={self.stat_log_start_fraction:.2f} "
+            f"to {csv_path.name}: rows {start_idx}:{total} -> {len(df_sliced)} transitions"
+        )
+        return df_sliced
 
     def _resolve_td_error_series(self, df: pd.DataFrame):
         """Resolve TD-error and improvement series from available stat tracker columns."""
@@ -395,6 +440,90 @@ class BatchPlotter:
         elapsed = time.perf_counter() - start_time
         print(f"    [timing] {label}: {elapsed:.2f}s")
 
+    def _select_td_extremes(self, df: pd.DataFrame, value_column: str) -> pd.DataFrame:
+        """Keep TD extreme rows for the specified value.
+
+        In regular mode this keeps bottom+top tails.
+        In td-extremes-only mode this keeps only the top tail.
+        """
+        if self.td_extreme_percent <= 0:
+            return df.iloc[0:0].copy()
+
+        values = pd.to_numeric(df[value_column], errors='coerce').dropna()
+        if len(values) == 0:
+            return df.iloc[0:0].copy()
+
+        high_cut = np.percentile(values.to_numpy(), 100.0 - self.td_extreme_percent)
+        if self.td_extremes_only:
+            mask = df[value_column] >= high_cut
+        else:
+            low_cut = np.percentile(values.to_numpy(), self.td_extreme_percent)
+            mask = (df[value_column] <= low_cut) | (df[value_column] >= high_cut)
+        return df.loc[mask].copy()
+
+    def _plot_td_extremes_maps(
+        self,
+        model_name: str,
+        img_array,
+        df_with_pos: pd.DataFrame,
+        value_column: str,
+        label: str,
+        prefix: str,
+    ) -> None:
+        """Plot maps containing only bottom/top TD extremes."""
+        extremes_df = self._select_td_extremes(df_with_pos, value_column)
+        if len(extremes_df) == 0:
+            print(f"  ⊘ No TD extremes found for {prefix}")
+            return
+
+        tail_label = (
+            f"top {self.td_extreme_percent:.1f}%"
+            if self.td_extremes_only
+            else f"bottom/top {self.td_extreme_percent:.1f}%"
+        )
+
+        extremes_dir = self.output_base_dir / "10_td_error_extremes"
+        extremes_dir.mkdir(exist_ok=True, parents=True)
+
+        signed_path = extremes_dir / f"{model_name}_{prefix}_extremes_signed.png"
+        abs_path = extremes_dir / f"{model_name}_{prefix}_extremes_abs.png"
+        print(f"  TD extremes rows ({prefix}): {len(extremes_df)}")
+
+        try:
+            start_time = time.perf_counter()
+            plot_value_heatmap(
+                extremes_df,
+                img_array,
+                self.map_name,
+                value_column,
+                f"{label} extremes ({tail_label})",
+                save_path=str(signed_path),
+            )
+            plt.close('all')
+            print(f"  ✓ Saved TD extremes map: {signed_path.name}")
+            self._print_timing(f"TD extremes map ({prefix}, signed)", start_time)
+        except Exception as e:
+            print(f"  ✗ Failed to create TD extremes signed map ({prefix}): {e}")
+
+        try:
+            start_time = time.perf_counter()
+            extremes_abs = extremes_df.copy()
+            abs_col = f"{value_column}_abs"
+            extremes_abs[abs_col] = np.abs(extremes_abs[value_column])
+            plot_value_heatmap(
+                extremes_abs,
+                img_array,
+                self.map_name,
+                abs_col,
+                f"|{label}| extremes ({tail_label})",
+                save_path=str(abs_path),
+            )
+            plt.close('all')
+            print(f"  ✓ Saved TD extremes |value| map: {abs_path.name}")
+            self._print_timing(f"TD extremes map ({prefix}, abs)", start_time)
+        except Exception as e:
+            print(f"  ✗ Failed to create TD extremes |value| map ({prefix}): {e}")
+
     def create_td_error_spatial_plot(self, model_name: str):
         """Generate spatial heatmap of TD error using logged stat tracker values."""
         print(f"\n{'='*80}")
@@ -405,6 +534,10 @@ class BatchPlotter:
 
         try:
             df = pd.read_csv(csv_path)
+            df = self._slice_stat_log_frame(df, csv_path)
+            if len(df) == 0:
+                print("  ⊘ No transitions left after stat_log slicing")
+                return
         except Exception as e:
             print(f"  ✗ Failed to load CSV for TD-error heatmap: {e}")
             return
@@ -440,70 +573,76 @@ class BatchPlotter:
             print(f"  Downsampled by stride: every {self.td_sample_stride}th transition")
 
         try:
-            start_time = time.perf_counter()
             img_array, config = load_map_image(self.map_name)
-
-            if 'pixel_x' not in df_with_pos.columns:
-                origin = config['origin']
-                resolution = config['resolution']
-                pixel_coords = []
-                for _, row in df_with_pos.iterrows():
-                    px, py = world_to_pixel(row['pose_x'], row['pose_y'], origin, resolution)
-                    pixel_coords.append((px, py))
-                df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
-                df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
-
-            plot_value_heatmap(
-                df_with_pos,
-                img_array,
-                self.map_name,
-                'td_error_for_plot',
-                f'TD Error ({td_source})',
-                save_path=str(png_out),
-                robust_percentiles=(2, 98),
-            )
-            plt.close('all')
-            print(f"  ✓ Saved TD-error heatmap: {png_out.name}")
-            self._print_timing("TD-error heatmap", start_time)
         except Exception as e:
-            print(f"  ✗ Failed to create TD-error heatmap: {e}")
+            print(f"  ✗ Failed to load map image: {e}")
+            return
 
-        try:
-            start_time = time.perf_counter()
-            plot_value_heatmap(
-                df_with_pos,
-                img_array,
-                self.map_name,
-                'td_error_for_plot',
-                f'TD Error ({td_source}) RAW',
-                save_path=str(png_out_raw)
-            )
-            plt.close('all')
-            print(f"  ✓ Saved RAW TD-error heatmap: {png_out_raw.name}")
-            self._print_timing("TD-error heatmap raw", start_time)
-        except Exception as e:
-            print(f"  ✗ Failed to create RAW TD-error heatmap: {e}")
+        if 'pixel_x' not in df_with_pos.columns:
+            origin = config['origin']
+            resolution = config['resolution']
+            pixel_coords = []
+            for _, row in df_with_pos.iterrows():
+                px, py = world_to_pixel(row['pose_x'], row['pose_y'], origin, resolution)
+                pixel_coords.append((px, py))
+            df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
+            df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
 
-        try:
-            start_time = time.perf_counter()
-            df_with_pos_log = df_with_pos.copy()
-            df_with_pos_log['td_error_for_plot_log'] = self._signed_log1p(df_with_pos_log['td_error_for_plot'])
-            tick_values, tick_labels = self._build_log_colorbar_ticks(df_with_pos_log['td_error_for_plot'])
-            plot_value_heatmap(
-                df_with_pos_log,
-                img_array,
-                self.map_name,
-                'td_error_for_plot_log',
-                f'TD Error ({td_source}) [signed log1p color scale, ticks=real TD]',
-                save_path=str(png_out_log),
-                colorbar_tick_values=tick_values,
-                colorbar_tick_labels=tick_labels,
-            )
-            plt.close('all')
-            print(f"  ✓ Saved LOG TD-error heatmap: {png_out_log.name}")
-            self._print_timing("TD-error heatmap log", start_time)
-        except Exception as e:
-            print(f"  ✗ Failed to create LOG TD-error heatmap: {e}")
+        if not self.td_extremes_only:
+            try:
+                start_time = time.perf_counter()
+
+                plot_value_heatmap(
+                    df_with_pos,
+                    img_array,
+                    self.map_name,
+                    'td_error_for_plot',
+                    f'TD Error ({td_source})',
+                    save_path=str(png_out),
+                    robust_percentiles=(2, 98),
+                )
+                plt.close('all')
+                print(f"  ✓ Saved TD-error heatmap: {png_out.name}")
+                self._print_timing("TD-error heatmap", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create TD-error heatmap: {e}")
+
+            try:
+                start_time = time.perf_counter()
+                plot_value_heatmap(
+                    df_with_pos,
+                    img_array,
+                    self.map_name,
+                    'td_error_for_plot',
+                    f'TD Error ({td_source}) RAW',
+                    save_path=str(png_out_raw)
+                )
+                plt.close('all')
+                print(f"  ✓ Saved RAW TD-error heatmap: {png_out_raw.name}")
+                self._print_timing("TD-error heatmap raw", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create RAW TD-error heatmap: {e}")
+
+            try:
+                start_time = time.perf_counter()
+                df_with_pos_log = df_with_pos.copy()
+                df_with_pos_log['td_error_for_plot_log'] = self._signed_log1p(df_with_pos_log['td_error_for_plot'])
+                tick_values, tick_labels = self._build_log_colorbar_ticks(df_with_pos_log['td_error_for_plot'])
+                plot_value_heatmap(
+                    df_with_pos_log,
+                    img_array,
+                    self.map_name,
+                    'td_error_for_plot_log',
+                    f'TD Error ({td_source}) [signed log1p color scale, ticks=real TD]',
+                    save_path=str(png_out_log),
+                    colorbar_tick_values=tick_values,
+                    colorbar_tick_labels=tick_labels,
+                )
+                plt.close('all')
+                print(f"  ✓ Saved LOG TD-error heatmap: {png_out_log.name}")
+                self._print_timing("TD-error heatmap log", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create LOG TD-error heatmap: {e}")
 
         # Dedicated average TD-error maps
         td_mean_series, td_mean_source = self._resolve_td_error_mean_series(df)
@@ -526,63 +665,84 @@ class BatchPlotter:
                 avg_png_raw = avg_td_dir / f"{model_name}_avg_td_error_spatial_heatmap_raw.png"
                 avg_png_log = avg_td_dir / f"{model_name}_avg_td_error_spatial_heatmap_log.png"
 
-                try:
-                    start_time = time.perf_counter()
-                    plot_value_heatmap(
-                        df_td_mean,
-                        img_array,
-                        self.map_name,
-                        'td_mean_for_plot',
-                        f'Average TD Error ({td_mean_source})',
-                        save_path=str(avg_png),
-                        robust_percentiles=(2, 98),
-                    )
-                    plt.close('all')
-                    print(f"  ✓ Saved average TD heatmap: {avg_png.name}")
-                    self._print_timing("average TD heatmap", start_time)
-                except Exception as e:
-                    print(f"  ✗ Failed to create average TD heatmap: {e}")
+                if not self.td_extremes_only:
+                    try:
+                        start_time = time.perf_counter()
+                        plot_value_heatmap(
+                            df_td_mean,
+                            img_array,
+                            self.map_name,
+                            'td_mean_for_plot',
+                            f'Average TD Error ({td_mean_source})',
+                            save_path=str(avg_png),
+                            robust_percentiles=(2, 98),
+                        )
+                        plt.close('all')
+                        print(f"  ✓ Saved average TD heatmap: {avg_png.name}")
+                        self._print_timing("average TD heatmap", start_time)
+                    except Exception as e:
+                        print(f"  ✗ Failed to create average TD heatmap: {e}")
 
-                try:
-                    start_time = time.perf_counter()
-                    plot_value_heatmap(
-                        df_td_mean,
-                        img_array,
-                        self.map_name,
-                        'td_mean_for_plot',
-                        f'Average TD Error ({td_mean_source}) RAW',
-                        save_path=str(avg_png_raw),
-                    )
-                    plt.close('all')
-                    print(f"  ✓ Saved RAW average TD heatmap: {avg_png_raw.name}")
-                    self._print_timing("average TD heatmap raw", start_time)
-                except Exception as e:
-                    print(f"  ✗ Failed to create RAW average TD heatmap: {e}")
+                    try:
+                        start_time = time.perf_counter()
+                        plot_value_heatmap(
+                            df_td_mean,
+                            img_array,
+                            self.map_name,
+                            'td_mean_for_plot',
+                            f'Average TD Error ({td_mean_source}) RAW',
+                            save_path=str(avg_png_raw),
+                        )
+                        plt.close('all')
+                        print(f"  ✓ Saved RAW average TD heatmap: {avg_png_raw.name}")
+                        self._print_timing("average TD heatmap raw", start_time)
+                    except Exception as e:
+                        print(f"  ✗ Failed to create RAW average TD heatmap: {e}")
 
-                try:
-                    start_time = time.perf_counter()
-                    df_td_mean_log = df_td_mean.copy()
-                    df_td_mean_log['td_mean_for_plot_log'] = self._signed_log1p(df_td_mean_log['td_mean_for_plot'])
-                    tick_values, tick_labels = self._build_log_colorbar_ticks(df_td_mean_log['td_mean_for_plot'])
-                    plot_value_heatmap(
-                        df_td_mean_log,
-                        img_array,
-                        self.map_name,
-                        'td_mean_for_plot_log',
-                        f'Average TD Error ({td_mean_source}) [signed log1p color scale, ticks=real TD]',
-                        save_path=str(avg_png_log),
-                        colorbar_tick_values=tick_values,
-                        colorbar_tick_labels=tick_labels,
+                    try:
+                        start_time = time.perf_counter()
+                        df_td_mean_log = df_td_mean.copy()
+                        df_td_mean_log['td_mean_for_plot_log'] = self._signed_log1p(df_td_mean_log['td_mean_for_plot'])
+                        tick_values, tick_labels = self._build_log_colorbar_ticks(df_td_mean_log['td_mean_for_plot'])
+                        plot_value_heatmap(
+                            df_td_mean_log,
+                            img_array,
+                            self.map_name,
+                            'td_mean_for_plot_log',
+                            f'Average TD Error ({td_mean_source}) [signed log1p color scale, ticks=real TD]',
+                            save_path=str(avg_png_log),
+                            colorbar_tick_values=tick_values,
+                            colorbar_tick_labels=tick_labels,
+                        )
+                        plt.close('all')
+                        print(f"  ✓ Saved LOG average TD heatmap: {avg_png_log.name}")
+                        self._print_timing("average TD heatmap log", start_time)
+                    except Exception as e:
+                        print(f"  ✗ Failed to create LOG average TD heatmap: {e}")
+
+                if self.plot_td_extremes:
+                    self._plot_td_extremes_maps(
+                        model_name=model_name,
+                        img_array=img_array,
+                        df_with_pos=df_td_mean,
+                        value_column='td_mean_for_plot',
+                        label=f'Average TD Error ({td_mean_source})',
+                        prefix='avg_td_error',
                     )
-                    plt.close('all')
-                    print(f"  ✓ Saved LOG average TD heatmap: {avg_png_log.name}")
-                    self._print_timing("average TD heatmap log", start_time)
-                except Exception as e:
-                    print(f"  ✗ Failed to create LOG average TD heatmap: {e}")
             else:
                 print("  ⊘ No rows with valid pose_x/pose_y/average TD error")
         else:
             print("  ⊘ No average TD-error data available")
+
+        if self.plot_td_extremes:
+            self._plot_td_extremes_maps(
+                model_name=model_name,
+                img_array=img_array,
+                df_with_pos=df_with_pos,
+                value_column='td_error_for_plot',
+                label=f'TD Error ({td_source})',
+                prefix='td_error',
+            )
 
         if not self.plot_td_improvement:
             return
@@ -703,7 +863,15 @@ class BatchPlotter:
         
         try:
             df = pd.read_csv(csv_path)
-            print(f"  Loaded {len(df)} transitions")
+            loaded_total = len(df)
+            df = self._slice_stat_log_frame(df, csv_path)
+            if len(df) == 0:
+                print("  ⊘ No transitions left after stat_log slicing")
+                return
+            if self.stat_log_start_fraction > 0.0:
+                print(f"  Loaded {len(df)} transitions after slicing (from {loaded_total})")
+            else:
+                print(f"  Loaded {len(df)} transitions")
             
             # Compute sample frequency
             df = compute_sample_frequency(df, csv_path=str(csv_path))
@@ -808,6 +976,9 @@ class BatchPlotter:
 
     def create_critic_output_plot(self, model_name: str):
 
+        from stable_baselines3 import SAC
+        from TrainingLite.rl_racing.sac_utilities import SacUtilities
+
         print(f"\n{'='*80}")
         print(f"Calculating and plotting critic output: {model_name}")
         print(f"{'='*80}")
@@ -832,15 +1003,11 @@ class BatchPlotter:
             if 'obs' not in df_full.columns or 'action' not in df_full.columns:
                 print(f"ERROR: CSV missing obs/action columns. Enable extended_obs_action_save.")
                 return
-            
-            # Use only the final third of transitions for faster computation
-            # total_transitions = len(df_full)
-            # start_idx = (2 * total_transitions) // 3
-            # df = df_full.iloc[start_idx:].copy()
 
-            df = df_full.copy()  # Use all transitions for now, can filter later if needed
-            
-            # print(f"  Loaded {total_transitions} transitions, using final third ({len(df)} transitions) for critic output")
+            df = self._slice_stat_log_frame(df_full, csv_path)
+            if len(df) == 0:
+                print("  ⊘ No transitions left after stat_log slicing")
+                return
         except Exception as e:
             print(f"  ✗ Failed to load CSV for critic output: {e}")
             return
@@ -899,8 +1066,8 @@ class BatchPlotter:
             ax1.plot(q_values, linewidth=0.8, alpha=0.7, color='steelblue', label='Q(s,a)')
             ax1.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Zero')
             ax1.fill_between(range(len(q_values)), q_values, alpha=0.2, color='steelblue')
-            ax1.set_title(f"{model_name} — Critic Output Q(s,a) (Final Third)", fontsize=14, fontweight='bold')
-            ax1.set_xlabel("Transition Index (Final Third)")
+            ax1.set_title(f"{model_name} — Critic Output Q(s,a) (Selected Segment)", fontsize=14, fontweight='bold')
+            ax1.set_xlabel("Transition Index (selected segment)")
             ax1.set_ylabel("min(Q1, Q2)")
             ax1.grid(alpha=0.3, linestyle='--')
             ax1.legend()
@@ -908,7 +1075,7 @@ class BatchPlotter:
             # Plot 2: Q-value distribution
             ax2.hist(q_values, bins=100, alpha=0.7, color='steelblue', edgecolor='black')
             ax2.axvline(x=q_values.mean(), color='red', linestyle='--', linewidth=2, label=f'Mean: {q_values.mean():.4f}')
-            ax2.set_title("Q-Value Distribution (Final Third)", fontsize=12)
+            ax2.set_title("Q-Value Distribution (Selected Segment)", fontsize=12)
             ax2.set_xlabel("Q-value")
             ax2.set_ylabel("Frequency")
             ax2.legend()
@@ -962,7 +1129,7 @@ class BatchPlotter:
             print(f"    ✗ Error: {e}")
     
         # Print statistics
-        print(f"\n  Critic Q-value statistics (final third):")
+        print(f"\n  Critic Q-value statistics (selected segment):")
         print(f"    Min:    {q_values.min():.6f}")
         print(f"    Max:    {q_values.max():.6f}")
         print(f"    Mean:   {q_values.mean():.6f}")
@@ -982,17 +1149,23 @@ class BatchPlotter:
         print(f"\nFound {len(models)} models matching prefix '{self.prefix}'")
         print(f"Models: {', '.join(models)}\n")
         
-        # Compute global stats first for synchronized scaling
-        print("Computing global statistics across all models...")
-        csv_paths = [
-            self.models_dir / model_name / "stat_logs" / "stats_log.csv"
-            for model_name in models
-        ]
-        global_stats = compute_global_stats(csv_paths)
+        global_stats = None
+        if self.plot_base_metrics:
+            # Compute global stats first for synchronized scaling
+            print("Computing global statistics across all models...")
+            csv_paths = [
+                self.models_dir / model_name / "stat_logs" / "stats_log.csv"
+                for model_name in models
+            ]
+            global_stats = compute_global_stats(
+                csv_paths,
+                stat_log_start_fraction=self.stat_log_start_fraction,
+            )
         
         for i, model_name in enumerate(models, 1):
             print(f"[{i}/{len(models)}]", end=" ")
-            self.plot_model(model_name, global_stats=global_stats)
+            if self.plot_base_metrics:
+                self.plot_model(model_name, global_stats=global_stats)
             if self.plot_critic_output:
                 self.create_critic_output_plot(model_name)
             if self.plot_td_error:
@@ -1047,10 +1220,40 @@ def main():
         help="Also generate TD-error improvement heatmaps (default: off)"
     )
     parser.add_argument(
+        "--plot-td-extremes",
+        action="store_true",
+        help="Also generate maps for bottom/top TD-error percentiles"
+    )
+    parser.add_argument(
+        "--td-extreme-percent",
+        type=float,
+        default=2.0,
+        help="Bottom/top percentile for TD-extremes maps (default: 2.0)"
+    )
+    parser.add_argument(
+        "--td-only",
+        action="store_true",
+        help="Run only TD-error plotting from stat_logs (skip base/critic plots)"
+    )
+    parser.add_argument(
+        "--td-extremes-only",
+        action="store_true",
+        help="Generate only TD-extremes maps (implies --td-only and --plot-td-extremes)"
+    )
+    parser.add_argument(
         "--td-sample-stride",
         type=int,
         default=5,
         help="Only plot every Nth transition for TD-related maps (default: 5)"
+    )
+    parser.add_argument(
+        "--stat-log-start-fraction",
+        type=float,
+        default=0.0,
+        help=(
+            "Keep only stat_log rows from this fraction to the end. "
+            "Examples: 0.5 => second half, 0.75 => last quarter"
+        ),
     )
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument(
@@ -1066,17 +1269,33 @@ def main():
     
     args = parser.parse_args()
 
+    if not (0.0 <= args.stat_log_start_fraction < 1.0):
+        parser.error("--stat-log-start-fraction must be in [0.0, 1.0)")
+
     selected_backend = matplotlib.get_backend()
     print(f"Matplotlib backend: {selected_backend}")
+
+    plot_base_metrics = not args.td_only
+    plot_critic_output = args.plot_critic_output and not args.td_only
+    plot_td_error = args.plot_td_error or args.td_only
+    if args.td_extremes_only:
+        plot_base_metrics = False
+        plot_critic_output = False
+        plot_td_error = True
     
     plotter = BatchPlotter(
         prefix=args.prefix,
         map_name=args.map_name,
         output_base_dir=args.output_dir,
-        plot_critic_output=args.plot_critic_output,
-        plot_td_error=args.plot_td_error,
+        plot_base_metrics=plot_base_metrics,
+        plot_critic_output=plot_critic_output,
+        plot_td_error=plot_td_error,
         plot_td_improvement=args.plot_td_improvement,
         td_sample_stride=args.td_sample_stride,
+        plot_td_extremes=(args.plot_td_extremes or args.td_extremes_only),
+        td_extreme_percent=args.td_extreme_percent,
+        td_extremes_only=args.td_extremes_only,
+        stat_log_start_fraction=args.stat_log_start_fraction,
     )
     plotter.process_all()
 
