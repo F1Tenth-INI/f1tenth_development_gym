@@ -7,8 +7,8 @@ this script copies that model's training metrics image into a single batch folde
 renames it to <model_name>.png.
 
 Usage examples:
-    python TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix Sweep_rank_Ex1_A0.0
-    python TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix 2602 --output-base-dir batch_plot_results
+    python -u TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix Sweep_rank_Ex1_A0.0
+    python -u TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix 2602 --output-base-dir batch_plot_results
 """
 
 import argparse

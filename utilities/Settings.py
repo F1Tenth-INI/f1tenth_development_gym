@@ -184,14 +184,18 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
-    SAC_CUSTOM_UNIFORM_CRITIC = True #if true forces uniform critic sampling anyways
+    SAC_CUSTOM_UNIFORM_CRITIC = False #if true forces uniform critic sampling anyways
+
+    #True: weight by inverse of TD, False: weight by TD error
+    SAC_CUSTOM_CRITIC_INVERT_TD = False 
+    SAC_CUSTOM_ACTOR_INVERT_TD = False
 
     SAC_LOG_SQUISH = True
 
     SAC_CUSTOM_SAMPLING_REPLACE = True #True -> means same sample can be drawn multiple times, this is default
 
-    SAC_WP_OFFSET_WEIGHT = 0.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 0.0
+    SAC_WP_OFFSET_WEIGHT = 3.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 3.0
     SAC_REWARD_WEIGHT = 5.0
     SAC_VELOCITY_WEIGHT = 0.0
 

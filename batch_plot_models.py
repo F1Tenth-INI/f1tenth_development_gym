@@ -348,6 +348,18 @@ class BatchPlotter:
 
         return None, None
 
+    def _resolve_model_checkpoint_path(self, model_name: str):
+        """Return checkpoint path without extension (preferred by SB3 load API)."""
+        model_dir = self.models_dir / model_name
+        base_path = model_dir / model_name
+        zip_path = model_dir / f"{model_name}.zip"
+
+        # SB3's loader may append ".zip" internally, so pass the base stem when possible.
+        if zip_path.exists() or base_path.exists():
+            return base_path
+
+        return None
+
     @staticmethod
     def _signed_log1p(values: pd.Series) -> pd.Series:
         return np.sign(values) * np.log1p(np.abs(values))
@@ -801,7 +813,13 @@ class BatchPlotter:
         print(f"{'='*80}")
 
         csv_path = self.models_dir / model_name / "stat_logs" / "stats_log.csv"
-        model_path = self.models_dir / model_name / f"{model_name}.zip"
+        model_path = self._resolve_model_checkpoint_path(model_name)
+
+        if model_path is None:
+            print(f"  ✗ Checkpoint missing for {model_name}")
+            print(f"    Looked for: {self.models_dir / model_name / model_name}")
+            print(f"    and:       {self.models_dir / model_name / (model_name + '.zip')}")
+            return
         
         dummy_env = SacUtilities.create_vec_env()
         start_time = time.perf_counter()

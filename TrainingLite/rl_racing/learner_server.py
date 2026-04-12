@@ -447,7 +447,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
-        self.max_utd = 4.0  # max updates per data point
+        self.max_utd = 0.25  # max updates per data point
 
         # Settings
         self.learning_starts = learning_starts
@@ -478,6 +478,8 @@ class LearnerServer:
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
         # self.n_step_discount_factor = self.discount_factor ** self.n_step
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
+        self.critic_invert_TD = Settings.SAC_CUSTOM_CRITIC_INVERT_TD
+        self.actor_invert_TD = Settings.SAC_CUSTOM_ACTOR_INVERT_TD
 
         self.save_model_checkpoints = Settings.SAC_SAVE_MODEL_CHECKPOINTS
         self.checkpoint_frequency = Settings.SAC_CHECKPOINT_FREQUENCY
@@ -1164,7 +1166,7 @@ class LearnerServer:
                             old_alpha = self.replay_buffer.alpha
                             self.replay_buffer.alpha = 0.0
 
-                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=False)
+                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.critic_invert_TD)
 
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             self.replay_buffer.alpha = old_alpha
@@ -1269,7 +1271,7 @@ class LearnerServer:
                         # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
 
                         # NIKITA: testing seperate sample for actor and critic
-                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=True)
+                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.actor_invert_TD)
 
                         obs      = data.observations
                         actions  = data.actions
