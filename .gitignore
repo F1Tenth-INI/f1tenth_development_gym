@@ -109,3 +109,4 @@ batch_plot_results
 sweep_experiment_results
 summary_plotscumulative_reward_components.png
 utilities/maps/hangar16/hangar16_speed_scaling.csv
+/chkpt_eval_results
