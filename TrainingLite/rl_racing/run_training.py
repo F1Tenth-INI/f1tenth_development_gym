@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,22 @@ except ImportError:
     # Fallback if running from root without module install
     sys.path.append(os.getcwd())
     from utilities.Settings import Settings
+
+def _child_death_signal() -> None:
+    """On Linux, make the child receive SIGKILL when the parent dies.
+    Prevents accumulation of orphaned run.py processes when run_training
+    is killed (Ctrl+C, terminal closed, etc.). Uses prctl via ctypes."""
+    if os.name != "posix":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        PR_SET_PDEATHSIG = 1
+        if libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL) != 0:
+            pass  # Ignore failure (e.g. in containers)
+    except (OSError, AttributeError, TypeError):
+        pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if PROJECT_ROOT.exists():
@@ -157,6 +174,7 @@ def start_client_process(
     cmd = [sys.executable, str(script_path), *extra_args]
     cwd = str(script_path.parent)
 
+    preexec = _child_death_signal if os.name == "posix" else None
     try:
         if forward_output:
             process = subprocess.Popen(
@@ -164,6 +182,7 @@ def start_client_process(
                 stdout=None,
                 stderr=None,
                 cwd=cwd,
+                preexec_fn=preexec,
             )
         else:
             process = subprocess.Popen(
@@ -172,6 +191,7 @@ def start_client_process(
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
                 bufsize=1,
+                preexec_fn=preexec,
             )
         print(f"[run_training] Started client process (PID: {process.pid})")
         return process
@@ -344,6 +364,27 @@ def main() -> None:
     if run_completed:
         model_name = getattr(run_args, "save_model_name", None)
         if model_name is not None:
+            # In some workflows (e.g. short smoke tests or interrupted runs), the
+            # expected `model_name.zip` may not exist yet. Avoid failing hard by
+            # skipping evaluation when no SAC zip is present.
+            try:
+                from TrainingLite.rl_racing.sac_utilities import SacUtilities
+
+                model_path, model_dir = SacUtilities.resolve_model_paths(str(model_name))
+                server_model_path = os.path.join(model_dir, "server", str(model_name))
+                server_zip_path = server_model_path + ".zip"
+                local_zip_path = model_path + ".zip"
+
+                if not os.path.exists(local_zip_path) and not os.path.exists(server_zip_path):
+                    print(
+                        f"[run_training] Skipping evaluation: model zip not found for '{model_name}'. "
+                        f"Tried: {local_zip_path} or {server_zip_path}"
+                    )
+                    return
+            except Exception as e:
+                # Evaluation is non-critical for training; just warn and continue.
+                print(f"[run_training] Warning: could not verify evaluation model existence: {e}")
+
             eval_args = [
                 "--CONTROLLER",
                 "sac_agent",

@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import hashlib
+import shutil
 from typing import List, Optional, NamedTuple
 
 import argparse
@@ -447,7 +448,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
-        self.max_utd = 0.25  # max updates per data point
+        self._latest_training_info_payload: Optional[dict] = None
 
         # Settings
         self.learning_starts = learning_starts
@@ -510,29 +511,63 @@ class LearnerServer:
             else:
                 self.save_model_name = "SAC_RCA1_0"
 
-        # resolve save paths (where we will write checkpoints/logs)
+        # resolve model root and client subfolder
         self.save_model_path, self.model_dir = SacUtilities.resolve_model_paths(self.save_model_name)
+        self.client_model_dir = os.path.join(self.model_dir, "client")
+        os.makedirs(self.client_model_dir, exist_ok=True)
+        self.save_model_path = os.path.join(self.model_dir, self.save_model_name)
 
         # resolve load path if different
         self.load_model_path = None
         if self.load_model_name is not None:
-            self.load_model_path, _ = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_model_path_root, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
+            # Prefer the model root, but keep legacy support for older ".../server/" layouts.
+            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root + ".zip") else load_model_path_server
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
+        self._ensure_client_observation_builder()
         SacUtilities.zip_relevant_files(self.model_dir)
-
-        self._initialize_model()
+        # Model + replay buffer are initialized lazily after we see the first observation.
+        # This allows per-model custom observation builders to define different obs_dim.
 
     # ---------- setup / init ----------
-    def _load_base_model(self):
+    def _ensure_client_observation_builder(self) -> None:
+        target_builder_path = os.path.join(self.client_model_dir, "observation_builder.py")
+
+        source_builder_path: Optional[str] = None
+        if self.load_model_name is not None:
+            _, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
+            load_client_builder = os.path.join(load_model_dir_root, "client", "observation_builder.py")
+            if os.path.isfile(load_client_builder):
+                source_builder_path = load_client_builder
+
+        if source_builder_path is None:
+            default_builder = os.path.join(os.path.dirname(__file__), "observation_builder_template.py")
+            if os.path.isfile(default_builder):
+                source_builder_path = default_builder
+
+        if source_builder_path is None:
+            print("[server] No observation_builder_template.py source found.")
+            return
+
+        try:
+            os.makedirs(self.client_model_dir, exist_ok=True)
+            if os.path.abspath(source_builder_path) != os.path.abspath(target_builder_path):
+                shutil.copyfile(source_builder_path, target_builder_path)
+            print(f"[server] Using client observation builder: {target_builder_path}")
+        except Exception as e:
+            print(f"[server] Failed to prepare client observation builder: {e}")
+
+    def _load_base_model(self, obs_dim: int):
         """
         Initialize the model + replay buffer.
 
         - If `load_model_name` is set, attempt to load from that path.
         - Else: create a new model (train from scratch).
         """
-        dummy_env = SacUtilities.create_vec_env()
+        dummy_env = SacUtilities.create_vec_env_from_obs_dim(obs_dim)
 
         # If no load model specified -> start from scratch
         if self.load_model_name is None:
@@ -627,10 +662,11 @@ class LearnerServer:
         )
 
 
-    def _initialize_model(self):
-        if self.model is not None: return
-        self._load_base_model()
-        print(f"[server] Initialized model")
+    def _initialize_model(self, obs_dim: int):
+        if self.model is not None:
+            return
+        self._load_base_model(obs_dim=obs_dim)
+        print(f"[server] Initialized model (obs_dim={obs_dim})")
 
     def _save_model(self):
         """Save the current model to disk (uses save_model_name)."""
@@ -1018,20 +1054,17 @@ class LearnerServer:
             
             
             await asyncio.sleep(self.train_every_seconds)
-
-            if self.pre_fill_with_pp and self._bc_in_progress:
-                print("[server] Behavior cloning warmup in progress; pausing ingestion and SAC training.")
+            # Wait for the first observation to initialize model/replay buffer.
+            if self.model is None or self.replay_buffer is None:
                 continue
-
-            # debug_time1 = time.time()
-
 
             # Drain whatever the actor sent since last round
             episodes = self.episode_buffer.drain_all()
 
             n_added = self._ingest_episodes_into_replay(episodes)
-            if n_added > 0:
-                print(f"\n[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
+            if( n_added > 0 ):
+                if Settings.LEARNER_SERVER_DEBUG:
+                    print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
                 await self._broadcast_training_status()
                 
@@ -1052,10 +1085,7 @@ class LearnerServer:
 
             # Calculate trainign steps per sample
             current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
-            if current_udt > self.max_utd:
-                print(f"[server] UDT too high ({current_udt:.4f}), skipping training this round. total_weight_updates={self.total_weight_updates}, total_actor_timesteps={self.total_actor_timesteps}")
-                await asyncio.sleep(1)
-                continue  # skip training if UDT is already high
+
 
             if( self.replay_buffer.size() < self.learning_starts ):
                 needed = self.learning_starts - self.replay_buffer.size()
@@ -1125,7 +1155,6 @@ class LearnerServer:
                 critic_target = self.model.policy.critic_target
                 actor_optimizer = self.model.policy.actor.optimizer
                 critic_optimizer = self.model.policy.critic.optimizer
-                batch_size = self.model.batch_size
                 replay_buffer = self.model.replay_buffer
                 gamma = self.model.gamma
                 n_step_gamma = gamma ** self.n_step
@@ -1143,6 +1172,7 @@ class LearnerServer:
                 # debug_time_4 = time.time()
 
                                 
+                training_steps_done = 0
                 for step in range(grad_steps):
                     
                     if step % 10 == 0:
@@ -1157,7 +1187,7 @@ class LearnerServer:
                     then = time.time()
                     try:
                         # Reduce batch size to avoid OOM
-                        safe_batch_size = min(batch_size, 4096)
+                        safe_batch_size = min(self.batch_size, 4096)
 
                         #NIKITA: testing testing testing
                         # old_alpha = self.replay_buffer.alpha
@@ -1366,6 +1396,7 @@ class LearnerServer:
 
                         # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
                         self.total_weight_updates += 1
+                        training_steps_done += 1
 
                         # Free unused memory
                         # if self.device == "cuda":
@@ -1383,21 +1414,30 @@ class LearnerServer:
                     if self._should_terminate:
                         print("[server] Termination requested, skipping post-training save/broadcast")
                         return
-                
-                # You can now interfere with actor, critic, optimizers, etc. in this loop
+
+                if training_steps_done == 0:
+                    print("[server] No gradient steps completed (early exit or repeated OOM); skipping log/broadcast.")
+                    continue
+
+                ent_coef_loss_val = (
+                    float(ent_coef_loss.detach().item())
+                    if log_ent_coef is not None and ent_coef_optimizer is not None
+                    else 0.0
+                )
                 log_dict = {
                     "actor_loss": actor_loss.item(),
                     "critic_loss": critic_loss.item(),
-                    "ent_coef_loss": ent_coef_loss.item(),
+                    "ent_coef_loss": ent_coef_loss_val,
                     "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
                     "total_weight_updates": self.total_weight_updates,
                     "training_duration": time.time() - time_start_training,
                     "total_timesteps": self.total_actor_timesteps,
                     "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
                 }
-                training_time = time.time() - time_start_training
-                print(f"\n[server] Training completed in {training_time:.2f} seconds.")
 
+                training_time = time.time() - time_start_training
+                if Settings.LEARNER_SERVER_DEBUG:
+                    print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
                 save_time = time.time()
 
                 # Nikita: stat tracker save
@@ -1409,6 +1449,7 @@ class LearnerServer:
                         # self.replay_buffer.stat_tracker.save_csv(append = False)
                         self._last_stat_save_ts = now
 
+                
                 if(len(episodes) > 0):
                     print(log_dict)
                     
@@ -1422,9 +1463,15 @@ class LearnerServer:
                 # Time state dict serialization
                 serial_start = time.time()
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
-                serial_duration = time.time() - serial_start
-                if self.replay_buffer.stat_tracker is not None:
-                    self.replay_buffer.stat_tracker.update_serialization_time(serial_duration)
+                self._weights_blob = new_blob
+                await self._broadcast_weights(new_blob)
+                current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+                training_info_payload = self._build_training_info_payload(
+                    current_udt=current_udt,
+                    training_steps_done=training_steps_done,
+                )
+                await self._broadcast_training_info(training_info_payload)
+                print("[server] Trained SAC and broadcast updated actor weights.")
 
                 self._weights_blob = new_blob
 
@@ -1515,6 +1562,50 @@ class LearnerServer:
             for w in dead:
                 self._clients.discard(w)
 
+    async def _broadcast_training_info(self, payload: dict):
+        """Send post-training telemetry as an extensible JSON payload."""
+        frame = {"type": "training_info", "data": payload}
+        self._latest_training_info_payload = payload
+        async with self._client_lock:
+            dead: List[asyncio.StreamWriter] = []
+            for w in self._clients:
+                try:
+                    w.write(pack_frame(frame))
+                    await w.drain()
+                except Exception:
+                    dead.append(w)
+            for w in dead:
+                self._clients.discard(w)
+
+    def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
+        """Build an extensible training telemetry payload."""
+        target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
+        udt_control = None
+        if target_udt is not None:
+            udt_control = {
+                "target_udt": float(target_udt),
+                "deadband_ratio": float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1)),
+                "freq_adjust_step_ratio": float(getattr(Settings, "SAC_UDT_FREQ_ADJUST_STEP_RATIO", 0.05)),
+                "min_sim_frequency_hz": float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0)),
+            }
+        payload = {
+            "schema_version": 1,
+            "event": "post_training_update",
+            "timestamp": time.time(),
+            "metrics": {
+                "current_udt": float(current_udt),
+            },
+            "counters": {
+                "total_weight_updates": int(self.total_weight_updates),
+                "total_actor_timesteps": int(self.total_actor_timesteps),
+                "training_steps_done": int(training_steps_done),
+                "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+            },
+        }
+        if udt_control is not None:
+            payload["udt_control"] = udt_control
+        return payload
+
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         print(f"[server] Client connected: {addr}")
@@ -1528,12 +1619,22 @@ class LearnerServer:
         except Exception:
             pass
 
-        # send current training-ready status immediately on connect
+        # Tell clients where to mirror model artifacts from.
         try:
-            writer.write(pack_frame(self._training_status_frame()))
+            writer.write(
+                pack_frame(
+                    {
+                        "type": "model_sync",
+                        "data": {
+                            "model_name": self.save_model_name,
+                            "source_model_dir": self.model_dir,
+                        },
+                    }
+                )
+            )
             await writer.drain()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[server] Failed to send model sync info to {addr}: {e}")
 
         # ALWAYS send current weights if we have them (even when init_from_scratch=True)
         if self._weights_blob is not None:
@@ -1542,7 +1643,13 @@ class LearnerServer:
                 print(f"[server] Weights sent to {addr} (bytes={len(self._weights_blob)})")
             except Exception as e:
                 print(f"[server] Failed to send initial weights to {addr}: {e}")
-
+        # Send latest training telemetry (if available) to reconnecting actors.
+        if self._latest_training_info_payload is not None:
+            try:
+                writer.write(pack_frame({"type": "training_info", "data": self._latest_training_info_payload}))
+                await writer.drain()
+            except Exception as e:
+                print(f"[server] Failed to send training info to {addr}: {e}")
         # read loop
         try:
             while True:
@@ -1568,6 +1675,18 @@ class LearnerServer:
                             "info":     info_list[i] if i < len(info_list) else {},
                             "actor_id": int(d.get("actor_id", -1)),
                         })
+
+                    # Lazily init model/replay once we see the first obs vector.
+                    if self.model is None:
+                        try:
+                            first_obs = obs_list[0]
+                            obs_dim = int(np.asarray(first_obs, dtype=np.float32).reshape(-1).shape[0])
+                            self._initialize_model(obs_dim=obs_dim)
+                            # Broadcast initial weights right after init so the actor can leave warmup.
+                            if self._weights_blob is not None:
+                                await self._broadcast_weights(self._weights_blob)
+                        except Exception as e:
+                            print(f"[server] Failed to init model from first obs: {e}")
 
                     if Settings.RL_CRASH_REWQARD_RAMPING:
                         episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=15.0)
@@ -1665,9 +1784,7 @@ class LearnerServer:
             print(f"[server] Client disconnected: {addr}")
 
     async def run(self):
-        # Eagerly initialize so we have weights ready for the first client:
-        if self.model is None:
-            self._load_base_model() 
+        # Initialize lazily after the first observation arrives.
 
         # start trainer task and keep reference for cleanup
         train_task = asyncio.create_task(self._train_loop())

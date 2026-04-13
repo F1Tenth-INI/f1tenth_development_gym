@@ -177,6 +177,7 @@ class RaceCar(object):
 
         # collision threshold for iTTC to environment
         self.ttc_thresh = 0.005
+        self.scan_placeholder = np.full((num_beams,), 30.0, dtype=np.float32)
 
         # initialize scan sim
         if RaceCar.scan_simulator is None:
@@ -266,6 +267,8 @@ class RaceCar(object):
         self.in_collision = False
         # clear state
         self.state = initial_state
+        if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > StateIndices.v_x:
+            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
@@ -321,7 +324,7 @@ class RaceCar(object):
 
         return in_collision
 
-    def update_pose(self, desired_steering_angle, desired_speed):
+    def update_pose(self, desired_steering_angle, desired_speed, simulate_scan=True):
         """
         Steps the vehicle's physical simulation
 
@@ -377,7 +380,15 @@ class RaceCar(object):
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
+
+        # clip linear_vel_x to SpeedCap when set
+        if Settings.GLOBAL_SPEED_LIMIT is not None:
+            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
+        if not simulate_scan:
+            self.in_collision = False
+            return self.scan_placeholder
+
         # update scan
         pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
         current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)
@@ -396,7 +407,7 @@ class RaceCar(object):
         """
         self.opp_poses = opp_poses
 
-    def update_scan(self, agent_scans, agent_index):
+    def update_scan(self, agent_scans, agent_index, simulate_scan=True):
         """
         Steps the vehicle's laser scan simulation
         Separated from update_pose because needs to update scan based on NEW poses of agents in the environment
@@ -408,6 +419,10 @@ class RaceCar(object):
         Returns:
             None
         """
+
+        if not simulate_scan:
+            self.in_collision = False
+            return
 
         current_scan = agent_scans[agent_index]
 
@@ -475,6 +490,9 @@ class Simulator(object):
             else:
                 agent = RaceCar(params, self.seed)
                 self.agents.append(agent)
+
+    def _simulate_lidar_for_agent(self, agent_index):
+        return agent_index == self.ego_idx or Settings.OPPONENTS_SIMULATE_LIDAR
 
     def set_map(self, map_path, map_ext):
         """
@@ -571,8 +589,9 @@ class Simulator(object):
 
         # looping over agents
         for i, agent in enumerate(self.agents):
+            simulate_scan = self._simulate_lidar_for_agent(i)
             # update each agent's pose
-            current_scan = agent.update_pose(control_inputs[i, 0], control_inputs[i, 1])
+            current_scan = agent.update_pose(control_inputs[i, 0], control_inputs[i, 1], simulate_scan=simulate_scan)
             agent_scans.append(current_scan)
 
             # update sim's information of agent poses
@@ -592,12 +611,13 @@ class Simulator(object):
         self.check_collision()
 
         for i, agent in enumerate(self.agents):
+            simulate_scan = self._simulate_lidar_for_agent(i)
             # update agent's information on other agents
             opp_poses = np.concatenate((self.agent_poses[0:i, :], self.agent_poses[i+1:, :]), axis=0)
             agent.update_opp_poses(opp_poses)
 
             # update each agent's current scan based on other agents
-            agent.update_scan(agent_scans, i)
+            agent.update_scan(agent_scans, i, simulate_scan=simulate_scan)
 
             # update agent collision with environment
             if agent.in_collision:
@@ -639,8 +659,12 @@ class Simulator(object):
         for i in range(self.num_agents):
             agent = self.agents[i]
             agent.reset(initial_states[i, :])
-            pose = np.array([agent.state[StateIndices.pose_x], agent.state[StateIndices.pose_y], agent.state[StateIndices.yaw_angle]])
-            current_scan = RaceCar.scan_simulator.scan(pose, agent.scan_rng)
+            simulate_scan = self._simulate_lidar_for_agent(i)
+            if simulate_scan:
+                pose = np.array([agent.state[StateIndices.pose_x], agent.state[StateIndices.pose_y], agent.state[StateIndices.yaw_angle]])
+                current_scan = RaceCar.scan_simulator.scan(pose, agent.scan_rng)
+            else:
+                current_scan = agent.scan_placeholder
             self.agent_scans.append(current_scan)
             
             # Initialize IMU data for this agent

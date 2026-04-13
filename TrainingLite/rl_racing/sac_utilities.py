@@ -54,7 +54,7 @@ class SacUtilities:
         [-1] * 40 + 
         [-1]*6 +
         [-1]*2 
-        + [0] * 1
+        + [0] * 2
         ,dtype=np.float32)
     
     obs_high = np.array(
@@ -65,11 +65,35 @@ class SacUtilities:
         [ 1] * 40 +
         [ 1]*6 + 
         [ 1]*2
-        + [0] * 1
+        + [0] * 2
         ,dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
     act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
 
+
+    @staticmethod
+    def make_obs_space_from_dim(obs_dim: int, low: float = -1.0, high: float = 1.0) -> spaces.Box:
+        """
+        Create a Box observation space with the given dimension.
+        We mainly need this for SB3 to build the policy networks.
+        """
+        obs_dim = int(obs_dim)
+        if obs_dim <= 0:
+            raise ValueError(f"obs_dim must be > 0, got {obs_dim}")
+        return spaces.Box(
+            low=np.full((obs_dim,), low, dtype=np.float32),
+            high=np.full((obs_dim,), high, dtype=np.float32),
+            dtype=np.float32,
+        )
+
+    @staticmethod
+    def create_vec_env_from_obs_space(obs_space: spaces.Box):
+        return DummyVecEnv([lambda: _SpacesOnlyEnv(obs_space, SacUtilities.act_space)])
+
+    @staticmethod
+    def create_vec_env_from_obs_dim(obs_dim: int):
+        obs_space = SacUtilities.make_obs_space_from_dim(obs_dim)
+        return SacUtilities.create_vec_env_from_obs_space(obs_space)
 
     @staticmethod
     def make_env():
@@ -167,7 +191,7 @@ class TrainingLogHelper():
         self.start_time = self.initialize_start_time() # Training time start
 
         self.training_index = 0
-        self.plot_every = 5
+        self.plot_every = 1  # Plot every log (was 5; 1 ensures metrics appear quickly)
 
 
     
@@ -221,7 +245,6 @@ class TrainingLogHelper():
 
 
     def log_to_csv(self, model, episodes, log_dict):
-
         file_exists = os.path.isfile(self.csv_path)
         
         # Gather all available metrics from logger
@@ -248,10 +271,50 @@ class TrainingLogHelper():
 
         
         metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
+        # Many actors send "bootstrap" transition batches before an episode ends
+        # by sending only the first couple transitions (length ~= 2). Those batches
+        # tend to have empty lap_times and near-zero accumulated rewards.
+        #
+        # For metrics we therefore ignore very short batches and only compute
+        # lap_times / episode stats from episodes with at least `min_transitions`.
+        min_transitions = 3
+        metric_episodes = [ep for ep in episodes if ep and len(ep) >= min_transitions]
+        if not metric_episodes:
+            # Fallback: if everything is very short, log whatever we got.
+            metric_episodes = episodes
 
-        episode_lengths = [len(episode) for episode in episodes]
-        episode_rewards = [sum(transition["reward"] for transition in episode) for episode in episodes]
-        episode_mean_step_rewards = [np.mean([transition["reward"] for transition in episode]) if len(episode)>0 else 0.0 for episode in episodes]
+        # Find the most recent non-empty lap_times from the metric episodes.
+        lap_times = None
+        last_info = {}
+        for ep in reversed(metric_episodes):
+            if not ep:
+                continue
+            # Track info from the last transition in the episode as a source of other keys.
+            if "info" in ep[-1]:
+                last_info = ep[-1]["info"] or {}
+
+            for t in reversed(ep):
+                info = t.get("info", {}) or {}
+                candidate = info.get("lap_times", None)
+                if candidate is None:
+                    continue
+                # Treat empty lists as "no lap times".
+                if isinstance(candidate, (list, tuple)) and len(candidate) == 0:
+                    continue
+                # Found a meaningful lap_times value.
+                lap_times = candidate
+                break
+            if lap_times is not None:
+                break
+
+        episode_lengths = [len(episode) for episode in metric_episodes]
+        episode_rewards = [
+            sum(transition["reward"] for transition in episode) for episode in metric_episodes
+        ]
+        episode_mean_step_rewards = [
+            np.mean([transition["reward"] for transition in episode]) if len(episode) > 0 else 0.0
+            for episode in metric_episodes
+        ]
 
         current_time = time.time()
         training_time = current_time - self.start_time
@@ -260,9 +323,11 @@ class TrainingLogHelper():
         metric_dict['episode_lengths'] = episode_lengths
         metric_dict['episode_rewards'] = episode_rewards
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
-        metric_dict['lap_times'] = str(all_lap_times) if all_lap_times else "[]"
-        # metric_dict['lap_times'] = str(lap_times) if lap_times is not None else ""
+        # Keep a consistent, parsable representation so `plot_training_metrics()`
+        # can always detect `lap_times` as an array-like column.
+        metric_dict['lap_times'] = str(lap_times) if lap_times is not None else "[]"
         metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
+        metric_dict['difficulty'] = last_info.get("difficulty", None)  # curriculum difficulty
         
         metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
         metric_dict['training_duration'] = getattr(model, 'training_duration', None)
@@ -297,7 +362,10 @@ class TrainingLogHelper():
 
         # NOTE: Don't call plot_training_metrics() here - it will be scheduled async
         if self.training_index % self.plot_every == 0:
-            self.plot_training_metrics()
+            try:
+                self.plot_training_metrics()
+            except Exception as e:
+                print(f"[TrainingLogHelper] Failed to plot training metrics: {e}")
 
     def plot_training_metrics(self):
         model_dir = self.model_dir
@@ -382,21 +450,9 @@ class TrainingLogHelper():
                 ax.set_xlabel('timestamp')
 
         plt.tight_layout()
-        plt.savefig(os.path.join(model_dir, 'training_metrics.png'))
+        png_path = os.path.join(model_dir, 'training_metrics.png')
+        plt.savefig(png_path)
         plt.close(fig)
-
-    def should_plot(self) -> bool:
-        """Check if plotting should happen (without actually plotting).
-        
-        NOTE: Disabled during training to test if plotting causes slowdowns.
-        Set to False to skip all plots during training.
-        """
-        # DIAGNOSTIC: Set to False to disable plotting entirely during training
-        DISABLE_PLOTTING_DURING_TRAINING = True
-        if DISABLE_PLOTTING_DURING_TRAINING:
-            return False
-        
-        return self.training_index % self.plot_every == 0
 
 
 

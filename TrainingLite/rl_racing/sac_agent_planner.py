@@ -21,11 +21,11 @@ Integration (minimal diff):
 This mirrors the actor→learner design we discussed.
 """
 from __future__ import annotations
-import csv
 import os
 import sys
 import time
 import hashlib
+import importlib.util
 
 # Configure unbuffered output for immediate print statements (important for ROS nodes)
 if hasattr(sys.stdout, 'reconfigure'):
@@ -35,19 +35,15 @@ else:
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, line_buffering=True)
 
-from typing import Optional, Dict, Any, Deque
+from typing import Optional, Dict, Any, Callable
 from collections import deque
 import numpy as np
 import torch
-import gymnasium as gym
-from gymnasium import spaces
 
 from stable_baselines3 import SAC
-from stable_baselines3.common.vec_env import VecNormalize
 
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-from stable_baselines3.common.vec_env import DummyVecEnv
 
 from utilities.waypoint_utils import *
 
@@ -60,8 +56,7 @@ from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 
 from TrainingLite.rl_racing.tcp_client import _TCPActorClient
 from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
-
-import torch
+from utilities.CurriculumSupervisor import CurriculumSupervisor
 torch.set_num_threads(1)          # intra-op parallelism
 torch.set_num_interop_threads(1)  # inter-op parallelism
 
@@ -69,13 +64,9 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # RL Agent Planner (drop-in replacement for PurePursuitPlanner)
 # ------------------------
 class RLAgentPlanner(template_planner):
-    @staticmethod
-    def _actor_fingerprint_from_state_dict(sd: dict) -> str:
-        hasher = hashlib.sha256()
-        for name, tensor in sorted(sd.items(), key=lambda x: x[0]):
-            hasher.update(name.encode("utf-8"))
-            hasher.update(tensor.detach().cpu().numpy().tobytes())
-        return hasher.hexdigest()[:16]
+    HISTORY_LEN = 10
+    BOOTSTRAP_TRANSITIONS = 2
+    ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
     def __init__(self):
         super().__init__()
@@ -102,14 +93,22 @@ class RLAgentPlanner(template_planner):
 
         self.clear_buffer_on_reset = True
         self.terminate_server_after_simulation = True
+        self.observation_builder_fn: Optional[Callable[[Dict[str, np.ndarray], Any], np.ndarray]] = None
+        self.model: Optional[SAC] = None
+        self.client: Optional[_TCPActorClient] = None
+        self.latest_training_info: Optional[Dict[str, Any]] = None
+        # Upper bound for UDT-driven MAX_SIM_FREQUENCY tweaks: never exceed initial Settings value.
+        self._udt_sim_frequency_ceiling: Optional[float] = (
+            float(Settings.MAX_SIM_FREQUENCY)
+            if self.training_mode and Settings.MAX_SIM_FREQUENCY is not None
+            else None
+        )
 
         # --- networking ---
 
-        if self.training_mode or self.inference_model_name is None:
-            learner_host = getattr(Settings, "SAC_LEARNER_HOST", "127.0.0.1")
-            learner_port = int(getattr(Settings, "SAC_LEARNER_PORT", 5555))
-            print(f"[RLAgentPlanner] Connecting to learner at {learner_host}:{learner_port}")
-            self.client = _TCPActorClient(host=learner_host, port=learner_port, actor_id=1)
+        if self.training_mode:
+            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=2)
+            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
             self.client.start()
             
             # Send clear buffer message on initialization
@@ -117,34 +116,27 @@ class RLAgentPlanner(template_planner):
                 self.client.send_clear_buffer()
                 print("\n[RLAgentPlanner] Sent clear buffer message to server")
 
-        # Initialization of SAC utilities
-        dummy_env = SacUtilities.create_vec_env()
-
-        if self.training_mode or self.inference_model_name is None:
-            self.model = SacUtilities.create_model(dummy_env, device="cpu")
+        if self.training_mode:
+            # For training we infer obs_dim lazily from the first built observation.
             self._received_weights = False
             self._warned_no_weights = False
             self._warned_fallback_unavailable = False
         else:
-            model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
-            self.model = SAC.load(model_path, env=dummy_env, device="cpu")
-            print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
+            self._init_inference_model()
 
             self._received_weights = True  # no waiting for weights in inference
             self._warned_no_weights = False
             self._warned_fallback_unavailable = False
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
-        self.warmup_action = np.array([0.0, 0.30], dtype=np.float32)  # slight forward
-
         # no VecNormalize in this setup
         self.vec_normalize = None
 
         # planner state
         self.angular_control = 0.0
         self.translational_control = 0.0
-        self.action_history_queue = deque([np.zeros(2) for _ in range(10)], maxlen=10)
-        self.state_history = deque([np.zeros(10) for _ in range(10)], maxlen=10)
+        self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
+        self.state_history = deque([np.zeros(10) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -154,29 +146,36 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw: Optional[np.ndarray] = None
         self.prev_action: Optional[np.ndarray] = None
 
-        self.action_denormalization_array = np.array([0.4, 3.0])
+        self.action_denormalization_array = self.ACTION_DENORM.copy()
 
         # episode accumulation
         self._episode: list[dict] = []
-
-        self.fallback_planner: PurePursuitPlanner =  PurePursuitPlanner()
+        self.fallback_planner: PurePursuitPlanner = PurePursuitPlanner()
         self.fallback_planner.waypoint_utils = self.waypoint_utils
         self.fallback_planner.lidar_utils = self.lidar_utils
         self.transition_logger = TransitionLogger()
         self.save_transitions = False
-
         self.autonomous_driving = True
         self.control_index = 0
         self.total_sent = 0
+        # For fast smoke tests: send the first couple transitions early so the learner can infer obs_dim
+        # and broadcast weights without waiting for an episode to end.
+        self._bootstrap_sent = False
+
+        # Init Curriculum Supervisor (when any curriculum feature is enabled)
+        self.curriculum_supervisor = None
+        curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
+        if self.training_mode and curriculum_enabled:
+            self.curriculum_supervisor = CurriculumSupervisor()
 
         self.reset()
 
 
     def reset(self):
         self.action_history_queue.clear()
-        self.action_history_queue.extend([np.zeros(2) for _ in range(10)])
+        self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
         self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(10)])
+        self.state_history.extend([np.zeros(10) for _ in range(self.HISTORY_LEN)])
         
         self.transition_logger.clear()
         self.control_index = 0
@@ -195,68 +194,18 @@ class RLAgentPlanner(template_planner):
         if not self.autonomous_driving:
             return self._fallback_action()
         
-        # pull latest weights if any
-        nikita_t1 = time.time()
-        if self.training_mode or self.inference_model_name is None:
-            training_ready = self.client.get_training_ready()
-            bc_in_progress = self.client.get_bc_in_progress()
-            if training_ready is not None and training_ready != self.server_training_ready:
-                self.server_training_ready = training_ready
-                if self.server_training_ready:
-                    print("\n[RLAgentPlanner] Learner reports training-ready; enabling policy actions")
-            if bc_in_progress != self.server_bc_in_progress:
-                self.server_bc_in_progress = bc_in_progress
+        sd_to_load = self._sync_from_server()
+        
 
-            sd = self.client.pop_latest_state_dict()
-            if sd is not None:
-                try:
-                    expected_fp = self.client.get_latest_weights_fingerprint()
-                    # with torch.no_grad():
-                    self.model.policy.actor.load_state_dict(sd, strict=True)
-                    self.model.policy.actor.eval()
-                    local_fp = self._actor_fingerprint_from_state_dict(self.model.policy.actor.state_dict())
-                        
-                        # # NIKITA: Warmup forward pass to rebuild PyTorch optimizations
-                        # dummy_obs = torch.zeros((1, self.model.observation_space.shape[0]), dtype=torch.float32)
-                        # _ = self.model.policy.actor(dummy_obs)
-                        
-                    self._received_weights = True
-                    nikita_t2 = time.time()
-                    print(f"\n[RLAgentPlanner] ✅ Actor weights updated. (took {(nikita_t2-nikita_t1)*1000:.2f}ms)")
-                    if expected_fp is not None:
-                        if expected_fp == local_fp:
-                            print(f"[RLAgentPlanner] ✅ Actor fingerprint verified: {local_fp}")
-                        else:
-                            print(f"[RLAgentPlanner] ❌ Actor fingerprint mismatch. server={expected_fp} local={local_fp}")
-                    else:
-                        print(f"[RLAgentPlanner] Actor fingerprint (local): {local_fp}")
-                except Exception as e:
-                    print(f"\n[RLAgentPlanner] ❌ Failed to load actor weights: {repr(e)}")
-        nikita_t_weights = time.time()
+        self.fallback_action = self._fallback_action()
+
 
         # --- build raw obs (manual normalization happens inside) ---
         nikita_t3 = time.time()
         raw_obs = self._build_observation()
-        nikita_t4 = time.time()
-        obs_for_policy = raw_obs
-        if self.vec_normalize is not None:
-            obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
+        self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
-        # choose action
-        nikita_t5 = time.time()
-        if self._received_weights and self.server_training_ready:
-            with torch.no_grad():
-                # NIKITA: for slowdown testing
-                action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
-            action = np.asarray(action, dtype=np.float32).reshape(-1)
-        else:
-            if not self._warned_no_weights:
-                print("\n[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
-                self._warned_no_weights = True
-            # if self.pre_fill_with_pp and not self.server_training_ready:
-                # print(f"\n[RLAgentPlanner] ⚠️ Pre-filling replay buffer with PurePursuit transitions; using fallback action")
-            action = self._fallback_action()
-        nikita_t6 = time.time()
+        action = self._select_action(raw_obs)
 
         # action = self._fallback_action()
         # scale to simulator units
@@ -286,14 +235,7 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw = raw_obs
         self.prev_action  = action
 
-        # Apply lowpass filter to control outputs
-        # filtered = alpha * new_value + (1 - alpha) * previous_value
-        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
-        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
-        
-        # Update previous values for next iteration
-        self.prev_angular_control = self.angular_control
-        self.prev_translational_control = self.translational_control
+        self._apply_control_filter(steering=steering, accel=accel)
         
         self.action_history_queue.append(action)
         self.state_history.append(self.car_state)
@@ -301,13 +243,13 @@ class RLAgentPlanner(template_planner):
         self.control_index += 1
         
         # NIKITA TIMING
-        nikita_t_end = time.time()
-        nikita_t_total = (nikita_t_end - nikita_t_start) * 1000
-        if nikita_t_total > 10.0:  # Only print if > 10ms
-            print(f"[TIMING] process_observation: total={nikita_t_total:.2f}ms | "
-                  f"weights={((nikita_t_weights-nikita_t1)*1000):.2f}ms | "
-                  f"obs_build={((nikita_t4-nikita_t3)*1000):.2f}ms | "
-                  f"predict={((nikita_t6-nikita_t5)*1000):.2f}ms")
+        # nikita_t_end = time.time()
+        # nikita_t_total = (nikita_t_end - nikita_t_start) * 1000
+        # if nikita_t_total > 10.0:  # Only print if > 10ms
+        #     print(f"[TIMING] process_observation: total={nikita_t_total:.2f}ms | "
+        #           f"weights={((nikita_t_weights-nikita_t1)*1000):.2f}ms | "
+        #           f"obs_build={((nikita_t4-nikita_t3)*1000):.2f}ms | "
+        #           f"predict={((nikita_t6-nikita_t5)*1000):.2f}ms")
         
         return self.angular_control, self.translational_control
 
@@ -337,57 +279,51 @@ class RLAgentPlanner(template_planner):
         next_obs = self._build_observation()
         nikita_t8 = time.time()
 
+        # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
+        info_out = dict(info or {})
+        if self.curriculum_supervisor is not None:
+            info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
+
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),
             "next_obs": next_obs.astype(np.float32),
             "reward":   float(reward),
             "done":     bool(done),
-            "info":     info or {},
+            "info":     info_out,
         }
         nikita_t9 = time.time()
         self._episode.append(transition)
+
+        self._maybe_bootstrap_send()
         if self.save_transitions:
             self.transition_logger.log(transition)
         nikita_t10 = time.time()
 
-        # print(self.control_index)
         if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
+            total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
+            #Update Curriculum Supervisor
+            if self.curriculum_supervisor is not None:
+                self.curriculum_supervisor.on_episode_end(total_reward, len(self._episode))
+            #Save Transitions
             if self.save_transitions:
                 self.transition_logger.save_csv()
+            #Send Transitions to Learner Server
             if self.training_mode and self.autonomous_driving:
                 try:
                     if len(self._episode) > 1:
                         nikita_t11 = time.time()
                         self.client.send_transition_batch(self._episode)
-                        nikita_t12 = time.time()
-                        self.total_sent += len(self._episode)
-                        total_reward = sum(t["reward"] for t in self._episode)
-                        print(f"\n[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}. (send took {(nikita_t12-nikita_t11)*1000:.2f}ms)")
-                    
+                        if Settings.SAC_AGENT_DEBUG:
+                            print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
                 except Exception as e:
-                    print(f"\n[RLAgentPlanner] Failed to send episode: {e}")
-                finally:
-                    self._episode = []
-                    self.control_index = 0
-                    self.prev_obs_raw = None
-                    self.prev_action = None
-            else:
-                print(f"\n[RLAgentPlanner] Not sending episode because autonomous_driving is False.")
-        
-        # NIKITA TIMING
-        nikita_t_step_end = time.time()
-        nikita_t_step_total = (nikita_t_step_end - nikita_t_step_start) * 1000
-        if nikita_t_step_total > 5.0:  # Only print if > 5ms
-            print(f"[TIMING] on_step_end: total={nikita_t_step_total:.2f}ms | "
-                  f"obs_build={((nikita_t8-nikita_t7)*1000):.2f}ms | "
-                  f"transition_create={((nikita_t9-nikita_t8)*1000):.2f}ms | "
-                  f"append={((nikita_t10-nikita_t9)*1000):.2f}ms")
+                    print(f"[RLAgentPlanner] Failed to send episode: {e}")
+            self._reset_episode_state()
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
         if self.terminate_server_after_simulation:
-            if self.training_mode and hasattr(self, 'client') and self.client is not None:
+            if self.training_mode and self.client is not None:
                 try:
                     self.client.send_terminate()
                     print("\n[RLAgentPlanner] Sent terminate message to server")
@@ -402,90 +338,254 @@ class RLAgentPlanner(template_planner):
         pass
     
     def _fallback_action(self) -> np.ndarray:
-        # Keep the PP fallback planner synchronized with the current runtime context.
-        self.fallback_planner.waypoint_utils = self.waypoint_utils
+
         self.fallback_planner.lidar_utils = self.lidar_utils
-        self.fallback_planner.render_utils = self.render_utils
+        self.fallback_planner.car_state = self.car_state
+        self.fallback_planner.waypoint_utils = self.waypoint_utils
 
-        if self.car_state is None:
-            if not self._warned_fallback_unavailable:
-                print("\n[RLAgentPlanner] Fallback PP unavailable (car_state not initialized); using warmup action")
-                self._warned_fallback_unavailable = True
-            return self.warmup_action.copy()
-
-        self.fallback_planner.set_car_state(self.car_state)
-
-        try:
-            fallback_control = self.fallback_planner.process_observation()
-            self._warned_fallback_unavailable = False
-        except Exception as e:
-            if not self._warned_fallback_unavailable:
-                print(f"\n[RLAgentPlanner] Fallback PP failed ({e}); using warmup action")
-                self._warned_fallback_unavailable = True
-            return self.warmup_action.copy()
-
+        fallback_control = self.fallback_planner.process_observation()
         fallback_action = fallback_control / self.action_denormalization_array
+        # return [0., 0.]
         return fallback_action
 
-    # ---- helpers ----
-    def _build_observation(self) -> np.ndarray:
-        # car state
+  
+    
+    def _build_super_observation(self) -> Dict[str, np.ndarray]:
+        """ 
+        Builds the super observation dictionary.
+        This dict should contain all the information that the observation available in the environment.
+        This dict is then used to build the observation array for the policy.
+        """
         car_state = self.car_state
+        last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
 
-        # border_points_left, border_points_right = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
-        curvatures = self.waypoint_utils.next_waypoints[:, WP_KAPPA_IDX]
+        # Get border points relative to the car's position
+        border_points = self.waypoint_utils.get_track_border_positions_relative(
+            self.waypoint_utils.next_waypoints, car_state
+        )
 
-        border_distances_right = self.waypoint_utils.next_waypoints[:, WP_D_RIGHT_IDX]
-        border_distances_left = self.waypoint_utils.next_waypoints[:, WP_D_LEFT_IDX]
-        border_distances = np.concatenate([border_distances_right, border_distances_left])
+
+        return {
+            "car_state": self.car_state,
+            "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "border_points": np.asarray(border_points, dtype=np.float32),
+            "lidar_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+            "last_actions": np.asarray(last_actions, dtype=np.float32),
+            "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
+            "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
+            "fallback_action": np.asarray(self.fallback_action, dtype=np.float32),
+            "pp_action": np.asarray(self.fallback_action, dtype=np.float32),
+        }
+
+    def _build_observation(self) -> np.ndarray:
+        super_obs = self._build_super_observation()
+        obs = self.observation_builder_fn(super_obs, self)
+        return np.asarray(obs, dtype=np.float32).reshape(-1)
+  
+
+    # ---- helpers ----
+    def _init_inference_model(self) -> None:
+        """
+        Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
+        """
+        model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
+        server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
+        # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
+        model_path = model_path if os.path.exists(model_path + ".zip") else server_model_path
+        self.model = SAC.load(model_path, device="cpu")
+
+        try:
+            obs_dim = int(self.model.observation_space.shape[0])
+            dummy_env = SacUtilities.create_vec_env_from_obs_dim(obs_dim)
+            if hasattr(self.model, "set_env"):
+                self.model.set_env(dummy_env)
+        except Exception:
+            pass
+
+        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
+        self._load_observation_builder(os.path.join(model_dir, "client"))
+
+    def _load_observation_builder(self, client_model_dir: str) -> None:
+        builder_path = os.path.join(client_model_dir, "observation_builder.py")
+        if not os.path.isfile(builder_path):
+            return
+        try:
+            module_name = f"observation_builder_{abs(hash(builder_path))}"
+            spec = importlib.util.spec_from_file_location(module_name, builder_path)
+            if spec is None or spec.loader is None:
+                return
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            fn = getattr(module, "build_observation", None)
+            if callable(fn):
+                self.observation_builder_fn = fn
+                print(f"[RLAgentPlanner] Loaded observation builder from {builder_path}")
+        except Exception as e:
+            print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
+
+
+    def _init_model_for_obs_dim(self, obs_dim: int) -> None:
+        """
+        Initialize SB3 SAC with a dummy env whose observation_space matches `obs_dim`.
+        """
+        if self.model is not None:
+            return
+        dummy_env = SacUtilities.create_vec_env_from_obs_dim(obs_dim)
+        self.model = SacUtilities.create_model(dummy_env, device="cpu")
+        # When training, the actor waits for weights broadcast from the learner.
+        self._received_weights = False
+        self._warned_no_weights = False
+
+    def _ensure_model_and_apply_weights(self, raw_obs: np.ndarray, sd_to_load: Optional[dict]) -> None:
+        """
+        Ensure local SB3 model exists, then apply incoming actor weights if available.
+        """
+        if self.model is None:
+            obs_dim = int(np.asarray(raw_obs, dtype=np.float32).reshape(-1).shape[0])
+            self._init_model_for_obs_dim(obs_dim)
+
+        if sd_to_load is not None and self.model is not None:
+            self.model.policy.actor.load_state_dict(sd_to_load, strict=True)
+            self.model.policy.actor.eval()
+            self._received_weights = True
+            if Settings.SAC_AGENT_DEBUG:
+                print("[RLAgentPlanner] ✅ Actor weights updated.")
+
+    def _sync_from_server(self) -> Optional[dict]:
+        """
+        Pull latest actor weights + optional model sync info from learner server.
+        """
+        if not self.training_mode or self.client is None:
+            return None
+
+        sd_to_load = self.client.pop_latest_state_dict()
+        model_sync = self.client.pop_latest_model_sync()
+        training_info = self.client.pop_latest_training_info()
+        if isinstance(model_sync, dict):
+            local_client_dir = model_sync.get("local_client_dir")
+            if isinstance(local_client_dir, str):
+                self._load_observation_builder(local_client_dir)
+        if isinstance(training_info, dict):
+            self.latest_training_info = training_info
+            self._apply_udt_training_info(training_info)
+            if Settings.SAC_AGENT_DEBUG:
+                current_udt = (
+                    training_info.get("metrics", {}).get("current_udt")
+                    if isinstance(training_info.get("metrics"), dict)
+                    else None
+                )
+                print(f"[RLAgentPlanner] Received training_info: current_udt={current_udt}")
+        return sd_to_load
+
+    def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
+        """
+        If server sent udt_control (SAC_TARGET_UDT set on learner), tune MAX_SIM_FREQUENCY:
+        UDT too low -> decrease Hz; UDT too high -> increase Hz.
+        """
+        metrics = training_info.get("metrics")
+        if not isinstance(metrics, dict):
+            return
+        current_udt = metrics.get("current_udt")
+        if not isinstance(current_udt, (int, float)):
+            return
+
+        udt_control = training_info.get("udt_control")
+        if isinstance(udt_control, dict) and udt_control.get("target_udt") is not None:
+            target_udt = float(udt_control["target_udt"])
+            deadband = float(udt_control.get("deadband_ratio", Settings.SAC_UDT_DEADBAND_RATIO))
+            step_ratio = float(udt_control.get("freq_adjust_step_ratio", Settings.SAC_UDT_FREQ_ADJUST_STEP_RATIO))
+            fmin = float(udt_control.get("min_sim_frequency_hz", Settings.SAC_MIN_SIM_FREQUENCY))
+        elif Settings.SAC_TARGET_UDT is not None:
+            target_udt = float(Settings.SAC_TARGET_UDT)
+            deadband = float(Settings.SAC_UDT_DEADBAND_RATIO)
+            step_ratio = float(Settings.SAC_UDT_FREQ_ADJUST_STEP_RATIO)
+            fmin = float(Settings.SAC_MIN_SIM_FREQUENCY)
+        else:
+            return
+
+        if target_udt <= 0 or step_ratio <= 0:
+            return
+        if Settings.MAX_SIM_FREQUENCY is None:
+            return
+        fmax = self._udt_sim_frequency_ceiling
+        if fmax is None:
+            return
+
+        lower = target_udt * (1.0 - deadband)
+        upper = target_udt * (1.0 + deadband)
+        prev = float(Settings.MAX_SIM_FREQUENCY)
+        updated = prev
+        reason = None
+        if float(current_udt) < lower:
+            updated = prev * (1.0 - step_ratio)
+            reason = "udt_low_decrease_freq"
+        elif float(current_udt) > upper:
+            updated = prev * (1.0 + step_ratio)
+            reason = "udt_high_increase_freq"
+
+        updated = float(np.clip(updated, fmin, fmax))
+        if reason is None or abs(updated - prev) < 1e-9:
+            return
+
+        Settings.MAX_SIM_FREQUENCY = updated
+        if Settings.SAC_AGENT_DEBUG:
+            print(
+                "[RLAgentPlanner] UDT control: "
+                f"MAX_SIM_FREQUENCY {prev:.2f} -> {updated:.2f} Hz "
+                f"(UDT={float(current_udt):.4f}, target={target_udt:.4f}, reason={reason})"
+            )
+
+    def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:
+        """
+        Select action from policy when weights are available, otherwise use fallback.
+        """
+        obs_for_policy = raw_obs
+        if self.vec_normalize is not None:
+            obs_for_policy = self.vec_normalize.normalize_obs(raw_obs[None, :])[0]
+
+        if self._received_weights:
+            action, _ = self.model.predict(obs_for_policy, deterministic=(not self.training_mode))
+            return np.asarray(action, dtype=np.float32).reshape(-1)
+
+        if not self._warned_no_weights:
+            print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
+            self._warned_no_weights = True
+        return self._fallback_action()
+
+    def _apply_control_filter(self, steering: float, accel: float) -> None:
+        """
+        Apply low-pass filtering to control outputs and update filter state.
+        """
+        # filtered = alpha * new_value + (1 - alpha) * previous_value
+        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
+        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
+        self.prev_angular_control = self.angular_control
+        self.prev_translational_control = self.translational_control
+
+    def _maybe_bootstrap_send(self) -> None:
+        """
+        Send the first couple transitions early so the learner can infer obs_dim quickly.
+        Only runs once per planner start.
+        """
+        if not (self.training_mode and self.autonomous_driving and not self._bootstrap_sent):
+            return
+        if len(self._episode) < self.BOOTSTRAP_TRANSITIONS:
+            return
+
+        try:
+            self.client.send_transition_batch(self._episode[:self.BOOTSTRAP_TRANSITIONS])
+            self._bootstrap_sent = True
+            # Keep remaining transitions so the end-of-episode batch is still mostly correct.
+            self._episode = self._episode[self.BOOTSTRAP_TRANSITIONS:]
+        except Exception as e:
+            print(f"[RLAgentPlanner] Bootstrap send failed: {e}")
+
+    def _reset_episode_state(self) -> None:
+        self._episode = []
+        self.control_index = 0
+        self.prev_obs_raw = None
+        self.prev_action = None
+
+
         
-        [border_points_left, border_points_right] = self.waypoint_utils.get_track_border_positions_relative(self.waypoint_utils.next_waypoints, car_state)
-        border_points = np.concatenate([border_points_right[::3].flatten(), border_points_left[::3].flatten()])
-
-
-        # Get frenet coordinates
-        s, d, e, k = self.waypoint_utils.frenet_coordinates
-        # print(f"distance: {s}, lateral offset: {d}, heading error: {e}, curvature: {k}")
-        # lidar
-        lidar = self.lidar_utils.processed_ranges
-
-        # last 3 actions (6 dims)
-        last_actions = list(self.action_history_queue)[-3:]
-        last_actions = np.array(last_actions).reshape(-1)
-
-
-        state_features = np.array([
-            car_state[LINEAR_VEL_X_IDX],
-            car_state[LINEAR_VEL_Y_IDX],
-            car_state[ANGULAR_VEL_Z_IDX],
-            car_state[STEERING_ANGLE_IDX],
-        ], dtype=np.float32)
-
-
-        observation_array = np.concatenate([
-            state_features, 
-            curvatures, 
-            # lidar, 
-            # border_distances,
-            border_points,
-            last_actions, 
-            [d, e], 
-            [Settings.GLOBAL_WAYPOINT_VEL_FACTOR]
-        ]).astype(np.float32)
-
-        # match env normalization
-        normalization_array =  np.concatenate((
-            [0.1, 1.0, 0.5, 1 / 0.4], 
-            [1.0] * len(curvatures), 
-            # [0.1] * len(lidar), 
-            # [1.0] * len(border_distances),
-            [0.2] * len(border_points),
-            [1.0] * len(last_actions), 
-            [0.5, 0.5]
-            , [1]
-            )) # Adjust normalization factors for each feature
-        
-        # SAC Training loop
-
-        observation_array *= np.array(normalization_array, dtype=np.float32)
-        return observation_array
+       
