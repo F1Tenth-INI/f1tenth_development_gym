@@ -28,7 +28,7 @@ CRITIC_UNIFORM_LIST=(False True)
 RANK_BASED_LIST=(True False)
 
 
-for idx in {1..5}; do
+for idx in {1..3}; do
   MODEL_NAME="from_${SOURCE_MODEL_SHORT}_0412_SimFr200_maxUDT025_FULL_UNIFORM_Run${idx}"
 
   echo "=================================================="
@@ -39,7 +39,7 @@ for idx in {1..5}; do
   cmd=(python -u TrainingLite/rl_racing/run_training.py
     --auto-start-client
     --device cpu
-    --SIMULATION_LENGTH 75000
+    --SIMULATION_LENGTH 50000
     --load-model-name "$SOURCE_MODEL"
     --save-model-name "$MODEL_NAME"
     --MAP_NAME "$NEW_MAP_NAME"

@@ -110,3 +110,7 @@ sweep_experiment_results
 summary_plotscumulative_reward_components.png
 utilities/maps/hangar16/hangar16_speed_scaling.csv
 /chkpt_eval_results
+/models_no_stat_csv
+/batch_learning_metrics_summary
+/batch_compare_models
+cumulative_reward_components.png

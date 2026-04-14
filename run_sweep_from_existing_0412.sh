@@ -10,7 +10,7 @@ SOURCE_MODEL="Example-1-Nikita"
 SOURCE_MODEL_SHORT="Ex1_Nik"
 NEW_MAP_NAME="RCA2"
 
-ALPHAS=(0.4 0.8) # How much to mix with uniform -> 0.0 = uniform only, 1.0 = priority only
+ALPHAS=(0.7) # How much to mix with uniform -> 0.0 = uniform only, 1.0 = priority only
 # BETAS=(0.4 0.6 0.8) # Starting beta for importance sampling bias correction-> 0.0 = no IS, 1.0 = full IS
 RATIOS=(0.0 0.5 0.8) # Ratio of TD to state error -> 0.0 = TD only, 1.0 = state only
 
@@ -42,7 +42,7 @@ for alpha in "${ALPHAS[@]}"; do
             cmd=(python -u TrainingLite/rl_racing/run_training.py
               --auto-start-client
               --device cpu
-              --SIMULATION_LENGTH 75000
+              --SIMULATION_LENGTH 50000
               --load-model-name "$SOURCE_MODEL"
               --save-model-name "$MODEL_NAME"
               --MAP_NAME "$NEW_MAP_NAME"
