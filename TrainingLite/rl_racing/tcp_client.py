@@ -6,7 +6,15 @@ import shutil
 
 from typing import Optional
 
-from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame, np_to_blob, bytes_to_state_dict
+try:
+    from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame, np_to_blob, bytes_to_state_dict
+except ModuleNotFoundError:
+    from f1tenth_development_gym.TrainingLite.rl_racing.tcp_utilities import (
+        pack_frame,
+        read_frame,
+        np_to_blob,
+        bytes_to_state_dict,
+    )
 import numpy as np
 
 
