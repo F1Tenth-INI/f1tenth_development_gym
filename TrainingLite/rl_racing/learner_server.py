@@ -598,34 +598,15 @@ class LearnerServer:
                 await asyncio.sleep(self.train_every_seconds)
                 continue
 
-            target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
-            if target_udt is not None:
-                target_udt = float(target_udt)
-                if target_udt > 0.0:
-                    deadband_ratio = float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1))
-                    deadband_ratio = min(max(deadband_ratio, 0.0), 0.95)
-                    resume_udt = target_udt * (1.0 - deadband_ratio)
-
-                    if self._training_paused_for_udt:
-                        if current_udt <= resume_udt:
-                            self._training_paused_for_udt = False
-                            print(
-                                f"[server] UDT {current_udt:.4f} <= resume threshold "
-                                f"{resume_udt:.4f}; resuming training."
-                            )
-                        else:
-                            print(
-                                f"[server] UDT {current_udt:.4f} above resume threshold "
-                                f"{resume_udt:.4f}; waiting."
-                            )
-                            continue
-                    elif current_udt >= target_udt:
-                        self._training_paused_for_udt = True
-                        print(
-                            f"[server] UDT {current_udt:.4f} reached target "
-                            f"{target_udt:.4f}; pausing until below {resume_udt:.4f}."
-                        )
-                        continue
+            max_udt = getattr(Settings, "SAC_MAX_UTD", None)
+            if max_udt is not None:
+                max_udt = float(max_udt)
+                if max_udt > 0.0 and current_udt > max_udt:
+                    print(
+                        f"[server] UDT {current_udt:.4f} above max "
+                        f"{max_udt:.4f}; waiting."
+                    )
+                    continue
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)

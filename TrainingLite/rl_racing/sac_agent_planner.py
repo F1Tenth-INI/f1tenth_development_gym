@@ -67,6 +67,7 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
+    STATE_HISTORY_LEN = 25
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -127,7 +128,7 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
-        self.state_history = deque([np.zeros(10) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
+        self.state_history = deque([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)], maxlen=self.STATE_HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -151,7 +152,6 @@ class RLAgentPlanner(template_planner):
         # For fast smoke tests: send the first couple transitions early so the learner can infer obs_dim
         # and broadcast weights without waiting for an episode to end.
         self._bootstrap_sent = False
-
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -165,7 +165,7 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
         self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(self.HISTORY_LEN)])
+        self.state_history.extend([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)])
         
         self.transition_logger.clear()
         self.control_index = 0
@@ -195,7 +195,6 @@ class RLAgentPlanner(template_planner):
 
         action = self._select_action(raw_obs)
 
-        # action = self._fallback_action()
         # scale to simulator units
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
@@ -252,7 +251,6 @@ class RLAgentPlanner(template_planner):
         info_out = dict(info or {})
         if self.curriculum_supervisor is not None:
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
-
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),
@@ -320,15 +318,18 @@ class RLAgentPlanner(template_planner):
         """
         car_state = self.car_state
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
+        state_history = np.asarray(list(self.state_history), dtype=np.float32)
 
         # Get border points relative to the car's position
         border_points = self.waypoint_utils.get_track_border_positions_relative(
             self.waypoint_utils.next_waypoints, car_state
         )
 
+        fallback_action = self._fallback_action()
 
         return {
             "car_state": self.car_state,
+            "state_history": state_history,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
             "border_points": np.asarray(border_points, dtype=np.float32),
             "lidar_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
@@ -547,7 +548,5 @@ class RLAgentPlanner(template_planner):
         self.control_index = 0
         self.prev_obs_raw = None
         self.prev_action = None
-
-
         
        
