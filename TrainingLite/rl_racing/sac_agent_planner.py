@@ -391,7 +391,7 @@ class RLAgentPlanner(template_planner):
         model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
         server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
         # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
-        model_path = model_path if os.path.exists(model_path + ".zip") else server_model_path
+        model_path = model_path if os.path.exists(model_path) else server_model_path
         self.model = SAC.load(model_path, device="cpu")
 
         try:

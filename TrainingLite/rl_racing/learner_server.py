@@ -523,7 +523,7 @@ class LearnerServer:
             load_model_path_root, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
             load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
             # Prefer the model root, but keep legacy support for older ".../server/" layouts.
-            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root + ".zip") else load_model_path_server
+            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root) else load_model_path_server
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
