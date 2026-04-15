@@ -204,7 +204,26 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw = raw_obs
         self.prev_action  = action
 
-        self._apply_control_filter(steering=steering, accel=accel)
+        # Apply lowpass filter to control outputs
+        # filtered = alpha * new_value + (1 - alpha) * previous_value
+        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
+        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
+        
+        
+        max_translational_control = float(
+            getattr(Settings, "SAC_MAX_TRANSLATIONAL_CONTROL", 6.0)
+        )
+        self.translational_control = float(
+            np.clip(
+                self.translational_control,
+                -max_translational_control,
+                max_translational_control,
+            )
+        )
+        
+        # Update previous values for next iteration
+        self.prev_angular_control = self.angular_control
+        self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
         self.state_history.append(self.car_state)
@@ -316,8 +335,8 @@ class RLAgentPlanner(template_planner):
             "last_actions": np.asarray(last_actions, dtype=np.float32),
             "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
-            "fallback_action": np.asarray(self.fallback_action, dtype=np.float32),
-            "pp_action": np.asarray(self.fallback_action, dtype=np.float32),
+            "pp_action": np.asarray(fallback_action, dtype=np.float32),
+            "fallback_action": np.asarray(fallback_action, dtype=np.float32),
         }
 
     def _build_observation(self) -> np.ndarray:
