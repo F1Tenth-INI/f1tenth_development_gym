@@ -19,7 +19,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = 250   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -190,26 +190,28 @@ class Settings():
     #SAC Sampling Weights
     USE_CUSTOM_SAC_SAMPLING = True
 
-    SAC_CUSTOM_UNIFORM_CRITIC = False #if true forces uniform critic sampling anyways
+    SAC_CUSTOM_UNIFORM_CRITIC = True #if true forces uniform critic sampling anyways
+
+    SAC_CRITIC_PURE_TD = False
 
     #True: weight by inverse of TD, False: weight by TD error
     SAC_CUSTOM_CRITIC_INVERT_TD = False 
-    SAC_CUSTOM_ACTOR_INVERT_TD = False
+    SAC_CUSTOM_ACTOR_INVERT_TD = True
 
     SAC_LOG_SQUISH = True
 
     SAC_CUSTOM_SAMPLING_REPLACE = True #True -> means same sample can be drawn multiple times, this is default
 
     SAC_WP_OFFSET_WEIGHT = 3.0
-    SAC_WP_HEADING_ERROR_WEIGHT = 3.0
-    SAC_REWARD_WEIGHT = 5.0
+    SAC_WP_HEADING_ERROR_WEIGHT = 5.0
+    SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
-    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.7 #(beta), corrects the introduced bias from prioritized sampling
+    SAC_PRIORITY_FACTOR = 0.8   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.6 #(beta), corrects the introduced bias from prioritized sampling
     
     SAC_BETA_ANNEALING_RATIO = 0.4 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.0 #if 0, only TD error based priorities
+    SAC_STATE_TO_TD_RATIO = 0.8 #if 0, only TD error based priorities
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -224,8 +226,8 @@ class Settings():
 
     SAC_RANK_BASED_SAMPLING = False
 
-    SAC_CURRICULUM_DEBUG = True
-    SAC_AGENT_DEBUG = False
+    SAC_CURRICULUM_DEBUG = False
+    SAC_AGENT_DEBUG = True
     LEARNER_SERVER_DEBUG = True
 
     SAC_SPEED_CURRICULUM_LEARNING = False
@@ -269,8 +271,9 @@ class Settings():
     SAC_MIN_SIM_FREQUENCY = 20.0
 
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
-    SAC_STAT_TRACKER = False
+    SAC_STAT_TRACKER = True
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+    SAC_STAT_TRACKER_CSV_FLOAT_DECIMALS = 4
     
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
     SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2

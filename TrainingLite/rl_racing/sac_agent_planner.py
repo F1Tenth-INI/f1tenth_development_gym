@@ -454,11 +454,11 @@ class RLAgentPlanner(template_planner):
         """
         Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
         """
-        model_path_root, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
-        model_zip_path = model_path_root + ".zip"
-
-        print(f"[RLAgentPlanner] Loading inference model from: {model_zip_path}")
-        self.model = SAC.load(model_zip_path, device="cpu")
+        model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
+        server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
+        # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
+        model_path = model_path if os.path.exists(model_path) else server_model_path
+        self.model = SAC.load(model_path, device="cpu")
 
         try:
             obs_dim = int(self.model.observation_space.shape[0])

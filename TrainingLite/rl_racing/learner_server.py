@@ -530,8 +530,7 @@ class LearnerServer:
             load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
             self.load_model_dir = load_model_dir_root
             # Prefer the model root, but keep legacy support for older ".../server/" layouts.
-            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root + ".zip") else load_model_path_server
-            self._sync_save_model_from_load_model()
+            self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root) else load_model_path_server
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
@@ -673,7 +672,13 @@ class LearnerServer:
 
         if Settings.SAC_STAT_TRACKER:
             stat_save_dir = os.path.join(self.model_dir, "stat_logs")
-            self.replay_buffer.stat_tracker = StatTracker(save_dir=stat_save_dir, save_name="stats_log.csv", max_buffer_size=self.replay_capacity, extended_obs_action_save=Settings.SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE)
+            self.replay_buffer.stat_tracker = StatTracker(
+                save_dir=stat_save_dir,
+                save_name="stats_log.csv",
+                max_buffer_size=self.replay_capacity,
+                extended_obs_action_save=Settings.SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE,
+                csv_float_decimals=Settings.SAC_STAT_TRACKER_CSV_FLOAT_DECIMALS,
+            )
             self._last_stat_save_ts = 0.0
         else:
             self.replay_buffer.stat_tracker = None
@@ -1382,8 +1387,16 @@ class LearnerServer:
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             old_alpha = self.replay_buffer.alpha
                             self.replay_buffer.alpha = 0.0
+                        
+                        if Settings.SAC_CRITIC_PURE_TD:
+                            old_ratio = self.replay_buffer.state_to_TD_ratio
+                            self.replay_buffer.state_to_TD_ratio = 0.0
+
 
                         data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.critic_invert_TD)
+
+                        if Settings.SAC_CRITIC_PURE_TD:
+                            self.replay_buffer.state_to_TD_ratio = old_ratio
 
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             self.replay_buffer.alpha = old_alpha

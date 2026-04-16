@@ -145,7 +145,7 @@ class RewardCalculator:
 
         # Penalize Being Stuck
         stuck_reward = 0.0
-        if speed < 1.0: #TODO: NIKITA: was 1.0
+        if speed < 1.0:
             self.stuck_counter += 1
             if self.stuck_counter >= 100:
                 stuck_reward = -self.w_crash 

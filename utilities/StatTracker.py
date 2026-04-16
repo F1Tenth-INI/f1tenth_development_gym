@@ -20,7 +20,14 @@ class StatTracker:
     - obs[3]: steering_angle (scaled by 1/0.4)
     """
     
-    def __init__(self, save_dir: str = "stat_logs", save_name: str = "stats_log.csv", max_buffer_size: int = 100000, extended_obs_action_save: bool = False):
+    def __init__(
+        self,
+        save_dir: str = "stat_logs",
+        save_name: str = "stats_log.csv",
+        max_buffer_size: int = 100000,
+        extended_obs_action_save: bool = False,
+        csv_float_decimals: int = 4,
+    ):
         self.save_dir = save_dir
         self.file_path = os.path.join(save_dir, save_name)
         self.transition_dict = {}  # {ID: transition_dict}
@@ -49,6 +56,43 @@ class StatTracker:
         self.broadcast_time_list = []
 
         self.save_full_obs_action_enabled = extended_obs_action_save
+        self.csv_float_decimals = max(0, int(csv_float_decimals))
+
+    def _format_float_for_csv(self, value) -> str:
+        return f"{float(value):.{self.csv_float_decimals}f}"
+
+    def _format_sequence_for_csv(self, sequence) -> str:
+        return "[" + ",".join(self._format_sequence_item_for_csv(v) for v in sequence) + "]"
+
+    def _format_sequence_item_for_csv(self, value) -> str:
+        if value is None:
+            return "None"
+        if isinstance(value, (bool, np.bool_)):
+            return "True" if bool(value) else "False"
+        if isinstance(value, (float, np.floating)):
+            return self._format_float_for_csv(value)
+        if isinstance(value, (int, np.integer)):
+            return str(int(value))
+        if isinstance(value, np.ndarray):
+            return self._format_sequence_for_csv(value.tolist())
+        if isinstance(value, (list, tuple)):
+            return self._format_sequence_for_csv(value)
+        return str(value)
+
+    def _serialize_value_for_csv(self, value):
+        if value is None:
+            return None
+        if isinstance(value, (bool, np.bool_)):
+            return bool(value)
+        if isinstance(value, (float, np.floating)):
+            return self._format_float_for_csv(value)
+        if isinstance(value, (int, np.integer)):
+            return int(value)
+        if isinstance(value, np.ndarray):
+            return self._format_sequence_for_csv(value.tolist())
+        if isinstance(value, (list, tuple)):
+            return self._format_sequence_for_csv(value)
+        return value
     
     # def unnormalize_obs(self, obs: np.ndarray) -> dict:    # -> i would maybe also like x and y pos to be saved
     #     if len(obs) < 4:
@@ -235,13 +279,10 @@ class StatTracker:
                     writer.writeheader()
                 
                 for t in self.transition_dict.values():
-                    # Convert numpy arrays to strings for CSV
+                    # Serialize list/array fields and enforce float precision in CSV output.
                     row = {}
                     for k, v in t.items():
-                        if isinstance(v, np.ndarray):
-                            row[k] = np.array2string(v, separator=',', max_line_width=10000)
-                        else:
-                            row[k] = v
+                        row[k] = self._serialize_value_for_csv(v)
                     writer.writerow(row)
             
             print(f"[StatTracker] Saved {len(self.transition_dict)} entries to {self.file_path}")

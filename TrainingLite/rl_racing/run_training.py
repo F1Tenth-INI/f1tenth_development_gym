@@ -395,13 +395,18 @@ def main() -> None:
 
                 model_path, model_dir = SacUtilities.resolve_model_paths(str(model_name))
                 server_model_path = os.path.join(model_dir, "server", str(model_name))
+                local_stem_path = model_path[:-4] if str(model_path).endswith(".zip") else model_path
+                local_zip_path = local_stem_path + ".zip"
+                server_stem_path = server_model_path
                 server_zip_path = server_model_path + ".zip"
-                local_zip_path = model_path + ".zip"
 
-                if not os.path.exists(local_zip_path) and not os.path.exists(server_zip_path):
+                if not any(
+                    os.path.exists(candidate)
+                    for candidate in (local_stem_path, local_zip_path, server_stem_path, server_zip_path)
+                ):
                     print(
                         f"[run_training] Skipping evaluation: model zip not found for '{model_name}'. "
-                        f"Tried: {local_zip_path} or {server_zip_path}"
+                        f"Tried: {local_stem_path}, {local_zip_path}, {server_stem_path}, {server_zip_path}"
                     )
                     return
             except Exception as e:
