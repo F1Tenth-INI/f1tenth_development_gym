@@ -1,9 +1,12 @@
 
 # Evaluate (informed) MPC performance on the original car dynamics
-python run.py --CONTROLLER rpgd-lite-jax --ENV_CAR_PARAMETER_FILE gym_car_parameters.yml --CONTROLLER_CAR_PARAMETER_FILE gym_car_parameters.yml
- 
+python run.py --CONTROLLER rpgd-lite-jax --ENV_CAR_PARAMETER_FILE gym_car_parameters.yml --CONTROLLER_CAR_PARAMETER_FILE gym_car_parameters.yml --SAVE_RECORDINGS True --SAVE_VIDEOS True
+# Baseline mpc: 20.7s
+
 # Evaluate (informed) MPC performance on the dinetune car dynamics
-python run.py --CONTROLLER rpgd-lite-jax --ENV_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml --CONTROLLER_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml
+python run.py --CONTROLLER rpgd-lite-jax --ENV_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml --CONTROLLER_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml --SAVE_RECORDINGS True --SAVE_VIDEOS True
+# Baseline MPC: 24.3
+
 
 # original ( base model ) training
 python TrainingLite/rl_racing/run_training.py \
