@@ -55,6 +55,17 @@ from utilities.parser_utilities import parse_settings_args  # noqa: E402
 from utilities.command_logger import save_run_metadata, print_run_summary  # noqa: E402
 
 
+def _parse_bool_arg(value: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"Invalid boolean value '{value}'. Use true/false."
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[str]]:
     if argv is None:
         argv = sys.argv[1:]
@@ -90,6 +101,17 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--discount-factor", type=float, default=0.99)
     parser.add_argument("--train-frequency", type=int, default=1)
+    parser.add_argument(
+        "--save_replay_buffer",
+        nargs="?",
+        const=True,
+        type=_parse_bool_arg,
+        default=False,
+        help=(
+            "Persist replay buffer transitions to replay_buffer.csv on saves/checkpoints. "
+            "Supports '--save_replay_buffer' or '--save_replay_buffer true/false'."
+        ),
+    )
     parser.add_argument(
         "--auto-start-client",
         default=False,
@@ -324,6 +346,7 @@ def main() -> None:
         learning_rate=run_args.learning_rate,
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
+        save_replay_buffer=run_args.save_replay_buffer,
     )
 
     #TODO: check if needed

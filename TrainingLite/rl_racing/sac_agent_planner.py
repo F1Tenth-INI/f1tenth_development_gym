@@ -54,8 +54,12 @@ sys.path.append(root_dir)
 from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
 
 
-from TrainingLite.rl_racing.tcp_client import _TCPActorClient
-from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
+try:
+    from TrainingLite.rl_racing.tcp_client import _TCPActorClient
+    from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
+except ModuleNotFoundError:
+    from f1tenth_development_gym.TrainingLite.rl_racing.tcp_client import _TCPActorClient
+    from f1tenth_development_gym.TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
 from utilities.CurriculumSupervisor import CurriculumSupervisor
 torch.set_num_threads(1)          # intra-op parallelism
 torch.set_num_interop_threads(1)  # inter-op parallelism
@@ -65,6 +69,7 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
+    STATE_HISTORY_LEN = 25
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -97,6 +102,7 @@ class RLAgentPlanner(template_planner):
         self.model: Optional[SAC] = None
         self.client: Optional[_TCPActorClient] = None
         self.latest_training_info: Optional[Dict[str, Any]] = None
+        self._last_client_model_dir: Optional[str] = None
         # Upper bound for UDT-driven MAX_SIM_FREQUENCY tweaks: never exceed initial Settings value.
         self._udt_sim_frequency_ceiling: Optional[float] = (
             float(Settings.MAX_SIM_FREQUENCY)
@@ -120,13 +126,13 @@ class RLAgentPlanner(template_planner):
             # For training we infer obs_dim lazily from the first built observation.
             self._received_weights = False
             self._warned_no_weights = False
-            self._warned_fallback_unavailable = False
+            self._warned_no_observation_builder = False
         else:
             self._init_inference_model()
 
             self._received_weights = True  # no waiting for weights in inference
             self._warned_no_weights = False
-            self._warned_fallback_unavailable = False
+            self._warned_no_observation_builder = False
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         # no VecNormalize in this setup
@@ -136,7 +142,7 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
-        self.state_history = deque([np.zeros(10) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
+        self.state_history = deque([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)], maxlen=self.STATE_HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -161,7 +167,6 @@ class RLAgentPlanner(template_planner):
         # For fast smoke tests: send the first couple transitions early so the learner can infer obs_dim
         # and broadcast weights without waiting for an episode to end.
         self._bootstrap_sent = False
-
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -175,7 +180,7 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
         self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(self.HISTORY_LEN)])
+        self.state_history.extend([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)])
         
         self.transition_logger.clear()
         self.control_index = 0
@@ -195,7 +200,18 @@ class RLAgentPlanner(template_planner):
             return self._fallback_action()
         
         sd_to_load = self._sync_from_server()
-        
+        if self.observation_builder_fn is None:
+            if not self._warned_no_observation_builder:
+                print(
+                    "[RLAgentPlanner] Waiting for observation builder from server model/client folder; "
+                    "sending zero action."
+                )
+                self._warned_no_observation_builder = True
+            self.angular_control = 0.0
+            self.translational_control = 0.0
+            self.prev_angular_control = 0.0
+            self.prev_translational_control = 0.0
+            return 0.0, 0.0
 
         self.fallback_action = self._fallback_action()
 
@@ -207,7 +223,6 @@ class RLAgentPlanner(template_planner):
 
         action = self._select_action(raw_obs)
 
-        # action = self._fallback_action()
         # scale to simulator units
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
@@ -235,7 +250,26 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw = raw_obs
         self.prev_action  = action
 
-        self._apply_control_filter(steering=steering, accel=accel)
+        # Apply lowpass filter to control outputs
+        # filtered = alpha * new_value + (1 - alpha) * previous_value
+        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
+        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
+        
+        
+        max_translational_control = float(
+            getattr(Settings, "SAC_MAX_TRANSLATIONAL_CONTROL", 6.0)
+        )
+        self.translational_control = float(
+            np.clip(
+                self.translational_control,
+                -max_translational_control,
+                max_translational_control,
+            )
+        )
+        
+        # Update previous values for next iteration
+        self.prev_angular_control = self.angular_control
+        self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
         self.state_history.append(self.car_state)
@@ -283,7 +317,6 @@ class RLAgentPlanner(template_planner):
         info_out = dict(info or {})
         if self.curriculum_supervisor is not None:
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
-
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),
@@ -311,8 +344,7 @@ class RLAgentPlanner(template_planner):
             #Send Transitions to Learner Server
             if self.training_mode and self.autonomous_driving:
                 try:
-                    if len(self._episode) > 1:
-                        nikita_t11 = time.time()
+                    if len(self._episode) > 10:
                         self.client.send_transition_batch(self._episode)
                         if Settings.SAC_AGENT_DEBUG:
                             print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
@@ -358,29 +390,63 @@ class RLAgentPlanner(template_planner):
         """
         car_state = self.car_state
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
+        state_history = np.asarray(list(self.state_history), dtype=np.float32)
 
         # Get border points relative to the car's position
         border_points = self.waypoint_utils.get_track_border_positions_relative(
             self.waypoint_utils.next_waypoints, car_state
         )
 
-
+        fallback_action = self._fallback_action()
         return {
             "car_state": self.car_state,
+            "state_history": state_history,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
             "border_points": np.asarray(border_points, dtype=np.float32),
             "lidar_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
             "last_actions": np.asarray(last_actions, dtype=np.float32),
             "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
-            "fallback_action": np.asarray(self.fallback_action, dtype=np.float32),
-            "pp_action": np.asarray(self.fallback_action, dtype=np.float32),
+            "pp_action": np.asarray(fallback_action, dtype=np.float32),
+            "fallback_action": np.asarray(fallback_action, dtype=np.float32),
         }
 
     def _build_observation(self) -> np.ndarray:
+        if self.observation_builder_fn is None:
+            raise RuntimeError(
+                "No observation builder loaded from model folder. "
+                "Expected '<model_dir>/client/observation_builder.py'."
+            )
         super_obs = self._build_super_observation()
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
+
+    def _sync_from_server(self) -> Optional[dict]:
+        """
+        Pull latest messages from the TCP client:
+        - model_sync: load observation builder from the mirrored/local client folder
+        - training_info: apply UDT-based frequency adjustments
+        - weights: return latest actor state_dict for model update
+        """
+        if not self.training_mode or self.client is None:
+            return None
+
+        model_sync = self.client.pop_latest_model_sync()
+        if isinstance(model_sync, dict):
+            local_client_dir = model_sync.get("local_client_dir")
+            if isinstance(local_client_dir, str) and local_client_dir:
+                if local_client_dir != self._last_client_model_dir:
+                    loaded = self._load_observation_builder(local_client_dir, required=False)
+                    if loaded:
+                        self._last_client_model_dir = local_client_dir
+                        self._warned_no_observation_builder = False
+
+        training_info = self.client.pop_latest_training_info()
+        if isinstance(training_info, dict):
+            self.latest_training_info = training_info
+            self._apply_udt_training_info(training_info)
+
+        return self.client.pop_latest_state_dict()
   
 
     # ---- helpers ----
@@ -388,11 +454,11 @@ class RLAgentPlanner(template_planner):
         """
         Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
         """
-        model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
-        server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
-        # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
-        model_path = model_path if os.path.exists(model_path + ".zip") else server_model_path
-        self.model = SAC.load(model_path, device="cpu")
+        model_path_root, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
+        model_zip_path = model_path_root + ".zip"
+
+        print(f"[RLAgentPlanner] Loading inference model from: {model_zip_path}")
+        self.model = SAC.load(model_zip_path, device="cpu")
 
         try:
             obs_dim = int(self.model.observation_space.shape[0])
@@ -402,26 +468,38 @@ class RLAgentPlanner(template_planner):
         except Exception:
             pass
 
-        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
-        self._load_observation_builder(os.path.join(model_dir, "client"))
+        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_zip_path}")
+        self._load_observation_builder(os.path.join(model_dir, "client"), required=True)
 
-    def _load_observation_builder(self, client_model_dir: str) -> None:
+    def _load_observation_builder(self, client_model_dir: str, required: bool = False) -> bool:
         builder_path = os.path.join(client_model_dir, "observation_builder.py")
         if not os.path.isfile(builder_path):
-            return
+            msg = f"[RLAgentPlanner] observation_builder.py not found at {builder_path}"
+            if required:
+                raise FileNotFoundError(msg)
+            print(msg)
+            return False
         try:
             module_name = f"observation_builder_{abs(hash(builder_path))}"
             spec = importlib.util.spec_from_file_location(module_name, builder_path)
             if spec is None or spec.loader is None:
-                return
+                if required:
+                    raise RuntimeError(f"Failed to load spec for {builder_path}")
+                return False
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             fn = getattr(module, "build_observation", None)
             if callable(fn):
                 self.observation_builder_fn = fn
                 print(f"[RLAgentPlanner] Loaded observation builder from {builder_path}")
+                return True
+            if required:
+                raise RuntimeError(f"'build_observation' is not callable in {builder_path}")
         except Exception as e:
+            if required:
+                raise
             print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
+        return False
 
 
     def _init_model_for_obs_dim(self, obs_dim: int) -> None:
@@ -450,32 +528,6 @@ class RLAgentPlanner(template_planner):
             self._received_weights = True
             if Settings.SAC_AGENT_DEBUG:
                 print("[RLAgentPlanner] ✅ Actor weights updated.")
-
-    def _sync_from_server(self) -> Optional[dict]:
-        """
-        Pull latest actor weights + optional model sync info from learner server.
-        """
-        if not self.training_mode or self.client is None:
-            return None
-
-        sd_to_load = self.client.pop_latest_state_dict()
-        model_sync = self.client.pop_latest_model_sync()
-        training_info = self.client.pop_latest_training_info()
-        if isinstance(model_sync, dict):
-            local_client_dir = model_sync.get("local_client_dir")
-            if isinstance(local_client_dir, str):
-                self._load_observation_builder(local_client_dir)
-        if isinstance(training_info, dict):
-            self.latest_training_info = training_info
-            self._apply_udt_training_info(training_info)
-            if Settings.SAC_AGENT_DEBUG:
-                current_udt = (
-                    training_info.get("metrics", {}).get("current_udt")
-                    if isinstance(training_info.get("metrics"), dict)
-                    else None
-                )
-                print(f"[RLAgentPlanner] Received training_info: current_udt={current_udt}")
-        return sd_to_load
 
     def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
         """
@@ -585,7 +637,5 @@ class RLAgentPlanner(template_planner):
         self.control_index = 0
         self.prev_obs_raw = None
         self.prev_action = None
-
-
         
        

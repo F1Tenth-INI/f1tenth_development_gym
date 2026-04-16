@@ -6,7 +6,15 @@ import shutil
 
 from typing import Optional
 
-from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame, np_to_blob, bytes_to_state_dict
+try:
+    from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame, np_to_blob, bytes_to_state_dict
+except ModuleNotFoundError:
+    from f1tenth_development_gym.TrainingLite.rl_racing.tcp_utilities import (
+        pack_frame,
+        read_frame,
+        np_to_blob,
+        bytes_to_state_dict,
+    )
 import numpy as np
 
 
@@ -249,7 +257,20 @@ class _TCPActorClient:
                 self._latest_model_sync = {"model_name": model_name, "local_client_dir": target_dir, "mirrored": True}
             print(f"[TCPActorClient] Mirrored client folder: {source_dir} -> {target_dir}")
         except Exception as e:
-            print(f"[TCPActorClient] Client folder mirror skipped ({source_dir} -> {target_dir}): {e}")
+            # Copy can fail if source/target effectively point to identical files.
+            # In that case, still publish model_sync so the planner can load the builder.
+            builder_in_target = os.path.join(target_dir, "observation_builder.py")
+            fallback_dir = target_dir if os.path.isfile(builder_in_target) else source_dir
+            with self._latest_model_sync_lock:
+                self._latest_model_sync = {
+                    "model_name": model_name,
+                    "local_client_dir": fallback_dir,
+                    "mirrored": False,
+                }
+            print(
+                f"[TCPActorClient] Client folder mirror skipped ({source_dir} -> {target_dir}): {e}. "
+                f"Using local_client_dir={fallback_dir}"
+            )
 
     async def _writer_loop(self, writer: asyncio.StreamWriter):
         while not self._stop_evt.is_set():

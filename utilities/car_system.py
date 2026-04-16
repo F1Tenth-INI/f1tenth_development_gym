@@ -26,7 +26,10 @@ from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
 from utilities.imu_utilities import IMUUtilities
 
-from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
+try:
+    from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
+except ModuleNotFoundError:
+    from f1tenth_development_gym.TrainingLite.rl_racing.RewardCalculator import RewardCalculator
 
 
 # from SI_Toolkit.Predictors.predictor_wrapper import PredictorWrapper
@@ -289,7 +292,9 @@ class CarSystem:
 
         # TODO: Recording
         info = {
-            "lap_times": self.laptimes,
+            # Snapshot current lap history to avoid sharing a mutable list
+            # reference across stored transitions.
+            "lap_times": list(self.laptimes),
             "truncated": self.reward_calculator.truncated or next_obs['collision'] or next_obs['interrupted'],
             "terminated": next_obs['terminated'],
             "collision": next_obs['collision'],

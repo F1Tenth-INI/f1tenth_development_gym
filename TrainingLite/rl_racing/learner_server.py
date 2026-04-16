@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import asyncio
+import ast
 import os
 import subprocess
 import hashlib
@@ -436,6 +437,7 @@ class LearnerServer:
         learning_rate: float = 3e-4,
         discount_factor: float = 0.99,
         train_frequency: int = 1,
+        save_replay_buffer: bool = False,
     ):
         self.host = host
         self.port = port
@@ -448,6 +450,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
+        self.save_replay_buffer_enabled = bool(save_replay_buffer)
         self._latest_training_info_payload: Optional[dict] = None
 
         # Settings
@@ -471,6 +474,7 @@ class LearnerServer:
         self.vecnorm: Optional[VecNormalize] = None
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
+        self._training_paused_for_udt = False
 
         self.last_episode_time = None 
         self.episode_timeout = 100.0
@@ -514,16 +518,20 @@ class LearnerServer:
         # resolve model root and client subfolder
         self.save_model_path, self.model_dir = SacUtilities.resolve_model_paths(self.save_model_name)
         self.client_model_dir = os.path.join(self.model_dir, "client")
+        self.replay_buffer_csv_path = os.path.join(self.model_dir, "replay_buffer.csv")
         os.makedirs(self.client_model_dir, exist_ok=True)
         self.save_model_path = os.path.join(self.model_dir, self.save_model_name)
 
         # resolve load path if different
         self.load_model_path = None
+        self.load_model_dir = None
         if self.load_model_name is not None:
             load_model_path_root, load_model_dir_root = SacUtilities.resolve_model_paths(self.load_model_name)
             load_model_path_server = os.path.join(load_model_dir_root, "server", self.load_model_name)
+            self.load_model_dir = load_model_dir_root
             # Prefer the model root, but keep legacy support for older ".../server/" layouts.
             self.load_model_path = load_model_path_root if os.path.exists(load_model_path_root + ".zip") else load_model_path_server
+            self._sync_save_model_from_load_model()
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
 
@@ -533,6 +541,44 @@ class LearnerServer:
         # This allows per-model custom observation builders to define different obs_dim.
 
     # ---------- setup / init ----------
+    def _sync_save_model_from_load_model(self) -> None:
+        """
+        If load/save model names differ, copy all artifacts from load model dir
+        into save model dir so training continues from a full clone (weights + replay CSV + metadata).
+        """
+        if self.load_model_name is None:
+            return
+        if self.save_model_name == self.load_model_name:
+            return
+        if self.load_model_dir is None or not os.path.isdir(self.load_model_dir):
+            print(f"[server] Load model directory missing; cannot sync: {self.load_model_dir}")
+            return
+
+        try:
+            os.makedirs(self.model_dir, exist_ok=True)
+            for entry in os.listdir(self.load_model_dir):
+                src_path = os.path.join(self.load_model_dir, entry)
+                dst_path = os.path.join(self.model_dir, entry)
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src_path, dst_path)
+
+            # Ensure the save-model zip name exists so downstream load uses the new model name.
+            src_zip = os.path.join(self.model_dir, f"{self.load_model_name}.zip")
+            dst_zip = os.path.join(self.model_dir, f"{self.save_model_name}.zip")
+            if os.path.isfile(src_zip) and src_zip != dst_zip:
+                shutil.copy2(src_zip, dst_zip)
+
+            # After sync, load from the save-model path so replay/model are coupled to the cloned folder.
+            self.load_model_path = os.path.join(self.model_dir, self.save_model_name)
+            print(
+                f"[server] Synced model artifacts '{self.load_model_name}' -> "
+                f"'{self.save_model_name}' in {self.model_dir}"
+            )
+        except Exception as e:
+            print(f"[server] Failed to sync model artifacts from '{self.load_model_name}' to '{self.save_model_name}': {e}")
+
     def _ensure_client_observation_builder(self) -> None:
         target_builder_path = os.path.join(self.client_model_dir, "observation_builder.py")
 
@@ -637,6 +683,14 @@ class LearnerServer:
 
 
         self.model.replay_buffer = self.replay_buffer
+        self._load_replay_buffer()
+        # Restore historical counters from metrics, then ensure loaded replay
+        # samples are reflected in the UDT denominator.
+        self._restore_training_counters_from_metrics()
+        self.total_actor_timesteps = max(
+            self.total_actor_timesteps,
+            int(self.replay_buffer.size()),
+        )
 
         # Device diagnostics: verify model and replay buffer are on the correct device
         print(f"[server] Device config: requested={self.device}")
@@ -668,6 +722,15 @@ class LearnerServer:
         self._load_base_model(obs_dim=obs_dim)
         print(f"[server] Initialized model (obs_dim={obs_dim})")
 
+    def _expected_obs_dim(self) -> Optional[int]:
+        """Return the current model observation dimension, if initialized."""
+        if self.model is None:
+            return None
+        try:
+            return int(self.model.observation_space.shape[0])
+        except Exception:
+            return None
+
     def _save_model(self):
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
@@ -676,6 +739,142 @@ class LearnerServer:
                 print(f"[server] Model saved to {self.save_model_path}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
+        self.save_replay_buffer()
+
+    def _buffer_obs_at(self, idx: int) -> np.ndarray:
+        if self.replay_buffer is None:
+            return np.array([], dtype=np.float32)
+        return np.asarray(self.replay_buffer.observations[idx, 0], dtype=np.float32).reshape(-1)
+
+    def _buffer_next_obs_at(self, idx: int) -> np.ndarray:
+        if self.replay_buffer is None:
+            return np.array([], dtype=np.float32)
+        next_observations = getattr(self.replay_buffer, "next_observations", None)
+        if next_observations is not None:
+            return np.asarray(next_observations[idx, 0], dtype=np.float32).reshape(-1)
+        next_idx = (idx + 1) % self.replay_buffer.buffer_size
+        return np.asarray(self.replay_buffer.observations[next_idx, 0], dtype=np.float32).reshape(-1)
+
+    def save_replay_buffer(self, target_path: Optional[str] = None) -> None:
+        """Persist the current replay buffer into CSV."""
+        if not self.save_replay_buffer_enabled:
+            return
+        if self.replay_buffer is None:
+            print("[server] Replay buffer not initialized; skipping replay save.")
+            return
+
+        size = int(self.replay_buffer.size())
+        target_csv_path = target_path or self.replay_buffer_csv_path
+        try:
+            target_dir = os.path.dirname(target_csv_path)
+            if target_dir:
+                os.makedirs(target_dir, exist_ok=True)
+            with open(target_csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["obs", "action", "next_obs", "reward", "done"])
+                if size > 0:
+                    start_idx = int(self.replay_buffer.pos) if self.replay_buffer.full else 0
+                    for i in range(size):
+                        idx = (start_idx + i) % self.replay_buffer.buffer_size
+                        obs = self._buffer_obs_at(idx).tolist()
+                        next_obs = self._buffer_next_obs_at(idx).tolist()
+                        action = np.asarray(self.replay_buffer.actions[idx, 0], dtype=np.float32).reshape(-1).tolist()
+                        reward = float(np.asarray(self.replay_buffer.rewards[idx, 0]).item())
+                        done = bool(np.asarray(self.replay_buffer.dones[idx, 0]).item())
+                        writer.writerow([repr(obs), repr(action), repr(next_obs), reward, int(done)])
+            print(f"[server] Saved replay buffer with {size} transition(s) to {target_csv_path}")
+        except Exception as e:
+            print(f"[server] Failed to save replay buffer: {e}")
+
+    def _load_replay_buffer(self) -> None:
+        """Load replay transitions from model_dir/replay_buffer.csv when available."""
+        if self.replay_buffer is None:
+            return
+
+        self.replay_buffer.reset()
+        if not os.path.isfile(self.replay_buffer_csv_path):
+            print(f"[server] No replay CSV at {self.replay_buffer_csv_path}; starting with empty replay buffer.")
+            return
+
+        loaded = 0
+        try:
+            with open(self.replay_buffer_csv_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if loaded >= self.replay_capacity:
+                        break
+                    obs = np.asarray(ast.literal_eval(row["obs"]), dtype=np.float32)
+                    action = np.asarray(ast.literal_eval(row["action"]), dtype=np.float32)
+                    next_obs = np.asarray(ast.literal_eval(row["next_obs"]), dtype=np.float32)
+                    reward = float(row["reward"])
+                    done = bool(int(float(row["done"])))
+                    self.replay_buffer.add(
+                        obs=obs,
+                        next_obs=next_obs,
+                        action=action,
+                        reward=reward,
+                        done=done,
+                        infos={},
+                    )
+                    loaded += 1
+            print(f"[server] Loaded {loaded} transition(s) from {self.replay_buffer_csv_path}")
+        except Exception as e:
+            print(f"[server] Failed to load replay CSV ({e}); resetting replay buffer to empty.")
+            self.replay_buffer.reset()
+
+    def _restore_training_counters_from_metrics(self) -> None:
+        """Restore cumulative counters from learning_metrics.csv (last valid row)."""
+        metrics_path = self.trainingLogHelper.csv_path
+        if not os.path.isfile(metrics_path):
+            return
+
+        try:
+            with open(metrics_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            if len(rows) < 2:
+                return
+
+            header = rows[0]
+            expected_len = len(header)
+            if expected_len == 0:
+                return
+
+            idx_updates = header.index("total_weight_updates") if "total_weight_updates" in header else None
+            idx_timesteps = header.index("total_timesteps") if "total_timesteps" in header else None
+            if idx_updates is None and idx_timesteps is None:
+                return
+
+            restored_updates: Optional[int] = None
+            restored_timesteps: Optional[int] = None
+            for row in reversed(rows[1:]):
+                # Skip malformed rows (e.g. schema drift or partial writes).
+                if len(row) != expected_len:
+                    continue
+                try:
+                    if idx_updates is not None:
+                        restored_updates = int(float(row[idx_updates]))
+                    if idx_timesteps is not None:
+                        restored_timesteps = int(float(row[idx_timesteps]))
+                except Exception:
+                    restored_updates = None
+                    restored_timesteps = None
+                    continue
+                break
+
+            if restored_updates is not None:
+                self.total_weight_updates = max(self.total_weight_updates, restored_updates)
+            if restored_timesteps is not None:
+                self.total_actor_timesteps = max(self.total_actor_timesteps, restored_timesteps)
+
+            if restored_updates is not None or restored_timesteps is not None:
+                print(
+                    "[server] Restored training counters from learning_metrics.csv: "
+                    f"total_weight_updates={self.total_weight_updates}, "
+                    f"total_actor_timesteps={self.total_actor_timesteps}"
+                )
+        except Exception as e:
+            print(f"[server] Failed to restore counters from {metrics_path}: {e}")
 
     def _actor_fingerprint(self) -> str:
         """Create a stable fingerprint of the current actor weights for debugging handoff integrity."""
@@ -702,6 +901,8 @@ class LearnerServer:
     def _ingest_episodes_into_replay(self, episodes: List[List[dict]]) -> int:
         if self.model is None or self.replay_buffer is None:
             return 0
+        expected_obs_dim = self._expected_obs_dim()
+        dropped_for_dim_mismatch = 0
         n_added = 0
         for ep in episodes:
             if self.n_step == 1:
@@ -741,6 +942,12 @@ class LearnerServer:
             for t in ep:
                 obs = t["obs"].astype(np.float32)
                 next_obs = t["next_obs"].astype(np.float32)
+                if expected_obs_dim is not None:
+                    obs_dim = int(np.asarray(obs).reshape(-1).shape[0])
+                    next_obs_dim = int(np.asarray(next_obs).reshape(-1).shape[0])
+                    if obs_dim != expected_obs_dim or next_obs_dim != expected_obs_dim:
+                        dropped_for_dim_mismatch += 1
+                        continue
                 action = t["action"].astype(np.float32)
                 reward = float(t["reward"])
                 done = bool(t["done"])
@@ -758,6 +965,11 @@ class LearnerServer:
                     # sampling_weight = sampling_weight
                 )
                 n_added += 1
+        if dropped_for_dim_mismatch > 0:
+            print(
+                f"[server] Dropped {dropped_for_dim_mismatch} transition(s) due to "
+                f"observation dim mismatch (expected {expected_obs_dim})."
+            )
         return n_added
     
     def _compute_n_step_transitions(self, episode: List[dict]) -> List[dict]:
@@ -952,6 +1164,8 @@ class LearnerServer:
 
         try:
             self.model.save(checkpoint_path)
+            # Keep replay buffer in the model root and overwrite on each save.
+            self.save_replay_buffer()
             print(f"[server] Checkpoint saved to {checkpoint_path} as {checkpoint_name}")
             self.last_checkpoint_timestep = self.total_actor_timesteps
         except Exception as e:
@@ -1093,42 +1307,15 @@ class LearnerServer:
                 await asyncio.sleep(self.train_every_seconds)
                 continue
 
-            if self.pre_fill_with_pp and not self._bc_prefill_done:
-                print(f"[server] Starting one-time behavior cloning warmup for actor")
-
-                self._bc_in_progress = True
-                await self._broadcast_training_status(force=True)
-
-                dropped_before_bc = len(self.episode_buffer.episodes)
-                if dropped_before_bc > 0:
-                    self.episode_buffer.episodes.clear()
-                    print(f"[server] Dropped {dropped_before_bc} queued episodes before BC warmup.")
-
-                old_alpha = self.replay_buffer.alpha
-                self.replay_buffer.alpha = 0.0
-                try:
-                    await self._behavior_clone_on_prefill(num_epochs=self.pre_fill_sac_epochs, batch_size=min(self.batch_size, 1024))
-                finally:
-                    self.replay_buffer.alpha = old_alpha
-                    self._bc_in_progress = False
-
-                # Drop any episodes received while BC was running.
-                dropped_after_bc = len(self.episode_buffer.episodes)
-                if dropped_after_bc > 0:
-                    self.episode_buffer.episodes.clear()
-                    print(f"[server] Dropped {dropped_after_bc} queued episodes collected during BC warmup.")
-
-                self._bc_prefill_done = True
-                self._bc_actor_fingerprint = self._actor_fingerprint()
-                self._printed_first_sac_fingerprint = False
-                print(f"[server] BC actor fingerprint: {self._bc_actor_fingerprint}")
-                self._weights_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
-                await self._broadcast_weights(self._weights_blob)
-                await self._broadcast_training_status(force=True)
-                continue
-
-            # debug_time_3 = time.time()
-
+            max_udt = getattr(Settings, "SAC_MAX_UTD", None)
+            if max_udt is not None:
+                max_udt = float(max_udt)
+                if max_udt > 0.0 and current_udt > max_udt:
+                    print(
+                        f"[server] UDT {current_udt:.4f} above max "
+                        f"{max_udt:.4f}; waiting."
+                    )
+                    continue
             # Train if we have enough samples
             if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
                 # gradient steps proportional to newly ingested data (UTD ≈ 4)
@@ -1582,9 +1769,15 @@ class LearnerServer:
         target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
         udt_control = None
         if target_udt is not None:
+            target_udt = float(target_udt)
+            deadband_ratio = float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1))
+            deadband_ratio = min(max(deadband_ratio, 0.0), 0.95)
+            resume_udt = target_udt * (1.0 - deadband_ratio)
             udt_control = {
-                "target_udt": float(target_udt),
-                "deadband_ratio": float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1)),
+                "target_udt": target_udt,
+                "resume_udt": resume_udt,
+                "training_paused": bool(self._training_paused_for_udt),
+                "deadband_ratio": deadband_ratio,
                 "freq_adjust_step_ratio": float(getattr(Settings, "SAC_UDT_FREQ_ADJUST_STEP_RATIO", 0.05)),
                 "min_sim_frequency_hz": float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0)),
             }
@@ -1784,7 +1977,21 @@ class LearnerServer:
             print(f"[server] Client disconnected: {addr}")
 
     async def run(self):
-        # Initialize lazily after the first observation arrives.
+        # If loading a pretrained model, initialize immediately from that model's obs space.
+        # This prevents bootstrap transitions with stale obs builders from forcing a wrong obs_dim.
+        if self.load_model_name is not None and self.model is None:
+            try:
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                probe_model = SAC.load(self.load_model_path, device=self.device)
+                obs_dim = int(probe_model.observation_space.shape[0])
+                del probe_model
+                self._initialize_model(obs_dim=obs_dim)
+            except Exception as e:
+                print(
+                    "[server] Warning: could not pre-initialize from load model "
+                    f"'{self.load_model_name}'. Falling back to lazy init from actor obs. Error: {e}"
+                )
 
         # start trainer task and keep reference for cleanup
         train_task = asyncio.create_task(self._train_loop())
