@@ -276,7 +276,7 @@ class RLAgentPlanner(template_planner):
             #Send Transitions to Learner Server
             if self.training_mode and self.autonomous_driving:
                 try:
-                    if len(self._episode) > 1:
+                    if len(self._episode) > 10:
                         self.client.send_transition_batch(self._episode)
                         if Settings.SAC_AGENT_DEBUG:
                             print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
@@ -326,7 +326,6 @@ class RLAgentPlanner(template_planner):
         )
 
         fallback_action = self._fallback_action()
-
         return {
             "car_state": self.car_state,
             "state_history": state_history,
@@ -341,6 +340,11 @@ class RLAgentPlanner(template_planner):
         }
 
     def _build_observation(self) -> np.ndarray:
+        if self.observation_builder_fn is None:
+            raise RuntimeError(
+                "No observation builder loaded from model folder. "
+                "Expected '<model_dir>/client/observation_builder.py'."
+            )
         super_obs = self._build_super_observation()
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
@@ -351,11 +355,11 @@ class RLAgentPlanner(template_planner):
         """
         Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
         """
-        model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
-        server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
-        # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
-        model_path = model_path if os.path.exists(model_path + ".zip") else server_model_path
-        self.model = SAC.load(model_path, device="cpu")
+        model_path_root, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
+        model_zip_path = model_path_root + ".zip"
+
+        print(f"[RLAgentPlanner] Loading inference model from: {model_zip_path}")
+        self.model = SAC.load(model_zip_path, device="cpu")
 
         try:
             obs_dim = int(self.model.observation_space.shape[0])
@@ -365,26 +369,38 @@ class RLAgentPlanner(template_planner):
         except Exception:
             pass
 
-        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
-        self._load_observation_builder(os.path.join(model_dir, "client"))
+        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_zip_path}")
+        self._load_observation_builder(os.path.join(model_dir, "client"), required=True)
 
-    def _load_observation_builder(self, client_model_dir: str) -> None:
+    def _load_observation_builder(self, client_model_dir: str, required: bool = False) -> bool:
         builder_path = os.path.join(client_model_dir, "observation_builder.py")
         if not os.path.isfile(builder_path):
-            return
+            msg = f"[RLAgentPlanner] observation_builder.py not found at {builder_path}"
+            if required:
+                raise FileNotFoundError(msg)
+            print(msg)
+            return False
         try:
             module_name = f"observation_builder_{abs(hash(builder_path))}"
             spec = importlib.util.spec_from_file_location(module_name, builder_path)
             if spec is None or spec.loader is None:
-                return
+                if required:
+                    raise RuntimeError(f"Failed to load spec for {builder_path}")
+                return False
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             fn = getattr(module, "build_observation", None)
             if callable(fn):
                 self.observation_builder_fn = fn
                 print(f"[RLAgentPlanner] Loaded observation builder from {builder_path}")
+                return True
+            if required:
+                raise RuntimeError(f"'build_observation' is not callable in {builder_path}")
         except Exception as e:
+            if required:
+                raise
             print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
+        return False
 
 
     def _init_model_for_obs_dim(self, obs_dim: int) -> None:
@@ -413,32 +429,6 @@ class RLAgentPlanner(template_planner):
             self._received_weights = True
             if Settings.SAC_AGENT_DEBUG:
                 print("[RLAgentPlanner] ✅ Actor weights updated.")
-
-    def _sync_from_server(self) -> Optional[dict]:
-        """
-        Pull latest actor weights + optional model sync info from learner server.
-        """
-        if not self.training_mode or self.client is None:
-            return None
-
-        sd_to_load = self.client.pop_latest_state_dict()
-        model_sync = self.client.pop_latest_model_sync()
-        training_info = self.client.pop_latest_training_info()
-        if isinstance(model_sync, dict):
-            local_client_dir = model_sync.get("local_client_dir")
-            if isinstance(local_client_dir, str):
-                self._load_observation_builder(local_client_dir)
-        if isinstance(training_info, dict):
-            self.latest_training_info = training_info
-            self._apply_udt_training_info(training_info)
-            if Settings.SAC_AGENT_DEBUG:
-                current_udt = (
-                    training_info.get("metrics", {}).get("current_udt")
-                    if isinstance(training_info.get("metrics"), dict)
-                    else None
-                )
-                print(f"[RLAgentPlanner] Received training_info: current_udt={current_udt}")
-        return sd_to_load
 
     def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
         """

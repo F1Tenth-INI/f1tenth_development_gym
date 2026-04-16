@@ -292,7 +292,9 @@ class CarSystem:
 
         # TODO: Recording
         info = {
-            "lap_times": self.laptimes,
+            # Snapshot current lap history to avoid sharing a mutable list
+            # reference across stored transitions.
+            "lap_times": list(self.laptimes),
             "truncated": self.reward_calculator.truncated or next_obs['collision'] or next_obs['interrupted'],
             "terminated": next_obs['terminated'],
             "collision": next_obs['collision']
