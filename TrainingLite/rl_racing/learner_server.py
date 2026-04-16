@@ -40,6 +40,7 @@ class LearnerServer:
         learning_rate: float = 3e-4,
         discount_factor: float = 0.99,
         train_frequency: int = 1,
+        save_replay_buffer: bool = False,
     ):
         self.host = host
         self.port = port
@@ -52,6 +53,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
+        self.save_replay_buffer_enabled = bool(save_replay_buffer)
         self._latest_training_info_payload: Optional[dict] = None
 
         # Settings
@@ -319,6 +321,8 @@ class LearnerServer:
 
     def save_replay_buffer(self, target_path: Optional[str] = None) -> None:
         """Persist the current replay buffer into CSV."""
+        if not self.save_replay_buffer_enabled:
+            return
         if self.replay_buffer is None:
             print("[server] Replay buffer not initialized; skipping replay save.")
             return

@@ -91,6 +91,7 @@ class RLAgentPlanner(template_planner):
         self.model: Optional[SAC] = None
         self.client: Optional[_TCPActorClient] = None
         self.latest_training_info: Optional[Dict[str, Any]] = None
+        self._last_client_model_dir: Optional[str] = None
         # Upper bound for UDT-driven MAX_SIM_FREQUENCY tweaks: never exceed initial Settings value.
         self._udt_sim_frequency_ceiling: Optional[float] = (
             float(Settings.MAX_SIM_FREQUENCY)
@@ -114,11 +115,13 @@ class RLAgentPlanner(template_planner):
             # For training we infer obs_dim lazily from the first built observation.
             self._received_weights = False
             self._warned_no_weights = False
+            self._warned_no_observation_builder = False
         else:
             self._init_inference_model()
 
             self._received_weights = True  # no waiting for weights in inference
             self._warned_no_weights = False
+            self._warned_no_observation_builder = False
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         # no VecNormalize in this setup
@@ -184,7 +187,18 @@ class RLAgentPlanner(template_planner):
             return self._fallback_action()
         
         sd_to_load = self._sync_from_server()
-        
+        if self.observation_builder_fn is None:
+            if not self._warned_no_observation_builder:
+                print(
+                    "[RLAgentPlanner] Waiting for observation builder from server model/client folder; "
+                    "sending zero action."
+                )
+                self._warned_no_observation_builder = True
+            self.angular_control = 0.0
+            self.translational_control = 0.0
+            self.prev_angular_control = 0.0
+            self.prev_translational_control = 0.0
+            return 0.0, 0.0
 
         self.fallback_action = self._fallback_action()
 
@@ -348,6 +362,33 @@ class RLAgentPlanner(template_planner):
         super_obs = self._build_super_observation()
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
+
+    def _sync_from_server(self) -> Optional[dict]:
+        """
+        Pull latest messages from the TCP client:
+        - model_sync: load observation builder from the mirrored/local client folder
+        - training_info: apply UDT-based frequency adjustments
+        - weights: return latest actor state_dict for model update
+        """
+        if not self.training_mode or self.client is None:
+            return None
+
+        model_sync = self.client.pop_latest_model_sync()
+        if isinstance(model_sync, dict):
+            local_client_dir = model_sync.get("local_client_dir")
+            if isinstance(local_client_dir, str) and local_client_dir:
+                if local_client_dir != self._last_client_model_dir:
+                    loaded = self._load_observation_builder(local_client_dir, required=False)
+                    if loaded:
+                        self._last_client_model_dir = local_client_dir
+                        self._warned_no_observation_builder = False
+
+        training_info = self.client.pop_latest_training_info()
+        if isinstance(training_info, dict):
+            self.latest_training_info = training_info
+            self._apply_udt_training_info(training_info)
+
+        return self.client.pop_latest_state_dict()
   
 
     # ---- helpers ----

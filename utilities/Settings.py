@@ -90,7 +90,9 @@ class Settings():
     CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
+    # NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
@@ -220,7 +222,8 @@ class Settings():
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
-    SAC_TARGET_UDT = None
+    SAC_TARGET_UDT = 1
+    SAC_MAX_UTD = 2 
     SAC_UDT_DEADBAND_RATIO = 0.1
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0
