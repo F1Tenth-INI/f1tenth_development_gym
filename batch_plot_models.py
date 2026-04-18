@@ -1205,7 +1205,7 @@ def main():
     )
     parser.add_argument(
         "--plot-critic-output",
-        type=bool,
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Whether to plot critic forward pass (default: True)"
     )

@@ -113,3 +113,4 @@ utilities/maps/hangar16/hangar16_speed_scaling.csv
 cumulative_reward_components.png
 batch_training_metrics
 batch_learning_metrics_summary
+batch_compare_models

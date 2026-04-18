@@ -123,8 +123,22 @@ class CheckpointSelector:
         # always resolves inference artifacts from that layout.
         eval_model_dir = self.models_dir / eval_model_name
         eval_model_dir.mkdir(parents=True, exist_ok=True)
+        self._prepare_eval_alias_support_files(model_name=model_name, eval_model_dir=eval_model_dir)
         eval_zip = eval_model_dir / f"{eval_model_name}.zip"
         return eval_model_name, eval_model_dir, eval_zip
+
+    def _prepare_eval_alias_support_files(self, model_name: str, eval_model_dir: Path) -> None:
+        """Copy per-model support files needed by inference into the eval alias folder."""
+        source_model_dir = self.models_dir / model_name
+
+        source_client_dir = source_model_dir / "client"
+        if source_client_dir.is_dir():
+            target_client_dir = eval_model_dir / "client"
+            shutil.copytree(source_client_dir, target_client_dir, dirs_exist_ok=True)
+
+        source_info = source_model_dir / "info.yaml"
+        if source_info.is_file():
+            shutil.copy2(source_info, eval_model_dir / "info.yaml")
 
     @staticmethod
     def _stage_candidate_artifact(candidate_path: Path, eval_zip: Path) -> None:

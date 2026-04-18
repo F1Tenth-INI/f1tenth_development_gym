@@ -19,7 +19,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = 250   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -211,7 +211,7 @@ class Settings():
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.6 #(beta), corrects the introduced bias from prioritized sampling
     
     SAC_BETA_ANNEALING_RATIO = 0.4 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.4 #if 0, only TD error based priorities
+    SAC_STATE_TO_TD_RATIO = 0.8 #if 0, only TD error based priorities
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -222,7 +222,7 @@ class Settings():
     SAC_DEBUG_LOGGING = False
     SAC_CLIP_WEIGHTS = False
 
-    EXTENDED_AUTO_STOP = True
+    EXTENDED_AUTO_STOP = False
 
     SAC_RANK_BASED_SAMPLING = False
 
@@ -264,7 +264,7 @@ class Settings():
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
-    SAC_TARGET_UDT = 1
+    SAC_TARGET_UDT = 0.25
     SAC_MAX_UTD = 2 
     SAC_UDT_DEADBAND_RATIO = 0.1
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
