@@ -111,3 +111,5 @@ summary_plotscumulative_reward_components.png
 utilities/maps/hangar16/hangar16_speed_scaling.csv
 /chkpt_eval_results
 cumulative_reward_components.png
+batch_training_metrics
+batch_learning_metrics_summary

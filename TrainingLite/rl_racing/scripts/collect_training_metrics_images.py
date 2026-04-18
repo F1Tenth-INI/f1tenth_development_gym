@@ -8,7 +8,7 @@ renames it to <model_name>.png.
 
 Usage examples:
     python -u TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix Sweep_rank_Ex1_A0.0
-    python -u TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix 2602 --output-base-dir batch_plot_results
+    python -u TrainingLite/rl_racing/scripts/collect_training_metrics_images.py --prefix 2602 --output-base-dir batch_training_metrics
 """
 
 import argparse
@@ -30,7 +30,7 @@ class TrainingMetricsCollector:
     def __init__(
         self,
         prefix: str,
-        output_base_dir: str = "batch_plot_results",
+        output_base_dir: str = "batch_training_metrics",
         source_filename: str = "training_metrics.png",
         verbose: bool = True,
     ):
@@ -114,8 +114,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-base-dir",
         type=str,
-        default="batch_plot_results",
-        help="Base output folder relative to repo root (default: batch_plot_results)",
+        default="batch_training_metrics",
+        help="Base output folder relative to repo root (default: batch_training_metrics)",
     )
     parser.add_argument(
         "--source-filename",

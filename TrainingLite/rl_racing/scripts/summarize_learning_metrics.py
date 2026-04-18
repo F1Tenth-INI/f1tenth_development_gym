@@ -179,37 +179,37 @@ def summarize_model_csv(csv_path: Path, skip_initial_rows: int, max_episode_leng
     return summary
 
 
-def find_models(models_dir: Path, model_name: Optional[str], model_prefix: Optional[str]) -> List[str]:
+def find_models(models_dir: Path, name: Optional[str], prefix: Optional[str]) -> List[str]:
     if not models_dir.exists():
         raise FileNotFoundError(f"Models directory not found: {models_dir}")
 
-    if model_name:
-        model_dir = models_dir / model_name
+    if name:
+        model_dir = models_dir / name
         if not model_dir.is_dir():
             raise FileNotFoundError(f"Model directory not found: {model_dir}")
-        return [model_name]
+        return [name]
 
-    if not model_prefix:
-        raise ValueError("Provide either --model-name or --model-prefix")
+    if not prefix:
+        raise ValueError("Provide either --name or --prefix")
 
     matches: List[str] = []
     for item in sorted(models_dir.iterdir()):
-        if item.is_dir() and item.name.startswith(model_prefix):
+        if item.is_dir() and item.name.startswith(prefix):
             matches.append(item.name)
     return matches
 
 
-def build_output_path(out_file: Optional[str], model_name: Optional[str], model_prefix: Optional[str]) -> Path:
+def build_output_path(out_file: Optional[str], name: Optional[str], prefix: Optional[str]) -> Path:
     if out_file:
         output = Path(out_file)
         if not output.is_absolute():
             output = ROOT_DIR / output
         return output
 
-    if model_name:
-        tag = model_name
-    elif model_prefix:
-        tag = model_prefix
+    if name:
+        tag = name
+    elif prefix:
+        tag = prefix
     else:
         tag = "selection"
 
@@ -219,8 +219,8 @@ def build_output_path(out_file: Optional[str], model_name: Optional[str], model_
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize milestone timings from learning_metrics.csv files")
-    parser.add_argument("--model-name", help="Exact model directory name to process")
-    parser.add_argument("--model-prefix", help="Process all model directories with this prefix")
+    parser.add_argument("--name", help="Exact model directory name to process")
+    parser.add_argument("--prefix", help="Process all model directories with this prefix")
     parser.add_argument(
         "--models-dir",
         default=str(DEFAULT_MODELS_DIR),
@@ -249,17 +249,17 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    if not args.model_name and not args.model_prefix:
-        parser.error("Provide either --model-name or --model-prefix")
+    if not args.name and not args.prefix:
+        parser.error("Provide either --name or --prefix")
 
     models_dir = Path(args.models_dir)
-    models = find_models(models_dir=models_dir, model_name=args.model_name, model_prefix=args.model_prefix)
+    models = find_models(models_dir=models_dir, name=args.name, prefix=args.prefix)
     if not models:
-        target = args.model_name if args.model_name else args.model_prefix
+        target = args.name if args.name else args.prefix
         print(f"No matching model directories found for: {target}")
         return
 
-    output_path = build_output_path(args.out_file, args.model_name, args.model_prefix)
+    output_path = build_output_path(args.out_file, args.name, args.prefix)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows: List[Dict[str, object]] = []
@@ -274,7 +274,7 @@ def main() -> None:
             skip_initial_rows=max(0, args.skip_initial_rows),
             max_episode_length=args.max_episode_length,
         )
-        summary["model_name"] = model
+        summary["name"] = model
         summary["csv_path"] = str(csv_path)
         rows.append(summary)
 
@@ -283,7 +283,7 @@ def main() -> None:
         return
 
     all_fields = sorted({key for row in rows for key in row.keys()})
-    front_fields = ["model_name"]
+    front_fields = ["name"]
     end_fields = [
         "csv_path",
         "rows_used",

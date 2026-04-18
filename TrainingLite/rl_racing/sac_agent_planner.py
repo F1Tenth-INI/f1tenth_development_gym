@@ -468,7 +468,7 @@ class RLAgentPlanner(template_planner):
         except Exception:
             pass
 
-        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_zip_path}")
+        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_path}")
         self._load_observation_builder(os.path.join(model_dir, "client"), required=True)
 
     def _load_observation_builder(self, client_model_dir: str, required: bool = False) -> bool:

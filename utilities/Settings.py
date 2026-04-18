@@ -41,10 +41,10 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = False
+    SAVE_VIDEOS = True
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -207,11 +207,11 @@ class Settings():
     SAC_REWARD_WEIGHT = 3.0
     SAC_VELOCITY_WEIGHT = 0.0
 
-    SAC_PRIORITY_FACTOR = 0.8   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
+    SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
     SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.6 #(beta), corrects the introduced bias from prioritized sampling
     
     SAC_BETA_ANNEALING_RATIO = 0.4 #at how much % of total agent timesteps should beta have grown to 1.0
-    SAC_STATE_TO_TD_RATIO = 0.8 #if 0, only TD error based priorities
+    SAC_STATE_TO_TD_RATIO = 0.4 #if 0, only TD error based priorities
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on

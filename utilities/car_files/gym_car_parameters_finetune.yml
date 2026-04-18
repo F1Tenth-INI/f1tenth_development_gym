@@ -3,8 +3,8 @@
 # This avoids the model mismatch problem by using known-good baseline
 
 mu: 0.6 # friction coefficient  [-]
-C_Sf: 4.718 # cornering stiffness front [1/rad]
-C_Sr: 5.4562 # cornering stiffness rear [1/rad]
+C_Sf: 4.30 # cornering stiffness front [1/rad]
+C_Sr: 5.00 # cornering stiffness rear [1/rad]
 
 lf: 0.162 # distance from center of gravity to front axle [m]
 lr: 0.145 # distance from center of gravity to rear axle [m]
@@ -21,19 +21,19 @@ length: 0.58 # Length of the car [m]
 # Steering Constraints
 s_min: -0.4189
 s_max: 0.4189
-sv_min: -3.2
-sv_max: 3.2
+sv_min: -2.6
+sv_max: 2.6
 
 # Acceleration Constraints - ADJUSTED based on observed data
-a_max: 5.0 # reduced from 5.0 - observed accelerations go higher
-a_min: -5.0 # increased from -10.0 - more realistic braking
+a_max: 4.5 # reduced from 5.0 - observed accelerations go higher
+a_min: -4.5 # increased from -10.0 - more realistic braking
 v_min: -5.0
 v_max: 10.0 # reduced from 15 - based on observed max ~6.6 m/s
 v_switch: 7.319
 
 # Servo
-servo_p: 10 # proportional factor of servo PID
-steering_diff_low: 0.00 # [rad] Steering angle difference below is considered as 0
+servo_p: 7.5 # proportional factor of servo PID
+steering_diff_low: 0.01 # [rad] Steering angle difference below is considered as 0
 
 # Other
 min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
@@ -60,14 +60,14 @@ C_R: 3.693303119695026
 
 # MINIMAL ADJUSTMENTS to MPC baseline
 C_acc: 5.0 # slightly reduced from 7.14 - more conservative
-C_d: 0.0 # neutral drag - remove negative drag
+C_d: 0.06 # neutral drag - remove negative drag
 C_dec: 6.0 # keep reasonable braking
 
 # Rolling resistance coefficient (dimensionless)
-c_rr: 0.025 # slightly increased from 0.02
+c_rr: 0.032 # slightly increased from 0.02
 
 # Additional resistance parameters - SMALL INCREASE
-v_dead: 0.05 # [m/s] velocity deadband for smooth sign function
-curve_resistance_factor: 0.14 # increased from 0.12 - modest improvement for cornering
+v_dead: 0.08 # [m/s] velocity deadband for smooth sign function
+curve_resistance_factor: 0.18 # increased from 0.12 - modest improvement for cornering
 
-brake_multiplier: 1.0
+brake_multiplier: 0.9

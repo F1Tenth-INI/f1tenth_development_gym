@@ -21,6 +21,45 @@ def rename_missing_zip(model_dir: Path, dry_run: bool = False) -> tuple[bool, st
     return True, f"RENAMED: {bare_file.name} -> {zip_file.name}"
 
 
+def rename_checkpoint_missing_zip(checkpoint_file: Path, dry_run: bool = False) -> tuple[bool, str]:
+    if not checkpoint_file.exists() or not checkpoint_file.is_file():
+        return False, f"SKIP (not a file): {checkpoint_file}"
+
+    if checkpoint_file.suffix == ".zip":
+        return False, f"SKIP (already has zip): {checkpoint_file.name}"
+
+    zip_file = checkpoint_file.with_name(f"{checkpoint_file.name}.zip")
+    if zip_file.exists():
+        return False, f"SKIP (zip target exists): {zip_file.name}"
+
+    if dry_run:
+        return True, f"DRY-RUN checkpoint rename: {checkpoint_file.name} -> {zip_file.name}"
+
+    checkpoint_file.rename(zip_file)
+    return True, f"RENAMED checkpoint: {checkpoint_file.name} -> {zip_file.name}"
+
+
+def fix_checkpoints_zip_extensions(model_dir: Path, dry_run: bool = False) -> tuple[int, int]:
+    checkpoints_dir = model_dir / "checkpoints"
+    if not checkpoints_dir.exists() or not checkpoints_dir.is_dir():
+        return 0, 0
+
+    changed = 0
+    skipped = 0
+    for checkpoint_file in sorted(checkpoints_dir.iterdir()):
+        if not checkpoint_file.is_file():
+            continue
+
+        was_changed, message = rename_checkpoint_missing_zip(checkpoint_file, dry_run=dry_run)
+        print(f"[{model_dir.name}/checkpoints] {message}")
+        if was_changed:
+            changed += 1
+        else:
+            skipped += 1
+
+    return changed, skipped
+
+
 def find_model_dirs(path: Path, recursive: bool = False) -> list[Path]:
     if not path.exists() or not path.is_dir():
         return []
@@ -75,8 +114,14 @@ def main() -> None:
         else:
             skipped += 1
 
+        checkpoint_changed, checkpoint_skipped = fix_checkpoints_zip_extensions(
+            model_dir, dry_run=args.dry_run
+        )
+        changed += checkpoint_changed
+        skipped += checkpoint_skipped
+
     mode = "DRY-RUN" if args.dry_run else "DONE"
-    print(f"[{mode}] changed={changed}, skipped={skipped}, total={len(model_dirs)}")
+    print(f"[{mode}] changed={changed}, skipped={skipped}, models={len(model_dirs)}")
 
 
 if __name__ == "__main__":

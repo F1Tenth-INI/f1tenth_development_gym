@@ -21,7 +21,8 @@ python TrainingLite/rl_racing/run_training.py \
   --MAX_SIM_FREQUENCY 250 \
   --ENV_CAR_PARAMETER_FILE gym_car_parameters.yml \
   --save_replay_buffer False \
-  --save-model-name RCA1-1
+  --save-model-name RCA1-1 \
+  --USE_CUSTOM_SAC_SAMPLING False
   
 
 # finetune model in different car dynamics
