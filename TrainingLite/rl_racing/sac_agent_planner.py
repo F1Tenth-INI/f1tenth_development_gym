@@ -23,6 +23,7 @@ This mirrors the actor→learner design we discussed.
 from __future__ import annotations
 import os
 import sys
+import signal
 import importlib.util
 
 # Configure unbuffered output for immediate print statements (important for ROS nodes)
@@ -182,6 +183,7 @@ class RLAgentPlanner(template_planner):
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
+        self._maybe_handle_server_terminate()
 
         if not self.autonomous_driving:
             return self._fallback_action()
@@ -246,6 +248,7 @@ class RLAgentPlanner(template_planner):
 
 
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
+        self._maybe_handle_server_terminate()
 
         reward = driver_obs['reward']
         done = driver_obs['done']
@@ -279,7 +282,8 @@ class RLAgentPlanner(template_planner):
         if self.save_transitions:
             self.transition_logger.log(transition)
 
-        if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
+        did_episode_end = done or self.control_index >= Settings.MAX_EPISODE_LENGTH
+        if did_episode_end:
             total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
             #Update Curriculum Supervisor
             if self.curriculum_supervisor is not None:
@@ -303,7 +307,8 @@ class RLAgentPlanner(template_planner):
         if self.terminate_server_after_simulation:
             if self.training_mode and self.client is not None:
                 try:
-                    self.client.send_terminate()
+                    # Non-blocking: wait_for_ack can stall shutdown for tens of seconds.
+                    self.client.send_terminate(wait_for_ack=False)
                     print("[RLAgentPlanner] Sent terminate message to server")
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
@@ -579,5 +584,18 @@ class RLAgentPlanner(template_planner):
         self.control_index = 0
         self.prev_obs_raw = None
         self.prev_action = None
-        
-       
+
+    def _maybe_handle_server_terminate(self) -> None:
+        if self.client is None:
+            return
+        payload = self.client.pop_server_terminate()
+        if payload is None:
+            return
+        reason = payload.get("reason", "server_requested_terminate")
+        print(f"[RLAgentPlanner] Received terminate from server: {reason}. Stopping client process.")
+        try:
+            self.client.close()
+        except Exception:
+            pass
+        # Terminate the simulator/client process on explicit server request.
+        os.kill(os.getpid(), signal.SIGTERM)

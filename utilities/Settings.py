@@ -185,6 +185,9 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
+    # If set (seconds), training actor sends learner terminate once at least two completed laps
+    # are strictly faster than this (so metrics can include the first sub-threshold lap).
+    SAC_TERMINATE_BELOW_LAPTIME = None
     SAC_AGENT_DEBUG = False
     LEARNER_SERVER_DEBUG = False
 
@@ -223,7 +226,7 @@ class Settings():
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
     SAC_TARGET_UDT = 1
-    SAC_MAX_UTD = 2 
+    SAC_MAX_UTD = 4 
     SAC_UDT_DEADBAND_RATIO = 0.1
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0

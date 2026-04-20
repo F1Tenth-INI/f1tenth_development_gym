@@ -70,6 +70,10 @@ class LearnerServer:
         # data
         self.episode_buffer = EpisodeReplayBuffer(capacity_episodes=2000)
         self._weights_blob: Optional[bytes] = None
+        lt = getattr(Settings, "SAC_TERMINATE_BELOW_LAPTIME", None)
+        self._terminate_below_lap_s: Optional[float] = float(lt) if lt is not None else None
+        self._lap_terminate_triggered = False
+        self._best_lap_time_seen: Optional[float] = None
 
         # RL bits (lazy init fallback; but we’ll eager-init in run())
         self.model: Optional[SAC] = None
@@ -534,32 +538,7 @@ class LearnerServer:
         except Exception as e:
             print(f"[server] Error saving checkpoint: {e}")
 
-    # def redistribute_crash_penalty(self, episode, ramp_steps: int = 20, crash_penalty: float = 15.0):
-    #     crash_idx = None
-    #     for i in reversed(range(len(episode))):
-    #         t = episode[i]
-    #         info = t.get("info", {})
-    #         if t.get("done", False) and info.get("truncated", False):
-    #             crash_idx = i
-    #             break
-    #     if crash_idx is None:
-    #         # no crash in this episode -> leave rewards unchanged
-    #         return episode
-
-    #     #remove original penalty
-    #     episode[crash_idx]["reward"] += crash_penalty
-
-    #     # closer to crash -> larger share
-    #     for k in range(ramp_steps):
-    #         idx = crash_idx - k
-    #         if idx < 0:
-    #             break
-    #         t = episode[idx]
-    #         # weight from 0..1, increasing towards crash
-    #         w = (ramp_steps - k) / ramp_steps
-    #         shaped_penalty = w * (crash_penalty/2) #divide by 2 so total penalty is not too high
-    #         t["reward"] -= shaped_penalty
-    #     return episode
+ 
 
 
     async def _train_loop(self):
@@ -800,6 +779,84 @@ class LearnerServer:
             for w in dead:
                 self._clients.discard(w)
 
+    async def _broadcast_terminate(self, reason: str) -> None:
+        """Notify all connected clients to terminate their process."""
+        frame = {"type": "terminate", "data": {"reason": str(reason)}}
+        async with self._client_lock:
+            dead: List[asyncio.StreamWriter] = []
+            for w in self._clients:
+                try:
+                    w.write(pack_frame(frame))
+                    await w.drain()
+                except Exception:
+                    dead.append(w)
+            for w in dead:
+                self._clients.discard(w)
+
+    def _flush_pending_episodes_to_metrics(self) -> None:
+        """
+        Persist any pending, not-yet-trained episodes so terminate-triggering lap
+        times are visible in learning_metrics.csv and training_metrics.png.
+        """
+        if self.model is None:
+            return
+        pending = self.episode_buffer.drain_all()
+        if not pending:
+            return
+        try:
+            self._ingest_episodes_into_replay(pending)
+            log_dict = {
+                "actor_loss": 0.0,
+                "critic_loss": 0.0,
+                "ent_coef_loss": 0.0,
+                "ent_coef": 0.0,
+                "total_weight_updates": self.total_weight_updates,
+                "training_duration": 0.0,
+                "total_timesteps": self.total_actor_timesteps,
+                "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
+            }
+            self.trainingLogHelper.log_to_csv(self.model, pending, log_dict)
+            self.trainingLogHelper.plot_training_metrics()
+            print(
+                f"[server] Flushed {len(pending)} pending episode(s) to metrics before termination."
+            )
+        except Exception as e:
+            print(f"[server] Failed to flush pending episodes before termination: {e}")
+
+    @staticmethod
+    def _extract_lap_times_from_episode(episode: List[dict]) -> List[float]:
+        """Extract the most recent non-empty lap_times array from one episode."""
+        for t in reversed(episode):
+            info = t.get("info", {}) or {}
+            laps = info.get("lap_times", None)
+            if not isinstance(laps, (list, tuple)) or len(laps) == 0:
+                continue
+            parsed: List[float] = []
+            for lap in laps:
+                try:
+                    parsed.append(float(lap))
+                except (TypeError, ValueError):
+                    continue
+            if parsed:
+                return parsed
+        return []
+
+    def _episode_hits_lap_terminate_threshold(self, episode: List[dict]) -> bool:
+        """
+        Decide terminate condition from server-side lap history.
+        The actor/env provides cumulative lap_times, so checking the minimum of the
+        latest non-empty array naturally works across planner resets/epochs.
+        """
+        if self._terminate_below_lap_s is None:
+            return False
+        lap_times = self._extract_lap_times_from_episode(episode)
+        if not lap_times:
+            return False
+        min_lap = min(lap_times)
+        if self._best_lap_time_seen is None or min_lap < self._best_lap_time_seen:
+            self._best_lap_time_seen = min_lap
+        return min_lap <= self._terminate_below_lap_s
+
     def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
         """Build an extensible training telemetry payload."""
         target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
@@ -924,6 +981,38 @@ class LearnerServer:
                     # print(f"[server] Stored episode: {len(episode)} transitions "
                     #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
                     self.total_actor_timesteps += len(episode)
+
+                    if not self._lap_terminate_triggered and self._episode_hits_lap_terminate_threshold(episode):
+                        self._lap_terminate_triggered = True
+                        threshold = self._terminate_below_lap_s
+                        best = self._best_lap_time_seen
+                        print(
+                            "[server] Lap-time terminate condition reached: "
+                            f"best_lap={best:.3f}s <= threshold={threshold:.3f}s. "
+                            "Flushing pending episodes to metrics before shutdown."
+                        )
+                        self._flush_pending_episodes_to_metrics()
+                        self._save_model()
+                        await self._broadcast_terminate(
+                            reason=(
+                                f"lap_time_threshold_reached(best={best:.3f},threshold={threshold:.3f})"
+                            )
+                        )
+                        async with self._terminate_lock:
+                            self._should_terminate = True
+                        try:
+                            writer.write(
+                                pack_frame(
+                                    {
+                                        "type": "terminate_ack",
+                                        "data": {"msg": "terminating (lap-time threshold reached)"},
+                                    }
+                                )
+                            )
+                            await writer.drain()
+                        except Exception:
+                            pass
+                        break
                     # optional ack
                     try:
                         writer.write(pack_frame({"type": "episode_ack", "data": {"n": len(episode)}}))
@@ -957,9 +1046,14 @@ class LearnerServer:
                     actor_id = int(d.get("actor_id", -1))
                     
                     print(f"[server] Received terminate message from actor {actor_id}")
+
+                    # Ensure final lap times are persisted even if terminate arrives
+                    # before the next train-loop tick.
+                    self._flush_pending_episodes_to_metrics()
                     
                     # Save the model
                     self._save_model()
+                    await self._broadcast_terminate(reason=f"terminate_requested_by_actor_{actor_id}")
                     
                     # Set termination flag
                     async with self._terminate_lock:

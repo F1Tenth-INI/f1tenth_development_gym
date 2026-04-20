@@ -27,12 +27,19 @@ class _TCPActorClient:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._send_q: "queue.Queue[dict]" = queue.Queue(maxsize=10000)
+        # Terminate (and similar control) must not sit behind large transition backlogs.
+        self._urgent_q: "queue.Queue[dict]" = queue.Queue(maxsize=32)
+        self._terminate_ack_evt = threading.Event()
+        self._terminate_sync_lock = threading.Lock()
+        self._waiting_for_terminate_ack = False
         self._latest_sd_lock = threading.Lock()
         self._latest_state_dict: Optional[dict] = None
         self._latest_model_sync_lock = threading.Lock()
         self._latest_model_sync: Optional[dict] = None
         self._latest_training_info_lock = threading.Lock()
         self._latest_training_info: Optional[dict] = None
+        self._server_terminate_lock = threading.Lock()
+        self._server_terminate_payload: Optional[dict] = None
         self._stop_evt = threading.Event()
 
     # --- public API ---
@@ -86,18 +93,55 @@ class _TCPActorClient:
         except queue.Full:
             pass
 
-    def send_terminate(self) -> None:
-        """Send a terminate message to the server, causing it to save the model and shutdown."""
+    def send_terminate(
+        self,
+        wait_for_ack: bool = True,
+        ack_timeout: float = 30.0,
+        urgent: bool = True,
+    ) -> bool:
+        """Send terminate so the server saves and shuts down.
+
+        Uses an urgent queue so the message is not stuck behind transition batches.
+        If ``wait_for_ack`` is True, blocks until the server sends ``terminate_ack``
+        or ``ack_timeout`` elapses (TCP may still have delivered the frame).
+        """
         data = {
             "type": "terminate",
             "data": {
                 "actor_id": int(self.actor_id),
             },
         }
+        if wait_for_ack:
+            with self._terminate_sync_lock:
+                self._waiting_for_terminate_ack = True
+                self._terminate_ack_evt.clear()
         try:
-            self._send_q.put_nowait(data)
+            target_queue = self._urgent_q if urgent else self._send_q
+            target_queue.put(data, timeout=max(5.0, float(ack_timeout)))
         except queue.Full:
-            pass
+            if wait_for_ack:
+                with self._terminate_sync_lock:
+                    self._waiting_for_terminate_ack = False
+            queue_name = "urgent" if urgent else "normal"
+            print(f"[TCPActorClient] {queue_name.capitalize()} queue full; could not send terminate")
+            return False
+        except Exception as exc:
+            if wait_for_ack:
+                with self._terminate_sync_lock:
+                    self._waiting_for_terminate_ack = False
+            print(f"[TCPActorClient] Failed to enqueue terminate: {exc}")
+            return False
+        if not wait_for_ack:
+            return True
+        ok = self._terminate_ack_evt.wait(timeout=float(ack_timeout))
+        with self._terminate_sync_lock:
+            self._waiting_for_terminate_ack = False
+        if not ok:
+            print(
+                f"[TCPActorClient] Timeout ({ack_timeout}s) waiting for terminate_ack "
+                "(server may still have received terminate)"
+            )
+        return ok
 
     def pop_latest_state_dict(self) -> Optional[dict]:
         with self._latest_sd_lock:
@@ -115,6 +159,12 @@ class _TCPActorClient:
         with self._latest_training_info_lock:
             payload = self._latest_training_info
             self._latest_training_info = None
+            return payload
+
+    def pop_server_terminate(self) -> Optional[dict]:
+        with self._server_terminate_lock:
+            payload = self._server_terminate_payload
+            self._server_terminate_payload = None
             return payload
 
     # --- internals ---
@@ -191,6 +241,18 @@ class _TCPActorClient:
             if isinstance(payload, dict):
                 with self._latest_training_info_lock:
                     self._latest_training_info = payload
+        elif typ == "terminate_ack":
+            with self._terminate_sync_lock:
+                if self._waiting_for_terminate_ack:
+                    self._terminate_ack_evt.set()
+        elif typ == "terminate":
+            payload = msg.get("data", {})
+            if not isinstance(payload, dict):
+                payload = {}
+            with self._server_terminate_lock:
+                self._server_terminate_payload = payload
+            # Stop transport loop as soon as server asked to terminate.
+            self._stop_evt.set()
         # ignore others
 
     def _maybe_mirror_model_folder(self, payload: dict) -> None:
@@ -236,11 +298,16 @@ class _TCPActorClient:
 
     async def _writer_loop(self, writer: asyncio.StreamWriter):
         while not self._stop_evt.is_set():
+            frame = None
             try:
-                frame = self._send_q.get(timeout=0.1)
+                frame = self._urgent_q.get_nowait()
             except queue.Empty:
-                await asyncio.sleep(0.0)
-                continue
+                try:
+                    frame = self._send_q.get_nowait()
+                except queue.Empty:
+                    # Avoid busy-spin (get_nowait + sleep(0) pegs a core and slows the sim via GIL).
+                    await asyncio.sleep(0.02)
+                    continue
             try:
                 writer.write(pack_frame(frame))
                 await writer.drain()

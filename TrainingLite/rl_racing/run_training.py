@@ -20,6 +20,7 @@ from typing import Optional, Tuple
 
 import torch
 
+RUN_EVALUATION = False
 
 def _child_death_signal() -> None:
     """On Linux, make the child receive SIGKILL when the parent dies.
@@ -285,7 +286,7 @@ def main() -> None:
     # After the server has terminated normally, optionally run a single
     # evaluation client using the trained model for inference. We only run
     # this when training completed (not when interrupted by Ctrl-C).
-    if run_completed:
+    if run_completed and RUN_EVALUATION:
         model_name = getattr(run_args, "save_model_name", None)
         if model_name is not None:
             # In some workflows (e.g. short smoke tests or interrupted runs), the
