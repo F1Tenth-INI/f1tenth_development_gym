@@ -32,10 +32,10 @@ python TrainingLite/rl_racing/run_training.py \
   --MAP_NAME RCA1 \
   --SAC_TARGET_UDT 1.0 \
   --batch-size 64 \
-  --SAC_CHECKPOINT_FREQUENCY 50000 \
+  --SAC_CHECKPOINT_FREQUENCY 10000 \
   --SIMULATION_LENGTH 50000 \
   --MAX_SIM_FREQUENCY 250 \
   --ENV_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml \
   --save_replay_buffer True \
   --load-model-name RCA1-1 \
-  --save-model-name RCA1-1a
+  --save-model-name RCA1-1b
