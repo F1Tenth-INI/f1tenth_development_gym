@@ -28,6 +28,8 @@ except ImportError:
     sys.path.append(os.getcwd())
     from utilities.Settings import Settings
 
+RUN_EVALUATION = False
+
 def _child_death_signal() -> None:
     """On Linux, make the child receive SIGKILL when the parent dies.
     Prevents accumulation of orphaned run.py processes when run_training
@@ -110,6 +112,19 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         help=(
             "Persist replay buffer transitions to replay_buffer.csv on saves/checkpoints. "
             "Supports '--save_replay_buffer' or '--save_replay_buffer true/false'."
+        ),
+    )
+    parser.add_argument(
+        "--load-replay-buffer",
+        "--load_replay_buffer",
+        dest="load_replay_buffer",
+        nargs="?",
+        const=True,
+        type=_parse_bool_arg,
+        default=False,
+        help=(
+            "Load replay buffer transitions from replay_buffer.csv if present. "
+            "Supports '--load-replay-buffer' or '--load-replay-buffer true/false'."
         ),
     )
     parser.add_argument(
@@ -347,6 +362,7 @@ def main() -> None:
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
         save_replay_buffer=run_args.save_replay_buffer,
+        load_replay_buffer=run_args.load_replay_buffer,
     )
 
     #TODO: check if needed
@@ -384,7 +400,7 @@ def main() -> None:
     # After the server has terminated normally, optionally run a single
     # evaluation client using the trained model for inference. We only run
     # this when training completed (not when interrupted by Ctrl-C).
-    if run_completed:
+    if run_completed and RUN_EVALUATION:
         model_name = getattr(run_args, "save_model_name", None)
         if model_name is not None:
             # In some workflows (e.g. short smoke tests or interrupted runs), the

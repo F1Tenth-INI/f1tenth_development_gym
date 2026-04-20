@@ -386,8 +386,12 @@ class TrainingLogHelper():
         df_plot = df.iloc[::downsample_step].copy()
         x_vals = df_plot['time'].values  # Use .values to get numpy array for proper indexing
 
-        # Remove 'timestamp' from columns to plot
-        columns_to_plot = [col for col in df_plot.columns if col not in ['timestamp','training_duration', 'replay_buffer_size', 'batch_size', 'gradient_steps', 'learning_rate']]
+        # Remove non-timeseries metadata fields from plotting.
+        columns_to_plot = [
+            col
+            for col in df_plot.columns
+            if col not in ['timestamp', 'training_duration', 'batch_size', 'gradient_steps', 'learning_rate']
+        ]
 
 
         n_cols = len(columns_to_plot)

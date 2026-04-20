@@ -25,6 +25,7 @@ import os
 import sys
 import time
 import hashlib
+import signal
 import importlib.util
 
 # Configure unbuffered output for immediate print statements (important for ROS nodes)
@@ -96,7 +97,7 @@ class RLAgentPlanner(template_planner):
         if self.pre_fill_with_pp and self.training_mode:
             print(f"\n[RLAgentPlanner] Pre-filling replay buffer with {self.pre_fill_amount} PurePursuit transitions")
 
-        self.clear_buffer_on_reset = True
+        self.clear_buffer_on_reset = False
         self.terminate_server_after_simulation = True
         self.observation_builder_fn: Optional[Callable[[Dict[str, np.ndarray], Any], np.ndarray]] = None
         self.model: Optional[SAC] = None
@@ -194,7 +195,8 @@ class RLAgentPlanner(template_planner):
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
-        
+        self._maybe_handle_server_terminate()
+
         if not self.autonomous_driving:
             return self._fallback_action()
         
@@ -278,7 +280,8 @@ class RLAgentPlanner(template_planner):
 
 
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
-        
+        self._maybe_handle_server_terminate()
+
         reward = driver_obs['reward']
         done = driver_obs['done']
         info = driver_obs['info']
@@ -317,7 +320,8 @@ class RLAgentPlanner(template_planner):
         if self.save_transitions:
             self.transition_logger.log(transition)
 
-        if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
+        did_episode_end = done or self.control_index >= Settings.MAX_EPISODE_LENGTH
+        if did_episode_end:
             total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
             #Update Curriculum Supervisor
             if self.curriculum_supervisor is not None:
@@ -340,18 +344,44 @@ class RLAgentPlanner(template_planner):
         """Called when the simulation ends. Sends a terminate message to the server."""
         if self.terminate_server_after_simulation:
             if self.training_mode and self.client is not None:
-                try:
-                    self.client.send_terminate()
-                    print("\n[RLAgentPlanner] Sent terminate message to server")
-                except Exception as e:
-                    print(f"\n[RLAgentPlanner] Failed to send terminate message: {e}")
+                self._terminate_server_with_retry()
         
         
     def get_total_progress(self):
         return min(1.0, self.total_sent / Settings.SIMULATION_LENGTH)
-    
+       
+       
     def close(self):
-        pass
+        if self.client is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+
+    def _terminate_server_with_retry(self) -> None:
+        """Terminate learner with short ack retries, then close client."""
+        delivered = False
+        try:
+            # Use short blocking retries at sim end so terminate is not lost
+            # when Python exits and the daemon TCP thread stops immediately.
+            for _ in range(2):
+                delivered = bool(
+                    self.client.send_terminate(
+                        wait_for_ack=True,
+                        ack_timeout=2.0,
+                        urgent=True,
+                    )
+                )
+                if delivered:
+                    break
+            if not delivered:
+                # Fallback best-effort send in case ack path fails transiently.
+                self.client.send_terminate(wait_for_ack=False, urgent=True)
+            print("[RLAgentPlanner] Sent terminate message to server")
+        except Exception as e:
+            print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+        finally:
+            self.close()
     
     def _fallback_action(self) -> np.ndarray:
 
@@ -621,5 +651,18 @@ class RLAgentPlanner(template_planner):
         self.control_index = 0
         self.prev_obs_raw = None
         self.prev_action = None
-        
-       
+
+    def _maybe_handle_server_terminate(self) -> None:
+        if self.client is None:
+            return
+        payload = self.client.pop_server_terminate()
+        if payload is None:
+            return
+        reason = payload.get("reason", "server_requested_terminate")
+        print(f"[RLAgentPlanner] Received terminate from server: {reason}. Stopping client process.")
+        try:
+            self.client.close()
+        except Exception:
+            pass
+        # Terminate the simulator/client process on explicit server request.
+        os.kill(os.getpid(), signal.SIGTERM)

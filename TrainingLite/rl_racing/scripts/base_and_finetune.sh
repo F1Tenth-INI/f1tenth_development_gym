@@ -89,3 +89,35 @@ python run.py --CONTROLLER rpgd-lite-jax --MAP_NAME RCA2 --ENV_CAR_PARAMETER_FIL
 
 #   sleep 5
 # done
+# original ( base model ) training
+python TrainingLite/rl_racing/run_training.py \
+  --auto-start-client \
+  --CONTROLLER sac_agent \
+  --SAVE_RECORDINGS False \
+  --MAP_NAME RCA1 \
+  --SAC_TARGET_UDT 1.0 \
+  --batch-size 64 \
+  --SAC_CHECKPOINT_FREQUENCY 50000 \
+  --SIMULATION_LENGTH 200000 \
+  --MAX_SIM_FREQUENCY 250 \
+  --ENV_CAR_PARAMETER_FILE gym_car_parameters.yml \
+  --save_replay_buffer False \
+  --save-model-name RCA1-1
+  
+
+# finetune model in different car dynamics
+python TrainingLite/rl_racing/run_training.py \
+  --auto-start-client \
+  --CONTROLLER sac_agent \
+  --SAVE_RECORDINGS False \
+  --MAP_NAME RCA1 \
+  --SAC_TARGET_UDT 1.5 \
+  --batch-size 64 \
+  --SAC_CHECKPOINT_FREQUENCY 10000 \
+  --SIMULATION_LENGTH 50000 \
+  --MAX_SIM_FREQUENCY 250 \
+  --ENV_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml \
+  --save_replay_buffer True \
+  --load_replay_buffer False \
+  --load-model-name RCA1-1 \
+  --save-model-name RCA1-1b
