@@ -12,6 +12,9 @@ Usage examples:
 
     python -u TrainingLite/rl_racing/scripts/batch_compare.py --model-name 0603_checkpoint_test
     python -u TrainingLite/rl_racing/scripts/batch_compare.py --model-prefix Sweep_rank_Ex1_A0.0 --repeats 3 --max-length 10000
+
+    FOR FINETUNE-ONLY COMPARISON (after trimming learning_metrics.csv with trim_learning_metrics_to_finetune.py):
+    python TrainingLite/rl_racing/scripts/batch_compare.py --model-prefix RCA2-Final --repeats 2 --max-length 2000 --map-name RCA2 --env-car-parameter-file gym_car_parameters_finetune.yml
 """
 
 import argparse
@@ -29,8 +32,6 @@ from typing import Dict, List, Optional, Tuple
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, root_dir)
 
-from TrainingLite.rl_racing.scripts.run_sweep_experiments import SweepExperimentRunner
-from utilities.Settings import Settings
 
 
 class CheckpointSelector:
@@ -56,6 +57,9 @@ class CheckpointSelector:
         self.models_dir = Path(root_dir) / "TrainingLite" / "rl_racing" / "models"
         self.results_dir = Path(root_dir) / results_dir
         self.results_dir.mkdir(exist_ok=True)
+
+        # Import lazily so Settings overrides can be applied before loading runtime modules.
+        from TrainingLite.rl_racing.scripts.run_sweep_experiments import SweepExperimentRunner
 
         # Prefix is unused because we only call run_experiment_on_model directly.
         self.runner = SweepExperimentRunner(prefix="batch_compare", max_length=max_length, verbose=verbose)
@@ -167,6 +171,11 @@ class CheckpointSelector:
         lap_runs = [r for r in completed if (r.get("num_laps_completed") or 0) > 0]
 
         avg_lap_time = self._mean([r.get("avg_lap_time") for r in lap_runs])
+        fastest_lap_time = min(
+            [r.get("min_lap_time") for r in lap_runs if r.get("min_lap_time") is not None]
+            or [r.get("avg_lap_time") for r in lap_runs if r.get("avg_lap_time") is not None],
+            default=None,
+        )
         avg_speed = self._mean([r.get("avg_speed") for r in completed])
         avg_laps_completed = self._mean([r.get("num_laps_completed") for r in completed])
         avg_rewards = self._mean([r.get("total_reward") for r in completed if "total_reward" in r])
@@ -187,21 +196,22 @@ class CheckpointSelector:
             "lap_completion_rate": lap_completion_rate,
             "avg_laps_completed": avg_laps_completed,
             "avg_lap_time": avg_lap_time,
+            "fastest_lap_time": fastest_lap_time,
             "avg_speed": avg_speed,
             "avg_reward": avg_rewards,
             "avg_num_crashes": avg_crashes,
         }
 
     @staticmethod
-    def _ranking_key(aggregated: Dict) -> Tuple:
+    def _ranking_key_avg_lap(aggregated: Dict) -> Tuple:
         """
         Sort key where larger tuple is better.
 
         Priority:
         1) Runs that completed and produced at least one lap.
-        2) Higher lap completion rate.
-        3) More average laps completed.
-        4) Lower average lap time.
+        2) Lower average lap time.
+        3) Higher lap completion rate.
+        4) More average laps completed.
         5) Higher average speed.
         6) Fewer crashes.
         """
@@ -211,12 +221,52 @@ class CheckpointSelector:
 
         return (
             aggregated.get("num_lap_runs", 0) > 0,
+            -avg_lap_time if avg_lap_time is not None else float("-inf"),
+            aggregated.get("lap_completion_rate", 0.0),
+            aggregated.get("avg_laps_completed") or -1.0,
+            avg_speed if avg_speed is not None else float("-inf"),
+            -(avg_num_crashes if avg_num_crashes is not None else float("inf")),
+        )
+
+    @staticmethod
+    def _ranking_key_fastest_lap(aggregated: Dict) -> Tuple:
+        """
+        Sort key where larger tuple is better.
+
+        Priority:
+        1) Runs that completed and produced at least one lap.
+        2) Lower fastest lap time.
+        3) Higher lap completion rate.
+        4) More average laps completed.
+        5) Lower average lap time.
+        6) Higher average speed.
+        7) Fewer crashes.
+        """
+        fastest_lap_time = aggregated.get("fastest_lap_time")
+        avg_lap_time = aggregated.get("avg_lap_time")
+        avg_speed = aggregated.get("avg_speed")
+        avg_num_crashes = aggregated.get("avg_num_crashes")
+
+        return (
+            aggregated.get("num_lap_runs", 0) > 0,
+            -fastest_lap_time if fastest_lap_time is not None else float("-inf"),
             aggregated.get("lap_completion_rate", 0.0),
             aggregated.get("avg_laps_completed") or -1.0,
             -avg_lap_time if avg_lap_time is not None else float("-inf"),
             avg_speed if avg_speed is not None else float("-inf"),
             -(avg_num_crashes if avg_num_crashes is not None else float("inf")),
         )
+
+    def _ranking_key(self, aggregated: Dict) -> Tuple:
+        """Return ranking key prioritizing lowest average lap time."""
+        return self._ranking_key_avg_lap(aggregated)
+
+    @staticmethod
+    def _format_laptime(value: Optional[float]) -> str:
+        """Render lap time consistently for compact ranking lines."""
+        if value is None:
+            return "N/A"
+        return f"{float(value):.4f}s"
 
     def _write_model_results(self, model_name: str, rows: List[Dict], best_row: Dict, sweep_name: str) -> Tuple[Path, Path]:
         """Write per-model comparison CSV and text summary."""
@@ -235,6 +285,7 @@ class CheckpointSelector:
             "lap_completion_rate",
             "avg_laps_completed",
             "avg_lap_time",
+            "fastest_lap_time",
             "avg_speed",
             "avg_reward",
             "avg_num_crashes",
@@ -268,6 +319,7 @@ class CheckpointSelector:
                 "lap_completion_rate",
                 "avg_laps_completed",
                 "avg_lap_time",
+                "fastest_lap_time",
                 "avg_speed",
                 "avg_reward",
                 "avg_num_crashes",
@@ -333,9 +385,13 @@ class CheckpointSelector:
                 aggregated_rows.append(aggregated)
 
                 lap_time_text = f"{aggregated['avg_lap_time']:.4f}s" if aggregated["avg_lap_time"] is not None else "N/A"
+                fastest_lap_text = (
+                    f"{aggregated['fastest_lap_time']:.4f}s" if aggregated["fastest_lap_time"] is not None else "N/A"
+                )
                 print(
                     f"  -> completed_runs={aggregated['num_completed_runs']}/{aggregated['num_runs']}, "
-                    f"lap_runs={aggregated['num_lap_runs']}/{aggregated['num_runs']}, avg_lap_time={lap_time_text}"
+                    f"lap_runs={aggregated['num_lap_runs']}/{aggregated['num_runs']}, "
+                    f"avg_lap_time={lap_time_text}, fastest_lap={fastest_lap_text}"
                 )
         finally:
             if not self.keep_eval_models and eval_model_dir.exists():
@@ -358,7 +414,7 @@ class CheckpointSelector:
                     f"last_{trend_window}_avg={last_avg:.2f}s, delta={delta:+.2f}s"
                 )
 
-        best_row = max(aggregated_rows, key=self._ranking_key)
+        best_row = max(aggregated_rows, key=lambda row: self._ranking_key(row))
         best_checkpoint_path = Path(best_row["candidate_path"])
         best_model_path = best_checkpoint_path
         csv_path, txt_path = self._write_model_results(model_name, aggregated_rows, best_row, sweep_name = model_prefix if model_prefix else model_name)
@@ -381,6 +437,8 @@ class CheckpointSelector:
 
     def run(self, model_name: Optional[str], model_prefix: Optional[str]) -> None:
         """Execute batch model comparison for the requested models."""
+        from utilities.Settings import Settings
+
         # This workload repeatedly constructs CarSystem/WaypointUtils during evaluation.
         # Disable background waypoint reload threads for this script run to avoid
         # thread creation overhead accumulating over long checkpoint batches.
@@ -408,6 +466,7 @@ class CheckpointSelector:
             print(f"Target models: {len(models)}")
             print(f"Batch tag: {batch_tag}")
             print(f"Results directory: {self.results_dir}")
+            print("Ranking mode: avg-lap-time + fastest-lap-time")
             print("Waypoint background reload: disabled for this run")
             all_summaries: List[Dict] = []
 
@@ -428,13 +487,16 @@ class CheckpointSelector:
                     "best_checkpoint_path",
                     "best_model_name",
                     "best_model_path",
+                    "ranking_mode",
                     "report_csv",
                     "report_txt",
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for row in all_summaries:
-                    writer.writerow({k: row.get(k, "") for k in fieldnames})
+                    out_row = {k: row.get(k, "") for k in fieldnames}
+                    out_row["ranking_mode"] = "avg-lap-time,fastest-lap-time"
+                    writer.writerow(out_row)
 
             # Global best across all evaluated model candidates (best-or-final per model).
             global_candidates: List[Dict] = []
@@ -443,10 +505,12 @@ class CheckpointSelector:
                     global_candidates.append(dict(row))
 
             if global_candidates:
-                global_best = max(global_candidates, key=self._ranking_key)
-                top_candidates = sorted(global_candidates, key=self._ranking_key, reverse=True)[:30]
-                global_best_model = str(global_best["model_name"])
-                global_best_source = Path(global_best["candidate_path"])
+                global_best_avg = max(global_candidates, key=self._ranking_key_avg_lap)
+                global_best_fastest = max(global_candidates, key=self._ranking_key_fastest_lap)
+                top_candidates_avg = sorted(global_candidates, key=self._ranking_key_avg_lap, reverse=True)[:30]
+                top_candidates_fastest = sorted(global_candidates, key=self._ranking_key_fastest_lap, reverse=True)[:30]
+                global_best_model = str(global_best_avg["model_name"])
+                global_best_source = Path(global_best_avg["candidate_path"])
                 global_txt = self.results_dir / f"batch_compare_batch_best_{batch_tag}.txt"
                 global_best_target = (
                     self.models_dir
@@ -463,6 +527,10 @@ class CheckpointSelector:
                     f.write("BATCH BEST CANDIDATE (THIS SCRIPT RUN ONLY)\n")
                     f.write("=" * 80 + "\n")
                     f.write(f"batch_tag: {batch_tag}\n")
+                    f.write("ranking_mode_selected: avg-lap-time + fastest-lap-time\n")
+
+                    f.write("\nBEST CANDIDATE BY avg-lap-time\n")
+                    f.write("-" * 80 + "\n")
                     for key in [
                         "model_name",
                         "candidate_name",
@@ -474,16 +542,46 @@ class CheckpointSelector:
                         "lap_completion_rate",
                         "avg_laps_completed",
                         "avg_lap_time",
+                        "fastest_lap_time",
                         "avg_speed",
                         "avg_reward",
                         "avg_num_crashes",
                     ]:
-                        f.write(f"{key}: {global_best.get(key)}\n")
+                        f.write(f"{key}: {global_best_avg.get(key)}\n")
                     f.write(f"promoted_global_artifact: {global_best_target}\n\n")
 
-                    f.write("TOP 30 CANDIDATES (RANKED)\n")
+                    f.write("BEST CANDIDATE BY fastest-lap-time\n")
                     f.write("-" * 80 + "\n")
-                    for rank, candidate in enumerate(top_candidates, 1):
+                    for key in [
+                        "model_name",
+                        "candidate_name",
+                        "candidate_path",
+                        "num_runs",
+                        "num_completed_runs",
+                        "num_lap_runs",
+                        "lap_completion_rate",
+                        "avg_laps_completed",
+                        "avg_lap_time",
+                        "fastest_lap_time",
+                        "avg_speed",
+                        "avg_reward",
+                        "avg_num_crashes",
+                    ]:
+                        f.write(f"{key}: {global_best_fastest.get(key)}\n")
+                    f.write(f"promoted_global_artifact: {global_best_target}\n\n")
+
+                    f.write("COMPACT RANKING (BY avg-lap-time)\n")
+                    f.write("-" * 80 + "\n")
+                    for rank, candidate in enumerate(top_candidates_avg, 1):
+                        f.write(
+                            f"{rank}) name: \"{candidate.get('model_name')}\" | "
+                            f"avg laptime: \"{self._format_laptime(candidate.get('avg_lap_time'))}\"\n"
+                        )
+                    f.write("\n")
+
+                    f.write("TOP 30 CANDIDATES (RANKED BY avg-lap-time)\n")
+                    f.write("-" * 80 + "\n")
+                    for rank, candidate in enumerate(top_candidates_avg, 1):
                         f.write(f"rank: {rank}\n")
                         for key in [
                             "model_name",
@@ -496,6 +594,39 @@ class CheckpointSelector:
                             "lap_completion_rate",
                             "avg_laps_completed",
                             "avg_lap_time",
+                            "fastest_lap_time",
+                            "avg_speed",
+                            "avg_reward",
+                            "avg_num_crashes",
+                        ]:
+                            f.write(f"{key}: {candidate.get(key)}\n")
+                        f.write("\n")
+
+                    f.write("COMPACT RANKING (BY fastest-lap-time)\n")
+                    f.write("-" * 80 + "\n")
+                    for rank, candidate in enumerate(top_candidates_fastest, 1):
+                        f.write(
+                            f"{rank}) name: \"{candidate.get('model_name')}\" | "
+                            f"fastest laptime: \"{self._format_laptime(candidate.get('fastest_lap_time'))}\"\n"
+                        )
+                    f.write("\n")
+
+                    f.write("TOP 30 CANDIDATES (RANKED BY fastest-lap-time)\n")
+                    f.write("-" * 80 + "\n")
+                    for rank, candidate in enumerate(top_candidates_fastest, 1):
+                        f.write(f"rank: {rank}\n")
+                        for key in [
+                            "model_name",
+                            "candidate_name",
+                            "candidate_type",
+                            "candidate_path",
+                            "num_runs",
+                            "num_completed_runs",
+                            "num_lap_runs",
+                            "lap_completion_rate",
+                            "avg_laps_completed",
+                            "avg_lap_time",
+                            "fastest_lap_time",
                             "avg_speed",
                             "avg_reward",
                             "avg_num_crashes",
@@ -504,8 +635,9 @@ class CheckpointSelector:
                         f.write("\n")
 
                 print(
-                    f"\nGlobal best candidate: {global_best['candidate_name']} "
+                    f"\nGlobal best candidate (avg-lap-time): {global_best_avg['candidate_name']} "
                 )
+                print(f"Global best candidate (fastest-lap-time): {global_best_fastest['candidate_name']}")
                 print(f"Global promoted artifact: {global_best_target}")
                 print(f"Global summary: {global_txt}")
 
@@ -518,6 +650,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Compare best/final model artifacts across a batch")
     parser.add_argument("--model-name", help="Exact model directory name to process")
     parser.add_argument("--model-prefix", help="Process all model directories with this prefix")
+    parser.add_argument(
+        "--MAP_NAME",
+        "--map-name",
+        dest="MAP_NAME",
+        default=None,
+        help="Override Settings.MAP_NAME for evaluation runs",
+    )
+    parser.add_argument(
+        "--ENV_CAR_PARAMETER_FILE",
+        "--env-car-parameter-file",
+        dest="ENV_CAR_PARAMETER_FILE",
+        default=None,
+        help="Override Settings.ENV_CAR_PARAMETER_FILE for evaluation runs",
+    )
     parser.add_argument(
         "--max-length",
         type=int,
@@ -556,10 +702,30 @@ def main() -> None:
         help="Print detailed per-run output",
     )
 
-    args = parser.parse_args()
+    args, settings_passthrough = parser.parse_known_args()
 
     if not args.model_name and not args.model_prefix:
         parser.error("Provide either --model-name or --model-prefix")
+
+    settings_args: List[str] = list(settings_passthrough)
+    if args.MAP_NAME is not None:
+        settings_args.extend(["--MAP_NAME", args.MAP_NAME])
+    if args.ENV_CAR_PARAMETER_FILE is not None:
+        settings_args.extend(["--ENV_CAR_PARAMETER_FILE", args.ENV_CAR_PARAMETER_FILE])
+
+    if settings_args:
+        from utilities.parser_utilities import parse_settings_args
+
+        original_argv = sys.argv
+        try:
+            sys.argv = ["batch_compare.py"] + settings_args
+            parse_settings_args(
+                description="Applying batch_compare Settings overrides",
+                save_snapshot=False,
+                verbose=True,
+            )
+        finally:
+            sys.argv = original_argv
 
     selector = CheckpointSelector(
         max_length=args.max_length,

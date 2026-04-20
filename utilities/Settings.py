@@ -19,7 +19,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = 200   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -41,10 +41,10 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = True
+    SAVE_RECORDINGS = False
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = True
+    SAVE_VIDEOS = False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
@@ -208,10 +208,26 @@ class Settings():
     SAC_VELOCITY_WEIGHT = 0.0
 
     SAC_PRIORITY_FACTOR = 0.6   #(alpha) 0: full uniform, 1: full priority -> p = SAC_PRIORITY_FACTOR * w_vec + (1.0 - SAC_PRIORITY_FACTOR) * uniform_p
-    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.6 #(beta), corrects the introduced bias from prioritized sampling
-    
-    SAC_BETA_ANNEALING_RATIO = 0.4 #at how much % of total agent timesteps should beta have grown to 1.0
     SAC_STATE_TO_TD_RATIO = 0.8 #if 0, only TD error based priorities
+
+    SAC_IMPORANCE_SAMPLING_CORRECTOR = 0.4 #(beta), corrects the introduced bias from prioritized sampling
+    SAC_BETA_ANNEALING_RATIO = 1.0 #at how much % of total agent timesteps should beta have grown to 1.0
+    
+
+    # Episode-batch recency prioritization:
+    # higher sampling prio for newer batches
+    SAC_USE_BATCH_RECENCY_PRIORITIZATION = False
+    # Set true to only use recency prioritization (can keep the custom sampling setting on, without having to ensure full uniformity in custom sample settings)
+    SAC_RECENCY_ONLY_MODE = False
+    # Recency shaping exponent. >1.0 strengthens newest-batch preference; <1.0 softens it
+    SAC_RECENCY_ALPHA = 1.0
+    # Exp decay constant in batch-id units
+    SAC_RECENCY_TAU = 20.0
+    # Floor to avoid starving older batches completely
+    SAC_RECENCY_MIN_WEIGHT = 0.05
+
+
+    SAC_CUSTOM_SEPARATE_BATCHES_ACTOR_CRITIC = True
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -261,13 +277,13 @@ class Settings():
     SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
-    SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
+    SAC_CHECKPOINT_FREQUENCY = 10000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
     SAC_TARGET_UDT = 0.25
     SAC_MAX_UTD = 2 
     SAC_UDT_DEADBAND_RATIO = 0.1
-    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
+    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.10
     SAC_MIN_SIM_FREQUENCY = 20.0
 
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly

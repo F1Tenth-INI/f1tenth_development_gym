@@ -7,7 +7,7 @@ Plot sample frequency statistics from StatTracker CSV:
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.widgets import Slider
-from matplotlib.colors import TwoSlopeNorm, Normalize
+from matplotlib.colors import TwoSlopeNorm, Normalize, LogNorm
 from matplotlib.ticker import MaxNLocator
 import pandas as pd
 import numpy as np
@@ -478,8 +478,13 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
     
     # Use global max for color scaling if provided
     samples_max = global_stats['samples_per_batch_max'] if global_stats else df_with_pos['samples_per_batch'].max()
+    samples_min = global_stats['samples_per_batch_min'] if global_stats else df_with_pos['samples_per_batch'].min()
     
-    # Left: Track overlay with sample frequency coloring
+    # Ensure positive values for log scale (add small epsilon if needed)
+    if samples_min <= 0:
+        samples_min = np.min(df_with_pos['samples_per_batch'][df_with_pos['samples_per_batch'] > 0]) if np.any(df_with_pos['samples_per_batch'] > 0) else 1e-6
+    
+    # Left: Track overlay with sample frequency coloring (log scale)
     ax = axes[0]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)  # Fade map to reduce border visibility
     
@@ -495,16 +500,15 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
         cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
         s=0.5,  # Much smaller dots to see individual points
         alpha=0.6,
-        vmin=0,
-        vmax=samples_max  # Use global max for consistent color scaling
+        norm=LogNorm(vmin=samples_min, vmax=samples_max)  # Log scale for better visibility
     )
     
-    ax.set_title(f'Samples per Batch Heatmap on {map_name}')
+    ax.set_title(f'Samples per Batch Heatmap on {map_name} (Log Scale)')
     ax.axis('off')
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label('Samples per Batch')
+    cbar.set_label('Samples per Batch (log scale)')
     
-    # Right: 2D histogram heatmap
+    # Right: 2D histogram heatmap (log scale)
     ax = axes[1]
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
     
@@ -549,6 +553,9 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
         H_avg = H / H_count
         H_avg[~np.isfinite(H_avg)] = 0
     
+    # Use log scale for histogram (ensure positive values)
+    H_avg_min = np.min(H_avg[H_avg > 0]) if np.any(H_avg > 0) else 1e-6
+    
     im = ax.imshow(
         H_avg.T,
         extent=[xedges[0], xedges[-1], 
@@ -556,14 +563,13 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
         cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
         alpha=0.7,
         origin='upper',
-        vmin=0,
-        vmax=samples_max  # Use global max for consistent color scaling
+        norm=LogNorm(vmin=H_avg_min, vmax=samples_max)  # Log scale for better visibility
     )
     
-    ax.set_title('Aggregated Samples per Batch Heatmap')
+    ax.set_title('Aggregated Samples per Batch Heatmap (Log Scale)')
     ax.axis('off')
     cbar2 = plt.colorbar(im, ax=ax)
-    cbar2.set_label('Avg Samples per Batch')
+    cbar2.set_label('Avg Samples per Batch (log scale)')
     
     plt.tight_layout()
     

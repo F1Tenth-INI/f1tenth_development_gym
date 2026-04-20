@@ -220,6 +220,7 @@ class BatchPlotter:
         td_extreme_percent: float = 2.0,
         td_extremes_only: bool = False,
         stat_log_start_fraction: float = 0.0,
+        spatial_only: bool = False,
     ):
         """
         Initialize batch plotter.
@@ -237,6 +238,7 @@ class BatchPlotter:
             td_extreme_percent: Percentile used for top and bottom TD extremes
             td_extremes_only: If True, skip normal TD maps and write only extremes maps
             stat_log_start_fraction: Keep only rows from this fraction to end (0.5 => second half)
+            spatial_only: If True, plot only spatial heatmaps (skip distribution, reward, critic, TD)
         """
 
         if not (0.0 <= float(stat_log_start_fraction) < 1.0):
@@ -253,6 +255,7 @@ class BatchPlotter:
         self.td_extreme_percent = float(np.clip(td_extreme_percent, 0.0, 49.9))
         self.td_extremes_only = td_extremes_only
         self.stat_log_start_fraction = float(stat_log_start_fraction)
+        self.spatial_only = spatial_only
         
         self.models_dir = Path(root_dir) / "TrainingLite" / "rl_racing" / "models"
         
@@ -272,10 +275,14 @@ class BatchPlotter:
         self.reward_dir.mkdir(exist_ok=True)
         
         print(f"Output directories created:")
-        print(f"  Distribution plots: {self.dist_dir}")
+        if not self.spatial_only:
+            print(f"  Distribution plots: {self.dist_dir}")
         print(f"  Spatial heatmaps:   {self.heatmap_dir}")
-        print(f"  Reward heatmaps:    {self.reward_dir}")
+        if not self.spatial_only:
+            print(f"  Reward heatmaps:    {self.reward_dir}")
         print(f"  TD sample stride:   {self.td_sample_stride}")
+        if self.spatial_only:
+            print(f"  MODE: Spatial heatmaps only (log-scaled)")
         if self.stat_log_start_fraction > 0.0:
             print(f"  Stat log segment:   rows [{self.stat_log_start_fraction:.2f}, 1.00)")
         if self.plot_td_extremes:
@@ -879,16 +886,17 @@ class BatchPlotter:
             print(f"  Filtered max absolute sample count: {model_sample_count_max:.0f}")
             
             # Plot 1: Sample frequency distribution
-            print("  Generating distribution plot...")
-            start_time = time.perf_counter()
-            dist_save_path = self.dist_dir / f"{model_name}_distribution.png"
-            try:
-                plot_sample_frequency_distribution_static(df, save_path=str(dist_save_path), global_stats=global_stats)
-                plt.close('all')  # Close figure to free memory
-                print(f"    ✓ Saved to {dist_save_path.name}")
-                self._print_timing("distribution plot", start_time)
-            except Exception as e:
-                print(f"    ✗ Error: {e}")
+            if not self.spatial_only:
+                print("  Generating distribution plot...")
+                start_time = time.perf_counter()
+                dist_save_path = self.dist_dir / f"{model_name}_distribution.png"
+                try:
+                    plot_sample_frequency_distribution_static(df, save_path=str(dist_save_path), global_stats=global_stats)
+                    plt.close('all')  # Close figure to free memory
+                    print(f"    ✓ Saved to {dist_save_path.name}")
+                    self._print_timing("distribution plot", start_time)
+                except Exception as e:
+                    print(f"    ✗ Error: {e}")
             
             # Plot 2: Spatial heatmap
             print("  Generating spatial heatmap...")
@@ -927,45 +935,46 @@ class BatchPlotter:
                 print(f"    ✗ Error: {e}")
             
             # Plot 3: Reward heatmap
-            print("  Generating reward heatmap...")
-            start_time = time.perf_counter()
-            reward_save_path = self.reward_dir / f"{model_name}_reward.png"
-            try:
-                df_with_pos = df.dropna(subset=['pose_x', 'pose_y'])
-                
-                if len(df_with_pos) > 0 and 'reward' in df_with_pos.columns:
-                    # Load map
-                    img_array, config = load_map_image(self.map_name)
+            if not self.spatial_only:
+                print("  Generating reward heatmap...")
+                start_time = time.perf_counter()
+                reward_save_path = self.reward_dir / f"{model_name}_reward.png"
+                try:
+                    df_with_pos = df.dropna(subset=['pose_x', 'pose_y'])
                     
-                    # We need pixel coordinates - recompute if needed
-                    if 'pixel_x' not in df_with_pos.columns:
-                        origin = config['origin']
-                        resolution = config['resolution']
-                        pixel_coords = []
-                        for _, row in df_with_pos.iterrows():
-                            px, py = world_to_pixel(row['pose_x'], row['pose_y'], origin, resolution)
-                            pixel_coords.append((px, py))
-                        df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
-                        df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
-                    
-                    # Create figure manually and save
-                    reward_vmin = global_stats.get('reward_min') if global_stats else None
-                    reward_vmax = global_stats.get('reward_max') if global_stats else None
-                    plot_reward_heatmap(
-                        df_with_pos,
-                        img_array,
-                        self.map_name,
-                        value_min=reward_vmin,
-                        value_max=reward_vmax,
-                    )
-                    plt.savefig(str(reward_save_path), dpi=150, bbox_inches='tight')
-                    plt.close('all')
-                    print(f"    ✓ Saved to {reward_save_path.name}")
-                    self._print_timing("reward heatmap", start_time)
-                else:
-                    print(f"    ⊘ No reward data available")
-            except Exception as e:
-                print(f"    ✗ Error: {e}")
+                    if len(df_with_pos) > 0 and 'reward' in df_with_pos.columns:
+                        # Load map
+                        img_array, config = load_map_image(self.map_name)
+                        
+                        # We need pixel coordinates - recompute if needed
+                        if 'pixel_x' not in df_with_pos.columns:
+                            origin = config['origin']
+                            resolution = config['resolution']
+                            pixel_coords = []
+                            for _, row in df_with_pos.iterrows():
+                                px, py = world_to_pixel(row['pose_x'], row['pose_y'], origin, resolution)
+                                pixel_coords.append((px, py))
+                            df_with_pos['pixel_x'] = [c[0] for c in pixel_coords]
+                            df_with_pos['pixel_y'] = [c[1] for c in pixel_coords]
+                        
+                        # Create figure manually and save
+                        reward_vmin = global_stats.get('reward_min') if global_stats else None
+                        reward_vmax = global_stats.get('reward_max') if global_stats else None
+                        plot_reward_heatmap(
+                            df_with_pos,
+                            img_array,
+                            self.map_name,
+                            value_min=reward_vmin,
+                            value_max=reward_vmax,
+                        )
+                        plt.savefig(str(reward_save_path), dpi=150, bbox_inches='tight')
+                        plt.close('all')
+                        print(f"    ✓ Saved to {reward_save_path.name}")
+                        self._print_timing("reward heatmap", start_time)
+                    else:
+                        print(f"    ⊘ No reward data available")
+                except Exception as e:
+                    print(f"    ✗ Error: {e}")
             
             print(f"  Done processing {model_name}")
             
@@ -1150,7 +1159,8 @@ class BatchPlotter:
         print(f"Models: {', '.join(models)}\n")
         
         global_stats = None
-        if self.plot_base_metrics:
+        # Compute global stats for base metrics OR spatial-only mode (for consistent scaling)
+        if self.plot_base_metrics or self.spatial_only:
             # Compute global stats first for synchronized scaling
             print("Computing global statistics across all models...")
             csv_paths = [
@@ -1164,7 +1174,7 @@ class BatchPlotter:
         
         for i, model_name in enumerate(models, 1):
             print(f"[{i}/{len(models)}]", end=" ")
-            if self.plot_base_metrics:
+            if self.plot_base_metrics or self.spatial_only:
                 self.plot_model(model_name, global_stats=global_stats)
             if self.plot_critic_output:
                 self.create_critic_output_plot(model_name)
@@ -1211,18 +1221,21 @@ def main():
     )
     parser.add_argument(
         "--plot-td-error",
-        action="store_true",
-        help="Generate TD-error spatial heatmaps from stat_logs (default: off)"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate TD-error spatial heatmaps from stat_logs (default: True)"
     )
     parser.add_argument(
         "--plot-td-improvement",
-        action="store_true",
-        help="Also generate TD-error improvement heatmaps (default: off)"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also generate TD-error improvement heatmaps (default: True)"
     )
     parser.add_argument(
         "--plot-td-extremes",
-        action="store_true",
-        help="Also generate maps for bottom/top TD-error percentiles"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also generate maps for bottom/top TD-error percentiles (default: True)"
     )
     parser.add_argument(
         "--td-extreme-percent",
@@ -1234,6 +1247,11 @@ def main():
         "--td-only",
         action="store_true",
         help="Run only TD-error plotting from stat_logs (skip base/critic plots)"
+    )
+    parser.add_argument(
+        "--spatial-only",
+        action="store_true",
+        help="Run only spatial heatmap plotting (skip distribution, reward, critic, and TD plots)"
     )
     parser.add_argument(
         "--td-extremes-only",
@@ -1275,13 +1293,17 @@ def main():
     selected_backend = matplotlib.get_backend()
     print(f"Matplotlib backend: {selected_backend}")
 
-    plot_base_metrics = not args.td_only
-    plot_critic_output = args.plot_critic_output and not args.td_only
-    plot_td_error = args.plot_td_error or args.td_only
+    plot_base_metrics = not args.td_only and not args.spatial_only
+    plot_critic_output = args.plot_critic_output and not args.td_only and not args.spatial_only
+    plot_td_error = (args.plot_td_error or args.td_only) and not args.spatial_only
     if args.td_extremes_only:
         plot_base_metrics = False
         plot_critic_output = False
         plot_td_error = True
+    if args.spatial_only:
+        plot_base_metrics = False
+        plot_critic_output = False
+        plot_td_error = False
     
     plotter = BatchPlotter(
         prefix=args.prefix,
@@ -1296,6 +1318,7 @@ def main():
         td_extreme_percent=args.td_extreme_percent,
         td_extremes_only=args.td_extremes_only,
         stat_log_start_fraction=args.stat_log_start_fraction,
+        spatial_only=args.spatial_only,
     )
     plotter.process_all()
 

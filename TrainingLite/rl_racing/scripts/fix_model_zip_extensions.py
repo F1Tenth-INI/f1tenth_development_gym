@@ -3,12 +3,30 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+"""
+python TrainingLite/rl_racing/scripts/fix_model_zip_extensions.py
+python TrainingLite/rl_racing/scripts/fix_model_zip_extensions.py TrainingLite/rl_racing/models/RCA2-1_finetune_2ndRUN_A_0.8_B_0.4_R_0.6_CritUni_False_ActInvTD_False_1
+python TrainingLite/rl_racing/scripts/fix_model_zip_extensions.py TrainingLite/rl_racing/models/RCA2-1_finetune_2ndRUN_A_0.8_B_0.4_R_0.6_CritUni_False_ActInvTD_False_1 --dry-run
+python TrainingLite/rl_racing/scripts/fix_model_zip_extensions.py --prefix RCA2-1_finetune_2ndRUN --dry-run
+"""
 
 def rename_missing_zip(model_dir: Path, dry_run: bool = False) -> tuple[bool, str]:
     bare_file = model_dir / model_dir.name
     zip_file = model_dir / f"{model_dir.name}.zip"
 
     if zip_file.exists():
+        if bare_file.exists() and bare_file.is_file():
+            if dry_run:
+                return True, (
+                    f"DRY-RUN replace zip from extensionless: "
+                    f"delete {zip_file.name}, rename {bare_file.name} -> {zip_file.name}"
+                )
+            zip_file.unlink()
+            bare_file.rename(zip_file)
+            return True, (
+                f"REPLACED zip from extensionless: "
+                f"deleted {zip_file.name}, renamed {bare_file.name} -> {zip_file.name}"
+            )
         return False, f"SKIP (already has zip): {zip_file}"
 
     if not bare_file.exists() or not bare_file.is_file():
@@ -30,7 +48,17 @@ def rename_checkpoint_missing_zip(checkpoint_file: Path, dry_run: bool = False) 
 
     zip_file = checkpoint_file.with_name(f"{checkpoint_file.name}.zip")
     if zip_file.exists():
-        return False, f"SKIP (zip target exists): {zip_file.name}"
+        if dry_run:
+            return True, (
+                f"DRY-RUN replace checkpoint zip from extensionless: "
+                f"delete {zip_file.name}, rename {checkpoint_file.name} -> {zip_file.name}"
+            )
+        zip_file.unlink()
+        checkpoint_file.rename(zip_file)
+        return True, (
+            f"REPLACED checkpoint zip from extensionless: "
+            f"deleted {zip_file.name}, renamed {checkpoint_file.name} -> {zip_file.name}"
+        )
 
     if dry_run:
         return True, f"DRY-RUN checkpoint rename: {checkpoint_file.name} -> {zip_file.name}"
@@ -94,13 +122,28 @@ def main() -> None:
         action="store_true",
         help="Print intended renames without changing files",
     )
+    parser.add_argument(
+        "--prefix",
+        type=str,
+        default=None,
+        help="Process only model directories whose names start with this prefix",
+    )
     args = parser.parse_args()
 
     target_path = Path(args.path).expanduser().resolve()
     model_dirs = find_model_dirs(target_path, recursive=args.recursive)
 
+    if args.prefix:
+        model_dirs = [model_dir for model_dir in model_dirs if model_dir.name.startswith(args.prefix)]
+
     if not model_dirs:
-        print(f"No model directories found at: {target_path}")
+        if args.prefix:
+            print(
+                f"No model directories found at: {target_path} "
+                f"matching prefix: {args.prefix}"
+            )
+        else:
+            print(f"No model directories found at: {target_path}")
         return
 
     changed = 0

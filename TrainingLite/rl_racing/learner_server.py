@@ -85,13 +85,33 @@ class CustomReplayBuffer(ReplayBuffer):
 
         self.log_squish = Settings.SAC_LOG_SQUISH
 
-        # if 
+        self.use_batch_recency_prioritization = Settings.SAC_USE_BATCH_RECENCY_PRIORITIZATION
+        self.recency_only_mode = Settings.SAC_RECENCY_ONLY_MODE
+        self.recency_alpha = float(Settings.SAC_RECENCY_ALPHA)
+        self.recency_tau = float(Settings.SAC_RECENCY_TAU)
+        self.recency_min_weight = float(Settings.SAC_RECENCY_MIN_WEIGHT)
+
+        # Episode-batch recency metadata: every transition stores the batch id of the
+        # episode ingestion pass it came from.
+        self.episode_batch_ids = np.zeros(self.buffer_size, dtype=np.int64)
+        self.current_batch_id = 0
+
+        #TODO: i found these by debugging, there should be a way to have them calculated automatically
+        self.obs_d_idx = 96
+        self.obs_e_idx = 97
 
         ###FOR DEBUGGING
         self.counter = 0     
         if self.custom_sampling:
             print("Using custom SAC replay buffer sampling with weights:")
             print(f"Offset weight: {self.w_d}, Heading error weight: {self.w_e}, Reward weight: {self.reward_weight}, Speed weight: {self.velocity_weight}, Priority factor: {self.alpha}")
+            if self.use_batch_recency_prioritization:
+                recency_mode = "recency-only" if self.recency_only_mode else "combined"
+                print(
+                    "Using episode-batch recency prioritization "
+                    f"(mode={recency_mode}, alpha={self.recency_alpha}, "
+                    f"tau={self.recency_tau}, min_weight={self.recency_min_weight})"
+                )
 
         # if Settings.SAC_STAT_TRACKER:
         #     self.stat_tracker = StatTracker()
@@ -99,6 +119,10 @@ class CustomReplayBuffer(ReplayBuffer):
         #     self.stat_tracker = None
 
         #TODO: Nikita: implement higher weighting on recently added experiences
+
+    def increment_batch_counter(self) -> None:
+        """Mark the beginning of a newly ingested episode batch."""
+        self.current_batch_id += 1
 
 
     def add(self, obs, next_obs, action, reward, done, infos, steps_taken: int):
@@ -111,6 +135,8 @@ class CustomReplayBuffer(ReplayBuffer):
             idx = (self.pos - 1) % self.buffer_size
         except Exception:
             return
+
+        self.episode_batch_ids[idx] = self.current_batch_id
         
         # Extract newest unnormalized observation added by super().add()
         obs = self.observations[idx, 0, :]
@@ -133,8 +159,8 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #TODO: the observations are normalized, is that bad or not?
         #compute weight
-        d = obs[80] #-> these were off by one the whole time......
-        e = obs[81]
+        d = obs[self.obs_d_idx]
+        e = obs[self.obs_e_idx]
         # rew = self.rewards[idx, 0] + 1
 
 
@@ -276,22 +302,44 @@ class CustomReplayBuffer(ReplayBuffer):
 
         length = len(possible_inds)
 
+        if length == 0:
+            return super().sample(batch_size=safe_batch_size, env=env)
+
+        recency_weight = np.ones(length, dtype=np.float64)
+        if self.use_batch_recency_prioritization:
+            tau = max(1e-6, self.recency_tau)
+            min_w = np.clip(self.recency_min_weight, 1e-12, 1.0)
+            rec_alpha = max(1e-6, self.recency_alpha)
+            sampled_batch_ids = self.episode_batch_ids[possible_inds].astype(np.int64)
+            batch_age = np.maximum(0, self.current_batch_id - sampled_batch_ids)
+            recency_weight = np.exp(-batch_age / tau)
+            recency_weight = np.maximum(recency_weight, min_w)
+            recency_weight = np.power(recency_weight, rec_alpha)
+
         # Use stored per-transition weights for sampling instead of recomputing from obs
         w_vec = self.state_weights[possible_inds].astype(np.float64)
 
         """TD error based priorities"""
         TD_vec = self.TD_weights[possible_inds].astype(np.float64)
 
-        if invert_TD:
+        if invert_TD and not self.recency_only_mode:
             TD_vec = np.clip(TD_vec, 1e-6, None) #avoid exploding
             TD_vec = 1 / TD_vec
             TD_vec = TD_vec / TD_vec.max() #rescale so that max is 1 again
 
-        combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
+        if self.recency_only_mode:
+            combined_weight = recency_weight
+        else:
+            combined_weight = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
 
-        # Squish priorities logarithmically to dampen outliers while preserving rank
-        if self.log_squish:
-            combined_weight = np.log1p(combined_weight)
+            # Squish priorities logarithmically to dampen outliers while preserving rank
+            if self.log_squish:
+                combined_weight = np.log1p(combined_weight)
+
+            if self.use_batch_recency_prioritization:
+                combined_weight = combined_weight * recency_weight
+
+        combined_weight = np.clip(combined_weight, 1e-12, None)
 
         if self.rank_based_sampling:
             sorted_inds = np.argsort(-combined_weight) #highest to lowest
@@ -485,6 +533,7 @@ class LearnerServer:
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
         self.critic_invert_TD = Settings.SAC_CUSTOM_CRITIC_INVERT_TD
         self.actor_invert_TD = Settings.SAC_CUSTOM_ACTOR_INVERT_TD
+        self.seperate_batches = Settings.SAC_CUSTOM_SEPARATE_BATCHES_ACTOR_CRITIC
 
         self.save_model_checkpoints = Settings.SAC_SAVE_MODEL_CHECKPOINTS
         self.checkpoint_frequency = Settings.SAC_CHECKPOINT_FREQUENCY
@@ -520,7 +569,6 @@ class LearnerServer:
         self.client_model_dir = os.path.join(self.model_dir, "client")
         self.replay_buffer_csv_path = os.path.join(self.model_dir, "replay_buffer.csv")
         os.makedirs(self.client_model_dir, exist_ok=True)
-        self.save_model_path = os.path.join(self.model_dir, self.save_model_name)
 
         # resolve load path if different
         self.load_model_path = None
@@ -741,7 +789,8 @@ class LearnerServer:
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
-                target = os.path.join(self.model_dir, self.save_model_name)
+                # Use save_model_path which includes .zip extension from resolve_model_paths
+                target = self.save_model_path
                 self.model.save(target)
                 print(f"[server] Model saved to {target}")
             except Exception as e:
@@ -916,6 +965,12 @@ class LearnerServer:
                 transitions = ep
             else:
                 transitions = self._compute_n_step_transitions(ep)
+
+            if len(transitions) == 0:
+                continue
+
+            if hasattr(self.replay_buffer, "increment_batch_counter"):
+                self.replay_buffer.increment_batch_counter()
                 
             for t in transitions:
                 obs = t["obs"].astype(np.float32)
@@ -1168,6 +1223,9 @@ class LearnerServer:
         checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+        # Ensure checkpoint has .zip extension
+        if not checkpoint_path.endswith(".zip"):
+            checkpoint_path = checkpoint_path + ".zip"
 
         try:
             self.model.save(checkpoint_path)
@@ -1472,7 +1530,7 @@ class LearnerServer:
                         critic_optimizer.step()
 
                         #get TD-error
-                        if self.replay_buffer.custom_sampling:
+                        if self.replay_buffer.custom_sampling and not getattr(self.replay_buffer, "recency_only_mode", False):
                             with torch.no_grad():
                                 # -> TD-error = TD_target - current_q
                                 current_q1_new, current_q2_new = critic(obs, actions)
@@ -1488,10 +1546,6 @@ class LearnerServer:
 
                                 if self.replay_buffer.stat_tracker:
                                     self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
-
-                                # # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
-                                # TD_update_priorities = 1.0 / TD_update_priorities
-                                # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
 
                                 # optional clipping
                                 if self.replay_buffer.clip_weights:
@@ -1501,70 +1555,70 @@ class LearnerServer:
 
 
                         # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
+                        if self.seperate_batches:
+                            # NIKITA: testing seperate sample for actor and critic
+                            data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.actor_invert_TD)
 
-                        # NIKITA: testing seperate sample for actor and critic
-                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.actor_invert_TD)
+                            obs      = data.observations
+                            actions  = data.actions
+                            next_obs = data.next_observations
+                            rewards  = data.rewards  # shape handling below
+                            dones    = data.dones
+                            steps_taken = data.steps_taken
 
-                        obs      = data.observations
-                        actions  = data.actions
-                        next_obs = data.next_observations
-                        rewards  = data.rewards  # shape handling below
-                        dones    = data.dones
-                        steps_taken = data.steps_taken
+                            #TODO: Have the IS sampling weights be returned here
+                            is_weights = data.is_weights
 
-                        #TODO: Have the IS sampling weights be returned here
-                        is_weights = data.is_weights
-
-                        #NIKITA: get TD error wtice, for actor batch also
-                        with torch.no_grad():
-                            next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
-                            # print(next_log_prob)
-                            target_q1, target_q2 = critic_target(next_obs, next_actions)
-                            target_q = torch.min(target_q1, target_q2)
-                            discounts = torch.pow(gamma, steps_taken)
-
-                            if log_ent_coef is not None:
-                                ent_coef = torch.exp(log_ent_coef.detach())
-                            # Ensure next_log_prob shape is [batch_size, 1]
-                            if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
-                                next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
-                            else:
-                                next_log_prob = next_log_prob.view(-1, 1)
-
-                            # print(next_log_prob)
-                            """
-                            R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} -> rewards handled when saving to replay buffer
-                                  + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))      -> here
-                                  + gamma^n * Q(s_{t+n}) -> here
-                            """
-                            target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
-
-                        if self.replay_buffer.custom_sampling:
+                            #NIKITA: get TD error wtice, for actor batch also
                             with torch.no_grad():
-                                # -> TD-error = TD_target - current_q
-                                current_q1_new, current_q2_new = critic(obs, actions)
-                                TD_error_1 = torch.abs(target_q - current_q1_new)
-                                TD_error_2 = torch.abs(target_q - current_q2_new)
+                                next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                                # print(next_log_prob)
+                                target_q1, target_q2 = critic_target(next_obs, next_actions)
+                                target_q = torch.min(target_q1, target_q2)
+                                discounts = torch.pow(gamma, steps_taken)
 
-                                TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
+                                if log_ent_coef is not None:
+                                    ent_coef = torch.exp(log_ent_coef.detach())
+                                # Ensure next_log_prob shape is [batch_size, 1]
+                                if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
+                                    next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
+                                else:
+                                    next_log_prob = next_log_prob.view(-1, 1)
 
-                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
-                                TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
-                                TD_update_priorities += 1e-6
-                                
+                                # print(next_log_prob)
+                                """
+                                R_t^n = sum_{i=0}^{n-1} gamma^i * r_{t+i} -> rewards handled when saving to replay buffer
+                                    + alpha * sum_{i=1}^{n} gamma^i * H(pi(s_{t+i}))      -> here
+                                    + gamma^n * Q(s_{t+n}) -> here
+                                """
+                                target_q = rewards + discounts * (1 - dones) * (target_q - ent_coef * next_log_prob)
 
-                                if self.replay_buffer.stat_tracker:
-                                    self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
+                            if self.replay_buffer.custom_sampling and not getattr(self.replay_buffer, "recency_only_mode", False):
+                                with torch.no_grad():
+                                    # -> TD-error = TD_target - current_q
+                                    current_q1_new, current_q2_new = critic(obs, actions)
+                                    TD_error_1 = torch.abs(target_q - current_q1_new)
+                                    TD_error_2 = torch.abs(target_q - current_q2_new)
 
-                                # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
-                                # TD_update_priorities = 1.0 / TD_update_priorities
-                                # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
+                                    TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
 
-                                # optional clipping
-                                if self.replay_buffer.clip_weights:
-                                    TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+                                    # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
+                                    TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
+                                    TD_update_priorities += 1e-6
+                                    
 
-                                self.replay_buffer.update_TD_priorities(TD_update_inds = self.replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
+                                    if self.replay_buffer.stat_tracker:
+                                        self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
+
+                                    # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
+                                    # TD_update_priorities = 1.0 / TD_update_priorities
+                                    # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
+
+                                    # optional clipping
+                                    if self.replay_buffer.clip_weights:
+                                        TD_update_priorities = np.clip(TD_update_priorities, 1e-6, 1.0)
+
+                                    self.replay_buffer.update_TD_priorities(TD_update_inds = self.replay_buffer.current_sampled_inds, TD_update_priorities = TD_update_priorities)
 
                         # Actor update
                         new_actions, log_prob = actor.action_log_prob(obs)
@@ -1688,9 +1742,9 @@ class LearnerServer:
 
                 # Nikita: debug
                 try:
-                    target = os.path.join(self.model_dir, str(self.save_model_name))
+                    target = self.save_model_path
                     self.model.save(target)
-                    # print(f"[server] Auto-saved model to {self.save_model_path}")
+                    print(f"[server] Auto-saved model to {self.save_model_path}")
                 except Exception as e:
                     print(f"[server] Error auto-saving model: {e}")
                 print(f"[server] Rest of train loop after training completed: {(time.time() - save_time):.2f} seconds.")

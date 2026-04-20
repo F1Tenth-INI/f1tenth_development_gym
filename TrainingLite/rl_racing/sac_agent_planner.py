@@ -194,7 +194,6 @@ class RLAgentPlanner(template_planner):
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, ranges=None, ego_odom=None, observation=None):
-        nikita_t_start = time.time()
         
         if not self.autonomous_driving:
             return self._fallback_action()
@@ -217,7 +216,6 @@ class RLAgentPlanner(template_planner):
 
 
         # --- build raw obs (manual normalization happens inside) ---
-        nikita_t3 = time.time()
         raw_obs = self._build_observation()
         self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
@@ -276,20 +274,10 @@ class RLAgentPlanner(template_planner):
         
         self.control_index += 1
         
-        # NIKITA TIMING
-        # nikita_t_end = time.time()
-        # nikita_t_total = (nikita_t_end - nikita_t_start) * 1000
-        # if nikita_t_total > 10.0:  # Only print if > 10ms
-        #     print(f"[TIMING] process_observation: total={nikita_t_total:.2f}ms | "
-        #           f"weights={((nikita_t_weights-nikita_t1)*1000):.2f}ms | "
-        #           f"obs_build={((nikita_t4-nikita_t3)*1000):.2f}ms | "
-        #           f"predict={((nikita_t6-nikita_t5)*1000):.2f}ms")
-        
         return self.angular_control, self.translational_control
 
 
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
-        nikita_t_step_start = time.time()
         
         reward = driver_obs['reward']
         done = driver_obs['done']
@@ -309,9 +297,7 @@ class RLAgentPlanner(template_planner):
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
-        nikita_t7 = time.time()
         next_obs = self._build_observation()
-        nikita_t8 = time.time()
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
@@ -325,13 +311,11 @@ class RLAgentPlanner(template_planner):
             "done":     bool(done),
             "info":     info_out,
         }
-        nikita_t9 = time.time()
         self._episode.append(transition)
 
         self._maybe_bootstrap_send()
         if self.save_transitions:
             self.transition_logger.log(transition)
-        nikita_t10 = time.time()
 
         if done or self.control_index >= Settings.MAX_EPISODE_LENGTH:
             total_reward = sum(t["reward"] for t in self._episode) if self._episode else 0.0
