@@ -41,6 +41,7 @@ class LearnerServer:
         discount_factor: float = 0.99,
         train_frequency: int = 1,
         save_replay_buffer: bool = False,
+        load_replay_buffer: bool = False,
     ):
         self.host = host
         self.port = port
@@ -54,6 +55,7 @@ class LearnerServer:
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
         self.save_replay_buffer_enabled = bool(save_replay_buffer)
+        self.load_replay_buffer_enabled = bool(load_replay_buffer)
         self._latest_training_info_payload: Optional[dict] = None
 
         # Settings
@@ -83,8 +85,10 @@ class LearnerServer:
         self.total_weight_updates = 0
         self._training_paused_for_udt = False
 
-        self.last_episode_time = None 
+        self.last_episode_time = None
         self.episode_timeout = 100.0
+        self.episode_inactivity_timeout = 60.0
+        self._has_received_episode = False
 
         #used for n-step buffer, for standard buffer set = 1
         self.n_step = getattr(Settings, "SAC_N_STEP", 1)
@@ -228,18 +232,7 @@ class LearnerServer:
                 print(f"[server] Success: Loaded SAC model: {self.load_model_name}")
             except Exception as e:
                 print(f"[server] Failed to load SAC model at {self.load_model_path}: {e}")
-                print("Creating new model from scratch.")
-                self.init_from_scratch = True
-                self.model = SacUtilities.create_model(
-                    env=dummy_env,
-                    buffer_size=self.replay_capacity,
-                    device=self.device,
-                    learning_rate=self.learning_rate,
-                    discount_factor=self.discount_factor,
-                    train_freq=self.train_frequency,
-                    batch_size=self.batch_size,
-                )
-                print(f"[server] Success: Created new SAC model (fallback).")
+                exit(1)
 
         # Minimal logger so .train() works outside .learn()
 
@@ -259,14 +252,18 @@ class LearnerServer:
             handle_timeout_termination=False,
         )
         self.model.replay_buffer = self.replay_buffer
-        self._load_replay_buffer()
+        if self.load_replay_buffer_enabled:
+            self._load_replay_buffer()
+        else:
+            print("[server] Replay-buffer loading disabled; starting with empty replay buffer.")
         # Restore historical counters from metrics, then ensure loaded replay
         # samples are reflected in the UDT denominator.
         self._restore_training_counters_from_metrics()
-        self.total_actor_timesteps = max(
-            self.total_actor_timesteps,
-            int(self.replay_buffer.size()),
-        )
+        if self.load_model_name is None:
+            self.total_actor_timesteps = max(
+                self.total_actor_timesteps,
+                int(self.replay_buffer.size()),
+            )
 
         # Save model info
         info = {
@@ -288,6 +285,20 @@ class LearnerServer:
             return
         self._load_base_model(obs_dim=obs_dim)
         print(f"[server] Initialized model (obs_dim={obs_dim})")
+
+    def _udt_denominator_timesteps(self) -> int:
+        """
+        Timesteps denominator used for UDT control/logging.
+        When finetuning with a loaded replay buffer while counters are reset,
+        include replay size to avoid artificial UDT spikes at startup.
+        """
+        denom = int(self.total_actor_timesteps)
+        if self.load_replay_buffer_enabled and self.load_model_name is not None and self.replay_buffer is not None:
+            denom = max(denom, int(self.replay_buffer.size()))
+        return max(1, denom)
+
+    def _current_udt(self) -> float:
+        return float(self.total_weight_updates) / float(self._udt_denominator_timesteps())
 
     def _expected_obs_dim(self) -> Optional[int]:
         """Return the current model observation dimension, if initialized."""
@@ -392,6 +403,16 @@ class LearnerServer:
 
     def _restore_training_counters_from_metrics(self) -> None:
         """Restore cumulative counters from learning_metrics.csv (last valid row)."""
+        if self.load_model_name is not None:
+            # When bootstrapping from a pretrained model, start run counters fresh.
+            self.total_weight_updates = 0
+            self.total_actor_timesteps = 0
+            print(
+                "[server] load_model_name is set; starting with reset counters: "
+                "total_weight_updates=0, total_actor_timesteps=0"
+            )
+            return
+
         metrics_path = self.trainingLogHelper.csv_path
         if not os.path.isfile(metrics_path):
             return
@@ -550,6 +571,20 @@ class LearnerServer:
                     print("[server] Training loop detected termination flag, exiting...")
                     return
 
+            # Safety watchdog: if actors stop sending episodes, terminate cleanly.
+            if self._has_received_episode and self.last_episode_time is not None:
+                idle_for = time.time() - self.last_episode_time
+                if idle_for >= self.episode_inactivity_timeout:
+                    print(
+                        "[server] No episode received for "
+                        f"{idle_for:.1f}s (timeout={self.episode_inactivity_timeout:.1f}s). "
+                        "Terminating server."
+                    )
+                    self._save_model()
+                    async with self._terminate_lock:
+                        self._should_terminate = True
+                    return
+
             if self.save_model_checkpoints and self.model is not None:
                 if self.total_actor_timesteps  - self.last_checkpoint_timestep >= self.checkpoint_frequency:
                     checkpoint_name = f"{self.save_model_name}_ckpt_{self.total_actor_timesteps}"
@@ -572,7 +607,7 @@ class LearnerServer:
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
 
             # Calculate trainign steps per sample
-            current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+            current_udt = self._current_udt()
 
 
             if( self.replay_buffer.size() < self.learning_starts ):
@@ -720,7 +755,8 @@ class LearnerServer:
                     "total_weight_updates": self.total_weight_updates,
                     "training_duration": time.time() - time_start_training,
                     "total_timesteps": self.total_actor_timesteps,
-                    "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
+                    "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+                    "UDT": self._current_udt(),
                 }
                 if Settings.LEARNER_SERVER_DEBUG:
                     print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
@@ -730,7 +766,7 @@ class LearnerServer:
                 new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
                 self._weights_blob = new_blob
                 await self._broadcast_weights(new_blob)
-                current_udt = self.total_weight_updates / max(1, self.total_actor_timesteps)
+                current_udt = self._current_udt()
                 training_info_payload = self._build_training_info_payload(
                     current_udt=current_udt,
                     training_steps_done=training_steps_done,
@@ -813,7 +849,8 @@ class LearnerServer:
                 "total_weight_updates": self.total_weight_updates,
                 "training_duration": 0.0,
                 "total_timesteps": self.total_actor_timesteps,
-                "UDT": self.total_weight_updates / max(1, self.total_actor_timesteps),
+                "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+                "UDT": self._current_udt(),
             }
             self.trainingLogHelper.log_to_csv(self.model, pending, log_dict)
             self.trainingLogHelper.plot_training_metrics()
@@ -981,6 +1018,8 @@ class LearnerServer:
                     # print(f"[server] Stored episode: {len(episode)} transitions "
                     #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
                     self.total_actor_timesteps += len(episode)
+                    self.last_episode_time = time.time()
+                    self._has_received_episode = True
 
                     if not self._lap_terminate_triggered and self._episode_hits_lap_terminate_threshold(episode):
                         self._lap_terminate_triggered = True
@@ -1022,19 +1061,19 @@ class LearnerServer:
                 elif msg.get("type") == "clear_buffer":
                     d = msg.get("data", {})
                     actor_id = int(d.get("actor_id", -1))
-                    
+
                     # Clear the episode buffer
                     episodes_cleared = len(self.episode_buffer.episodes)
                     self.episode_buffer.episodes.clear()
-                    
+
                     # Clear the replay buffer if it exists
                     if self.replay_buffer is not None:
                         replay_size_before = self.replay_buffer.size()
                         self.replay_buffer.reset()
                         print(f"[server] Cleared replay buffer (had {replay_size_before} transitions)")
-                    
+
                     print(f"[server] Cleared {episodes_cleared} episodes from buffer (requested by actor {actor_id})")
-                    
+
                     # Send acknowledgment
                     try:
                         writer.write(pack_frame({"type": "clear_buffer_ack", "data": {"episodes_cleared": episodes_cleared}}))

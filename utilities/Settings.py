@@ -14,7 +14,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input

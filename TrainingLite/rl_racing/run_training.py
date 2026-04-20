@@ -106,6 +106,19 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         ),
     )
     parser.add_argument(
+        "--load-replay-buffer",
+        "--load_replay_buffer",
+        dest="load_replay_buffer",
+        nargs="?",
+        const=True,
+        type=_parse_bool_arg,
+        default=False,
+        help=(
+            "Load replay buffer transitions from replay_buffer.csv if present. "
+            "Supports '--load-replay-buffer' or '--load-replay-buffer true/false'."
+        ),
+    )
+    parser.add_argument(
         "--auto-start-client",
         default=False,
         action="store_true",
@@ -272,6 +285,7 @@ def main() -> None:
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
         save_replay_buffer=run_args.save_replay_buffer,
+        load_replay_buffer=run_args.load_replay_buffer,
     )
 
     try:

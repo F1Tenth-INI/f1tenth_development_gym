@@ -86,7 +86,7 @@ class RLAgentPlanner(template_planner):
             print(f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
 
 
-        self.clear_buffer_on_reset = True
+        self.clear_buffer_on_reset = False
         self.terminate_server_after_simulation = True
         self.observation_builder_fn: Optional[Callable[[Dict[str, np.ndarray], Any], np.ndarray]] = None
         self.model: Optional[SAC] = None
@@ -306,15 +306,39 @@ class RLAgentPlanner(template_planner):
         """Called when the simulation ends. Sends a terminate message to the server."""
         if self.terminate_server_after_simulation:
             if self.training_mode and self.client is not None:
-                try:
-                    # Non-blocking: wait_for_ack can stall shutdown for tens of seconds.
-                    self.client.send_terminate(wait_for_ack=False)
-                    print("[RLAgentPlanner] Sent terminate message to server")
-                except Exception as e:
-                    print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+                self._terminate_server_with_retry()
        
     def close(self):
-        pass
+        if self.client is not None:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+
+    def _terminate_server_with_retry(self) -> None:
+        """Terminate learner with short ack retries, then close client."""
+        delivered = False
+        try:
+            # Use short blocking retries at sim end so terminate is not lost
+            # when Python exits and the daemon TCP thread stops immediately.
+            for _ in range(2):
+                delivered = bool(
+                    self.client.send_terminate(
+                        wait_for_ack=True,
+                        ack_timeout=2.0,
+                        urgent=True,
+                    )
+                )
+                if delivered:
+                    break
+            if not delivered:
+                # Fallback best-effort send in case ack path fails transiently.
+                self.client.send_terminate(wait_for_ack=False, urgent=True)
+            print("[RLAgentPlanner] Sent terminate message to server")
+        except Exception as e:
+            print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+        finally:
+            self.close()
     
     def _fallback_action(self) -> np.ndarray:
 
