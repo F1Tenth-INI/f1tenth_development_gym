@@ -26,7 +26,8 @@ for suffix in ${SUFFIXES}; do
     --ENV_CAR_PARAMETER_FILE gym_car_parameters_finetune.yml \
     --SAC_TERMINATE_BELOW_LAPTIME 23.0 \
     --save_replay_buffer True \
-    --load-model-name Example-1 \
-    --save-model-name "Example-1-${suffix}"
+    --load_replay_buffer True \
+    --load-model-name Example-1a \
+    --save-model-name "Example-1a${suffix}"
     
 done
