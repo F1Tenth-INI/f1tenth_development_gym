@@ -10,7 +10,9 @@ the first N rows can be skipped (default: 1).
 import argparse
 import ast
 import csv
+import math
 import os
+from statistics import median
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -21,6 +23,273 @@ DEFAULT_MODELS_DIR = ROOT_DIR / "TrainingLite" / "rl_racing" / "models"
 
 def _abbreviate_column_name(name: str) -> str:
     return name.replace("first", "1st").replace("episode", "ep").replace("reward", "rew")
+
+
+METRIC_DEFINITIONS = [
+    {"event_name": "first_lap_lt_30s", "label": "first lap under 30s", "kind": "lap", "threshold": 30.0},
+    {"event_name": "first_lap_lt_27_5s", "label": "first lap under 27.5s", "kind": "lap", "threshold": 27.5},
+    {"event_name": "first_lap_lt_25s", "label": "first lap under 25s", "kind": "lap", "threshold": 25.0},
+    {
+        "event_name": "first_episode_len_ge_2000",
+        "label": "first episode length >= 2000",
+        "kind": "episode_length",
+        "threshold": 2000.0,
+    },
+    {
+        "event_name": "first_episode_len_gt_500_mean_step_reward_gt_0_00",
+        "label": "first episode length > 500 and mean step reward > 0.00",
+        "kind": "episode_length_and_reward",
+        "length_threshold": 500.0,
+        "reward_threshold": 0.0,
+    },
+    {
+        "event_name": "first_episode_len_gt_500_mean_step_reward_gt_0_01",
+        "label": "first episode length > 500 and mean step reward > 0.01",
+        "kind": "episode_length_and_reward",
+        "length_threshold": 500.0,
+        "reward_threshold": 0.01,
+    },
+    {
+        "event_name": "first_episode_len_gt_500_mean_step_reward_gt_0_02",
+        "label": "first episode length > 500 and mean step reward > 0.02",
+        "kind": "episode_length_and_reward",
+        "length_threshold": 500.0,
+        "reward_threshold": 0.02,
+    },
+]
+
+REFERENCE_METRICS = [{"event_name": "first_lap", "label": "first lap"}] + METRIC_DEFINITIONS
+RANKED_METRICS = METRIC_DEFINITIONS
+SCORE_ALPHA = 0.5
+DEFAULT_OVERALL_TOP_N = 30
+
+
+def _metric_label(event_name: str) -> str:
+    label = event_name.replace("first_", "First ").replace("_", " ")
+    label = label.replace(" lt ", " < ").replace(" gt ", " > ").replace(" ge ", " >= ")
+    return label
+
+
+def _first_qualifying_episode_pair(
+    episode_lengths: List[float],
+    mean_step_rewards: List[float],
+    min_length: float,
+    reward_threshold: float,
+) -> Optional[Dict[str, float]]:
+    for length, reward in zip(episode_lengths, mean_step_rewards):
+        if length > min_length and reward > reward_threshold:
+            return {
+                "matched_value": reward,
+                "matched_episode_length": length,
+                "matched_episode_mean_step_reward": reward,
+            }
+    return None
+
+
+def _collect_reference_rows(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    reference_rows: List[Dict[str, object]] = []
+    for metric in REFERENCE_METRICS:
+        prefix = _abbreviate_column_name(metric["event_name"])
+        timesteps_key = f"{prefix}_total_timesteps"
+        updates_key = f"{prefix}_total_weight_updates"
+
+        timesteps: List[float] = []
+        updates: List[float] = []
+        for row in rows:
+            timestep = row.get(timesteps_key)
+            update = row.get(updates_key)
+            if isinstance(timestep, (int, float)) and isinstance(update, (int, float)):
+                timesteps.append(float(timestep))
+                updates.append(float(update))
+
+        reference_rows.append(
+            {
+                "metric_id": metric["event_name"],
+                "metric_label": metric.get("label", _metric_label(metric["event_name"])),
+                "sample_count": len(timesteps),
+                "Tref": median(timesteps) if timesteps else None,
+                "Uref": median(updates) if updates else None,
+            }
+        )
+
+    return reference_rows
+
+
+def _apply_metric_rankings(rows: List[Dict[str, object]], alpha: float) -> None:
+    """Add per-metric normalized score and rank columns to each summary row.
+
+    Score formula (lower is better):
+      score = (T / Tref)^alpha * (U / Uref)^(1 - alpha)
+    where Tref/Uref are medians across available models for that metric.
+    """
+    for metric in RANKED_METRICS:
+        prefix = _abbreviate_column_name(metric["event_name"])
+        timesteps_key = f"{prefix}_total_timesteps"
+        updates_key = f"{prefix}_total_weight_updates"
+        score_key = f"{prefix}_speed_score_a0_5"
+        rank_key = f"{prefix}_speed_rank_a0_5"
+
+        valid_timesteps: List[float] = []
+        valid_updates: List[float] = []
+        for row in rows:
+            timestep = row.get(timesteps_key)
+            update = row.get(updates_key)
+            if isinstance(timestep, (int, float)) and isinstance(update, (int, float)):
+                valid_timesteps.append(float(timestep))
+                valid_updates.append(float(update))
+
+        if not valid_timesteps or not valid_updates:
+            for row in rows:
+                row[score_key] = None
+                row[rank_key] = None
+            continue
+
+        tref = median(valid_timesteps)
+        uref = median(valid_updates)
+        if tref <= 0.0 or uref <= 0.0:
+            for row in rows:
+                row[score_key] = None
+                row[rank_key] = None
+            continue
+
+        scored_rows: List[tuple[float, Dict[str, object]]] = []
+        for row in rows:
+            timestep = row.get(timesteps_key)
+            update = row.get(updates_key)
+            if isinstance(timestep, (int, float)) and isinstance(update, (int, float)):
+                t = float(timestep)
+                u = float(update)
+                if t > 0.0 and u > 0.0:
+                    score = math.pow(t / tref, alpha) * math.pow(u / uref, 1.0 - alpha)
+                    row[score_key] = score
+                    scored_rows.append((score, row))
+                    continue
+            row[score_key] = None
+            row[rank_key] = None
+
+        scored_rows.sort(key=lambda item: item[0])
+        for rank, (_, row) in enumerate(scored_rows, start=1):
+            row[rank_key] = rank
+
+
+def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Compute overall ranking from per-metric ranks with missing-metric penalty.
+
+    For each metric, missing rank gets penalty = (max_rank_for_metric + 1).
+    Lower total points is better.
+    """
+    metric_specs: List[Dict[str, object]] = []
+    active_metric_count = 0
+
+    for metric in RANKED_METRICS:
+        prefix = _abbreviate_column_name(metric["event_name"])
+        rank_key = f"{prefix}_speed_rank_a0_5"
+        score_key = f"{prefix}_speed_score_a0_5"
+        timesteps_key = f"{prefix}_total_timesteps"
+        updates_key = f"{prefix}_total_weight_updates"
+        time_key = f"{prefix}_time"
+        matched_value_key = f"{prefix}_matched_value"
+
+        rank_by_name: Dict[str, int] = {}
+        max_rank = 0
+        for row in rows:
+            name = str(row.get("name"))
+            rank = row.get(rank_key)
+            if isinstance(rank, (int, float)):
+                as_int = int(rank)
+                rank_by_name[name] = as_int
+                if as_int > max_rank:
+                    max_rank = as_int
+
+        if max_rank > 0:
+            active_metric_count += 1
+
+        metric_specs.append(
+            {
+                "metric_id": metric["event_name"],
+                "metric_label": metric.get("label", metric["event_name"]),
+                "rank_key": rank_key,
+                "score_key": score_key,
+                "timesteps_key": timesteps_key,
+                "updates_key": updates_key,
+                "time_key": time_key,
+                "matched_value_key": matched_value_key,
+                "rank_by_name": rank_by_name,
+                "max_rank": max_rank,
+            }
+        )
+
+    overall_rows: List[Dict[str, object]] = []
+    for row in rows:
+        name = str(row.get("name"))
+        points = 0
+        covered = 0
+        per_metric: List[Dict[str, object]] = []
+
+        for spec in metric_specs:
+            rank_by_name = spec["rank_by_name"]
+            max_rank = int(spec["max_rank"])
+            rank_value = rank_by_name.get(name)
+            penalty = (max_rank + 1) if max_rank > 0 else None
+
+            if rank_value is not None:
+                points += rank_value
+                covered += 1
+            elif penalty is not None:
+                points += penalty
+
+            per_metric.append(
+                {
+                    "metric_id": spec["metric_id"],
+                    "metric_label": spec["metric_label"],
+                    "rank": rank_value,
+                    "penalty": penalty,
+                    "score": row.get(spec["score_key"]),
+                    "total_timesteps": row.get(spec["timesteps_key"]),
+                    "total_weight_updates": row.get(spec["updates_key"]),
+                    "time": row.get(spec["time_key"]),
+                    "matched_value": row.get(spec["matched_value_key"]),
+                }
+            )
+
+        points_value: Optional[int] = points if active_metric_count > 0 else None
+        row["overall_rank_points_a0_5"] = points_value
+        row["overall_rank_metrics_covered"] = covered
+        row["overall_rank_metrics_total"] = active_metric_count
+
+        overall_rows.append(
+            {
+                "name": name,
+                "points": points_value,
+                "metrics_covered": covered,
+                "metrics_total": active_metric_count,
+                "final_total_weight_updates": row.get("final_total_weight_updates"),
+                "per_metric": per_metric,
+            }
+        )
+
+    sortable = [r for r in overall_rows if isinstance(r.get("points"), int)]
+    sortable.sort(key=lambda r: (int(r["points"]), -int(r["metrics_covered"]), str(r["name"])))
+
+    position_by_name: Dict[str, int] = {}
+    for idx, entry in enumerate(sortable, start=1):
+        position_by_name[str(entry["name"])] = idx
+        entry["position"] = idx
+
+    for row in rows:
+        row["overall_rank_position_a0_5"] = position_by_name.get(str(row.get("name")))
+
+    for entry in overall_rows:
+        if "position" not in entry:
+            entry["position"] = None
+
+    overall_rows.sort(
+        key=lambda r: (
+            math.inf if r.get("position") is None else int(r["position"]),
+            str(r["name"]),
+        )
+    )
+    return overall_rows
 
 
 def _safe_float(value: Optional[str]) -> Optional[float]:
@@ -63,16 +332,20 @@ def _set_first_event(
     row_index: int,
     row: Dict[str, str],
     matched_value: Optional[float] = None,
+    extra_fields: Optional[Dict[str, Optional[float]]] = None,
 ) -> None:
     if event_name in events:
         return
-    events[event_name] = {
+    event_data: Dict[str, Optional[float]] = {
         "row_index": float(row_index),
         "time": _safe_float(row.get("time")),
         "total_timesteps": _safe_float(row.get("total_timesteps")),
         "total_weight_updates": _safe_float(row.get("total_weight_updates")),
         "matched_value": matched_value,
     }
+    if extra_fields:
+        event_data.update(extra_fields)
+    events[event_name] = event_data
 
 
 def summarize_model_csv(csv_path: Path, skip_initial_rows: int, max_episode_length: int) -> Dict[str, object]:
@@ -99,61 +372,53 @@ def summarize_model_csv(csv_path: Path, skip_initial_rows: int, max_episode_leng
 
             lap_times = _parse_number_list(row.get("lap_times"))
             mean_step_rewards = _parse_number_list(row.get("episode_mean_step_rewards"))
-            episode_rewards = _parse_number_list(row.get("episode_rewards"))
             episode_lengths = _parse_number_list(row.get("episode_lengths"))
 
             if lap_times:
                 _set_first_event(events, "first_lap", idx, row, matched_value=min(lap_times))
 
-                laps_under_25 = [v for v in lap_times if v < 25.0]
-                if laps_under_25:
-                    _set_first_event(
-                        events,
-                        "first_lap_lt_25s",
-                        idx,
-                        row,
-                        matched_value=min(laps_under_25),
+            for metric in METRIC_DEFINITIONS:
+                if metric["kind"] == "lap" and lap_times:
+                    threshold = float(metric["threshold"])
+                    laps_under_threshold = [v for v in lap_times if v < threshold]
+                    if laps_under_threshold:
+                        _set_first_event(
+                            events,
+                            metric["event_name"],
+                            idx,
+                            row,
+                            matched_value=min(laps_under_threshold),
+                        )
+                elif metric["kind"] == "episode_length" and episode_lengths:
+                    threshold = float(metric["threshold"])
+                    hits = [v for v in episode_lengths if int(v) >= int(threshold)]
+                    if hits:
+                        _set_first_event(
+                            events,
+                            metric["event_name"],
+                            idx,
+                            row,
+                            matched_value=max(hits),
+                        )
+                elif metric["kind"] == "episode_length_and_reward" and episode_lengths and mean_step_rewards:
+                    hit = _first_qualifying_episode_pair(
+                        episode_lengths=episode_lengths,
+                        mean_step_rewards=mean_step_rewards,
+                        min_length=float(metric["length_threshold"]),
+                        reward_threshold=float(metric["reward_threshold"]),
                     )
-
-                laps_under_20 = [v for v in lap_times if v < 20.0]
-                if laps_under_20:
-                    _set_first_event(
-                        events,
-                        "first_lap_lt_20s",
-                        idx,
-                        row,
-                        matched_value=min(laps_under_20),
-                    )
-
-            rewards_gt_0 = [v for v in mean_step_rewards if v > 0.0]
-            if rewards_gt_0:
-                _set_first_event(
-                    events,
-                    "first_episode_mean_step_reward_gt_0",
-                    idx,
-                    row,
-                    matched_value=max(rewards_gt_0),
-                )
-
-            episode_rewards_gt_100 = [v for v in episode_rewards if v > 100.0]
-            if episode_rewards_gt_100:
-                _set_first_event(
-                    events,
-                    "first_episode_reward_gt_100",
-                    idx,
-                    row,
-                    matched_value=max(episode_rewards_gt_100),
-                )
-
-            max_len_hits = [v for v in episode_lengths if int(v) >= max_episode_length]
-            if max_len_hits:
-                _set_first_event(
-                    events,
-                    f"first_episode_len_ge_{max_episode_length}",
-                    idx,
-                    row,
-                    matched_value=max(max_len_hits),
-                )
+                    if hit:
+                        _set_first_event(
+                            events,
+                            metric["event_name"],
+                            idx,
+                            row,
+                            matched_value=hit["matched_value"],
+                            extra_fields={
+                                "matched_episode_length": hit["matched_episode_length"],
+                                "matched_episode_mean_step_reward": hit["matched_episode_mean_step_reward"],
+                            },
+                        )
 
     summary: Dict[str, object] = {
         "rows_seen": rows_seen,
@@ -217,6 +482,159 @@ def build_output_path(out_file: Optional[str], name: Optional[str], prefix: Opti
     return ROOT_DIR / "batch_learning_metrics_summary" / safe_tag / f"learning_metrics_summary_{safe_tag}.csv"
 
 
+def build_reference_output_path(summary_output_path: Path) -> Path:
+    return summary_output_path.with_name(
+        summary_output_path.stem.replace("learning_metrics_summary", "learning_metric_references")
+        + summary_output_path.suffix
+    )
+
+
+def build_leaderboard_csv_output_path(summary_output_path: Path) -> Path:
+    return summary_output_path.with_name(
+        summary_output_path.stem.replace("learning_metrics_summary", "learning_metric_leaderboards")
+        + summary_output_path.suffix
+    )
+
+
+def build_leaderboard_txt_output_path(summary_output_path: Path) -> Path:
+    return summary_output_path.with_name(
+        summary_output_path.stem.replace("learning_metrics_summary", "learning_metric_leaderboards")
+        + ".txt"
+    )
+
+
+def _collect_leaderboard_rows(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    leaderboard_rows: List[Dict[str, object]] = []
+    for metric in RANKED_METRICS:
+        prefix = _abbreviate_column_name(metric["event_name"])
+        rank_key = f"{prefix}_speed_rank_a0_5"
+        score_key = f"{prefix}_speed_score_a0_5"
+        timesteps_key = f"{prefix}_total_timesteps"
+        updates_key = f"{prefix}_total_weight_updates"
+        time_key = f"{prefix}_time"
+        matched_value_key = f"{prefix}_matched_value"
+
+        metric_rows: List[Dict[str, object]] = []
+        for row in rows:
+            rank = row.get(rank_key)
+            score = row.get(score_key)
+            if not isinstance(rank, (int, float)) or not isinstance(score, (int, float)):
+                continue
+            metric_rows.append(
+                {
+                    "metric_id": metric["event_name"],
+                    "metric_label": metric.get("label", metric["event_name"]),
+                    "name": row.get("name"),
+                    "rank": int(rank),
+                    "speed_score_a0_5": float(score),
+                    "total_timesteps": row.get(timesteps_key),
+                    "total_weight_updates": row.get(updates_key),
+                    "time": row.get(time_key),
+                    "matched_value": row.get(matched_value_key),
+                }
+            )
+
+        metric_rows.sort(key=lambda entry: (entry["rank"], entry["name"]))
+        leaderboard_rows.extend(metric_rows)
+
+    return leaderboard_rows
+
+
+def _write_leaderboard_txt(
+    leaderboard_rows: List[Dict[str, object]],
+    overall_rows: List[Dict[str, object]],
+    output_path: Path,
+    overall_top_n: int,
+) -> None:
+    grouped: Dict[str, List[Dict[str, object]]] = {}
+    labels: Dict[str, str] = {}
+    for row in leaderboard_rows:
+        metric_id = str(row["metric_id"])
+        grouped.setdefault(metric_id, []).append(row)
+        labels[metric_id] = str(row["metric_label"])
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(f"alpha={SCORE_ALPHA}\n")
+        f.write("score=(T/Tref)^alpha * (U/Uref)^(1-alpha), lower is better\n\n")
+
+        f.write("=== overall_ranking ===\n")
+        if not overall_rows:
+            f.write("no ranked models\n\n")
+        else:
+            ranked_rows = [r for r in overall_rows if r.get("position") is not None]
+            top_rows = ranked_rows[: max(0, overall_top_n)]
+            if not ranked_rows:
+                f.write("no ranked models\n\n")
+            else:
+                for entry in ranked_rows:
+                    f.write(
+                        "#{pos:>3} {name} | points={points} | covered={covered}/{total} | total_weight_updates={updates}\n".format(
+                            pos=entry.get("position"),
+                            name=entry.get("name"),
+                            points=entry.get("points"),
+                            covered=entry.get("metrics_covered"),
+                            total=entry.get("metrics_total"),
+                            updates=entry.get("final_total_weight_updates"),
+                        )
+                    )
+
+                f.write("\n")
+                f.write("--- detailed_overall_top_models ---\n")
+                if not top_rows:
+                    f.write("(no models in top selection)\n")
+                else:
+                    for entry in top_rows:
+                        f.write(
+                            "\n#{pos:>3} {name}\npoints={points}, covered={covered}/{total}, total_weight_updates={updates}\n".format(
+                                pos=entry.get("position"),
+                                name=entry.get("name"),
+                                points=entry.get("points"),
+                                covered=entry.get("metrics_covered"),
+                                total=entry.get("metrics_total"),
+                                updates=entry.get("final_total_weight_updates"),
+                            )
+                        )
+                        for metric_result in entry.get("per_metric", []):
+                            rank_value = metric_result.get("rank")
+                            penalty_value = metric_result.get("penalty")
+                            rank_text = str(rank_value) if rank_value is not None else f"NA(penalty={penalty_value})"
+                            f.write(
+                                "  - {metric_id}: rank={rank_text}, score={score}, T={t}, U={u}, time={time}, matched={matched}\n".format(
+                                    metric_id=metric_result.get("metric_id"),
+                                    rank_text=rank_text,
+                                    score=metric_result.get("score"),
+                                    t=metric_result.get("total_timesteps"),
+                                    u=metric_result.get("total_weight_updates"),
+                                    time=metric_result.get("time"),
+                                    matched=metric_result.get("matched_value"),
+                                )
+                            )
+
+                f.write("\n")
+
+        for metric in RANKED_METRICS:
+            metric_id = metric["event_name"]
+            label = labels.get(metric_id, metric.get("label", metric_id))
+            f.write(f"=== {metric_id} ({label}) ===\n")
+            rows_for_metric = grouped.get(metric_id, [])
+            if not rows_for_metric:
+                f.write("no ranked models\n\n")
+                continue
+            for entry in rows_for_metric:
+                f.write(
+                    "#{rank:>3} {name} | score={score:.6f} | T={t} | U={u} | time={time} | matched={matched}\n".format(
+                        rank=entry["rank"],
+                        name=entry.get("name"),
+                        score=entry["speed_score_a0_5"],
+                        t=entry.get("total_timesteps"),
+                        u=entry.get("total_weight_updates"),
+                        time=entry.get("time"),
+                        matched=entry.get("matched_value"),
+                    )
+                )
+            f.write("\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize milestone timings from learning_metrics.csv files")
     parser.add_argument("--name", help="Exact model directory name to process")
@@ -246,6 +664,12 @@ def main() -> None:
     parser.add_argument(
         "--out-file",
         help="Output CSV path (default: batch_learning_metrics_summary/<tag>/learning_metrics_summary_<tag>.csv)",
+    )
+    parser.add_argument(
+        "--overall-top-n",
+        type=int,
+        default=DEFAULT_OVERALL_TOP_N,
+        help="How many models to show in detailed overall ranking section of TXT (default: 30)",
     )
 
     args = parser.parse_args()
@@ -282,6 +706,9 @@ def main() -> None:
         print("No model summaries were generated.")
         return
 
+    _apply_metric_rankings(rows, alpha=SCORE_ALPHA)
+    overall_rows = _compute_overall_rankings(rows)
+
     all_fields = sorted({key for row in rows for key in row.keys()})
     front_fields = ["name"]
     end_fields = [
@@ -300,8 +727,48 @@ def main() -> None:
         for row in rows:
             writer.writerow(row)
 
+    reference_rows = _collect_reference_rows(rows)
+    reference_output_path = build_reference_output_path(output_path)
+    with open(reference_output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["metric_id", "metric_label", "sample_count", "Tref", "Uref"])
+        writer.writeheader()
+        for row in reference_rows:
+            writer.writerow(row)
+
+    leaderboard_rows = _collect_leaderboard_rows(rows)
+    leaderboard_csv_output_path = build_leaderboard_csv_output_path(output_path)
+    with open(leaderboard_csv_output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "metric_id",
+                "metric_label",
+                "name",
+                "rank",
+                "speed_score_a0_5",
+                "total_timesteps",
+                "total_weight_updates",
+                "time",
+                "matched_value",
+            ],
+        )
+        writer.writeheader()
+        for row in leaderboard_rows:
+            writer.writerow(row)
+
+    leaderboard_txt_output_path = build_leaderboard_txt_output_path(output_path)
+    _write_leaderboard_txt(
+        leaderboard_rows=leaderboard_rows,
+        overall_rows=overall_rows,
+        output_path=leaderboard_txt_output_path,
+        overall_top_n=max(0, int(args.overall_top_n)),
+    )
+
     print(f"Processed models: {len(rows)}")
     print(f"Summary CSV: {output_path}")
+    print(f"Metric references CSV: {reference_output_path}")
+    print(f"Metric leaderboards CSV: {leaderboard_csv_output_path}")
+    print(f"Metric leaderboards TXT: {leaderboard_txt_output_path}")
 
 
 if __name__ == "__main__":

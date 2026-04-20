@@ -114,3 +114,8 @@ cumulative_reward_components.png
 batch_training_metrics
 batch_learning_metrics_summary
 batch_compare_models
+TrainingLite/rl_racing/finetune.sh
+car_param_settings_RCA2-1_finetune
+car_param_settings_RCA2-1_fixed
+learning_curves
+TrainingLite/rl_racing/scripts_finetune
