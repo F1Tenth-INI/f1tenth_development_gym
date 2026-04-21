@@ -8,9 +8,15 @@ import matplotlib.pyplot as plt
 # Configure your experiments here
 # Each method has multiple learning_metrics.csv files (different seeds/runs)
 EXPERIMENTS = {
-    "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_70_noCustom*/learning_metrics.csv"),
-    "proportional (TD-error), alpha=0.8": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.8*/learning_metrics.csv"),
-    "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.6*/learning_metrics.csv"),
+    # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_70_noCustom*/learning_metrics.csv"),
+    # "proportional (TD-error), alpha=0.8": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.8*/learning_metrics.csv"),
+    # "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.6*/learning_metrics.csv"),
+    # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_State*/learning_metrics.csv"),
+
+    "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_noCustom*/learning_metrics.csv"),
+    "proportional (TD-error), alpha=0.8": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_TD_A_0.8*/learning_metrics.csv"),
+    "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_TD_A_0.6*/learning_metrics.csv"),
+    "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_State*/learning_metrics.csv"),
 
     # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_noCustom*/learning_metrics.csv"),
     # "proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_State*/learning_metrics.csv"),
@@ -19,8 +25,21 @@ EXPERIMENTS = {
 
 base_save_dir = "learning_curves"
 
-#change this one to fit your experiments
-current_save_dir = f"{base_save_dir}/RCA2-Fixed_maxFreq"
+def infer_save_dir_prefix(experiments):
+    model_names = []
+    for files in experiments.values():
+        for csv_path in files:
+            model_dir = os.path.dirname(csv_path)
+            model_names.append(os.path.basename(model_dir))
+
+    if not model_names:
+        return "all_experiments"
+
+    inferred = os.path.commonprefix(model_names)
+    return inferred or "all_experiments"
+
+save_dir_prefix = infer_save_dir_prefix(EXPERIMENTS)
+current_save_dir = f"{base_save_dir}/{save_dir_prefix}"
 
 if not os.path.exists(current_save_dir):
     os.mkdir(current_save_dir)

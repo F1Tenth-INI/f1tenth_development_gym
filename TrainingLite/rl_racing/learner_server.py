@@ -1467,7 +1467,7 @@ class LearnerServer:
                             self.replay_buffer.state_to_TD_ratio = 0.0
 
 
-                        data = self.replay_buffer.sample(safe_batch_size, invert_TD=self.critic_invert_TD)
+                        data = self.replay_buffer.sample(safe_batch_size)
 
                         if Settings.SAC_CRITIC_PURE_TD:
                             self.replay_buffer.state_to_TD_ratio = old_ratio
