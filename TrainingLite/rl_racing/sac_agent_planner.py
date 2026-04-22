@@ -303,6 +303,14 @@ class RLAgentPlanner(template_planner):
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
+        try:
+            frenet = np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32).reshape(-1)
+            if frenet.shape[0] >= 3:
+                info_out["frenet_d"] = float(frenet[1])
+                info_out["frenet_e"] = float(frenet[2])
+        except Exception:
+            pass
+        
         if self.curriculum_supervisor is not None:
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
         transition = {
@@ -581,11 +589,16 @@ class RLAgentPlanner(template_planner):
         prev = float(Settings.MAX_SIM_FREQUENCY)
         updated = prev
         reason = None
+
         if float(current_udt) < lower:
-            updated = prev * (1.0 - step_ratio)
+            diff = lower - float(current_udt)
+            cur_step_ratio = max(0.02, min(1.0, 2*diff / target_udt) * step_ratio)
+            updated = prev * (1.0 - cur_step_ratio)
             reason = "udt_low_decrease_freq"
         elif float(current_udt) > upper:
-            updated = prev * (1.0 + step_ratio)
+            diff = float(current_udt) - upper
+            cur_step_ratio = max(0.02, min(1.0, 2*diff / target_udt) * step_ratio)
+            updated = prev * (1.0 + cur_step_ratio)
             reason = "udt_high_increase_freq"
 
         updated = float(np.clip(updated, fmin, fmax))
@@ -598,6 +611,7 @@ class RLAgentPlanner(template_planner):
                 "[RLAgentPlanner] UDT control: "
                 f"MAX_SIM_FREQUENCY {prev:.2f} -> {updated:.2f} Hz "
                 f"(UDT={float(current_udt):.4f}, target={target_udt:.4f}, reason={reason})"
+                f"\n(Current step ratio: {cur_step_ratio:.4f})"
             )
 
     def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:

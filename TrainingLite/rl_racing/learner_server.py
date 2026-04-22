@@ -96,10 +96,6 @@ class CustomReplayBuffer(ReplayBuffer):
         self.episode_batch_ids = np.zeros(self.buffer_size, dtype=np.int64)
         self.current_batch_id = 0
 
-        #TODO: i found these by debugging, there should be a way to have them calculated automatically
-        self.obs_d_idx = 96
-        self.obs_e_idx = 97
-
         ###FOR DEBUGGING
         self.counter = 0     
         if self.custom_sampling:
@@ -159,8 +155,22 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #TODO: the observations are normalized, is that bad or not?
         #compute weight
-        d = obs[self.obs_d_idx]
-        e = obs[self.obs_e_idx]
+        d = None
+        e = None
+        if isinstance(infos, dict):
+            try:
+                d_raw = infos.get("frenet_d", None)
+                e_raw = infos.get("frenet_e", None)
+                if d_raw is not None and e_raw is not None:
+                    d = float(np.asarray(d_raw).reshape(-1)[0])
+                    e = float(np.asarray(e_raw).reshape(-1)[0])
+            except Exception:
+                d = None
+                e = None
+
+        if d is None or e is None or not np.isfinite(d) or not np.isfinite(e):
+            d = 0.0
+            e = 0.0
         # rew = self.rewards[idx, 0] + 1
 
 
@@ -531,8 +541,8 @@ class LearnerServer:
         self._training_paused_for_udt = False
 
         self.last_episode_time = None
-        self.episode_timeout = 100.0
-        self.episode_inactivity_timeout = 60.0
+        self.episode_timeout = 200.0
+        self.episode_inactivity_timeout = 200.0
         self._has_received_episode = False
 
         #used for n-step buffer, for standard buffer set = 1
