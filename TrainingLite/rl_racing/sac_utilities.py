@@ -270,7 +270,6 @@ class TrainingLogHelper():
                         all_lap_times.append(laps)
 
         
-        metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
         # Many actors send "bootstrap" transition batches before an episode ends
         # by sending only the first couple transitions (length ~= 2). Those batches
         # tend to have empty lap_times and near-zero accumulated rewards.

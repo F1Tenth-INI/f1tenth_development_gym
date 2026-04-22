@@ -87,9 +87,8 @@ class RLAgentPlanner(template_planner):
         else:
             print(f"\n[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
 
-        self.pre_fill_with_pp = Settings.SAC_PREFILL_BUFFER_WITH_PP
-        self.pre_fill_amount = Settings.SAC_PREFILL_BUFFER_WITH_PP_AMOUNT
-        # server_training_ready: starts True if no prefill, False if prefill is active.
+        self.pre_fill_with_pp = False
+        self.pre_fill_amount =  False
         # Flipped to True when learner broadcasts training_status(training_ready=True).
         self.server_training_ready = not self.pre_fill_with_pp
         self.server_bc_in_progress = False
@@ -469,7 +468,7 @@ class RLAgentPlanner(template_planner):
         Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
         """
         model_path, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
-        server_model_path = os.path.join(model_dir, "server", self.inference_model_name)
+        server_model_path = os.path.join(model_dir, self.inference_model_name)
         # Prefer new layout (model root), keep backward compatibility for legacy server subfolder.
         model_path = model_path if os.path.exists(model_path) else server_model_path
         self.model = SAC.load(model_path, device="cpu")
