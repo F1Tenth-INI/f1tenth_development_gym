@@ -128,7 +128,7 @@ class Settings():
 
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = False
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.6
+    PP_WAYPOINT_VELOCITY_FACTOR = 1.0
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
@@ -242,13 +242,12 @@ class Settings():
 
     SAC_RANK_BASED_SAMPLING = False
 
-    SAC_CURRICULUM_DEBUG = False
-    SAC_AGENT_DEBUG = True
-    LEARNER_SERVER_DEBUG = True
     # If set (seconds), training actor sends learner terminate once at least two completed laps
     # are strictly faster than this (so metrics can include the first sub-threshold lap).
     SAC_TERMINATE_BELOW_LAPTIME = None
-    SAC_AGENT_DEBUG = False
+
+    
+    SAC_AGENT_DEBUG = True
     LEARNER_SERVER_DEBUG = False
 
     SAC_SPEED_CURRICULUM_LEARNING = False
@@ -287,8 +286,8 @@ class Settings():
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
     SAC_TARGET_UDT = 0.25
     SAC_MAX_UTD = 2 
-    SAC_UDT_DEADBAND_RATIO = 0.1
-    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.10
+    SAC_UDT_DEADBAND_RATIO = 0.10
+    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0
 
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
