@@ -31,6 +31,24 @@ if _backend_args.interactive_plots:
 else:
     matplotlib.use('Agg')
 
+try:
+    # Rebuild font cache and force a broadly available sans-serif stack.
+    # Some environments request STIX/DejaVu combinations that can fail hard
+    # during render when fallback is disabled in local matplotlib config.
+    from matplotlib import font_manager
+
+    try:
+        font_manager._load_fontmanager(try_read_cache=False)
+    except Exception:
+        pass
+
+    matplotlib.rcParams['font.family'] = 'sans-serif'
+    matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Liberation Sans']
+    matplotlib.rcParams['mathtext.fontset'] = 'dejavusans'
+except Exception:
+    # Keep plotting functional even if font configuration fails.
+    pass
+
 import matplotlib.pyplot as plt
 
 # Add root to path
@@ -221,6 +239,9 @@ class BatchPlotter:
         td_extremes_only: bool = False,
         stat_log_start_fraction: float = 0.0,
         spatial_only: bool = False,
+        plot_aggregated: bool = False,
+        unify_plot_scales: bool = True,
+        unify_distribution_scales: bool = True,
     ):
         """
         Initialize batch plotter.
@@ -239,6 +260,9 @@ class BatchPlotter:
             td_extremes_only: If True, skip normal TD maps and write only extremes maps
             stat_log_start_fraction: Keep only rows from this fraction to end (0.5 => second half)
             spatial_only: If True, plot only spatial heatmaps (skip distribution, reward, critic, TD)
+            plot_aggregated: If True, include aggregated/right-panel plots
+            unify_plot_scales: If True, synchronize scales globally for all base plots
+            unify_distribution_scales: If True, synchronize distribution plot scales across models
         """
 
         if not (0.0 <= float(stat_log_start_fraction) < 1.0):
@@ -256,6 +280,10 @@ class BatchPlotter:
         self.td_extremes_only = td_extremes_only
         self.stat_log_start_fraction = float(stat_log_start_fraction)
         self.spatial_only = spatial_only
+        self.plot_aggregated = bool(plot_aggregated)
+        self.unify_plot_scales = bool(unify_plot_scales)
+        self.unify_distribution_scales = bool(unify_distribution_scales)
+        self.td_global_stats = {}
         
         self.models_dir = Path(root_dir) / "TrainingLite" / "rl_racing" / "models"
         
@@ -281,6 +309,10 @@ class BatchPlotter:
         if not self.spatial_only:
             print(f"  Reward heatmaps:    {self.reward_dir}")
         print(f"  TD sample stride:   {self.td_sample_stride}")
+        print(f"  Plot aggregated:    {self.plot_aggregated}")
+        print(f"  Unified all scales: {self.unify_plot_scales}")
+        if not self.spatial_only:
+            print(f"  Unified dist scale: {self.unify_distribution_scales}")
         if self.spatial_only:
             print(f"  MODE: Spatial heatmaps only (log-scaled)")
         if self.stat_log_start_fraction > 0.0:
@@ -447,6 +479,95 @@ class BatchPlotter:
         elapsed = time.perf_counter() - start_time
         print(f"    [timing] {label}: {elapsed:.2f}s")
 
+    @staticmethod
+    def _series_min_max(series: pd.Series):
+        clean = pd.to_numeric(series, errors='coerce').dropna()
+        if len(clean) == 0:
+            return None
+        return float(clean.min()), float(clean.max())
+
+    def _compute_global_td_stats(self, model_names):
+        """Compute global min/max ranges for TD-related plots across all selected models."""
+        collected = {
+            "td_error_for_plot": [],
+            "td_error_for_plot_robust": [],
+            "td_error_for_plot_log": [],
+            "td_error_for_plot_abs": [],
+            "td_mean_for_plot": [],
+            "td_mean_for_plot_robust": [],
+            "td_mean_for_plot_log": [],
+            "td_mean_for_plot_abs": [],
+            "td_improvement_for_plot": [],
+            "td_improvement_for_plot_robust": [],
+            "td_improvement_for_plot_log": [],
+        }
+
+        for model_name in model_names:
+            csv_path = self.models_dir / model_name / "stat_logs" / "stats_log.csv"
+            if not csv_path.exists():
+                continue
+            try:
+                df = pd.read_csv(csv_path)
+                df = self._slice_stat_log_frame(df, csv_path)
+                if len(df) == 0:
+                    continue
+            except Exception:
+                continue
+
+            td_series, _, td_improvement_series, _ = self._resolve_td_error_series(df)
+            if td_series is not None:
+                df_tmp = df.copy()
+                df_tmp["td_error_for_plot"] = td_series
+                td_frame = self._prepare_td_spatial_frame(df_tmp, "td_error_for_plot")
+                if len(td_frame) > 0:
+                    vals = pd.to_numeric(td_frame["td_error_for_plot"], errors='coerce').dropna()
+                    if len(vals) > 0:
+                        collected["td_error_for_plot"].append(vals)
+                        robust_min = float(np.percentile(vals.to_numpy(), 2))
+                        robust_max = float(np.percentile(vals.to_numpy(), 98))
+                        collected["td_error_for_plot_robust"].append(pd.Series([robust_min, robust_max]))
+                        collected["td_error_for_plot_log"].append(self._signed_log1p(vals))
+                        collected["td_error_for_plot_abs"].append(np.abs(vals))
+
+            td_mean_series, _ = self._resolve_td_error_mean_series(df)
+            if td_mean_series is not None:
+                df_tmp = df.copy()
+                df_tmp["td_mean_for_plot"] = td_mean_series
+                td_mean_frame = self._prepare_td_spatial_frame(df_tmp, "td_mean_for_plot")
+                if len(td_mean_frame) > 0:
+                    vals = pd.to_numeric(td_mean_frame["td_mean_for_plot"], errors='coerce').dropna()
+                    if len(vals) > 0:
+                        collected["td_mean_for_plot"].append(vals)
+                        robust_min = float(np.percentile(vals.to_numpy(), 2))
+                        robust_max = float(np.percentile(vals.to_numpy(), 98))
+                        collected["td_mean_for_plot_robust"].append(pd.Series([robust_min, robust_max]))
+                        collected["td_mean_for_plot_log"].append(self._signed_log1p(vals))
+                        collected["td_mean_for_plot_abs"].append(np.abs(vals))
+
+            if td_improvement_series is not None and td_improvement_series.notna().any():
+                df_tmp = df.copy()
+                df_tmp["td_improvement_for_plot"] = td_improvement_series
+                td_improvement_frame = self._prepare_td_spatial_frame(df_tmp, "td_improvement_for_plot")
+                if len(td_improvement_frame) > 0:
+                    vals = pd.to_numeric(td_improvement_frame["td_improvement_for_plot"], errors='coerce').dropna()
+                    if len(vals) > 0:
+                        collected["td_improvement_for_plot"].append(vals)
+                        robust_min = float(np.percentile(vals.to_numpy(), 2))
+                        robust_max = float(np.percentile(vals.to_numpy(), 98))
+                        collected["td_improvement_for_plot_robust"].append(pd.Series([robust_min, robust_max]))
+                        collected["td_improvement_for_plot_log"].append(self._signed_log1p(vals))
+
+        stats = {}
+        for key, chunks in collected.items():
+            if not chunks:
+                continue
+            combined = pd.concat(chunks, ignore_index=True)
+            min_max = self._series_min_max(combined)
+            if min_max is not None:
+                stats[key] = {"min": min_max[0], "max": min_max[1]}
+
+        return stats
+
     def _select_td_extremes(self, df: pd.DataFrame, value_column: str) -> pd.DataFrame:
         """Keep TD extreme rows for the specified value.
 
@@ -476,6 +597,7 @@ class BatchPlotter:
         value_column: str,
         label: str,
         prefix: str,
+        unified_dir: Path = None,
     ) -> None:
         """Plot maps containing only bottom/top TD extremes."""
         extremes_df = self._select_td_extremes(df_with_pos, value_column)
@@ -505,6 +627,7 @@ class BatchPlotter:
                 value_column,
                 f"{label} extremes ({tail_label})",
                 save_path=str(signed_path),
+                plot_aggregated=self.plot_aggregated,
             )
             plt.close('all')
             print(f"  ✓ Saved TD extremes map: {signed_path.name}")
@@ -524,12 +647,63 @@ class BatchPlotter:
                 abs_col,
                 f"|{label}| extremes ({tail_label})",
                 save_path=str(abs_path),
+                plot_aggregated=self.plot_aggregated,
             )
             plt.close('all')
             print(f"  ✓ Saved TD extremes |value| map: {abs_path.name}")
             self._print_timing(f"TD extremes map ({prefix}, abs)", start_time)
         except Exception as e:
             print(f"  ✗ Failed to create TD extremes |value| map ({prefix}): {e}")
+
+        if unified_dir is not None:
+            unified_dir.mkdir(exist_ok=True, parents=True)
+            signed_unified_path = unified_dir / f"{model_name}_{prefix}_extremes_signed.png"
+            abs_unified_path = unified_dir / f"{model_name}_{prefix}_extremes_abs.png"
+
+            signed_stats = self.td_global_stats.get(value_column)
+            if signed_stats is not None:
+                try:
+                    start_time = time.perf_counter()
+                    plot_value_heatmap(
+                        extremes_df,
+                        img_array,
+                        self.map_name,
+                        value_column,
+                        f"{label} extremes ({tail_label})",
+                        save_path=str(signed_unified_path),
+                        value_min=signed_stats["min"],
+                        value_max=signed_stats["max"],
+                        plot_aggregated=self.plot_aggregated,
+                    )
+                    plt.close('all')
+                    print(f"  ✓ Saved unified TD extremes map: {signed_unified_path.name}")
+                    self._print_timing(f"TD extremes unified ({prefix}, signed)", start_time)
+                except Exception as e:
+                    print(f"  ✗ Failed to create unified TD extremes signed map ({prefix}): {e}")
+
+            abs_stats = self.td_global_stats.get(f"{value_column}_abs")
+            if abs_stats is not None:
+                try:
+                    start_time = time.perf_counter()
+                    extremes_abs = extremes_df.copy()
+                    abs_col = f"{value_column}_abs"
+                    extremes_abs[abs_col] = np.abs(extremes_abs[value_column])
+                    plot_value_heatmap(
+                        extremes_abs,
+                        img_array,
+                        self.map_name,
+                        abs_col,
+                        f"|{label}| extremes ({tail_label})",
+                        save_path=str(abs_unified_path),
+                        value_min=abs_stats["min"],
+                        value_max=abs_stats["max"],
+                        plot_aggregated=self.plot_aggregated,
+                    )
+                    plt.close('all')
+                    print(f"  ✓ Saved unified TD extremes |value| map: {abs_unified_path.name}")
+                    self._print_timing(f"TD extremes unified ({prefix}, abs)", start_time)
+                except Exception as e:
+                    print(f"  ✗ Failed to create unified TD extremes |value| map ({prefix}): {e}")
 
     def create_td_error_spatial_plot(self, model_name: str):
         """Generate spatial heatmap of TD error using logged stat tracker values."""
@@ -565,14 +739,33 @@ class BatchPlotter:
         td_dir = self.output_base_dir / "6_td_error_spatial_heatmaps"
         td_dir.mkdir(exist_ok=True, parents=True)
         png_out = td_dir / f"{model_name}_td_error_spatial_heatmap.png"
+        td_dir_unified = self.output_base_dir / "6_td_error_spatial_heatmaps_unified"
+        td_dir_unified.mkdir(exist_ok=True, parents=True)
+        png_out_unified = td_dir_unified / f"{model_name}_td_error_spatial_heatmap.png"
         td_raw_dir = self.output_base_dir / "7_td_error_heatmaps_raw"
         td_raw_dir.mkdir(exist_ok=True, parents=True)
         png_out_raw = td_raw_dir / f"{model_name}_td_error_spatial_heatmap_raw.png"
+        td_raw_dir_unified = self.output_base_dir / "7_td_error_heatmaps_raw_unified"
+        td_raw_dir_unified.mkdir(exist_ok=True, parents=True)
+        png_out_raw_unified = td_raw_dir_unified / f"{model_name}_td_error_spatial_heatmap_raw.png"
         td_log_dir = self.output_base_dir / "8_td_error_heatmaps_log"
         td_log_dir.mkdir(exist_ok=True, parents=True)
         png_out_log = td_log_dir / f"{model_name}_td_error_spatial_heatmap_log.png"
+        td_log_dir_unified = self.output_base_dir / "8_td_error_heatmaps_log_unified"
+        td_log_dir_unified.mkdir(exist_ok=True, parents=True)
+        png_out_log_unified = td_log_dir_unified / f"{model_name}_td_error_spatial_heatmap_log.png"
         avg_td_dir = self.output_base_dir / "9_avg_td_error_heatmaps"
         avg_td_dir.mkdir(exist_ok=True, parents=True)
+        avg_td_raw_dir = self.output_base_dir / "9_avg_td_error_heatmaps_raw"
+        avg_td_raw_dir.mkdir(exist_ok=True, parents=True)
+        avg_td_log_dir = self.output_base_dir / "9_avg_td_error_heatmaps_log"
+        avg_td_log_dir.mkdir(exist_ok=True, parents=True)
+        avg_td_dir_unified = self.output_base_dir / "9_avg_td_error_heatmaps_unified"
+        avg_td_dir_unified.mkdir(exist_ok=True, parents=True)
+        avg_td_raw_dir_unified = self.output_base_dir / "9_avg_td_error_heatmaps_raw_unified"
+        avg_td_raw_dir_unified.mkdir(exist_ok=True, parents=True)
+        avg_td_log_dir_unified = self.output_base_dir / "9_avg_td_error_heatmaps_log_unified"
+        avg_td_log_dir_unified.mkdir(exist_ok=True, parents=True)
 
         print(f"  Using TD source: {td_source}")
         print(f"  Rows plotted: {len(df_with_pos)}")
@@ -607,12 +800,34 @@ class BatchPlotter:
                     f'TD Error ({td_source})',
                     save_path=str(png_out),
                     robust_percentiles=(2, 98),
+                    plot_aggregated=self.plot_aggregated,
                 )
                 plt.close('all')
                 print(f"  ✓ Saved TD-error heatmap: {png_out.name}")
                 self._print_timing("TD-error heatmap", start_time)
             except Exception as e:
                 print(f"  ✗ Failed to create TD-error heatmap: {e}")
+
+            td_robust_stats = self.td_global_stats.get("td_error_for_plot_robust")
+            if td_robust_stats is not None:
+                try:
+                    start_time = time.perf_counter()
+                    plot_value_heatmap(
+                        df_with_pos,
+                        img_array,
+                        self.map_name,
+                        'td_error_for_plot',
+                        f'TD Error ({td_source})',
+                        save_path=str(png_out_unified),
+                        value_min=td_robust_stats["min"],
+                        value_max=td_robust_stats["max"],
+                        plot_aggregated=self.plot_aggregated,
+                    )
+                    plt.close('all')
+                    print(f"  ✓ Saved unified TD-error heatmap: {png_out_unified.name}")
+                    self._print_timing("TD-error heatmap unified", start_time)
+                except Exception as e:
+                    print(f"  ✗ Failed to create unified TD-error heatmap: {e}")
 
             try:
                 start_time = time.perf_counter()
@@ -622,13 +837,35 @@ class BatchPlotter:
                     self.map_name,
                     'td_error_for_plot',
                     f'TD Error ({td_source}) RAW',
-                    save_path=str(png_out_raw)
+                    save_path=str(png_out_raw),
+                    plot_aggregated=self.plot_aggregated,
                 )
                 plt.close('all')
                 print(f"  ✓ Saved RAW TD-error heatmap: {png_out_raw.name}")
                 self._print_timing("TD-error heatmap raw", start_time)
             except Exception as e:
                 print(f"  ✗ Failed to create RAW TD-error heatmap: {e}")
+
+            td_raw_stats = self.td_global_stats.get("td_error_for_plot")
+            if td_raw_stats is not None:
+                try:
+                    start_time = time.perf_counter()
+                    plot_value_heatmap(
+                        df_with_pos,
+                        img_array,
+                        self.map_name,
+                        'td_error_for_plot',
+                        f'TD Error ({td_source}) RAW',
+                        save_path=str(png_out_raw_unified),
+                        value_min=td_raw_stats["min"],
+                        value_max=td_raw_stats["max"],
+                        plot_aggregated=self.plot_aggregated,
+                    )
+                    plt.close('all')
+                    print(f"  ✓ Saved unified RAW TD-error heatmap: {png_out_raw_unified.name}")
+                    self._print_timing("TD-error heatmap raw unified", start_time)
+                except Exception as e:
+                    print(f"  ✗ Failed to create unified RAW TD-error heatmap: {e}")
 
             try:
                 start_time = time.perf_counter()
@@ -644,12 +881,39 @@ class BatchPlotter:
                     save_path=str(png_out_log),
                     colorbar_tick_values=tick_values,
                     colorbar_tick_labels=tick_labels,
+                    plot_aggregated=self.plot_aggregated,
                 )
                 plt.close('all')
                 print(f"  ✓ Saved LOG TD-error heatmap: {png_out_log.name}")
                 self._print_timing("TD-error heatmap log", start_time)
             except Exception as e:
                 print(f"  ✗ Failed to create LOG TD-error heatmap: {e}")
+
+            td_log_stats = self.td_global_stats.get("td_error_for_plot_log")
+            if td_log_stats is not None:
+                try:
+                    start_time = time.perf_counter()
+                    df_with_pos_log = df_with_pos.copy()
+                    df_with_pos_log['td_error_for_plot_log'] = self._signed_log1p(df_with_pos_log['td_error_for_plot'])
+                    tick_values, tick_labels = self._build_log_colorbar_ticks(df_with_pos_log['td_error_for_plot'])
+                    plot_value_heatmap(
+                        df_with_pos_log,
+                        img_array,
+                        self.map_name,
+                        'td_error_for_plot_log',
+                        f'TD Error ({td_source}) [signed log1p color scale, ticks=real TD]',
+                        save_path=str(png_out_log_unified),
+                        value_min=td_log_stats["min"],
+                        value_max=td_log_stats["max"],
+                        colorbar_tick_values=tick_values,
+                        colorbar_tick_labels=tick_labels,
+                        plot_aggregated=self.plot_aggregated,
+                    )
+                    plt.close('all')
+                    print(f"  ✓ Saved unified LOG TD-error heatmap: {png_out_log_unified.name}")
+                    self._print_timing("TD-error heatmap log unified", start_time)
+                except Exception as e:
+                    print(f"  ✗ Failed to create unified LOG TD-error heatmap: {e}")
 
         # Dedicated average TD-error maps
         td_mean_series, td_mean_source = self._resolve_td_error_mean_series(df)
@@ -669,8 +933,11 @@ class BatchPlotter:
                     df_td_mean['pixel_y'] = [c[1] for c in pixel_coords]
 
                 avg_png = avg_td_dir / f"{model_name}_avg_td_error_spatial_heatmap.png"
-                avg_png_raw = avg_td_dir / f"{model_name}_avg_td_error_spatial_heatmap_raw.png"
-                avg_png_log = avg_td_dir / f"{model_name}_avg_td_error_spatial_heatmap_log.png"
+                avg_png_raw = avg_td_raw_dir / f"{model_name}_avg_td_error_spatial_heatmap.png"
+                avg_png_log = avg_td_log_dir / f"{model_name}_avg_td_error_spatial_heatmap.png"
+                avg_png_unified = avg_td_dir_unified / f"{model_name}_avg_td_error_spatial_heatmap.png"
+                avg_png_raw_unified = avg_td_raw_dir_unified / f"{model_name}_avg_td_error_spatial_heatmap.png"
+                avg_png_log_unified = avg_td_log_dir_unified / f"{model_name}_avg_td_error_spatial_heatmap.png"
 
                 if not self.td_extremes_only:
                     try:
@@ -683,12 +950,34 @@ class BatchPlotter:
                             f'Average TD Error ({td_mean_source})',
                             save_path=str(avg_png),
                             robust_percentiles=(2, 98),
+                            plot_aggregated=self.plot_aggregated,
                         )
                         plt.close('all')
                         print(f"  ✓ Saved average TD heatmap: {avg_png.name}")
                         self._print_timing("average TD heatmap", start_time)
                     except Exception as e:
                         print(f"  ✗ Failed to create average TD heatmap: {e}")
+
+                    td_mean_robust_stats = self.td_global_stats.get("td_mean_for_plot_robust")
+                    if td_mean_robust_stats is not None:
+                        try:
+                            start_time = time.perf_counter()
+                            plot_value_heatmap(
+                                df_td_mean,
+                                img_array,
+                                self.map_name,
+                                'td_mean_for_plot',
+                                f'Average TD Error ({td_mean_source})',
+                                save_path=str(avg_png_unified),
+                                value_min=td_mean_robust_stats["min"],
+                                value_max=td_mean_robust_stats["max"],
+                                plot_aggregated=self.plot_aggregated,
+                            )
+                            plt.close('all')
+                            print(f"  ✓ Saved unified average TD heatmap: {avg_png_unified.name}")
+                            self._print_timing("average TD heatmap unified", start_time)
+                        except Exception as e:
+                            print(f"  ✗ Failed to create unified average TD heatmap: {e}")
 
                     try:
                         start_time = time.perf_counter()
@@ -699,12 +988,34 @@ class BatchPlotter:
                             'td_mean_for_plot',
                             f'Average TD Error ({td_mean_source}) RAW',
                             save_path=str(avg_png_raw),
+                            plot_aggregated=self.plot_aggregated,
                         )
                         plt.close('all')
                         print(f"  ✓ Saved RAW average TD heatmap: {avg_png_raw.name}")
                         self._print_timing("average TD heatmap raw", start_time)
                     except Exception as e:
                         print(f"  ✗ Failed to create RAW average TD heatmap: {e}")
+
+                    td_mean_raw_stats = self.td_global_stats.get("td_mean_for_plot")
+                    if td_mean_raw_stats is not None:
+                        try:
+                            start_time = time.perf_counter()
+                            plot_value_heatmap(
+                                df_td_mean,
+                                img_array,
+                                self.map_name,
+                                'td_mean_for_plot',
+                                f'Average TD Error ({td_mean_source}) RAW',
+                                save_path=str(avg_png_raw_unified),
+                                value_min=td_mean_raw_stats["min"],
+                                value_max=td_mean_raw_stats["max"],
+                                plot_aggregated=self.plot_aggregated,
+                            )
+                            plt.close('all')
+                            print(f"  ✓ Saved unified RAW average TD heatmap: {avg_png_raw_unified.name}")
+                            self._print_timing("average TD heatmap raw unified", start_time)
+                        except Exception as e:
+                            print(f"  ✗ Failed to create unified RAW average TD heatmap: {e}")
 
                     try:
                         start_time = time.perf_counter()
@@ -720,12 +1031,39 @@ class BatchPlotter:
                             save_path=str(avg_png_log),
                             colorbar_tick_values=tick_values,
                             colorbar_tick_labels=tick_labels,
+                            plot_aggregated=self.plot_aggregated,
                         )
                         plt.close('all')
                         print(f"  ✓ Saved LOG average TD heatmap: {avg_png_log.name}")
                         self._print_timing("average TD heatmap log", start_time)
                     except Exception as e:
                         print(f"  ✗ Failed to create LOG average TD heatmap: {e}")
+
+                    td_mean_log_stats = self.td_global_stats.get("td_mean_for_plot_log")
+                    if td_mean_log_stats is not None:
+                        try:
+                            start_time = time.perf_counter()
+                            df_td_mean_log = df_td_mean.copy()
+                            df_td_mean_log['td_mean_for_plot_log'] = self._signed_log1p(df_td_mean_log['td_mean_for_plot'])
+                            tick_values, tick_labels = self._build_log_colorbar_ticks(df_td_mean_log['td_mean_for_plot'])
+                            plot_value_heatmap(
+                                df_td_mean_log,
+                                img_array,
+                                self.map_name,
+                                'td_mean_for_plot_log',
+                                f'Average TD Error ({td_mean_source}) [signed log1p color scale, ticks=real TD]',
+                                save_path=str(avg_png_log_unified),
+                                value_min=td_mean_log_stats["min"],
+                                value_max=td_mean_log_stats["max"],
+                                colorbar_tick_values=tick_values,
+                                colorbar_tick_labels=tick_labels,
+                                plot_aggregated=self.plot_aggregated,
+                            )
+                            plt.close('all')
+                            print(f"  ✓ Saved unified LOG average TD heatmap: {avg_png_log_unified.name}")
+                            self._print_timing("average TD heatmap log unified", start_time)
+                        except Exception as e:
+                            print(f"  ✗ Failed to create unified LOG average TD heatmap: {e}")
 
                 if self.plot_td_extremes:
                     self._plot_td_extremes_maps(
@@ -735,6 +1073,7 @@ class BatchPlotter:
                         value_column='td_mean_for_plot',
                         label=f'Average TD Error ({td_mean_source})',
                         prefix='avg_td_error',
+                        unified_dir=(self.output_base_dir / "10_td_error_extremes_unified"),
                     )
             else:
                 print("  ⊘ No rows with valid pose_x/pose_y/average TD error")
@@ -749,6 +1088,7 @@ class BatchPlotter:
                 value_column='td_error_for_plot',
                 label=f'TD Error ({td_source})',
                 prefix='td_error',
+                unified_dir=(self.output_base_dir / "10_td_error_extremes_unified"),
             )
 
         if not self.plot_td_improvement:
@@ -767,6 +1107,9 @@ class BatchPlotter:
         png_out_improvement = td_dir / f"{model_name}_td_error_improvement_spatial_heatmap.png"
         png_out_improvement_raw = td_raw_dir / f"{model_name}_td_error_improvement_spatial_heatmap_raw.png"
         png_out_improvement_log = td_log_dir / f"{model_name}_td_error_improvement_spatial_heatmap_log.png"
+        png_out_improvement_unified = td_dir_unified / f"{model_name}_td_error_improvement_spatial_heatmap.png"
+        png_out_improvement_raw_unified = td_raw_dir_unified / f"{model_name}_td_error_improvement_spatial_heatmap_raw.png"
+        png_out_improvement_log_unified = td_log_dir_unified / f"{model_name}_td_error_improvement_spatial_heatmap_log.png"
         print(f"  Using TD improvement source: {td_improvement_source}")
         print(f"  Rows plotted for improvement: {len(df_improvement)}")
 
@@ -792,12 +1135,34 @@ class BatchPlotter:
                 f'TD Improvement ({td_improvement_source})',
                 save_path=str(png_out_improvement),
                 robust_percentiles=(2, 98),
+                plot_aggregated=self.plot_aggregated,
             )
             plt.close('all')
             print(f"  ✓ Saved TD-error improvement heatmap: {png_out_improvement.name}")
             self._print_timing("TD-error improvement heatmap", start_time)
         except Exception as e:
             print(f"  ✗ Failed to create TD-error improvement heatmap: {e}")
+
+        td_improvement_robust_stats = self.td_global_stats.get("td_improvement_for_plot_robust")
+        if td_improvement_robust_stats is not None:
+            try:
+                start_time = time.perf_counter()
+                plot_value_heatmap(
+                    df_improvement,
+                    img_array,
+                    self.map_name,
+                    'td_improvement_for_plot',
+                    f'TD Improvement ({td_improvement_source})',
+                    save_path=str(png_out_improvement_unified),
+                    value_min=td_improvement_robust_stats["min"],
+                    value_max=td_improvement_robust_stats["max"],
+                    plot_aggregated=self.plot_aggregated,
+                )
+                plt.close('all')
+                print(f"  ✓ Saved unified TD-error improvement heatmap: {png_out_improvement_unified.name}")
+                self._print_timing("TD-error improvement heatmap unified", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create unified TD-error improvement heatmap: {e}")
 
         try:
             start_time = time.perf_counter()
@@ -807,13 +1172,35 @@ class BatchPlotter:
                 self.map_name,
                 'td_improvement_for_plot',
                 f'TD Improvement ({td_improvement_source}) RAW',
-                save_path=str(png_out_improvement_raw)
+                save_path=str(png_out_improvement_raw),
+                plot_aggregated=self.plot_aggregated,
             )
             plt.close('all')
             print(f"  ✓ Saved RAW TD-error improvement heatmap: {png_out_improvement_raw.name}")
             self._print_timing("TD-error improvement heatmap raw", start_time)
         except Exception as e:
             print(f"  ✗ Failed to create RAW TD-error improvement heatmap: {e}")
+
+        td_improvement_raw_stats = self.td_global_stats.get("td_improvement_for_plot")
+        if td_improvement_raw_stats is not None:
+            try:
+                start_time = time.perf_counter()
+                plot_value_heatmap(
+                    df_improvement,
+                    img_array,
+                    self.map_name,
+                    'td_improvement_for_plot',
+                    f'TD Improvement ({td_improvement_source}) RAW',
+                    save_path=str(png_out_improvement_raw_unified),
+                    value_min=td_improvement_raw_stats["min"],
+                    value_max=td_improvement_raw_stats["max"],
+                    plot_aggregated=self.plot_aggregated,
+                )
+                plt.close('all')
+                print(f"  ✓ Saved unified RAW TD-error improvement heatmap: {png_out_improvement_raw_unified.name}")
+                self._print_timing("TD-error improvement heatmap raw unified", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create unified RAW TD-error improvement heatmap: {e}")
 
         try:
             start_time = time.perf_counter()
@@ -829,12 +1216,39 @@ class BatchPlotter:
                 save_path=str(png_out_improvement_log),
                 colorbar_tick_values=tick_values,
                 colorbar_tick_labels=tick_labels,
+                plot_aggregated=self.plot_aggregated,
             )
             plt.close('all')
             print(f"  ✓ Saved LOG TD-error improvement heatmap: {png_out_improvement_log.name}")
             self._print_timing("TD-error improvement heatmap log", start_time)
         except Exception as e:
             print(f"  ✗ Failed to create LOG TD-error improvement heatmap: {e}")
+
+        td_improvement_log_stats = self.td_global_stats.get("td_improvement_for_plot_log")
+        if td_improvement_log_stats is not None:
+            try:
+                start_time = time.perf_counter()
+                df_improvement_log = df_improvement.copy()
+                df_improvement_log['td_improvement_for_plot_log'] = self._signed_log1p(df_improvement_log['td_improvement_for_plot'])
+                tick_values, tick_labels = self._build_log_colorbar_ticks(df_improvement_log['td_improvement_for_plot'])
+                plot_value_heatmap(
+                    df_improvement_log,
+                    img_array,
+                    self.map_name,
+                    'td_improvement_for_plot_log',
+                    f'TD Improvement ({td_improvement_source}) [signed log1p color scale, ticks=real TD]',
+                    save_path=str(png_out_improvement_log_unified),
+                    value_min=td_improvement_log_stats["min"],
+                    value_max=td_improvement_log_stats["max"],
+                    colorbar_tick_values=tick_values,
+                    colorbar_tick_labels=tick_labels,
+                    plot_aggregated=self.plot_aggregated,
+                )
+                plt.close('all')
+                print(f"  ✓ Saved unified LOG TD-error improvement heatmap: {png_out_improvement_log_unified.name}")
+                self._print_timing("TD-error improvement heatmap log unified", start_time)
+            except Exception as e:
+                print(f"  ✗ Failed to create unified LOG TD-error improvement heatmap: {e}")
     
     def find_models_by_prefix(self):
         """Find all model directories matching the prefix"""
@@ -891,7 +1305,13 @@ class BatchPlotter:
                 start_time = time.perf_counter()
                 dist_save_path = self.dist_dir / f"{model_name}_distribution.png"
                 try:
-                    plot_sample_frequency_distribution_static(df, save_path=str(dist_save_path), global_stats=global_stats)
+                    base_global_stats = global_stats if self.unify_plot_scales else None
+                    dist_global_stats = base_global_stats if self.unify_distribution_scales else None
+                    plot_sample_frequency_distribution_static(
+                        df,
+                        save_path=str(dist_save_path),
+                        global_stats=dist_global_stats,
+                    )
                     plt.close('all')  # Close figure to free memory
                     print(f"    ✓ Saved to {dist_save_path.name}")
                     self._print_timing("distribution plot", start_time)
@@ -924,7 +1344,8 @@ class BatchPlotter:
                     plot_spatial_heatmap_static(
                         df_with_pos, img_array, config, self.map_name, 
                         save_path=str(heatmap_save_path),
-                        global_stats=global_stats
+                        global_stats=(global_stats if self.unify_plot_scales else None),
+                        plot_aggregated=self.plot_aggregated,
                     )
                     plt.close('all')
                     print(f"    ✓ Saved to {heatmap_save_path.name}")
@@ -966,6 +1387,7 @@ class BatchPlotter:
                             self.map_name,
                             value_min=reward_vmin,
                             value_max=reward_vmax,
+                            plot_aggregated=self.plot_aggregated,
                         )
                         plt.savefig(str(reward_save_path), dpi=150, bbox_inches='tight')
                         plt.close('all')
@@ -1001,9 +1423,17 @@ class BatchPlotter:
             print(f"    and:       {self.models_dir / model_name / (model_name + '.zip')}")
             return
         
-        dummy_env = SacUtilities.create_vec_env()
         start_time = time.perf_counter()
-        model = SAC.load(model_path, env=dummy_env, device="cpu")
+        model = SAC.load(model_path, device="cpu")
+
+        try:
+            obs_dim = int(model.observation_space.shape[0])
+            dummy_env = SacUtilities.create_vec_env_from_obs_dim(obs_dim)
+            if hasattr(model, "set_env"):
+                model.set_env(dummy_env)
+        except Exception:
+            pass
+
         # actor = self.model.policy.actor
         critic = model.policy.critic
 
@@ -1127,7 +1557,8 @@ class BatchPlotter:
                 plot_value_heatmap(
                     df_with_pos, img_array, self.map_name, 
                     'critic_q_min', 'Q-value (min)',
-                    save_path=str(png_out_heatmap)
+                    save_path=str(png_out_heatmap),
+                    plot_aggregated=self.plot_aggregated,
                 )
                 plt.close('all')
                 print(f"    ✓ Saved to {png_out_heatmap.name}")
@@ -1159,9 +1590,8 @@ class BatchPlotter:
         print(f"Models: {', '.join(models)}\n")
         
         global_stats = None
-        # Compute global stats for base metrics OR spatial-only mode (for consistent scaling)
-        if self.plot_base_metrics or self.spatial_only:
-            # Compute global stats first for synchronized scaling
+        needs_global_stats = (self.plot_base_metrics or self.spatial_only)
+        if needs_global_stats:
             print("Computing global statistics across all models...")
             csv_paths = [
                 self.models_dir / model_name / "stat_logs" / "stats_log.csv"
@@ -1171,6 +1601,14 @@ class BatchPlotter:
                 csv_paths,
                 stat_log_start_fraction=self.stat_log_start_fraction,
             )
+
+        if self.plot_td_error:
+            print("Computing global TD statistics across all models...")
+            self.td_global_stats = self._compute_global_td_stats(models)
+            if self.td_global_stats:
+                print(f"  TD unified ranges available for {len(self.td_global_stats)} metrics")
+            else:
+                print("  No global TD ranges available (unified TD folders may be empty)")
         
         for i, model_name in enumerate(models, 1):
             print(f"[{i}/{len(models)}]", end=" ")
@@ -1273,6 +1711,29 @@ def main():
             "Examples: 0.5 => second half, 0.75 => last quarter"
         ),
     )
+    parser.add_argument(
+        "--plot-aggregated",
+        action="store_true",
+        help="Draw aggregated/right-panel maps as well (default: off)",
+    )
+    parser.add_argument(
+        "--unify-plot-scales",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use synchronized global scales for all base plots (distribution, spatial, reward) "
+            "(default: True). Use --no-unify-plot-scales to disable all scale unification."
+        ),
+    )
+    parser.add_argument(
+        "--unify-distribution-scales",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use synchronized global scales for distribution plots across models "
+            "(default: True). Use --no-unify-distribution-scales for per-model scales."
+        ),
+    )
     backend_group = parser.add_mutually_exclusive_group()
     backend_group.add_argument(
         "--interactive-plots",
@@ -1304,6 +1765,9 @@ def main():
         plot_base_metrics = False
         plot_critic_output = False
         plot_td_error = False
+
+    # Master switch: disabling unified plot scales disables distribution unification as well.
+    effective_unify_distribution_scales = args.unify_distribution_scales and args.unify_plot_scales
     
     plotter = BatchPlotter(
         prefix=args.prefix,
@@ -1319,6 +1783,9 @@ def main():
         td_extremes_only=args.td_extremes_only,
         stat_log_start_fraction=args.stat_log_start_fraction,
         spatial_only=args.spatial_only,
+        plot_aggregated=args.plot_aggregated,
+        unify_plot_scales=args.unify_plot_scales,
+        unify_distribution_scales=effective_unify_distribution_scales,
     )
     plotter.process_all()
 

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.widgets import Slider
 from matplotlib.colors import TwoSlopeNorm, Normalize, LogNorm
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import MaxNLocator, FuncFormatter
 import pandas as pd
 import numpy as np
 import os
@@ -471,10 +471,24 @@ def plot_spatial_heatmap(df, map_name='RCA1', save_path=None, enable_slider=ENAB
     # Plot reward heatmap (always static, shown separately)
     plot_reward_heatmap(df_with_pos, img_array, map_name)
 
-def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_path=None, global_stats=None):
+def plot_spatial_heatmap_static(
+    df_with_pos,
+    img_array,
+    config,
+    map_name,
+    save_path=None,
+    global_stats=None,
+    plot_aggregated=True,
+):
     """Static version of spatial heatmap (no slider)"""
+    plain_tick_formatter = FuncFormatter(lambda value, _: f"{value:g}")
+
     # Create figure
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+    if plot_aggregated:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+        ax_left, ax_right = axes
+    else:
+        fig, ax_left = plt.subplots(1, 1, figsize=(8, 8))
     
     # Use global max for color scaling if provided
     samples_max = global_stats['samples_per_batch_max'] if global_stats else df_with_pos['samples_per_batch'].max()
@@ -485,7 +499,7 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
         samples_min = np.min(df_with_pos['samples_per_batch'][df_with_pos['samples_per_batch'] > 0]) if np.any(df_with_pos['samples_per_batch'] > 0) else 1e-6
     
     # Left: Track overlay with sample frequency coloring (log scale)
-    ax = axes[0]
+    ax = ax_left
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)  # Fade map to reduce border visibility
     
     # Sort by samples_per_batch so higher values are drawn on top
@@ -507,69 +521,74 @@ def plot_spatial_heatmap_static(df_with_pos, img_array, config, map_name, save_p
     ax.axis('off')
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label('Samples per Batch (log scale)')
+    cbar.formatter = plain_tick_formatter
+    cbar.update_ticks()
     
-    # Right: 2D histogram heatmap (log scale)
-    ax = axes[1]
-    ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+    if plot_aggregated:
+        # Right: 2D histogram heatmap (log scale)
+        ax = ax_right
+        ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
     
-    # Create 2D histogram using the same y-axis convention as the scatter plot
-    y_flipped = img_height - df_with_pos['pixel_y']
+        # Create 2D histogram using the same y-axis convention as the scatter plot
+        y_flipped = img_height - df_with_pos['pixel_y']
     
-    # Use global ranges if provided for consistent binning
-    if global_stats and 'pose_x_min' in global_stats:
-        # Convert world coords to pixel coords for consistent bins
-        origin = config['origin']
-        resolution = config['resolution']
-        x_min_px = (global_stats['pose_x_min'] - origin[0]) / resolution
-        x_max_px = (global_stats['pose_x_max'] - origin[0]) / resolution
-        y_min_flipped = img_height - (global_stats['pose_y_max'] - origin[1]) / resolution
-        y_max_flipped = img_height - (global_stats['pose_y_min'] - origin[1]) / resolution
-        
-        x_bins = np.linspace(x_min_px, x_max_px, 50)
-        y_bins = np.linspace(y_min_flipped, y_max_flipped, 50)
-    else:
-        x_bins = np.linspace(df_with_pos['pixel_x'].min(), 
-                             df_with_pos['pixel_x'].max(), 50)
-        y_bins = np.linspace(y_flipped.min(), 
-                             y_flipped.max(), 50)
+        # Use global ranges if provided for consistent binning
+        if global_stats and 'pose_x_min' in global_stats:
+            # Convert world coords to pixel coords for consistent bins
+            origin = config['origin']
+            resolution = config['resolution']
+            x_min_px = (global_stats['pose_x_min'] - origin[0]) / resolution
+            x_max_px = (global_stats['pose_x_max'] - origin[0]) / resolution
+            y_min_flipped = img_height - (global_stats['pose_y_max'] - origin[1]) / resolution
+            y_max_flipped = img_height - (global_stats['pose_y_min'] - origin[1]) / resolution
+
+            x_bins = np.linspace(x_min_px, x_max_px, 50)
+            y_bins = np.linspace(y_min_flipped, y_max_flipped, 50)
+        else:
+            x_bins = np.linspace(df_with_pos['pixel_x'].min(),
+                                 df_with_pos['pixel_x'].max(), 50)
+            y_bins = np.linspace(y_flipped.min(),
+                                 y_flipped.max(), 50)
     
-    # Compute weighted histogram (weighted by samples per batch)
-    H, xedges, yedges = np.histogram2d(
-        df_with_pos['pixel_x'],
-        y_flipped,
-        bins=[x_bins, y_bins],
-        weights=df_with_pos['samples_per_batch']
-    )
+        # Compute weighted histogram (weighted by samples per batch)
+        H, xedges, yedges = np.histogram2d(
+            df_with_pos['pixel_x'],
+            y_flipped,
+            bins=[x_bins, y_bins],
+            weights=df_with_pos['samples_per_batch']
+        )
     
-    # Count histogram for normalization
-    H_count, _, _ = np.histogram2d(
-        df_with_pos['pixel_x'],
-        y_flipped,
-        bins=[x_bins, y_bins]
-    )
+        # Count histogram for normalization
+        H_count, _, _ = np.histogram2d(
+            df_with_pos['pixel_x'],
+            y_flipped,
+            bins=[x_bins, y_bins]
+        )
     
-    # Normalize by count to get average samples per batch per bin
-    with np.errstate(divide='ignore', invalid='ignore'):
-        H_avg = H / H_count
-        H_avg[~np.isfinite(H_avg)] = 0
+        # Normalize by count to get average samples per batch per bin
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H_avg = H / H_count
+            H_avg[~np.isfinite(H_avg)] = 0
     
-    # Use log scale for histogram (ensure positive values)
-    H_avg_min = np.min(H_avg[H_avg > 0]) if np.any(H_avg > 0) else 1e-6
+        # Use log scale for histogram (ensure positive values)
+        H_avg_min = np.min(H_avg[H_avg > 0]) if np.any(H_avg > 0) else 1e-6
     
-    im = ax.imshow(
-        H_avg.T,
-        extent=[xedges[0], xedges[-1], 
-            yedges[0], yedges[-1]],
-        cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
-        alpha=0.7,
-        origin='upper',
-        norm=LogNorm(vmin=H_avg_min, vmax=samples_max)  # Log scale for better visibility
-    )
+        im = ax.imshow(
+            H_avg.T,
+            extent=[xedges[0], xedges[-1],
+                    yedges[0], yedges[-1]],
+            cmap='viridis',  # Dark blue (low) -> cyan -> green -> yellow (high)
+            alpha=0.7,
+            origin='upper',
+            norm=LogNorm(vmin=H_avg_min, vmax=samples_max)  # Log scale for better visibility
+        )
     
-    ax.set_title('Aggregated Samples per Batch Heatmap (Log Scale)')
-    ax.axis('off')
-    cbar2 = plt.colorbar(im, ax=ax)
-    cbar2.set_label('Avg Samples per Batch (log scale)')
+        ax.set_title('Aggregated Samples per Batch Heatmap (Log Scale)')
+        ax.axis('off')
+        cbar2 = plt.colorbar(im, ax=ax)
+        cbar2.set_label('Avg Samples per Batch (log scale)')
+        cbar2.formatter = plain_tick_formatter
+        cbar2.update_ticks()
     
     plt.tight_layout()
     
@@ -757,6 +776,7 @@ def plot_value_heatmap(
     robust_percentiles=None,
     colorbar_tick_values=None,
     colorbar_tick_labels=None,
+    plot_aggregated=True,
 ):
     """
     Generic heatmap plotter for any spatial value column (reward, critic output, etc.)
@@ -785,10 +805,14 @@ def plot_value_heatmap(
         print(f"Warning: No {value_label.lower()} data found. Skipping heatmap.")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+    if plot_aggregated:
+        fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+        ax_left, ax_right = axes
+    else:
+        fig, ax_left = plt.subplots(1, 1, figsize=(8, 8))
 
     # Left: Track overlay with value coloring
-    ax = axes[0]
+    ax = ax_left
     ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
 
     # Sort by value so higher values are drawn on top
@@ -855,59 +879,60 @@ def plot_value_heatmap(
         ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
         cbar.set_ticks(ticks)
 
-    # Right: 2D histogram heatmap (average value per bin)
-    ax = axes[1]
-    ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
+    if plot_aggregated:
+        # Right: 2D histogram heatmap (average value per bin)
+        ax = ax_right
+        ax.imshow(img_array, cmap='gray', origin='upper', alpha=0.3)
 
-    y_flipped = img_height - df_values['pixel_y']
-    x_bins = np.linspace(df_values['pixel_x'].min(),
-                         df_values['pixel_x'].max(), 50)
-    y_bins = np.linspace(y_flipped.min(),
-                         y_flipped.max(), 50)
+        y_flipped = img_height - df_values['pixel_y']
+        x_bins = np.linspace(df_values['pixel_x'].min(),
+                     df_values['pixel_x'].max(), 50)
+        y_bins = np.linspace(y_flipped.min(),
+                     y_flipped.max(), 50)
 
-    H, xedges, yedges = np.histogram2d(
-        df_values['pixel_x'],
-        y_flipped,
-        bins=[x_bins, y_bins],
-        weights=df_values[value_column]
-    )
+        H, xedges, yedges = np.histogram2d(
+            df_values['pixel_x'],
+            y_flipped,
+            bins=[x_bins, y_bins],
+            weights=df_values[value_column]
+        )
 
-    H_count, _, _ = np.histogram2d(
-        df_values['pixel_x'],
-        y_flipped,
-        bins=[x_bins, y_bins]
-    )
+        H_count, _, _ = np.histogram2d(
+            df_values['pixel_x'],
+            y_flipped,
+            bins=[x_bins, y_bins]
+        )
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        H_avg = H / H_count
-        H_avg[~np.isfinite(H_avg)] = 0
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H_avg = H / H_count
+            H_avg[~np.isfinite(H_avg)] = 0
 
-    im = ax.imshow(
-        H_avg.T,
-        extent=[xedges[0], xedges[-1],
-            yedges[0], yedges[-1]],
-        cmap='viridis',
-        alpha=0.7,
-        origin='upper',
-        norm=value_norm
-    )
+        im = ax.imshow(
+            H_avg.T,
+            extent=[xedges[0], xedges[-1],
+                    yedges[0], yedges[-1]],
+            cmap='viridis',
+            alpha=0.7,
+            origin='upper',
+            norm=value_norm
+        )
 
-    ax.set_title(f'Aggregated {value_label} Heatmap')
-    ax.axis('off')
-    cbar2 = plt.colorbar(im, ax=ax)
-    cbar2.set_label(f'Avg {value_label}')
-    if colorbar_tick_values is not None:
-        ticks = np.asarray(colorbar_tick_values, dtype=float)
-        ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
-        cbar2.set_ticks(ticks)
-        if colorbar_tick_labels is not None and len(colorbar_tick_labels) == len(ticks):
-            cbar2.set_ticklabels(colorbar_tick_labels)
-    else:
-        cbar2.locator = MaxNLocator(nbins=7)
-        cbar2.update_ticks()
-        cbar2_ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar2.get_ticks(), anchor_ticks]))))
-        cbar2_ticks = cbar2_ticks[(cbar2_ticks >= value_min) & (cbar2_ticks <= value_max)]
-        cbar2.set_ticks(cbar2_ticks)
+        ax.set_title(f'Aggregated {value_label} Heatmap')
+        ax.axis('off')
+        cbar2 = plt.colorbar(im, ax=ax)
+        cbar2.set_label(f'Avg {value_label}')
+        if colorbar_tick_values is not None:
+            ticks = np.asarray(colorbar_tick_values, dtype=float)
+            ticks = ticks[(ticks >= value_min) & (ticks <= value_max)]
+            cbar2.set_ticks(ticks)
+            if colorbar_tick_labels is not None and len(colorbar_tick_labels) == len(ticks):
+                cbar2.set_ticklabels(colorbar_tick_labels)
+        else:
+            cbar2.locator = MaxNLocator(nbins=7)
+            cbar2.update_ticks()
+            cbar2_ticks = np.array(sorted(set(float(t) for t in np.concatenate([cbar2.get_ticks(), anchor_ticks]))))
+            cbar2_ticks = cbar2_ticks[(cbar2_ticks >= value_min) & (cbar2_ticks <= value_max)]
+            cbar2.set_ticks(cbar2_ticks)
 
     plt.tight_layout()
     
@@ -917,7 +942,15 @@ def plot_value_heatmap(
     
     plt.show()
 
-def plot_reward_heatmap(df_with_pos, img_array, map_name, save_path=None, value_min=None, value_max=None):
+def plot_reward_heatmap(
+    df_with_pos,
+    img_array,
+    map_name,
+    save_path=None,
+    value_min=None,
+    value_max=None,
+    plot_aggregated=True,
+):
     """Plot reward-based heatmaps (convenience wrapper)"""
     plot_value_heatmap(
         df_with_pos,
@@ -928,6 +961,7 @@ def plot_reward_heatmap(df_with_pos, img_array, map_name, save_path=None, value_
         save_path,
         value_min=value_min,
         value_max=value_max,
+        plot_aggregated=plot_aggregated,
     )
 
 def print_statistics(df):

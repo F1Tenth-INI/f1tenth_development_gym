@@ -13,10 +13,12 @@ EXPERIMENTS = {
     # "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.6*/learning_metrics.csv"),
     # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_State*/learning_metrics.csv"),
 
-    "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_noCustom*/learning_metrics.csv"),
-    "proportional (TD-error), alpha=0.8": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_TD_A_0.8*/learning_metrics.csv"),
-    "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_TD_A_0.6*/learning_metrics.csv"),
-    "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-New_UTD1_State*/learning_metrics.csv"),
+    "uniform": (glob.glob("TrainingLite/rl_racing/models/Physical-20-CustomUniform-a/learning_metrics.csv") + glob.glob("TrainingLite/rl_racing/models/Physical-20b/learning_metrics.csv")),
+    "proportional (TD-error), alpha=0.6": (
+        glob.glob("TrainingLite/rl_racing/models/Physical-20b_TD_A_06/learning_metrics.csv")
+        + glob.glob("TrainingLite/rl_racing/models/Physical-20c_TD_A_06/learning_metrics.csv")
+    ),
+    "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/Physical-20-State_Wrew_10_Wd_10_We_3/learning_metrics.csv"),
 
     # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_noCustom*/learning_metrics.csv"),
     # "proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_State*/learning_metrics.csv"),
@@ -42,7 +44,7 @@ save_dir_prefix = infer_save_dir_prefix(EXPERIMENTS)
 current_save_dir = f"{base_save_dir}/{save_dir_prefix}"
 
 if not os.path.exists(current_save_dir):
-    os.mkdir(current_save_dir)
+    os.makedirs(current_save_dir, exist_ok=True)
 
 HUMAN_SCORE = 0.0  # replace per map/task
 X_LABEL = "training step"
