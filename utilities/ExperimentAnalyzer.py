@@ -3,11 +3,382 @@ import numpy as np
 import matplotlib.pyplot as plt
 from shapely import LineString, Point
 import os
+import shutil
+from pathlib import Path
+import argparse
+import re
+import ast
 from typing import Dict
 
 import json
 
 from utilities.Settings import Settings
+
+
+def _sanitize_slice_bounds(data_length: int, start: int | None, end: int | None) -> tuple[int, int]:
+    """Normalize start/end to safe dataframe slice bounds."""
+    normalized_start = 0 if start is None else max(0, start)
+    normalized_end = data_length if end is None else min(data_length, end)
+    if normalized_end < normalized_start:
+        raise ValueError(f"Invalid slice bounds: start={normalized_start}, end={normalized_end}")
+    return normalized_start, normalized_end
+
+
+def _extract_metadata_from_csv_header(csv_path: Path) -> dict[str, str]:
+    """Parse key-value metadata from CSV comment header lines."""
+    metadata: dict[str, str] = {}
+    with open(csv_path, "r", encoding="utf-8") as file:
+        for line in file:
+            stripped = line.strip()
+            if not stripped.startswith("#"):
+                break
+            payload = stripped[1:].strip()
+            if ":" not in payload:
+                continue
+            key, value = payload.split(":", 1)
+            metadata[key.strip().lower()] = value.strip()
+    return metadata
+
+
+def _extract_lap_times_from_csv_header(csv_path: Path) -> list[float]:
+    """Parse lap times from CSV header line: '# Lap times: [..]'."""
+    lap_times: list[float] = []
+    with open(csv_path, "r", encoding="utf-8") as file:
+        for line in file:
+            stripped = line.strip()
+            if not stripped.startswith("#"):
+                break
+            if "Lap times:" not in stripped:
+                continue
+            match = re.search(r"Lap times:\s*\[(.*?)\]", stripped)
+            if not match:
+                continue
+            payload = match.group(1).strip()
+            if payload == "":
+                return []
+            values = [token.strip() for token in payload.split(",")]
+            for value in values:
+                if value:
+                    lap_times.append(float(value))
+    return lap_times
+
+
+def _infer_lap_times_from_recording(recording: pd.DataFrame) -> list[float]:
+    """
+    Infer lap times from nearest waypoint index wrap-around.
+    This is used as a fallback when lap times are not present in CSV headers.
+    """
+    required_cols = {"time", "nearest_wpt_idx"}
+    if not required_cols.issubset(recording.columns):
+        return []
+    if len(recording) < 3:
+        return []
+
+    times = recording["time"].to_numpy(dtype=float)
+    nearest_idx = recording["nearest_wpt_idx"].to_numpy(dtype=float).astype(int)
+    max_idx = int(np.max(nearest_idx))
+    if max_idx <= 1:
+        return []
+
+    low_threshold = int(0.25 * max_idx)
+    high_threshold = int(0.75 * max_idx)
+
+    crossing_times: list[float] = []
+    for i in range(1, len(nearest_idx)):
+        prev_idx = nearest_idx[i - 1]
+        curr_idx = nearest_idx[i]
+        if prev_idx >= high_threshold and curr_idx <= low_threshold:
+            crossing_times.append(float(times[i]))
+
+    if len(crossing_times) < 2:
+        return []
+
+    lap_times: list[float] = []
+    for i in range(1, len(crossing_times)):
+        lap_duration = crossing_times[i] - crossing_times[i - 1]
+        # Filter numerical noise and obvious false wrap detections.
+        if lap_duration > 1.0:
+            lap_times.append(float(lap_duration))
+
+    return lap_times
+
+
+def _resolve_waypoint_file_for_error_stats(source_csv: Path, output_dir: Path) -> Path | None:
+    """Resolve map waypoint CSV used to compute position error statistics."""
+    candidate_paths = []
+    configs_dir = output_dir / "configs"
+    if configs_dir.exists():
+        candidate_paths.extend(sorted(configs_dir.glob("*_wp.csv")))
+    candidate_paths.append(Path(Settings.MAP_PATH) / f"{Settings.MAP_NAME}_wp.csv")
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _resolve_map_dir_from_metadata(metadata: dict[str, str]) -> tuple[Path | None, str | None]:
+    """Resolve map directory and map name from CSV metadata."""
+    map_name = metadata.get("map name")
+    map_path_meta = metadata.get("map path")
+
+    if map_path_meta:
+        map_dir = Path(map_path_meta).expanduser()
+        if not map_dir.is_absolute():
+            map_dir = (Path.cwd() / map_dir).resolve()
+        if map_dir.exists() and map_name:
+            return map_dir, map_name
+
+    if map_name:
+        map_dir = Path("utilities") / "maps" / map_name
+        map_dir = (Path.cwd() / map_dir).resolve()
+        if map_dir.exists():
+            return map_dir, map_name
+
+    return None, map_name
+
+
+def _load_map_background_extent(map_dir: Path, map_name: str) -> tuple[np.ndarray, list[float]] | None:
+    """
+    Load map image and world extent from ROS-style map yaml.
+    Returns: (image_array, [xmin, xmax, ymin, ymax]) or None.
+    """
+    yaml_path = map_dir / f"{map_name}.yaml"
+    if not yaml_path.exists():
+        return None
+
+    yaml_fields: dict[str, str] = {}
+    with open(yaml_path, "r", encoding="utf-8") as file:
+        for line in file:
+            text = line.strip()
+            if not text or text.startswith("#") or ":" not in text:
+                continue
+            key, value = text.split(":", 1)
+            yaml_fields[key.strip()] = value.strip()
+
+    image_name = yaml_fields.get("image")
+    resolution_raw = yaml_fields.get("resolution")
+    origin_raw = yaml_fields.get("origin")
+    if image_name is None or resolution_raw is None or origin_raw is None:
+        return None
+
+    map_image_path = (map_dir / image_name).resolve()
+    if not map_image_path.exists():
+        return None
+
+    resolution = float(resolution_raw)
+    origin = ast.literal_eval(origin_raw)
+    if not isinstance(origin, (list, tuple)) or len(origin) < 2:
+        return None
+    origin_x = float(origin[0])
+    origin_y = float(origin[1])
+
+    # Match simulator map loading in ScanSimulator2D.set_map():
+    # image is flipped vertically after loading.
+    image = np.flipud(plt.imread(map_image_path))
+    height_px, width_px = image.shape[0], image.shape[1]
+    extent = [
+        origin_x,
+        origin_x + width_px * resolution,
+        origin_y,
+        origin_y + height_px * resolution,
+    ]
+    return image, extent
+
+
+def analyze_recording_csv(
+    csv_path: str,
+    start: int | None = None,
+    end: int | None = None,
+    output_dir: str | None = None,
+    copy_recording: bool = True,
+) -> Path:
+    """
+    Analyze a single recording CSV and generate plots in a dedicated folder.
+
+    Output folder content:
+    - copy of recording CSV
+    - 2D trajectory plot
+    - state plots
+    """
+    source_csv = Path(csv_path).expanduser().resolve()
+    if not source_csv.exists():
+        raise FileNotFoundError(f"Recording file not found: {source_csv}")
+    if source_csv.suffix.lower() != ".csv":
+        raise ValueError(f"Expected a .csv file, got: {source_csv}")
+
+    recording = pd.read_csv(source_csv, comment="#")
+    if recording.empty:
+        raise ValueError(f"Recording file has no rows: {source_csv}")
+
+    slice_start, slice_end = _sanitize_slice_bounds(len(recording), start, end)
+    recording_slice = recording.iloc[slice_start:slice_end].copy()
+    if recording_slice.empty:
+        raise ValueError(
+            f"Requested range is empty for file with {len(recording)} rows: "
+            f"start={slice_start}, end={slice_end}"
+        )
+
+    output_dir = (
+        Path(output_dir).expanduser().resolve()
+        if output_dir is not None
+        else source_csv.parent / f"{source_csv.stem}_data"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if copy_recording:
+        copied_csv_path = output_dir / source_csv.name
+        shutil.copy2(source_csv, copied_csv_path)
+
+    header_metadata = _extract_metadata_from_csv_header(source_csv)
+
+    lap_times = _extract_lap_times_from_csv_header(source_csv)
+    lap_time_source = "csv_header"
+    if not lap_times:
+        lap_times = _infer_lap_times_from_recording(recording_slice)
+        lap_time_source = "inferred_from_nearest_wpt_idx"
+
+    lap_time_summary = {
+        "source": lap_time_source,
+        "lap_times_s": lap_times,
+        "count": len(lap_times),
+        "best_s": float(min(lap_times)) if lap_times else None,
+        "mean_s": float(np.mean(lap_times)) if lap_times else None,
+        "std_s": float(np.std(lap_times)) if lap_times else None,
+    }
+    with open(output_dir / "lap_times_summary.json", "w", encoding="utf-8") as file:
+        json.dump(lap_time_summary, file, indent=2)
+
+    if lap_times:
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(np.arange(1, len(lap_times) + 1), lap_times, marker="o", linewidth=1.2)
+        ax.set_xlabel("Lap Index")
+        ax.set_ylabel("Lap Time [s]")
+        ax.set_title(f"Lap Time Analysis ({source_csv.stem})")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(output_dir / "lap_time_analysis.png", dpi=150)
+        plt.close(fig)
+
+    required_pose_cols = {"pose_x", "pose_y"}
+    if not required_pose_cols.issubset(recording_slice.columns):
+        missing = sorted(required_pose_cols.difference(recording_slice.columns))
+        raise KeyError(f"Missing required trajectory columns: {missing}")
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    map_dir, map_name = _resolve_map_dir_from_metadata(header_metadata)
+    if map_dir is not None and map_name is not None:
+        map_background = _load_map_background_extent(map_dir, map_name)
+        if map_background is not None:
+            map_image, map_extent = map_background
+            ax.imshow(map_image, cmap="gray", origin="lower", extent=map_extent, alpha=0.65)
+
+    ax.plot(recording_slice["pose_x"], recording_slice["pose_y"], linewidth=1.2, color="tab:red", label="Trajectory")
+    ax.set_xlabel("X Position [m]")
+    ax.set_ylabel("Y Position [m]")
+    title_map_suffix = f" | map={map_name}" if map_name is not None else ""
+    ax.set_title(f"2D Trajectory ({source_csv.stem}{title_map_suffix})")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_dir / "trajectory_2d_map.png", dpi=150)
+    plt.close(fig)
+
+    waypoint_file = _resolve_waypoint_file_for_error_stats(source_csv, output_dir)
+    error_stats_output: Dict[str, float | None | str] | None = None
+    if waypoint_file is not None:
+        waypoints = pd.read_csv(waypoint_file, comment="#")
+        waypoints.columns = waypoints.columns.str.replace(" ", "")
+        if {"x_m", "y_m"}.issubset(waypoints.columns):
+            raceline = LineString(zip(waypoints["x_m"].to_numpy(), waypoints["y_m"].to_numpy()))
+            positions = zip(recording_slice["pose_x"].to_numpy(), recording_slice["pose_y"].to_numpy())
+            errors = np.array([Point(x, y).distance(raceline) for x, y in positions], dtype=float)
+            error_stats_output = {
+                "max": float(np.max(errors)),
+                "min": float(np.min(errors)),
+                "mean": float(np.mean(errors)),
+                "std": float(np.std(errors)),
+                "var": float(np.var(errors)),
+            }
+        else:
+            error_stats_output = {
+                "max": None,
+                "min": None,
+                "mean": None,
+                "std": None,
+                "var": None,
+                "reason": f"Waypoint file missing required columns in {waypoint_file.name}",
+            }
+    else:
+        error_stats_output = {
+            "max": None,
+            "min": None,
+            "mean": None,
+            "std": None,
+            "var": None,
+            "reason": "No waypoint file found for error calculation.",
+        }
+
+    with open(output_dir / "error_stats.json", "w", encoding="utf-8") as file:
+        json.dump(error_stats_output, file, indent=4)
+
+    candidate_state_cols = [
+        "angular_vel_z",
+        "linear_vel_x",
+        "linear_vel_y",
+        "pose_theta",
+        "pose_theta_cos",
+        "pose_theta_sin",
+        "pose_x",
+        "pose_y",
+        "slip_angle",
+        "steering_angle",
+        "angular_control_calculated",
+        "translational_control_calculated",
+    ]
+    state_cols = [col for col in candidate_state_cols if col in recording_slice.columns]
+    if not state_cols:
+        raise KeyError("No known state columns found for state plots.")
+
+    x_axis = (
+        recording_slice["time"].to_numpy()
+        if "time" in recording_slice.columns
+        else np.arange(len(recording_slice))
+    )
+    x_label = "Time [s]" if "time" in recording_slice.columns else "Sample Index"
+
+    fig, axes = plt.subplots(len(state_cols), 1, figsize=(14, 2.5 * len(state_cols)), sharex=True)
+    if len(state_cols) == 1:
+        axes = [axes]
+
+    for axis, state_name in zip(axes, state_cols):
+        axis.plot(x_axis, recording_slice[state_name].to_numpy(), linewidth=1.0)
+        axis.set_ylabel(state_name)
+        axis.grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel(x_label)
+    fig.suptitle(f"State Plots ({source_csv.stem})", y=0.995)
+    fig.tight_layout()
+    fig.savefig(output_dir / "state_plots.png", dpi=150)
+    plt.close(fig)
+
+    control_cols = [col for col in ["angular_control_calculated", "translational_control_calculated"] if col in recording_slice.columns]
+    if control_cols:
+        fig, axes = plt.subplots(len(control_cols), 1, figsize=(12, 3 * len(control_cols)), sharex=True)
+        if len(control_cols) == 1:
+            axes = [axes]
+
+        for axis, control_name in zip(axes, control_cols):
+            axis.plot(x_axis, recording_slice[control_name].to_numpy(), linewidth=1.0)
+            axis.set_ylabel(control_name)
+            axis.grid(True, alpha=0.3)
+
+        axes[-1].set_xlabel(x_label)
+        fig.suptitle(f"Control Plots ({source_csv.stem})", y=0.995)
+        fig.tight_layout()
+        fig.savefig(output_dir / "control_plots.png", dpi=150)
+        plt.close(fig)
+
+    return output_dir
 
 
 class ExperimentAnalyzer:
@@ -335,13 +706,41 @@ class ExperimentAnalyzer:
     
      
 
-# Test function
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Analyze recording CSV and generate plots.")
+    parser.add_argument(
+        "--csv_path",
+        type=str,
+        required=True,
+        help="Path to recording CSV file.",
+    )
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=None,
+        help="Optional start index (inclusive). Defaults to beginning of file.",
+    )
+    parser.add_argument(
+        "--end",
+        type=int,
+        default=None,
+        help="Optional end index (exclusive). Defaults to end of file.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Optional output directory. Defaults to <recording_stem>_data next to the CSV.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    # experiment_dir = "TrainingLite/Datasets/Custom_IPZ34b/"
-    experiment_dir = "ExperimentRecordings/"
-    experiment_name = "2025-03-31_12-34-45_Recording1_0_RCA1_neural_50Hz_vel_0.8_noise_c[0.0, 0.0]_mu_0.5_mu_c_None_"
-    
-    experiment_path = os.path.join(experiment_dir, experiment_name)
-    
-    ea = ExperimentAnalyzer(experiment_name=experiment_name, experiment_path=experiment_dir) 
-    ea.plot_experiment()
+    args = _parse_args()
+    output_path = analyze_recording_csv(
+        csv_path=args.csv_path,
+        start=args.start,
+        end=args.end,
+        output_dir=args.output_dir,
+    )
+    print(f"Analysis completed. Output folder: {output_path}")
