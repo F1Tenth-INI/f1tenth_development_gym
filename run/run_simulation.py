@@ -22,6 +22,7 @@ from utilities.state_utilities import (
     )
 from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
+from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
@@ -61,6 +62,7 @@ class RacingSimulation:
 
         
         self.renderer = None
+        self.renderer_backend = None
 
         self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
@@ -114,22 +116,31 @@ class RacingSimulation:
                 
     
     def prepare_simulation(self):
+        self.renderer = None
+        self.renderer_backend = None
         
         # Init renderer
         
-        if Settings.RENDER_MODE is not None:        
-            from sim.f110_sim.envs.rendering import EnvRenderer
-
+        if Settings.RENDER_MODE is not None:
             map_name = Settings.MAP_NAME
             map_ext = ".png"
             map_path = os.path.join(Settings.MAP_PATH, map_name)
+            self.renderer_backend = str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower()
 
-
-            # screen size is 40% of the actual screen size
-            # Determine screen size
-            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
-            window_height = int(window_width / 1.5)
-            self.renderer = EnvRenderer(window_width, window_height)
+            if self.renderer_backend == "web":
+                from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
+                self.renderer = WebEnvRenderer()
+            elif self.renderer_backend == "pygame":
+                from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
+                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+                window_height = int(window_width / 1.5)
+                self.renderer = EnvRenderer(window_width, window_height)
+            else:
+                from sim.f110_sim.envs.rendering.pyglet_rendering import EnvRenderer
+                # screen size is 40% of the actual screen size
+                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+                window_height = int(window_width / 1.5)
+                self.renderer = EnvRenderer(window_width, window_height)
             if not Settings.BLANK_MAP:
                 self.renderer.update_map(map_path, map_ext)
         
@@ -467,10 +478,13 @@ class RacingSimulation:
             render_obs.update({
                 'simulation_time': self.sim_time,
             })
+            if self.renderer_backend == "web":
+                render_obs["web_overlay"] = build_web_overlay(self.drivers)
 
             self.renderer.render(render_obs)
-            
-            self.render_callback(self.renderer)
+
+            if self.renderer_backend == "pyglet" and Settings.RENDER_MODE in ("human", "human_fast"):
+                self.render_callback(self.renderer)
 
 
     '''
