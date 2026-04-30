@@ -235,9 +235,20 @@ class CarSystem:
         if Settings.RENDER_MODE is not None:
             self.render_utils.render(e)
 
-    def process_observation(self, obs):
+    def process_observation(self, env_state=None):
                 
         # Control step
+        # env_state is an optional full-environment snapshot provided by the
+        # simulation loop (all cars + other relevant data). Most planners
+        # ignore it; some custom controllers may read `self.planner.env_state`.
+        self.env_state = env_state
+        try:
+            if self.planner is not None:
+                setattr(self.planner, "env_state", env_state)
+        except Exception:
+            # Be permissive: controllers may use __slots__ or other restrictions.
+            pass
+
         if self.planner is not None:
             self.angular_control, self.translational_control = self.planner.process_observation()
 
