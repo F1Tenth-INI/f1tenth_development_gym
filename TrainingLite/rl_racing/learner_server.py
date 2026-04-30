@@ -900,14 +900,10 @@ class LearnerServer:
         udt_control = None
         if target_udt is not None:
             target_udt = float(target_udt)
-            deadband_ratio = float(getattr(Settings, "SAC_UDT_DEADBAND_RATIO", 0.1))
-            deadband_ratio = min(max(deadband_ratio, 0.0), 0.95)
-            resume_udt = target_udt * (1.0 - deadband_ratio)
             udt_control = {
                 "target_udt": target_udt,
-                "resume_udt": resume_udt,
+                "resume_udt": target_udt,
                 "training_paused": bool(self._training_paused_for_udt),
-                "deadband_ratio": deadband_ratio,
                 "freq_adjust_step_ratio": float(getattr(Settings, "SAC_UDT_FREQ_ADJUST_STEP_RATIO", 0.05)),
                 "min_sim_frequency_hz": float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0)),
             }

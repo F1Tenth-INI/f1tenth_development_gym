@@ -227,7 +227,6 @@ class Settings():
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
     SAC_TARGET_UDT = 1
     SAC_MAX_UTD = 4 
-    SAC_UDT_DEADBAND_RATIO = 0.1
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0
 
