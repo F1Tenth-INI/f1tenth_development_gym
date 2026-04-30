@@ -61,7 +61,13 @@ METRIC_DEFINITIONS = [
 REFERENCE_METRICS = [{"event_name": "first_lap", "label": "first lap"}] + METRIC_DEFINITIONS
 RANKED_METRICS = METRIC_DEFINITIONS
 SCORE_ALPHA = 0.5
+MISSING_METRIC_PENALTY_FACTOR = 1.5
 DEFAULT_OVERALL_TOP_N = 30
+
+RANKING_MODES = {
+    "all": METRIC_DEFINITIONS,
+    "reward_only": [metric for metric in METRIC_DEFINITIONS if metric["kind"] == "episode_length_and_reward"],
+}
 
 
 def _metric_label(event_name: str) -> str:
@@ -173,10 +179,11 @@ def _apply_metric_rankings(rows: List[Dict[str, object]], alpha: float) -> None:
 
 
 def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Compute overall ranking from per-metric ranks with missing-metric penalty.
+    """Compute overall ranking from per-metric scores.
 
-    For each metric, missing rank gets penalty = (max_rank_for_metric + 1).
-    Lower total points is better.
+    The final ranking uses the geometric mean of the per-metric scores, where
+    lower is better. Missing metrics receive a score worse than the worst
+    achieved score for that metric so they still affect the overall score.
     """
     metric_specs: List[Dict[str, object]] = []
     active_metric_count = 0
@@ -191,7 +198,9 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
         matched_value_key = f"{prefix}_matched_value"
 
         rank_by_name: Dict[str, int] = {}
+        score_by_name: Dict[str, float] = {}
         max_rank = 0
+        valid_scores: List[float] = []
         for row in rows:
             name = str(row.get("name"))
             rank = row.get(rank_key)
@@ -201,8 +210,16 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
                 if as_int > max_rank:
                     max_rank = as_int
 
-        if max_rank > 0:
+            score = row.get(score_key)
+            if isinstance(score, (int, float)) and float(score) > 0.0:
+                score_value = float(score)
+                score_by_name[name] = score_value
+                valid_scores.append(score_value)
+
+        penalty_score: Optional[float] = None
+        if valid_scores:
             active_metric_count += 1
+            penalty_score = max(valid_scores) * MISSING_METRIC_PENALTY_FACTOR
 
         metric_specs.append(
             {
@@ -215,7 +232,9 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
                 "time_key": time_key,
                 "matched_value_key": matched_value_key,
                 "rank_by_name": rank_by_name,
+                "score_by_name": score_by_name,
                 "max_rank": max_rank,
+                "penalty_score": penalty_score,
             }
         )
 
@@ -224,12 +243,16 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
         name = str(row.get("name"))
         points = 0
         covered = 0
+        score_values: List[float] = []
         per_metric: List[Dict[str, object]] = []
 
         for spec in metric_specs:
             rank_by_name = spec["rank_by_name"]
+            score_by_name = spec["score_by_name"]
             max_rank = int(spec["max_rank"])
+            penalty_score = spec["penalty_score"]
             rank_value = rank_by_name.get(name)
+            score_value = score_by_name.get(name)
             penalty = (max_rank + 1) if max_rank > 0 else None
 
             if rank_value is not None:
@@ -238,13 +261,19 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
             elif penalty is not None:
                 points += penalty
 
+            effective_score = score_value if score_value is not None else penalty_score
+            if effective_score is not None and effective_score > 0.0:
+                score_values.append(effective_score)
+
             per_metric.append(
                 {
                     "metric_id": spec["metric_id"],
                     "metric_label": spec["metric_label"],
                     "rank": rank_value,
                     "penalty": penalty,
-                    "score": row.get(spec["score_key"]),
+                    "score": score_value,
+                    "effective_score": effective_score,
+                    "penalty_score": penalty_score,
                     "total_timesteps": row.get(spec["timesteps_key"]),
                     "total_weight_updates": row.get(spec["updates_key"]),
                     "time": row.get(spec["time_key"]),
@@ -252,14 +281,22 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
                 }
             )
 
+        overall_score = (
+            math.exp(sum(math.log(score) for score in score_values) / len(score_values))
+            if score_values
+            else None
+        )
+
         points_value: Optional[int] = points if active_metric_count > 0 else None
+        row["overall_score"] = overall_score
         row["overall_rank_points_a0_5"] = points_value
-        row["overall_rank_metrics_covered"] = covered
-        row["overall_rank_metrics_total"] = active_metric_count
+        row["overall_score_metrics_covered"] = covered
+        row["overall_score_metrics_total"] = active_metric_count
 
         overall_rows.append(
             {
                 "name": name,
+                "score": overall_score,
                 "points": points_value,
                 "metrics_covered": covered,
                 "metrics_total": active_metric_count,
@@ -268,8 +305,15 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
             }
         )
 
-    sortable = [r for r in overall_rows if isinstance(r.get("points"), int)]
-    sortable.sort(key=lambda r: (int(r["points"]), -int(r["metrics_covered"]), str(r["name"])))
+    sortable = [r for r in overall_rows if isinstance(r.get("score"), (int, float))]
+    sortable.sort(
+        key=lambda r: (
+            float(r["score"]),
+            -int(r["metrics_covered"]),
+            int(r["points"]) if isinstance(r.get("points"), int) else math.inf,
+            str(r["name"]),
+        )
+    )
 
     position_by_name: Dict[str, int] = {}
     for idx, entry in enumerate(sortable, start=1):
@@ -277,7 +321,7 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
         entry["position"] = idx
 
     for row in rows:
-        row["overall_rank_position_a0_5"] = position_by_name.get(str(row.get("name")))
+        row["overall_score_position"] = position_by_name.get(str(row.get("name")))
 
     for entry in overall_rows:
         if "position" not in entry:
@@ -290,6 +334,51 @@ def _compute_overall_rankings(rows: List[Dict[str, object]]) -> List[Dict[str, o
         )
     )
     return overall_rows
+
+
+def average_same_model_rows(rows: Optional[List[Dict[str, object]]] = None) -> List[Dict[str, object]]:
+    if not rows:
+        return []
+
+    grouped_rows: Dict[str, List[Dict[str, object]]] = {}
+    for row in rows:
+        raw_name = str(row.get("name", ""))
+        group_name = raw_name.rsplit("_", 1)[0] if "_" in raw_name else raw_name
+        grouped_rows.setdefault(group_name, []).append(row)
+
+    averaged_rows: List[Dict[str, object]] = []
+    for group_name, entries in grouped_rows.items():
+        averaged: Dict[str, object] = {
+            "name": group_name,
+            "csv_path": None,
+            "group_count": len(entries),
+        }
+
+        all_keys = {k for entry in entries for k in entry.keys()}
+        for key in all_keys:
+            if key in {"name", "csv_path"}:
+                continue
+
+            values = [entry.get(key) for entry in entries]
+            numeric_values = [
+                float(value)
+                for value in values
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            ]
+
+            if numeric_values:
+                averaged[key] = sum(numeric_values) / len(numeric_values)
+                continue
+
+            non_null_values = [value for value in values if value not in (None, "")]
+            if non_null_values and all(value == non_null_values[0] for value in non_null_values):
+                averaged[key] = non_null_values[0]
+            else:
+                averaged[key] = None
+
+        averaged_rows.append(averaged)
+
+    return averaged_rows
 
 
 def _safe_float(value: Optional[str]) -> Optional[float]:
@@ -482,6 +571,12 @@ def build_output_path(out_file: Optional[str], name: Optional[str], prefix: Opti
     return ROOT_DIR / "batch_learning_metrics_summary" / safe_tag / f"learning_metrics_summary_{safe_tag}.csv"
 
 
+def apply_ranking_mode(output_path: Path, ranking_mode: str) -> Path:
+    if ranking_mode == "all":
+        return output_path
+    return output_path.with_name(f"{output_path.stem}_{ranking_mode}{output_path.suffix}")
+
+
 def build_reference_output_path(summary_output_path: Path) -> Path:
     return summary_output_path.with_name(
         summary_output_path.stem.replace("learning_metrics_summary", "learning_metric_references")
@@ -556,6 +651,11 @@ def _write_leaderboard_txt(
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"alpha={SCORE_ALPHA}\n")
         f.write("score=(T/Tref)^alpha * (U/Uref)^(1-alpha), lower is better\n\n")
+        f.write("overall_score=geometric_mean(per-metric score), lower is better\n")
+        f.write(
+            f"missing_metric_penalty_factor={MISSING_METRIC_PENALTY_FACTOR} "
+            "(applied as worse-than-worst achieved score)\n\n"
+        )
 
         f.write("=== overall_ranking ===\n")
         if not overall_rows:
@@ -568,9 +668,10 @@ def _write_leaderboard_txt(
             else:
                 for entry in ranked_rows:
                     f.write(
-                        "#{pos:>3} {name} | points={points} | covered={covered}/{total} | total_weight_updates={updates}\n".format(
+                        "#{pos:>3} {name} | overall_score={score:.6f} | rank_sum={points} | covered={covered}/{total} | total_weight_updates={updates}\n".format(
                             pos=entry.get("position"),
                             name=entry.get("name"),
+                            score=float(entry.get("score")) if isinstance(entry.get("score"), (int, float)) else float("nan"),
                             points=entry.get("points"),
                             covered=entry.get("metrics_covered"),
                             total=entry.get("metrics_total"),
@@ -585,9 +686,10 @@ def _write_leaderboard_txt(
                 else:
                     for entry in top_rows:
                         f.write(
-                            "\n#{pos:>3} {name}\npoints={points}, covered={covered}/{total}, total_weight_updates={updates}\n".format(
+                            "\n#{pos:>3} {name}\noverall_score={score:.6f}, rank_sum={points}, covered={covered}/{total}, total_weight_updates={updates}\n".format(
                                 pos=entry.get("position"),
                                 name=entry.get("name"),
+                                score=float(entry.get("score")) if isinstance(entry.get("score"), (int, float)) else float("nan"),
                                 points=entry.get("points"),
                                 covered=entry.get("metrics_covered"),
                                 total=entry.get("metrics_total"),
@@ -597,12 +699,20 @@ def _write_leaderboard_txt(
                         for metric_result in entry.get("per_metric", []):
                             rank_value = metric_result.get("rank")
                             penalty_value = metric_result.get("penalty")
+                            score_value = metric_result.get("score")
+                            effective_score_value = metric_result.get("effective_score")
                             rank_text = str(rank_value) if rank_value is not None else f"NA(penalty={penalty_value})"
+                            if score_value is not None:
+                                score_text = f"{score_value}"
+                            elif effective_score_value is not None:
+                                score_text = f"NA(penalty={effective_score_value})"
+                            else:
+                                score_text = "NA"
                             f.write(
                                 "  - {metric_id}: rank={rank_text}, score={score}, T={t}, U={u}, time={time}, matched={matched}\n".format(
                                     metric_id=metric_result.get("metric_id"),
                                     rank_text=rank_text,
-                                    score=metric_result.get("score"),
+                                    score=score_text,
                                     t=metric_result.get("total_timesteps"),
                                     u=metric_result.get("total_weight_updates"),
                                     time=metric_result.get("time"),
@@ -671,10 +781,19 @@ def main() -> None:
         default=DEFAULT_OVERALL_TOP_N,
         help="How many models to show in detailed overall ranking section of TXT (default: 30)",
     )
+    parser.add_argument(
+        "--ranking-mode",
+        choices=sorted(RANKING_MODES.keys()),
+        default="all",
+        help="Which milestone set to rank in the overall leaderboard (default: all)",
+    )
 
     args = parser.parse_args()
     if not args.name and not args.prefix:
         parser.error("Provide either --name or --prefix")
+
+    global RANKED_METRICS
+    RANKED_METRICS = RANKING_MODES[args.ranking_mode]
 
     models_dir = Path(args.models_dir)
     models = find_models(models_dir=models_dir, name=args.name, prefix=args.prefix)
@@ -683,7 +802,7 @@ def main() -> None:
         print(f"No matching model directories found for: {target}")
         return
 
-    output_path = build_output_path(args.out_file, args.name, args.prefix)
+    output_path = apply_ranking_mode(build_output_path(args.out_file, args.name, args.prefix), args.ranking_mode)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows: List[Dict[str, object]] = []
@@ -706,69 +825,87 @@ def main() -> None:
         print("No model summaries were generated.")
         return
 
+    grouped_rows = average_same_model_rows(rows)
+
     _apply_metric_rankings(rows, alpha=SCORE_ALPHA)
     overall_rows = _compute_overall_rankings(rows)
 
-    all_fields = sorted({key for row in rows for key in row.keys()})
-    front_fields = ["name"]
-    end_fields = [
-        "csv_path",
-        "rows_used",
-        "final_time",
-        "final_total_timesteps",
-        "final_total_weight_updates",
+    _apply_metric_rankings(grouped_rows, alpha=SCORE_ALPHA)
+    grouped_overall_rows = _compute_overall_rankings(grouped_rows)
+
+    base_output_path = output_path
+    outputs = [
+        ("", rows, overall_rows),
+        ("_grouped", grouped_rows, grouped_overall_rows),
     ]
-    middle_fields = [f for f in all_fields if f not in set(front_fields + end_fields)]
-    ordered_fields = front_fields + middle_fields + [f for f in end_fields if f in all_fields]
 
-    with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=ordered_fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-    reference_rows = _collect_reference_rows(rows)
-    reference_output_path = build_reference_output_path(output_path)
-    with open(reference_output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["metric_id", "metric_label", "sample_count", "Tref", "Uref"])
-        writer.writeheader()
-        for row in reference_rows:
-            writer.writerow(row)
-
-    leaderboard_rows = _collect_leaderboard_rows(rows)
-    leaderboard_csv_output_path = build_leaderboard_csv_output_path(output_path)
-    with open(leaderboard_csv_output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "metric_id",
-                "metric_label",
-                "name",
-                "rank",
-                "speed_score_a0_5",
-                "total_timesteps",
-                "total_weight_updates",
-                "time",
-                "matched_value",
-            ],
+    for output_suffix, output_rows, output_overall_rows in outputs:
+        current_output_path = base_output_path.with_name(
+            base_output_path.stem + output_suffix + base_output_path.suffix
         )
-        writer.writeheader()
-        for row in leaderboard_rows:
-            writer.writerow(row)
 
-    leaderboard_txt_output_path = build_leaderboard_txt_output_path(output_path)
-    _write_leaderboard_txt(
-        leaderboard_rows=leaderboard_rows,
-        overall_rows=overall_rows,
-        output_path=leaderboard_txt_output_path,
-        overall_top_n=max(0, int(args.overall_top_n)),
-    )
+        all_fields = sorted({key for row in output_rows for key in row.keys()})
+        front_fields = ["name"]
+        end_fields = [
+            "csv_path",
+            "rows_used",
+            "final_time",
+            "final_total_timesteps",
+            "final_total_weight_updates",
+        ]
+        middle_fields = [f for f in all_fields if f not in set(front_fields + end_fields)]
+        ordered_fields = front_fields + middle_fields + [f for f in end_fields if f in all_fields]
 
-    print(f"Processed models: {len(rows)}")
-    print(f"Summary CSV: {output_path}")
-    print(f"Metric references CSV: {reference_output_path}")
-    print(f"Metric leaderboards CSV: {leaderboard_csv_output_path}")
-    print(f"Metric leaderboards TXT: {leaderboard_txt_output_path}")
+        with open(current_output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=ordered_fields)
+            writer.writeheader()
+            for row in output_rows:
+                writer.writerow(row)
+
+        reference_rows = _collect_reference_rows(output_rows)
+        reference_output_path = build_reference_output_path(current_output_path)
+        with open(reference_output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["metric_id", "metric_label", "sample_count", "Tref", "Uref"])
+            writer.writeheader()
+            for row in reference_rows:
+                writer.writerow(row)
+
+        leaderboard_rows = _collect_leaderboard_rows(output_rows)
+        leaderboard_csv_output_path = build_leaderboard_csv_output_path(current_output_path)
+        with open(leaderboard_csv_output_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "metric_id",
+                    "metric_label",
+                    "name",
+                    "rank",
+                    "speed_score_a0_5",
+                    "total_timesteps",
+                    "total_weight_updates",
+                    "time",
+                    "matched_value",
+                ],
+            )
+            writer.writeheader()
+            for row in leaderboard_rows:
+                writer.writerow(row)
+
+        leaderboard_txt_output_path = build_leaderboard_txt_output_path(current_output_path)
+        _write_leaderboard_txt(
+            leaderboard_rows=leaderboard_rows,
+            overall_rows=output_overall_rows,
+            output_path=leaderboard_txt_output_path,
+            overall_top_n=max(0, int(args.overall_top_n)),
+        )
+
+        print(f"Processed models: {len(output_rows)}")
+        print(f"Summary CSV: {current_output_path}")
+        print(f"Metric references CSV: {reference_output_path}")
+        print(f"Metric leaderboards CSV: {leaderboard_csv_output_path}")
+        print(f"Metric leaderboards TXT: {leaderboard_txt_output_path}")
+
+    
 
 
 if __name__ == "__main__":

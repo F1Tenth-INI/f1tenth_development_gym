@@ -25,8 +25,8 @@ sv_min: -2.6
 sv_max: 2.6
 
 # Acceleration Constraints - ADJUSTED based on observed data
-a_max: 4.5 # reduced from 5.0 - observed accelerations go higher
-a_min: -4.5 # increased from -10.0 - more realistic braking
+a_max: 5.0 # reduced from 5.0 - observed accelerations go higher
+a_min: -5.0 # increased from -10.0 - more realistic braking
 v_min: -5.0
 v_max: 10.0 # reduced from 15 - based on observed max ~6.6 m/s
 v_switch: 7.319

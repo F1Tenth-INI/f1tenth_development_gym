@@ -13,10 +13,10 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 import seaborn as sns
 
 # Configuration
-DATA_DIR = Path("batch_learning_metrics_summary/RCA2-Fixed")
-CSV_FILE = DATA_DIR / "learning_metric_leaderboards_RCA2-Fixed.csv"
-OUTPUT_EXCEL = DATA_DIR / "ranking_table_RCA2-Fixed.xlsx"
-OUTPUT_PNG = DATA_DIR / "ranking_table_RCA2-Fixed.png"
+DATA_DIR = Path("batch_learning_metrics_summary/RCA2-Final")
+CSV_FILE = DATA_DIR / "learning_metric_leaderboards_RCA2-Final_grouped.csv"
+OUTPUT_EXCEL = DATA_DIR / "ranking_table_RCA2-Final_grouped.xlsx"
+OUTPUT_PNG = DATA_DIR / "ranking_table_RCA2-Final_grouped.png"
 
 def load_and_process_data(csv_path):
     """Load CSV and create ranking table."""
@@ -214,7 +214,7 @@ def create_png_visualization(ranking_table, output_path):
     ax.set_yticks(np.arange(num_models) + 0.5)
     model_labels = [name[:40] + '...' if len(name) > 40 else name 
                     for name in data_for_viz.index]
-    ax.set_yticklabels(model_labels, fontsize=7)
+    ax.set_yticklabels(list(reversed(model_labels)), fontsize=7)
     
     # Title
     ax.set_title('Model Ranking Heatmap\n(Green=Best Rank, Red=Worst Rank, Gray=Not Reached)', 

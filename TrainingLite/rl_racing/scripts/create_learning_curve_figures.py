@@ -13,19 +13,33 @@ EXPERIMENTS = {
     # "proportional (TD-error), alpha=0.6": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_TD_A_0.6*/learning_metrics.csv"),
     # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Fixed_maxFreq_65_State*/learning_metrics.csv"),
 
-    "uniform": (glob.glob("TrainingLite/rl_racing/models/Physical-20-CustomUniform-a/learning_metrics.csv") + glob.glob("TrainingLite/rl_racing/models/Physical-20b/learning_metrics.csv")),
-    "proportional (TD-error), alpha=0.6": (
-        glob.glob("TrainingLite/rl_racing/models/Physical-20b_TD_A_06/learning_metrics.csv")
-        + glob.glob("TrainingLite/rl_racing/models/Physical-20c_TD_A_06/learning_metrics.csv")
-    ),
-    "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/Physical-20-State_Wrew_10_Wd_10_We_3/learning_metrics.csv"),
+    # "uniform": (glob.glob("TrainingLite/rl_racing/models/Physical-20-CustomUniform-a/learning_metrics.csv") + glob.glob("TrainingLite/rl_racing/models/Physical-20b/learning_metrics.csv")),
+    # "proportional (TD-error), alpha=0.6": (
+    #     glob.glob("TrainingLite/rl_racing/models/Physical-20d_TD_A_06/learning_metrics.csv")
+    #     + glob.glob("TrainingLite/rl_racing/models/Physical-20b_TD_A_06/learning_metrics.csv")
+    # ),
+    # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/Physical-20-State_Wrew_10_Wd_10_We_3/learning_metrics.csv"),
 
-    # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_noCustom*/learning_metrics.csv"),
-    # "proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_State*/learning_metrics.csv"),
-    # "proportional (TD-error)": glob.glob("TrainingLite/rl_racing/models/RCA2-Final_TD*/learning_metrics.csv"),
+    # "uniform": (glob.glob("TrainingLite/rl_racing/models/RCA2-Results-F70_CUSTOM_uniform_A00*/learning_metrics.csv") 
+    #             + 
+    #             glob.glob("TrainingLite/rl_racing/models/RCA2-Results-F83_CUSTOM_uniform_A00*/learning_metrics.csv")),
+    # "proportional (TD-error), alpha=0.6": (
+    #     glob.glob("TrainingLite/rl_racing/models/RCA2-Results_noSepBatches-F83_TD_A_0.6_ActorInvTD_False*/learning_metrics.csv")
+    #     # + glob.glob("TrainingLite/rl_racing/models/RCA2-Results-F65_TD_A_0.6_ActorInvTD_False*/learning_metrics.csv")
+    # ),
+    # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Results-F65_State_Wrew_5_Wd_5_We_5*/learning_metrics.csv"),
+
+    # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2c-Results*/learning_metrics.csv"),
+    # "proportional (TD-error)": glob.glob("TrainingLite/rl_racing/models/RCA2c-maxFreq_65_TD_A_0.6_ActorInvTD_False*/learning_metrics.csv"),
+    # "proportional (TD-error, actor Inverse TD)": glob.glob("TrainingLite/rl_racing/models/RCA2c-maxFreq_65_TD_A_0.6_ActorInvTD_True*/learning_metrics.csv"),
 }
 
-base_save_dir = "learning_curves"
+# ----------------------------------------
+#set to None to auto find common prefix 
+save_dir_prefix = "Physical-2-uni-2-TD06"
+# ----------------------------------------
+
+
 
 def infer_save_dir_prefix(experiments):
     model_names = []
@@ -40,7 +54,10 @@ def infer_save_dir_prefix(experiments):
     inferred = os.path.commonprefix(model_names)
     return inferred or "all_experiments"
 
-save_dir_prefix = infer_save_dir_prefix(EXPERIMENTS)
+if not save_dir_prefix:
+    save_dir_prefix = infer_save_dir_prefix(EXPERIMENTS)
+
+base_save_dir = "learning_curves"  # directory to save figures
 current_save_dir = f"{base_save_dir}/{save_dir_prefix}"
 
 if not os.path.exists(current_save_dir):

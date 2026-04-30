@@ -242,13 +242,10 @@ class Settings():
 
     SAC_RANK_BASED_SAMPLING = False
 
-    SAC_CURRICULUM_DEBUG = False
-    SAC_AGENT_DEBUG = True
-    LEARNER_SERVER_DEBUG = True
     # If set (seconds), training actor sends learner terminate once at least two completed laps
     # are strictly faster than this (so metrics can include the first sub-threshold lap).
     SAC_TERMINATE_BELOW_LAPTIME = None
-    SAC_AGENT_DEBUG = False
+    SAC_AGENT_DEBUG = True
     LEARNER_SERVER_DEBUG = False
 
     SAC_SPEED_CURRICULUM_LEARNING = False
