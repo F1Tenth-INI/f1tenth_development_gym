@@ -18,7 +18,7 @@ import time
 import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper
+from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker
 
 from utilities.Settings import Settings
 
@@ -127,6 +127,14 @@ class LearnerServer:
             self._sync_save_model_from_load_model()
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
+        self.obs_tracker = ObsRewardTracker(
+            model_dir=self.model_dir,
+            enabled=bool(getattr(Settings, "SAC_OBS_TRACKING_ENABLED", True)),
+            flush_every=int(getattr(Settings, "SAC_OBS_TRACKING_FLUSH_EVERY", 10_000)),
+            hist_bins=int(getattr(Settings, "SAC_OBS_HIST_BINS", 40)),
+            hist_sample_cap=int(getattr(Settings, "SAC_OBS_HIST_SAMPLE_CAP", 20_000)),
+            hist_max_dims=int(getattr(Settings, "SAC_OBS_HIST_MAX_DIMS", 256)),
+        )
 
         self._ensure_client_observation_builder()
         SacUtilities.zip_relevant_files(self.model_dir)
@@ -319,6 +327,7 @@ class LearnerServer:
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
         self.save_replay_buffer()
+        self.obs_tracker.flush(render_png=False)
 
     def _buffer_obs_at(self, idx: int) -> np.ndarray:
         if self.replay_buffer is None:
@@ -469,8 +478,7 @@ class LearnerServer:
     # No normalization for now: obs arrive normalized already
     def _normalize_obs(self, x: np.ndarray) -> np.ndarray:
         return x.astype(np.float32)
-      
-    
+
     def _dummy_vec_from_spaces(self, obs_space: spaces.Box, act_space: spaces.Box):
         return DummyVecEnv([lambda: _SpacesOnlyEnv(obs_space, act_space)])
 
@@ -496,6 +504,7 @@ class LearnerServer:
                 # normalize obs like SB3 would during collection
                 obs = self._normalize_obs(obs)
                 next_obs = self._normalize_obs(next_obs)
+                self.obs_tracker.track(obs, reward)
                 self.replay_buffer.add(
                     obs=obs,
                     next_obs=next_obs,
@@ -505,6 +514,8 @@ class LearnerServer:
                     infos={},  # could pass TimeLimit info here if you track it
                 )
                 n_added += 1
+                if self.obs_tracker.should_flush():
+                    self.obs_tracker.flush(render_png=False)
         if dropped_for_dim_mismatch > 0:
             print(
                 f"[server] Dropped {dropped_for_dim_mismatch} transition(s) due to "
@@ -554,6 +565,8 @@ class LearnerServer:
             self.model.save(checkpoint_path)
             # Keep replay buffer in the model root and overwrite on each save.
             self.save_replay_buffer()
+            # Render heavy tracker PNGs only at checkpoint cadence.
+            self.obs_tracker.flush(render_png=True)
             print(f"[server] Checkpoint saved to {checkpoint_path} as {checkpoint_name}")
             self.last_checkpoint_timestep = self.total_actor_timesteps
         except Exception as e:

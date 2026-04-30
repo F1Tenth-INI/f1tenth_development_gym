@@ -44,13 +44,13 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
 
     obs = np.concatenate(
         [
-            np.tile(np.array([0.1, 1.0, 1.0, 2.5], dtype=np.float32), state_history_len) * state_features,
+            np.tile(np.array([0.1, 1.0, 0.3, 2.5], dtype=np.float32), state_history_len) * state_features,
             1.0 * curvatures,
-            0.2 * border_points,
+            0.1* border_points,
             1.0 * last_actions,
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
-            [0.1, 1.0] * pp_action,
+            [1.0, 0.1] * pp_action,
         ]
     ).astype(np.float32)
 

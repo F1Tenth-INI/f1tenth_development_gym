@@ -10,6 +10,7 @@ from stable_baselines3 import SAC
 import os
 import sys
 import csv
+import json
 from typing import Any, Dict, List, Optional, Tuple
 import matplotlib
 import matplotlib.pyplot as plt
@@ -174,9 +175,216 @@ class SacUtilities:
                     arcname = os.path.basename(file_path)
                     zipf.write(file_path, arcname=arcname)
         return zip_path
+class ObsRewardTracker:
+    def __init__(
+        self,
+        model_dir: str,
+        enabled: bool = True,
+        flush_every: int = 10_000,
+        hist_bins: int = 40,
+        hist_sample_cap: int = 20_000,
+        hist_max_dims: int = 256,
+    ):
+        self.enabled = bool(enabled)
+        self.flush_every = int(flush_every)
+        self.hist_bins = int(hist_bins)
+        self.hist_sample_cap = int(hist_sample_cap)
+        self.hist_max_dims = int(hist_max_dims)
+
+        self.obs_tracking_dir = os.path.join(model_dir, "obs_tracking")
+        os.makedirs(self.obs_tracking_dir, exist_ok=True)
+        self.obs_stats_path = os.path.join(self.obs_tracking_dir, "obs_stats.csv")
+        self.obs_hist_npz_path = os.path.join(self.obs_tracking_dir, "obs_histograms.npz")
+        self.obs_hist_png_path = os.path.join(self.obs_tracking_dir, "obs_histograms.png")
+        self.reward_stats_path = os.path.join(self.obs_tracking_dir, "reward_stats.csv")
+        self.reward_hist_csv_path = os.path.join(self.obs_tracking_dir, "reward_histogram.csv")
+        self.reward_hist_png_path = os.path.join(self.obs_tracking_dir, "reward_histogram.png")
+        self.summary_path = os.path.join(self.obs_tracking_dir, "tracker_summary.json")
+
+        self._obs_seen = 0
+        self._obs_last_flush_seen = 0
+        self._obs_dim: Optional[int] = None
+        self._obs_mean: Optional[np.ndarray] = None
+        self._obs_m2: Optional[np.ndarray] = None
+        self._obs_min: Optional[np.ndarray] = None
+        self._obs_max: Optional[np.ndarray] = None
+        self._obs_reservoir: Optional[np.ndarray] = None
+        self._obs_reservoir_fill = 0
+
+        self._rew_seen = 0
+        self._rew_mean = 0.0
+        self._rew_m2 = 0.0
+        self._rew_min = float("inf")
+        self._rew_max = float("-inf")
+        self._rew_samples: list[float] = []
+
+    def _maybe_init(self, obs_dim: int) -> None:
+        if self._obs_dim is not None:
+            return
+        self._obs_dim = int(obs_dim)
+        self._obs_mean = np.zeros(self._obs_dim, dtype=np.float64)
+        self._obs_m2 = np.zeros(self._obs_dim, dtype=np.float64)
+        self._obs_min = np.full(self._obs_dim, np.inf, dtype=np.float64)
+        self._obs_max = np.full(self._obs_dim, -np.inf, dtype=np.float64)
+        self._obs_reservoir = np.zeros((self.hist_sample_cap, self._obs_dim), dtype=np.float32)
+
+    def track(self, obs: np.ndarray, reward: float) -> None:
+        if not self.enabled:
+            return
+        flat_obs = np.asarray(obs, dtype=np.float32).reshape(-1)
+        if flat_obs.size == 0:
+            return
+        self._maybe_init(flat_obs.shape[0])
+        if self._obs_dim is None or self._obs_mean is None or self._obs_m2 is None:
+            return
+        if flat_obs.shape[0] != self._obs_dim:
+            return
+
+        self._obs_seen += 1
+        obs_f64 = flat_obs.astype(np.float64, copy=False)
+        delta = obs_f64 - self._obs_mean
+        self._obs_mean += delta / self._obs_seen
+        delta2 = obs_f64 - self._obs_mean
+        self._obs_m2 += delta * delta2
+        self._obs_min = np.minimum(self._obs_min, obs_f64)
+        self._obs_max = np.maximum(self._obs_max, obs_f64)
+
+        if self._obs_reservoir is not None:
+            if self._obs_reservoir_fill < self.hist_sample_cap:
+                self._obs_reservoir[self._obs_reservoir_fill, :] = flat_obs
+                self._obs_reservoir_fill += 1
+            else:
+                j = np.random.randint(0, self._obs_seen)
+                if j < self.hist_sample_cap:
+                    self._obs_reservoir[j, :] = flat_obs
+
+        r = float(reward)
+        self._rew_seen += 1
+        rew_delta = r - self._rew_mean
+        self._rew_mean += rew_delta / self._rew_seen
+        rew_delta2 = r - self._rew_mean
+        self._rew_m2 += rew_delta * rew_delta2
+        self._rew_min = min(self._rew_min, r)
+        self._rew_max = max(self._rew_max, r)
+        if len(self._rew_samples) < self.hist_sample_cap:
+            self._rew_samples.append(r)
+        else:
+            j = np.random.randint(0, self._rew_seen)
+            if j < self.hist_sample_cap:
+                self._rew_samples[j] = r
+
+    def should_flush(self) -> bool:
+        if not self.enabled:
+            return False
+        return (self._obs_seen - self._obs_last_flush_seen) >= self.flush_every
+
+    def flush(self, render_png: bool = False) -> None:
+        if not self.enabled:
+            return
+        if self._obs_dim is None or self._obs_seen <= 1:
+            return
+        if self._obs_mean is None or self._obs_m2 is None or self._obs_min is None or self._obs_max is None:
+            return
+
+        obs_var = self._obs_m2 / max(1, self._obs_seen - 1)
+        obs_std = np.sqrt(np.maximum(obs_var, 0.0))
+        with open(self.obs_stats_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["obs_idx", "count", "mean", "std", "min", "max"])
+            for i in range(self._obs_dim):
+                writer.writerow([i, self._obs_seen, float(self._obs_mean[i]), float(obs_std[i]), float(self._obs_min[i]), float(self._obs_max[i])])
+
+        if self._obs_reservoir is not None and self._obs_reservoir_fill > 0:
+            sample = self._obs_reservoir[: self._obs_reservoir_fill, :]
+            dim_limit = min(self._obs_dim, self.hist_max_dims)
+            hist_payload = {}
+            for i in range(dim_limit):
+                col = sample[:, i]
+                col_min = float(np.min(col))
+                col_max = float(np.max(col))
+                if col_max <= col_min:
+                    col_max = col_min + 1e-6
+                counts, edges = np.histogram(col, bins=self.hist_bins, range=(col_min, col_max))
+                hist_payload[f"obs_{i}_counts"] = counts.astype(np.int64)
+                hist_payload[f"obs_{i}_edges"] = edges.astype(np.float32)
+            np.savez_compressed(self.obs_hist_npz_path, **hist_payload)
+
+            if render_png:
+                try:
+                    n_cols = int(np.ceil(np.sqrt(dim_limit)))
+                    n_rows = int(np.ceil(dim_limit / max(1, n_cols)))
+                    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 2.5 * n_rows), squeeze=False, sharey=False)
+                    for i in range(dim_limit):
+                        ax = axes[i // n_cols][i % n_cols]
+                        counts = hist_payload[f"obs_{i}_counts"]
+                        edges = hist_payload[f"obs_{i}_edges"]
+                        centers = 0.5 * (edges[:-1] + edges[1:])
+                        widths = (edges[1:] - edges[:-1]) * 0.95
+                        ax.bar(centers, counts, width=widths, align="center", color="#72B7B2", edgecolor="black", linewidth=0.2)
+                        ax.set_title(f"obs[{i}]", fontsize=8)
+                        ax.tick_params(axis="both", labelsize=7)
+                    for j in range(dim_limit, n_rows * n_cols):
+                        axes[j // n_cols][j % n_cols].axis("off")
+                    fig.suptitle("Observation Histograms", fontsize=12)
+                    plt.tight_layout(rect=[0, 0, 1, 0.98])
+                    fig.savefig(self.obs_hist_png_path, dpi=140)
+                    plt.close(fig)
+                except Exception as e:
+                    print(f"[tracker] Failed to render observation histograms PNG: {e}")
+
+        rew_var = self._rew_m2 / max(1, self._rew_seen - 1) if self._rew_seen > 1 else 0.0
+        rew_std = float(np.sqrt(max(rew_var, 0.0)))
+        with open(self.reward_stats_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["count", "mean", "std", "min", "max"])
+            writer.writerow([self._rew_seen, float(self._rew_mean), rew_std, float(self._rew_min if self._rew_seen > 0 else 0.0), float(self._rew_max if self._rew_seen > 0 else 0.0)])
+
+        if len(self._rew_samples) > 0:
+            rew_arr = np.asarray(self._rew_samples, dtype=np.float32)
+            r_min = float(np.min(rew_arr))
+            r_max = float(np.max(rew_arr))
+            if r_max <= r_min:
+                r_max = r_min + 1e-6
+            r_counts, r_edges = np.histogram(rew_arr, bins=self.hist_bins, range=(r_min, r_max))
+            with open(self.reward_hist_csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["bin_left", "bin_right", "count"])
+                for i in range(len(r_counts)):
+                    writer.writerow([float(r_edges[i]), float(r_edges[i + 1]), int(r_counts[i])])
+
+            if render_png:
+                try:
+                    centers = 0.5 * (r_edges[:-1] + r_edges[1:])
+                    widths = (r_edges[1:] - r_edges[:-1]) * 0.95
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.bar(centers, r_counts, width=widths, align="center", color="#4C78A8", edgecolor="black", linewidth=0.3)
+                    ax.set_title("Reward Histogram")
+                    ax.set_xlabel("Reward")
+                    ax.set_ylabel("Count")
+                    ax.grid(axis="y", alpha=0.25)
+                    plt.tight_layout()
+                    fig.savefig(self.reward_hist_png_path, dpi=160)
+                    plt.close(fig)
+                except Exception as e:
+                    print(f"[tracker] Failed to render reward histogram PNG: {e}")
+
+        summary = {
+            "obs_seen": int(self._obs_seen),
+            "obs_dim": int(self._obs_dim),
+            "obs_hist_sample_count": int(self._obs_reservoir_fill),
+            "obs_hist_bins": int(self.hist_bins),
+            "obs_hist_max_dims": int(self.hist_max_dims),
+            "reward_seen": int(self._rew_seen),
+            "reward_min": float(self._rew_min if self._rew_seen > 0 else 0.0),
+            "reward_max": float(self._rew_max if self._rew_seen > 0 else 0.0),
+            "reward_mean": float(self._rew_mean if self._rew_seen > 0 else 0.0),
+        }
+        with open(self.summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
+        self._obs_last_flush_seen = self._obs_seen
 
 
-    
 
 class TrainingLogHelper():
     def __init__(self, model_name: str, model_dir: str):
