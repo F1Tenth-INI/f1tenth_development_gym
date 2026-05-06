@@ -133,7 +133,9 @@ class RacingSimulation:
 
             if self.renderer_backend == "web":
                 from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
-                self.renderer = WebEnvRenderer()
+                web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
+                web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765))
+                self.renderer = WebEnvRenderer(host=web_host, port=web_port)
             elif self.renderer_backend == "pygame":
                 from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
                 window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
@@ -240,7 +242,7 @@ class RacingSimulation:
 
         # Random Global Waypoint Velocity Factor
         if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
-            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = np.random.uniform(0.5, 1.3)
+            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = np.random.uniform(0.3, 1.3)
 
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)

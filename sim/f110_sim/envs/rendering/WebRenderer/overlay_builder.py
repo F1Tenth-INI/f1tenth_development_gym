@@ -46,6 +46,28 @@ def _to_trajectory_list(data):
     return None
 
 
+def _to_track_border_lines(data):
+    """
+    Preserve left/right border structure when available.
+    Expected common shape: (2, N, >=2) -> [left_line_pts, right_line_pts].
+    """
+    if data is None:
+        return None
+    arr = np.asarray(data)
+    if arr.size == 0:
+        return None
+    if arr.ndim >= 3 and arr.shape[0] >= 2:
+        left = _to_xy_points(arr[0])
+        right = _to_xy_points(arr[1])
+        lines = []
+        if left:
+            lines.append(left)
+        if right:
+            lines.append(right)
+        return lines if lines else None
+    return _to_trajectory_list(arr)
+
+
 def build_web_overlay(drivers):
     if not drivers:
         return {}
@@ -60,6 +82,7 @@ def build_web_overlay(drivers):
         "next_waypoints_alternative": _to_xy_points(render_utils.next_waypoints_alternative),
         "lidar_border_points": _to_xy_points(render_utils.lidar_border_points),
         "track_border_points": _to_xy_points(render_utils.track_border_points),
+        "track_border_lines": _to_track_border_lines(render_utils.track_border_points),
         "largest_gap_middle_point": _to_xy_points(render_utils.largest_gap_middle_point),
         "target_point": _to_xy_points(render_utils.target_point),
         "obstacles": _to_xy_points(render_utils.obstacles),

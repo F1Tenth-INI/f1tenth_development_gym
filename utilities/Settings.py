@@ -158,6 +158,8 @@ class Settings():
     RENDER_MODE = 'human_fast'    #selects rendering cadence only: None, 'human', or 'human_fast'
     # RENDER_MODE = None          # no rendering
     RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
+    WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
+    WEB_RENDER_PORT = 8765               # web renderer TCP port
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -225,7 +227,7 @@ class Settings():
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
-    SAC_TARGET_UDT = 1
+    SAC_TARGET_UDT = None
     SAC_MAX_UTD = 4 
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0

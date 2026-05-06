@@ -29,6 +29,26 @@ HTML_PAGE = """<!doctype html>
     #controls { display: flex; align-items: center; gap: 14px; margin-left: auto; font-size: 13px; }
     #controls label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
     canvas { width: 100%; height: 100%; display: block; background: #092057; }
+    #plot-panel {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      width: 540px;
+      height: 360px;
+      min-width: 420px;
+      min-height: 280px;
+      max-width: 92vw;
+      max-height: 85vh;
+      resize: both;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 8px;
+      background: rgba(4, 12, 38, 0.88);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+      pointer-events: auto;
+      display: none;
+    }
+    #plot-canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -39,18 +59,28 @@ HTML_PAGE = """<!doctype html>
       <div id="controls">
         <label><input id="toggle-map" type="checkbox" checked />Show Map</label>
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
+        <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
+        <label><input id="toggle-control-plots" type="checkbox" checked />Show control plots</label>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
+  <div id="plot-panel">
+    <canvas id="plot-canvas"></canvas>
+  </div>
   <script>
     const canvas = document.getElementById("view");
     const ctx = canvas.getContext("2d");
+    const plotPanelEl = document.getElementById("plot-panel");
+    const plotCanvas = document.getElementById("plot-canvas");
+    const plotCtx = plotCanvas.getContext("2d");
     const statusEl = document.getElementById("status");
     const toggleMapEl = document.getElementById("toggle-map");
     const toggleHistoryEl = document.getElementById("toggle-history");
+    const toggleTrackBordersEl = document.getElementById("toggle-track-borders");
     const toggleCarInfoEl = document.getElementById("toggle-car-info");
+    const toggleControlPlotsEl = document.getElementById("toggle-control-plots");
     let mapMeta = null;
     let mapImg = null;
     let latest = null;
@@ -87,10 +117,22 @@ HTML_PAGE = """<!doctype html>
     const viewerId = `viewer-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
     let showMap = true;
     let showPositionHistory = false;
+    let showTrackBorders = true;
     let showCarStateInfo = false;
+    let showControlPlots = true;
     let browserPositionHistory = [];
     let browserHistoryLastFrameId = 0;
     const MAX_BROWSER_HISTORY_POINTS = 20000;
+    const CONTROL_PLOT_WINDOW_S = 10.0;
+    const CONTROL_PLOT_MAX_SAMPLES = 900;
+    const CONTROL_ANGULAR_KEY = "0: angular_control";
+    const CONTROL_TRANSLATIONAL_KEY = "1: translational_control";
+    const CONTROL_PLOT_COLORS = {
+      angular: "rgb(255, 179, 71)",
+      translational: "rgb(118, 215, 196)"
+    };
+    let controlPlotSeries = {};
+    let controlPlotKeys = [CONTROL_ANGULAR_KEY, CONTROL_TRANSLATIONAL_KEY];
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -98,6 +140,15 @@ HTML_PAGE = """<!doctype html>
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      resizePlotCanvas();
+    }
+
+    function resizePlotCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = plotCanvas.getBoundingClientRect();
+      plotCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      plotCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      plotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function worldToScreen(x, y, cx, cy) {
@@ -117,6 +168,174 @@ HTML_PAGE = """<!doctype html>
         return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
       }
       return fallback;
+    }
+
+    function parseNumeric(value) {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string") {
+        const parsed = Number.parseFloat(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    }
+
+    function normalizeLabelName(key) {
+      const lowered = String(key || "").trim().toLowerCase();
+      const withoutPrefix = lowered.replace(/^\\d+\\s*:\\s*/, "");
+      return withoutPrefix;
+    }
+
+    function resolveControlKey(labels, preferredKey, containsText) {
+      if (!labels || typeof labels !== "object") return null;
+      if (parseNumeric(labels[preferredKey]) !== null) return preferredKey;
+      for (const key of Object.keys(labels)) {
+        if (parseNumeric(labels[key]) === null) continue;
+        const norm = normalizeLabelName(key);
+        if (norm.includes(containsText)) return key;
+      }
+      return null;
+    }
+
+    function updateControlPlotSeries(frame) {
+      if (!frame) return;
+      const labels = frame.web_overlay?.label_dict || {};
+      const timeS = Number(frame.simulation_time || 0.0);
+      const angularKey = resolveControlKey(labels, CONTROL_ANGULAR_KEY, "angular_control");
+      const translationalKey = resolveControlKey(labels, CONTROL_TRANSLATIONAL_KEY, "translational_control");
+      const nextKeys = [angularKey, translationalKey].filter((k) => !!k);
+      if (nextKeys.length === 0) return;
+
+      if (controlPlotKeys.join("|") !== nextKeys.join("|")) controlPlotSeries = {};
+      controlPlotKeys = nextKeys;
+      for (const key of controlPlotKeys) {
+        const val = parseNumeric(labels[key]);
+        if (val === null) continue;
+        if (!Array.isArray(controlPlotSeries[key])) controlPlotSeries[key] = [];
+        controlPlotSeries[key].push([timeS, val]);
+        if (controlPlotSeries[key].length > CONTROL_PLOT_MAX_SAMPLES) {
+          controlPlotSeries[key].splice(0, controlPlotSeries[key].length - CONTROL_PLOT_MAX_SAMPLES);
+        }
+      }
+      const minTime = Math.max(0.0, timeS - CONTROL_PLOT_WINDOW_S);
+      for (const key of controlPlotKeys) {
+        const series = controlPlotSeries[key];
+        if (!Array.isArray(series) || series.length === 0) continue;
+        let cutIdx = 0;
+        while (cutIdx < series.length - 1 && series[cutIdx][0] < minTime) {
+          cutIdx += 1;
+        }
+        if (cutIdx > 0) series.splice(0, cutIdx);
+      }
+    }
+
+    function drawControlPlots(frame) {
+      const rect = plotCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      plotCtx.clearRect(0, 0, w, h);
+      plotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
+      plotCtx.fillRect(0, 0, w, h);
+      if (!frame || controlPlotKeys.length === 0) {
+        plotCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        plotCtx.font = "12px sans-serif";
+        plotCtx.fillText("Waiting for angular/translational control data...", 14, 22);
+        return;
+      }
+
+      const padLeft = 54;
+      const padRight = 14;
+      const padTop = 14;
+      const padBottom = 26;
+      const plotW = Math.max(1, w - padLeft - padRight);
+      const plotH = Math.max(1, h - padTop - padBottom);
+      const nowT = Number(frame.simulation_time || 0.0);
+      const minT = Math.max(0.0, nowT - CONTROL_PLOT_WINDOW_S);
+      const subplotGap = 12;
+      const subplotCount = Math.max(1, controlPlotKeys.length);
+      const subplotH = (plotH - subplotGap * (subplotCount - 1)) / subplotCount;
+
+      function drawSubplot(key, index, color, title) {
+        const y0 = padTop + index * (subplotH + subplotGap);
+        const y1 = y0 + subplotH;
+        const series = controlPlotSeries[key] || [];
+        let yMin = Infinity;
+        let yMax = -Infinity;
+        for (const [t, v] of series) {
+          if (t < minT) continue;
+          if (v < yMin) yMin = v;
+          if (v > yMax) yMax = v;
+        }
+        if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
+          yMin = -1.0;
+          yMax = 1.0;
+        }
+        const span = Math.max(1e-3, yMax - yMin);
+        const yPad = 0.14 * span;
+        const plotMin = yMin - yPad;
+        const plotMax = yMax + yPad;
+        const plotSpan = Math.max(1e-3, plotMax - plotMin);
+
+        plotCtx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+        plotCtx.lineWidth = 1;
+        for (let j = 0; j <= 3; j++) {
+          const gy = y0 + (j / 3) * subplotH;
+          plotCtx.beginPath();
+          plotCtx.moveTo(padLeft, gy);
+          plotCtx.lineTo(padLeft + plotW, gy);
+          plotCtx.stroke();
+        }
+        plotCtx.beginPath();
+        plotCtx.moveTo(padLeft, y0);
+        plotCtx.lineTo(padLeft, y1);
+        plotCtx.lineTo(padLeft + plotW, y1);
+        plotCtx.stroke();
+
+        plotCtx.strokeStyle = color;
+        plotCtx.lineWidth = 1.7;
+        let drew = false;
+        plotCtx.beginPath();
+        for (const [t, v] of series) {
+          if (t < minT) continue;
+          const tx = (t - minT) / CONTROL_PLOT_WINDOW_S;
+          const ty = (v - plotMin) / plotSpan;
+          const x = padLeft + tx * plotW;
+          const y = y0 + (1.0 - ty) * subplotH;
+          if (!drew) {
+            plotCtx.moveTo(x, y);
+            drew = true;
+          } else {
+            plotCtx.lineTo(x, y);
+          }
+        }
+        if (drew) plotCtx.stroke();
+
+        plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
+        plotCtx.font = "11px sans-serif";
+        plotCtx.fillText(plotMax.toFixed(3), 4, y0 + 10);
+        plotCtx.fillText(plotMin.toFixed(3), 4, y1 - 2);
+        plotCtx.fillStyle = color;
+        plotCtx.fillText(title, padLeft + 6, y0 + 12);
+      }
+
+      const angularKey = controlPlotKeys.find((k) => normalizeLabelName(k).includes("angular_control"));
+      const translationalKey = controlPlotKeys.find((k) => normalizeLabelName(k).includes("translational_control"));
+
+      if (angularKey) {
+        drawSubplot(angularKey, 0, CONTROL_PLOT_COLORS.angular, "angular_control");
+      }
+      if (translationalKey) {
+        drawSubplot(
+          translationalKey,
+          angularKey ? 1 : 0,
+          CONTROL_PLOT_COLORS.translational,
+          "translational_control"
+        );
+      }
+
+      plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
+      plotCtx.font = "11px sans-serif";
+      plotCtx.fillText(`${minT.toFixed(1)}s`, padLeft, h - 8);
+      plotCtx.fillText(`${nowT.toFixed(1)}s`, padLeft + plotW - 30, h - 8);
     }
 
     function lerp(a, b, t) {
@@ -428,6 +647,9 @@ HTML_PAGE = """<!doctype html>
       ctx.fillRect(0, 0, w, h);
 
       const frame = stateForRender();
+      if (frame) {
+        updateControlPlotSeries(frame);
+      }
       if (frame && frame.poses && frame.poses.length > 0) {
         const ego = frame.poses[frame.ego_idx || 0];
         if (cameraFollowEgo || cameraCenter === null) {
@@ -456,7 +678,17 @@ HTML_PAGE = """<!doctype html>
         drawPoints(overlay.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
         drawPoints(overlay.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
         drawPoints(overlay.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
-        drawPoints(overlay.track_border_points, rgb(colors.track_border, "rgb(255,0,0)"), 1.2, cx, cy);
+        if (showTrackBorders) {
+          const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
+          if (Array.isArray(overlay.track_border_lines) && overlay.track_border_lines.length > 0) {
+            for (const borderLine of overlay.track_border_lines) {
+              drawLine(borderLine, borderColor, 1.6, cx, cy);
+            }
+          } else {
+            // Fallback for older payloads that only provide flattened points.
+            drawPoints(overlay.track_border_points, borderColor, 1.8, cx, cy);
+          }
+        }
         drawPoints(overlay.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
 
         // Histories
@@ -510,6 +742,9 @@ HTML_PAGE = """<!doctype html>
           ctx.fillRect(-carLen / 2, -carWid / 2, carLen, carWid);
           ctx.restore();
         });
+      }
+      if (showControlPlots) {
+        drawControlPlots(frame);
       }
       requestAnimationFrame(draw);
     }
@@ -607,9 +842,23 @@ HTML_PAGE = """<!doctype html>
     toggleHistoryEl.addEventListener("change", () => {
       showPositionHistory = !!toggleHistoryEl.checked;
     });
+    toggleTrackBordersEl.addEventListener("change", () => {
+      showTrackBorders = !!toggleTrackBordersEl.checked;
+    });
     toggleCarInfoEl.addEventListener("change", () => {
       showCarStateInfo = !!toggleCarInfoEl.checked;
     });
+    toggleControlPlotsEl.addEventListener("change", () => {
+      showControlPlots = !!toggleControlPlotsEl.checked;
+      plotPanelEl.style.display = showControlPlots ? "block" : "none";
+      if (showControlPlots) resizePlotCanvas();
+    });
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(() => {
+        if (showControlPlots) resizePlotCanvas();
+      });
+      ro.observe(plotPanelEl);
+    }
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     resizeCanvas();
@@ -637,6 +886,8 @@ class WebEnvRenderer:
 
     The browser client source-of-truth is `sim/f110_sim/envs/WebRenderer/index.html`.
     """
+    _auto_open_done_once = False
+
     def __init__(self, host: str = "127.0.0.1", port: int = 8765):
         self.host = host
         self.port = port
@@ -796,14 +1047,15 @@ class WebEnvRenderer:
             def log_message(self, format: str, *args):
                 return
 
-        self._server = ThreadingHTTPServer((self.host, self.port), Handler)
+        self._server = self._create_server_with_fallback(Handler)
+        # If fallback happened, expose the effective port consistently.
+        self.port = int(self._server.server_address[1])
         self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._server_thread.start()
         print(f"Web renderer listening on http://{self.host}:{self.port}")
-        # Give already-open tabs a chance to reconnect and heartbeat first.
-        # Without this grace period, restarting experiments can spuriously open
-        # a duplicate tab before the existing tab pings the new backend.
-        self._maybe_autolaunch_browser()
+        # Startup-only auto-open loop:
+        # try after grace and a few retries, but never during regular rendering.
+        threading.Thread(target=self._autolaunch_on_startup_once, daemon=True).start()
 
     def _prune_inactive_viewers_locked(self, now_s: Optional[float] = None):
         now_s = time.time() if now_s is None else now_s
@@ -815,12 +1067,44 @@ class WebEnvRenderer:
         for vid in stale_ids:
             self._viewer_last_seen.pop(vid, None)
 
+    def _create_server_with_fallback(self, handler_cls):
+        """
+        Bind HTTP server, falling back to nearby ports if requested port is busy.
+
+        This avoids hard failure when a stale renderer process still occupies
+        the default port.
+        """
+        max_tries = 25
+        requested_port = int(self.port)
+        host = str(self.host)
+        for attempt in range(max_tries):
+            candidate_port = requested_port + attempt
+            try:
+                if attempt > 0:
+                    print(
+                        f"Web renderer: trying fallback port {candidate_port} "
+                        f"(requested {requested_port} in use)."
+                    )
+                return ThreadingHTTPServer((host, candidate_port), handler_cls)
+            except OSError as exc:
+                if exc.errno != 98:
+                    raise
+                if attempt == (max_tries - 1):
+                    raise OSError(
+                        f"Could not bind web renderer on {host}:{requested_port} "
+                        f"or the next {max_tries - 1} ports."
+                    ) from exc
+        # Defensive fallback: loop always returns or raises above.
+        raise RuntimeError("Unexpected server bind loop termination.")
+
     def _has_active_viewer(self, now_s: Optional[float] = None) -> bool:
         with self._lock:
             self._prune_inactive_viewers_locked(now_s)
             return len(self._viewer_last_seen) > 0
 
     def _maybe_autolaunch_browser(self):
+        if WebEnvRenderer._auto_open_done_once:
+            return
         now_s = time.time()
         if (now_s - self._created_at_s) < self._auto_open_startup_grace_s:
             return
@@ -832,9 +1116,26 @@ class WebEnvRenderer:
             self._last_auto_open_attempt_s = now_s
         try:
             webbrowser.open(f"http://{self.host}:{self.port}", new=0, autoraise=False)
+            WebEnvRenderer._auto_open_done_once = True
         except Exception:
             # Auto-open is best-effort and should never break simulation.
             pass
+
+    def _autolaunch_on_startup_once(self):
+        """
+        Attempt browser auto-open exactly once around renderer startup.
+
+        This preserves convenience at the beginning of `run.py`, while avoiding
+        repeated auto-open attempts on every episode or after manual tab close.
+        """
+        if WebEnvRenderer._auto_open_done_once:
+            return
+        # Wait for startup grace before first attempt.
+        time.sleep(max(0.0, self._auto_open_startup_grace_s))
+        # Single-shot behavior by request: one startup attempt only.
+        self._maybe_autolaunch_browser()
+        # Mark done regardless of success to prevent any further reopen attempts.
+        WebEnvRenderer._auto_open_done_once = True
 
     def _load_html_page(self) -> str:
         # Prefer external client file so frontend iteration does not require
@@ -948,7 +1249,6 @@ class WebEnvRenderer:
         overlay = self._compress_dynamic_overlay(overlay)
 
         simulation_time = float(render_obs.get("simulation_time", 0.0))
-        self._maybe_autolaunch_browser()
 
         with self._lock:
             if static_overlay:
