@@ -122,3 +122,9 @@ TrainingLite/rl_racing/scripts_finetune
 /2026-04-22_INFERENCE.zip
 /2026-04-22.zip
 /physical_experiments
+batch_plot_inference
+car_param_settings_RCA2-1_New_UTD1
+debug_parsing.py
+learning_curves_better_test
+batch_compare_models_best
+learning_curves_better
