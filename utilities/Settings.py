@@ -19,7 +19,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = 200   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = 350   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -251,7 +251,7 @@ class Settings():
     LEARNER_SERVER_DEBUG = False
 
     SAC_SPEED_CURRICULUM_LEARNING = False
-    SAC_CURRICULUM_DEBUG = False
+    SAC_CURRICULUM_DEBUG = True
 
     SAC_CURRICULUM_ENABLED = False
 
@@ -294,30 +294,32 @@ class Settings():
     SAC_STAT_TRACKER = True
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
     SAC_STAT_TRACKER_CSV_FLOAT_DECIMALS = 4
+
+    #NOTE: these are all nikita old curriculum settings
     
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
-    SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
-    SAC_CURRICULUM_T2 = 0.6
-    SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
+    # ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    # SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
+    # SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
+    # SAC_CURRICULUM_T2 = 0.6
+    # SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
-    SAC_CURRICULUM_SPEED = False
-    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
+    # SAC_CURRICULUM_SPEED = False
+    # SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
 
-    SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
-    SAC_ACCEL_CAP = 3.0
+    # SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
+    # SAC_ACCEL_CAP = 3.0
 
-    SAC_CURRICULUM_SPEED_LIMIT_MAX = 15 #absolute max speed limit during curriculum learning
-    SAC_CURRICULUM_SPEED_LIMIT = 15
+    # SAC_CURRICULUM_SPEED_LIMIT_MAX = 15 #absolute max speed limit during curriculum learning
+    # SAC_CURRICULUM_SPEED_LIMIT = 15
 
-    SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
-    SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
+    # SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
+    # SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
 
-    SAC_CURRICULUM_NOISE_SCALING = False
-    SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
-    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    # SAC_CURRICULUM_NOISE_SCALING = False
+    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    # # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
+    # # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
 
     SAC_AMPLIFY_NEGATIVE_PROGRESS_REWARD = False
     SAC_NEGATIVE_PROGRESS_REWARD_AMPLIFICATION_FACTOR = 20
