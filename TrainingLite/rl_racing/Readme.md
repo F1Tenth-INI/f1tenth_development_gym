@@ -33,6 +33,7 @@ python TrainingLite/rl_racing/run_training.py --auto-start-client --SIMULATION_L
 ```
 
 This will automatically:
+
 - Start the learner server
 - Launch the simulation client
 - Begin training
@@ -59,6 +60,7 @@ python run.py --RENDER_MODE human_fast --SIMULATION_LENGTH 2000 --SAVE_RECORDING
 **Available options:**
 
 All settings from `Settings.py` are available as command-line arguments. Common examples include:
+
 - `--RENDER_MODE`: Visualization mode (`None`, `human`, `human_fast`)
 - `--SIMULATION_LENGTH`: Number of timesteps to run
 - `--SAVE_RECORDINGS`: Save episode data to CSV (`True`/`False`)
@@ -68,6 +70,7 @@ All settings from `Settings.py` are available as command-line arguments. Common 
 - And many more from `Settings.py`
 
 When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
+
 - Loads the model weights directly (no server needed)
 - Runs in deterministic mode (no exploration)
 - Does not send transitions to any server
@@ -132,6 +135,7 @@ When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
 **Command-line arguments for training:**
 
 Server-specific arguments:
+
 - `--model-name`: Name of the model (required)
 - `--host`: Server host address (default: `0.0.0.0`)
 - `--port`: Server port (default: `5555`)
@@ -148,6 +152,7 @@ Server-specific arguments:
 - `--forward-client-output`: Forward client output to terminal (flag, enabled by default)
 
 Simulation settings (all from `Settings.py`):
+
 - `--SIMULATION_LENGTH`: Total simulation timesteps
 - `--RENDER_MODE`: Visualization mode
 - `--MAP_NAME`: Select map
@@ -157,6 +162,7 @@ Simulation settings (all from `Settings.py`):
 **Command-line arguments for inference:**
 
 All settings from `Settings.py` are available, including:
+
 - `--SAC_INFERENCE_MODEL_NAME`: Name of trained model to load
 - `--RENDER_MODE`: Visualization (`None`, `human`, `human_fast`)
 - `--SIMULATION_LENGTH`: Number of timesteps to run
@@ -253,18 +259,15 @@ Removing/changing existing `super_obs` entries can break previously trained mode
 ## Troubleshooting
 
 - **Actor doesn’t move**
-
   - Ensure the server is running and logs `Weights sent to ...`.
   - Actor should print `✅ Actor weights updated.` at least once.
   - Adjust `accel_scale` or warmup settings for initial motion.
 
 - **Actor stuck in warmup**
-
   - Server started `--init-from-scratch` but never sent weights: confirm server logs show the initial broadcast on connect.
   - Ensure `handle_client` always sends `_weights_blob` if present.
 
 - **SB3 environment error (DummyVecEnv)**
-
   - Make sure actor uses **SB3’s** `DummyVecEnv`:
     ```python
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -272,7 +275,6 @@ Removing/changing existing `super_obs` entries can break previously trained mode
     ```
 
 - **Crashes dominate early data**
-
   - Start with smaller `accel_scale` and/or “constant” warmup with modest forward.
   - Lower `learning_starts` temporarily (e.g., 2000).
 
@@ -287,11 +289,12 @@ Run multiple sims/actors (different `actor_id`s) pointing to the same learner to
 
 ---
 
-
 ## Running remotely
+
 For remote conenctions I recommend using screen.
 
 Start a screen called training:
+
 ```
 screen -S training
 ```
@@ -303,3 +306,11 @@ to reconnect
 ```
 screen -r training
 ```
+
+# To detach from screen (keep session running): Press Ctrl+A, then D
+
+# To reattach later: screen -r experiments
+
+# To list all screen sessions: screen -ls
+
+# To kill a detached session: screen -X -S experiments quit

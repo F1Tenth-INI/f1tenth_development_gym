@@ -42,6 +42,7 @@ class LearnerServer:
         train_frequency: int = 1,
         save_replay_buffer: bool = False,
         load_replay_buffer: bool = False,
+        checkpoint_interval: int = 10_000,
     ):
         self.host = host
         self.port = port
@@ -57,6 +58,8 @@ class LearnerServer:
         self.save_replay_buffer_enabled = bool(save_replay_buffer)
         self.load_replay_buffer_enabled = bool(load_replay_buffer)
         self._latest_training_info_payload: Optional[dict] = None
+        self.checkpoint_interval = checkpoint_interval
+        self.max_utd = 4.0  # max updates per data point
 
         # Settings
         self.learning_starts = learning_starts
@@ -84,6 +87,7 @@ class LearnerServer:
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
         self._training_paused_for_udt = False
+        self.last_checkpoint_timesteps = 0
 
         self.last_episode_time = None
         self.episode_timeout = 100.0
@@ -473,6 +477,21 @@ class LearnerServer:
                 )
         except Exception as e:
             print(f"[server] Failed to restore counters from {metrics_path}: {e}")
+    
+    def _save_checkpoint(self, timesteps: int):
+        """Save a checkpoint with a unique name including timestep count."""
+        if self.model is not None:
+            try:
+                # Create checkpoints subdirectory if it doesn't exist
+                checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                
+                checkpoint_name = f"{self.save_model_name}_checkpoint_{timesteps}"
+                target = os.path.join(checkpoint_dir, checkpoint_name)
+                self.model.save(target)
+                print(f"[server] Checkpoint saved to {target} (timesteps={timesteps})")
+            except Exception as e:
+                print(f"[server] Error saving checkpoint: {e}")
 
     # ---------- ingestion + training ----------
     # No normalization for now: obs arrive normalized already
@@ -786,6 +805,13 @@ class LearnerServer:
                 )
                 await self._broadcast_training_info(training_info_payload)
                 print("[server] Trained SAC and broadcast updated actor weights.")
+
+                # Check if we should save checkpoint(s) based on timestep interval
+                # Handle case where multiple intervals may have passed since last checkpoint
+                while self.total_actor_timesteps - self.last_checkpoint_timesteps >= self.checkpoint_interval:
+                    next_checkpoint_timesteps = self.last_checkpoint_timesteps + self.checkpoint_interval
+                    self._save_checkpoint(next_checkpoint_timesteps)
+                    self.last_checkpoint_timesteps = next_checkpoint_timesteps
 
                 try:
                     target = os.path.join(self.model_dir, str(self.save_model_name))

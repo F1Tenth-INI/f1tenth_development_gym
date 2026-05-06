@@ -111,7 +111,7 @@ class RaceCar(object):
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka', 'residual']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
         self.state = np.zeros((StateIndices.number_of_states, ))
@@ -145,7 +145,7 @@ class RaceCar(object):
             import jax.numpy as jnp
             self.step_dynamics = car_dynamics_pacejka_jax
             u = np.array([0,0])
-            
+
             car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
             self.car_params_array = car_params.to_np_array()
             
@@ -155,6 +155,11 @@ class RaceCar(object):
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
             self.state = np.array(new_state)   
+            
+        if self.ode_implementation == 'residual':
+            from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
+            self.dynamic_model = DynamicsModelResidual(dt=0.01)
+            
 
         # pose of opponents in the world
         self.opp_poses = None
@@ -178,6 +183,10 @@ class RaceCar(object):
         # collision threshold for iTTC to environment
         self.ttc_thresh = 0.005
         self.scan_placeholder = np.full((num_beams,), 30.0, dtype=np.float32)
+
+        # state and control history (circular buffers of length 40)
+        self.state_history = np.zeros((40, StateIndices.number_of_states))
+        self.control_history = np.zeros((40, 2))
 
         # initialize scan sim
         if RaceCar.scan_simulator is None:
@@ -273,6 +282,12 @@ class RaceCar(object):
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
         self.scan_rng = np.random.default_rng(seed=self.seed)
+        
+        # reset state and control history
+        self.state_history = np.zeros((40, StateIndices.number_of_states))
+        self.control_history = np.zeros((40, 2))
+        # Initialize with current state
+        self.state_history[-1] = self.state.copy()
 
     def ray_cast_agents(self, scan):
         """
@@ -342,10 +357,13 @@ class RaceCar(object):
         # Some models require PID control - but this is an old PID implementation!
         # acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
 
+        # Track the applied control (will be set based on implementation)
+        applied_control = np.array([desired_steering_angle, desired_speed])
         
         if(self.ode_implementation == 'pacejka'):
             s = self.state
             u = np.array([desired_steering_angle, desired_speed])
+            applied_control = u
             self.state = self.dynamic_model.step(s, u)
 
         if self.ode_implementation == 'ODE_TF':
@@ -357,6 +375,9 @@ class RaceCar(object):
 
             self.steering_speed_cmd, self.acceleration_x_cmd = self.car_model.return_control_cmd_components(self.u_pid_with_constrains)
 
+            # Track the actual applied control (after PID and constraints)
+            applied_control = self.u_pid_with_constrains[0]
+
             s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
             # wrap yaw angle
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
@@ -366,17 +387,35 @@ class RaceCar(object):
         
         elif self.ode_implementation == 'jit_Pacejka':
             u = np.array([desired_steering_angle, desired_speed])
+            applied_control = u
             self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
             
         elif self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
             u = np.array([desired_steering_angle, desired_speed])
+            applied_control = u
             # Convert to JAX arrays and back to numpy
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
             self.state = np.array(new_state)   
+            
+        elif self.ode_implementation == 'residual':
+            import jax.numpy as jnp
+            u = np.array([desired_steering_angle, desired_speed])
+            applied_control = u
+            # Convert to JAX arrays and back to numpy
+            jax_state = jnp.array(self.state)
+            jax_u = jnp.array(u)
+
+            # Residual network expects a control and state history of 10 timestepa at 0.04s intervals (every 4 timesteps at 0.01s)
+            control_history = self.control_history[::4]
+            state_history = self.state_history[::4]
+
+            new_state_residual = self.dynamic_model.predict(jax_state, jax_u, dt=0.01, state_history=state_history, control_history=control_history)
+            self.state = np.array(new_state_residual)
+            
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
@@ -389,6 +428,14 @@ class RaceCar(object):
             self.in_collision = False
             return self.scan_placeholder
 
+        # Update state and control history (circular buffer)
+        # Shift history arrays and add new state/control at the end
+        self.state_history = np.roll(self.state_history, -1, axis=0)
+        self.state_history[-1] = self.state.copy()
+        
+        self.control_history = np.roll(self.control_history, -1, axis=0)
+        self.control_history[-1] = applied_control
+        
         # update scan
         pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
         current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)

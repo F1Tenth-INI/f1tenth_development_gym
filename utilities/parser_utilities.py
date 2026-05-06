@@ -38,7 +38,7 @@ except ImportError:
 def convert_value(value_str: str, target_type: type, original_value) -> Any:
     """Convert string value to appropriate type based on target type."""
     # Allow passing the literal string "None" from CLI to set Python None.
-    if value_str.strip() == 'None':
+    if value_str.strip().lower() == 'none':
         return None
 
     if target_type == bool:

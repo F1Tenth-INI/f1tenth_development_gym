@@ -75,6 +75,7 @@ Datasets/
 !TrainingLite/mpc_immitator_mu/models/tGRU_6_stateful4
 
 !TrainingLite/rl_racing/models/Example-1
+!TrainingLite/dynamic_residual_jax/models/0_example/
 
 AnalyseData/Desperate/*
 
@@ -87,3 +88,8 @@ ppo_models/*
 *.egg-info
 
 .github/instructions/python_instructions.instructions.md
+
+TrainingLite/dynamic_residual_jax/training_data
+TrainingLite/dynamic_residual_jax/data_analysis
+
+AnalyseData/PhysicalData/2026_01_16/plots_offline/
