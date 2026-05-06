@@ -312,6 +312,12 @@ class RLAgentPlanner(template_planner):
             pass
         
         if self.curriculum_supervisor is not None:
+            # Update supervisor progress from planner's total progress so
+            # difficulty is derived from up-to-date progress values.
+            try:
+                self.curriculum_supervisor.update_progress(self.get_total_progress())
+            except Exception:
+                pass
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
@@ -340,9 +346,14 @@ class RLAgentPlanner(template_planner):
             if self.training_mode and self.autonomous_driving:
                 try:
                     if len(self._episode) > 10:
+                        batch_len = len(self._episode)
                         self.client.send_transition_batch(self._episode)
+                        try:
+                            self.total_sent += int(batch_len)
+                        except Exception:
+                            pass
                         if Settings.SAC_AGENT_DEBUG:
-                            print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
+                            print(f"[RLAgentPlanner] Sending episode with {batch_len} transitions with total reward {total_reward}.")
                 except Exception as e:
                     print(f"[RLAgentPlanner] Failed to send episode: {e}")
             self._reset_episode_state()
@@ -653,6 +664,10 @@ class RLAgentPlanner(template_planner):
 
         try:
             self.client.send_transition_batch(self._episode[:self.BOOTSTRAP_TRANSITIONS])
+            try:
+                self.total_sent += int(self.BOOTSTRAP_TRANSITIONS)
+            except Exception:
+                pass
             self._bootstrap_sent = True
             # Keep remaining transitions so the end-of-episode batch is still mostly correct.
             self._episode = self._episode[self.BOOTSTRAP_TRANSITIONS:]

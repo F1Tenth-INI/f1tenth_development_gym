@@ -38,7 +38,7 @@ class CurriculumSupervisor:
         self.adjust_GLOBAL_SPEED_LIMIT()
         
 
-        # self.update_difficulty()
+        self.update_difficulty()
 
     def update_progress(self, progress: float) -> None:
         self.progress = progress
@@ -49,19 +49,19 @@ class CurriculumSupervisor:
     def get_difficulty(self) -> float:
         return float(np.clip(self.difficulty, 0.0, 1.0))
 
-    # def update_difficulty(self) -> None:
-    #     # return 1.0
-    #     """Update difficulty from progress and apply all dependent adjustments (translational clip, etc.)."""
-    #     if self.progress <= self.sac_curriculum_t1:
-    #             self.difficulty = self.initial_difficulty #starting difficulty
-    #     elif self.progress >= self.sac_curriculum_t2:
-    #         self.difficulty = 1.0
-    #     else:
-    #         self.difficulty = (self.initial_difficulty + (1.0 - self.initial_difficulty) 
-    #         * ((self.progress - self.sac_curriculum_t1) / (self.sac_curriculum_t2 - self.sac_curriculum_t1)))
+    def update_difficulty(self) -> None:
+        # return 1.0
+        """Update difficulty from progress and apply all dependent adjustments (translational clip, etc.)."""
+        if self.progress <= self.sac_curriculum_t1:
+                self.difficulty = self.initial_difficulty #starting difficulty
+        elif self.progress >= self.sac_curriculum_t2:
+            self.difficulty = 1.0
+        else:
+            self.difficulty = (self.initial_difficulty + (1.0 - self.initial_difficulty) 
+            * ((self.progress - self.sac_curriculum_t1) / (self.sac_curriculum_t2 - self.sac_curriculum_t1)))
 
-    #     if self.debug:
-    #         print(f"[Curriculum Debug] Progress: {self.progress:.3f} | Difficulty: {self.difficulty:.3f}")
+        if self.debug:
+            print(f"[Curriculum Debug] Progress: {self.progress:.3f} | Difficulty: {self.difficulty:.3f}")
 
     #     # self.adjust_translational_clip()
     #     self.adjust_speed_limit()

@@ -331,7 +331,7 @@ class Settings():
     
     ## Speed cap ##
     ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
-    GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = False
+    GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = True
     GLOBAL_SPEED_LIMIT_MIN = 3.0   # at low difficulty [m/s]
     GLOBAL_SPEED_LIMIT_MAX = 15.0  # at high difficulty [m/s]
 
