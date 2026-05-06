@@ -4,10 +4,10 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    SIM_ODE_IMPLEMENTATION = "residual"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "IPZ2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -51,7 +51,7 @@ class Settings():
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
-    CONNECT_RACETUNER_TO_MAIN_CAR = True
+    CONNECT_RACETUNER_TO_MAIN_CAR = False
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
@@ -83,7 +83,7 @@ class Settings():
 
 
     ## Noise ##
-    CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
+    CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

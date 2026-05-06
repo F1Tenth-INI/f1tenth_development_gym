@@ -38,6 +38,7 @@ class LearnerServer:
         learning_rate: float = 3e-4,
         discount_factor: float = 0.99,
         train_frequency: int = 1,
+        checkpoint_interval: int = 10_000,
     ):
         self.host = host
         self.port = port
@@ -50,6 +51,7 @@ class LearnerServer:
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
+        self.checkpoint_interval = checkpoint_interval
         self.max_utd = 4.0  # max updates per data point
 
         # Settings
@@ -73,6 +75,7 @@ class LearnerServer:
         self.vecnorm: Optional[VecNormalize] = None
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
+        self.last_checkpoint_timesteps = 0
 
         self.last_episode_time = None 
         self.episode_timeout = 100.0
@@ -204,6 +207,21 @@ class LearnerServer:
                 print(f"[server] Model saved to {target}")
             except Exception as e:
                 print(f"[server] Error saving model: {e}")
+    
+    def _save_checkpoint(self, timesteps: int):
+        """Save a checkpoint with a unique name including timestep count."""
+        if self.model is not None:
+            try:
+                # Create checkpoints subdirectory if it doesn't exist
+                checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                
+                checkpoint_name = f"{self.save_model_name}_checkpoint_{timesteps}"
+                target = os.path.join(checkpoint_dir, checkpoint_name)
+                self.model.save(target)
+                print(f"[server] Checkpoint saved to {target} (timesteps={timesteps})")
+            except Exception as e:
+                print(f"[server] Error saving checkpoint: {e}")
 
     # ---------- ingestion + training ----------
     # No normalization for now: obs arrive normalized already
@@ -480,6 +498,13 @@ class LearnerServer:
                 self._weights_blob = new_blob
                 await self._broadcast_weights(new_blob)
                 print("[server] Trained SAC and broadcast updated actor weights.")
+
+                # Check if we should save checkpoint(s) based on timestep interval
+                # Handle case where multiple intervals may have passed since last checkpoint
+                while self.total_actor_timesteps - self.last_checkpoint_timesteps >= self.checkpoint_interval:
+                    next_checkpoint_timesteps = self.last_checkpoint_timesteps + self.checkpoint_interval
+                    self._save_checkpoint(next_checkpoint_timesteps)
+                    self.last_checkpoint_timesteps = next_checkpoint_timesteps
 
                 try:
                     target = os.path.join(self.model_dir, str(self.save_model_name))

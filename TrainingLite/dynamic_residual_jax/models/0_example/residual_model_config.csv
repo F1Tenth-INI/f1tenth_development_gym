@@ -1,0 +1,4 @@
+Parameter,Value
+MODEL_NAME,0_example
+INPUT_COLS,"linear_vel_x, angular_control_executed, translational_control_executed"
+OUTPUT_COLS,"residual_delta_angular_vel_z_0, residual_delta_linear_vel_x_0, residual_delta_linear_vel_y_0, residual_delta_pose_theta_sin_0, residual_delta_pose_theta_cos_0"

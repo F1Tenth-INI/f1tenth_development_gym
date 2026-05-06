@@ -1,0 +1,6 @@
+Finally fixed braking behaviour....Car is not able to braker
+
+Controller:
+RPGD jax with t = 0.04s
+Residual dynamics on Vx enabled
+Running on speedfactors 0.7 to 1.1s
