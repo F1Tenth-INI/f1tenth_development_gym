@@ -16,7 +16,7 @@ from utilities.Settings import Settings
 from utilities.car_system import CarSystem
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.waypoint_utils import WaypointUtils, WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
     )
@@ -314,17 +314,28 @@ class RacingSimulation:
 
        
         
-        # limit fps
-        if self.step_end_time is not None:
-            time_taken = time.time() - step_start_time
-            if(Settings.RENDER_MODE == "human_fast")  and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
-                time.sleep(0.25 * Settings.TIMESTEP_CONTROL - time_taken)
-            if Settings.RENDER_MODE == 'human' and time_taken < Settings.TIMESTEP_CONTROL:
-                time.sleep(Settings.TIMESTEP_CONTROL - time_taken)
-        self.step_end_time = time.time()
-        
         # Store state history for respawn functionality
         self._update_state_history()
+
+
+        # limit fps
+        time_taken = time.time() - step_start_time
+        sleep_time = 0.0
+
+        # human fast mode: realtime
+        if Settings.RENDER_MODE == "human_fast" and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
+            sleep_time = max(sleep_time, 0.25 * Settings.TIMESTEP_CONTROL - time_taken)
+
+        # Max frequency: if step took less than 1/freq, wait remaining time so it takes exactly 1/freq
+        if Settings.MAX_SIM_FREQUENCY is not None:
+            min_step_time = 1.0 / Settings.MAX_SIM_FREQUENCY
+            if time_taken < min_step_time:
+                sleep_time = max(sleep_time, min_step_time - time_taken)
+
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+        
+        self.step_end_time = time.time()
 
         # End of controller time step
 
@@ -565,14 +576,22 @@ class RacingSimulation:
         # Starting from random position near a waypoint (overwrite)
         if Settings.START_FROM_RANDOM_POSITION:
             import random
-            
-            wu = WaypointUtils()
-            random_wp = random.choice(wu.waypoints)
-            random_wp[WP_X_IDX] += random.uniform(0., 0.2)
-            random_wp[WP_Y_IDX] += random.uniform(0., 0.2)
-            random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-            
-            starting_positions[0] = random_wp[1:4]
+
+            # Reuse waypoints already owned by the main driver.
+            # Creating a new WaypointUtils on every reset starts a background reload
+            # thread each time and causes long-run slowdown when crashes are frequent.
+            random_wp_source = None
+            if self.drivers and hasattr(self.drivers[0], "waypoint_utils"):
+                random_wp_source = self.drivers[0].waypoint_utils.waypoints
+
+            if random_wp_source is not None and len(random_wp_source) > 0:
+                random_wp = np.array(random.choice(random_wp_source), copy=True)
+                random_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
+                random_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
+                random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+                starting_positions[0] = random_wp[1:4]
+            else:
+                print("Warning: Could not sample random waypoint; falling back to configured start.")
             # print("Starting position: ", random_wp[1:4])
             
         

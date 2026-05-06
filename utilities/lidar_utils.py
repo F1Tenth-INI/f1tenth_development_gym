@@ -166,16 +166,18 @@ def get_points_from_ranges(ranges, angles_rad):
 def transform_points_from_car_to_global(car_state, points_relative_to_car):
     car_x, car_y = car_state[POSE_X_IDX], car_state[POSE_Y_IDX]
     c, s = car_state[POSE_THETA_COS_IDX], car_state[POSE_THETA_SIN_IDX]
-    R = np.array([[c, -s], [s, c]])
+    points_dtype = points_relative_to_car.dtype
+    R = np.array([[c, -s], [s, c]], dtype=points_dtype)
     
     # The lidar offset is hardcoded for now as it is the same for all the cars
     # LIDAR offset in car coordinates
-    lidar_offset = np.array([0.20, 0.0])
+    lidar_offset = np.array([0.20, 0.0], dtype=points_dtype)
     
     # Adjust points relative to car by the LIDAR offset
     adjusted_points = points_relative_to_car + lidar_offset
     
-    return np.dot(adjusted_points, R.T) + np.array([car_x, car_y])
+    translation = np.array([car_x, car_y], dtype=points_dtype)
+    return np.dot(adjusted_points, R.T) + translation
 
 
 if __name__ == '__main__':

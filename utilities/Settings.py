@@ -15,9 +15,11 @@ class Settings():
 
     # Controller Settings
     CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
+    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -36,7 +38,7 @@ class Settings():
     ## Recordings ##
     REPLAY_RECORDING = False
 
-    SAVE_RECORDINGS = False
+    SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
     SAVE_VIDEOS = True #False
@@ -76,8 +78,9 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 3000 # In sim timesteps: Length until the simulation is terminated
-    MAX_EPISODE_LENGTH = 2000
+    SIMULATION_LENGTH = 1000 #1_000_000 # In sim timesteps: Length until the simulation is terminated
+    MAX_EPISODE_LENGTH = 2000 
+
 
     ## Noise ##
     CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
@@ -147,8 +150,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -182,7 +185,16 @@ class Settings():
     SAC_CURRICULUM_DEBUG = True
 
     ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.5 
+    SAC_STAT_TRACKER = True
+
+    SAC_SAVE_MODEL_CHECKPOINTS = True
+    SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
+    
+    # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
+    SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+    
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
     SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
     SAC_CURRICULUM_T2 = 0.8
 
