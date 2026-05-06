@@ -3,11 +3,11 @@ class Settings():
 
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
-    ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
+    ENV_CAR_PARAMETER_FILE = "gym_car_parameters_finetune.yml" #"gym_car_parameters.yml" # Car parameters for simulated car
     SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "RCA2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -157,8 +157,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -250,7 +250,6 @@ class Settings():
     SAC_AGENT_DEBUG = True
     LEARNER_SERVER_DEBUG = False
 
-    SAC_SPEED_CURRICULUM_LEARNING = False
     SAC_CURRICULUM_DEBUG = True
 
     SAC_CURRICULUM_ENABLED = False
@@ -284,7 +283,7 @@ class Settings():
     SAC_CHECKPOINT_FREQUENCY = 10000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
-    SAC_TARGET_UDT = 0.25
+    SAC_TARGET_UDT = None
     SAC_MAX_UTD = 2 
     SAC_UDT_DEADBAND_RATIO = 0.10
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05

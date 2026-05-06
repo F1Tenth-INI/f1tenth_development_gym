@@ -226,24 +226,24 @@ class RLAgentPlanner(template_planner):
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
 
-        #TODO: nikita: add clipping here
-        if Settings.SAC_CURRICULUM_SPEED:
-            # accel = np.clip(accel, -Settings.SAC_ACCEL_CAP, Settings.SAC_ACCEL_CAP)
-            # speed = np.sqrt(np.power(raw_obs[LINEAR_VEL_X_IDX], 2) + np.power(raw_obs[LINEAR_VEL_Y_IDX], 2))
-            vx = self.car_state[LINEAR_VEL_X_IDX]
-            vy = self.car_state[LINEAR_VEL_Y_IDX]
-            speed = np.sqrt(vx**2 + vy**2)
-            # print(speed)
+        # #TODO: nikita: add clipping here
+        # if Settings.SAC_CURRICULUM_SPEED:
+        #     # accel = np.clip(accel, -Settings.SAC_ACCEL_CAP, Settings.SAC_ACCEL_CAP)
+        #     # speed = np.sqrt(np.power(raw_obs[LINEAR_VEL_X_IDX], 2) + np.power(raw_obs[LINEAR_VEL_Y_IDX], 2))
+        #     vx = self.car_state[LINEAR_VEL_X_IDX]
+        #     vy = self.car_state[LINEAR_VEL_Y_IDX]
+        #     speed = np.sqrt(vx**2 + vy**2)
+        #     # print(speed)
 
-            ### Speed cap, with a soft gradual cap
-            slowdown_margin = 0.5
-            diff = speed - (Settings.SAC_CURRICULUM_SPEED_LIMIT - slowdown_margin)
-            if diff > 0 and accel > 0:
-                throttle_factor = max(0.0, 1.0 - diff / slowdown_margin)
-                accel = accel * throttle_factor
+        #     ### Speed cap, with a soft gradual cap
+        #     slowdown_margin = 0.5
+        #     diff = speed - (Settings.SAC_CURRICULUM_SPEED_LIMIT - slowdown_margin)
+        #     if diff > 0 and accel > 0:
+        #         throttle_factor = max(0.0, 1.0 - diff / slowdown_margin)
+        #         accel = accel * throttle_factor
 
-                # print("speed limit reached, setting accel to 0")
-                # accel = 0.0
+        #         # print("speed limit reached, setting accel to 0")
+        #         # accel = 0.0
 
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
