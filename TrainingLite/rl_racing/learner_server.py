@@ -1722,12 +1722,13 @@ class LearnerServer:
                 save_time = time.time()
 
                 # Nikita: stat tracker save
+                # SAVE COMMENTED OUT ON PURPOSE BECAUSE ITS TOO SLOW, ONLY DOES ONCE AT THE END
                 if self.replay_buffer.stat_tracker is not None:
                     self.replay_buffer.stat_tracker.update_training_length_list(training_time)
                     now = time.time()
                     if now - self._last_stat_save_ts > 60.0:  # at most once per minute
                         self.replay_buffer.stat_tracker.print_stats()
-                        self.replay_buffer.stat_tracker.save_csv(append=False)
+                        # self.replay_buffer.stat_tracker.save_csv(append=False)
                         self._last_stat_save_ts = now
 
                 

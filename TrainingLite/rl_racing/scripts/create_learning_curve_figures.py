@@ -29,14 +29,22 @@ EXPERIMENTS = {
     # ),
     # "Proportional (State)": glob.glob("TrainingLite/rl_racing/models/RCA2-Results-F65_State_Wrew_5_Wd_5_We_5*/learning_metrics.csv"),
 
-    # "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2c-Results*/learning_metrics.csv"),
-    # "proportional (TD-error)": glob.glob("TrainingLite/rl_racing/models/RCA2c-maxFreq_65_TD_A_0.6_ActorInvTD_False*/learning_metrics.csv"),
+    "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_CUSTOM_uniform*/learning_metrics.csv"),
+    "proportional (TD-error; alpha=0.3)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.3*/learning_metrics.csv"),
+    "proportional (TD-error; alpha=0.5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.5*/learning_metrics.csv"),
+    "proportional (TD-error; alpha=0.8)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.8*/learning_metrics.csv"),
+    "proportional (State; rew=3, d=3, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
+    "proportional (State; rew=7, d=3, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_7.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
+    "proportional (State; vel=3, rew=5, d=5, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_VelW_3.0_Wrew_5_Wd_5_We_5*/learning_metrics.csv"),
+    "proportional (State; rew=3, d=5, e=3)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_5.0_We_3.0*/learning_metrics.csv"),
+
+    
     # "proportional (TD-error, actor Inverse TD)": glob.glob("TrainingLite/rl_racing/models/RCA2c-maxFreq_65_TD_A_0.6_ActorInvTD_True*/learning_metrics.csv"),
 }
 
 # ----------------------------------------
 #set to None to auto find common prefix 
-save_dir_prefix = "Physical-2-uni-2-TD06"
+save_dir_prefix = None
 # ----------------------------------------
 
 
@@ -71,36 +79,26 @@ METRICS = {
         "columns": ["episode_mean_step_rewards"],
         "label": "Episode Mean Step Reward",
         "output": "learning_curve_episode_mean_step_reward.png",
-        "reference_line": 0.0,
-        "reference_label": "reference",
     },
     "episode_reward": {
         "columns": ["episode_rewards"],
         "label": "Episode Reward",
         "output": "learning_curve_episode_reward.png",
-        "reference_line": 0.0,
-        "reference_label": "reference",
     },
     "lap_time": {
         "columns": ["lap_times"],
         "label": "Lap Time (s)",
         "output": "learning_curve_lap_time.png",
-        "reference_line": None,
-        "reference_label": "reference",
     },
     "critic_loss": {
         "columns": ["critic_loss"],
         "label": "Critic Loss",
         "output": "learning_curve_critic_loss.png",
-        "reference_line": None,
-        "reference_label": "reference",
     },
     "actor_loss": {
         "columns": ["actor_loss"],
         "label": "Actor Loss",
         "output": "learning_curve_actor_loss.png",
-        "reference_line": None,
-        "reference_label": "reference",
     },
 }
 
@@ -209,16 +207,6 @@ for metric_name, metric_cfg in METRICS.items():
         med, q25, q75 = align_and_summarize(curves, x_grid)
         ax.plot(x_grid, med, color=colors.get(method, None), label=method, linewidth=2)
         ax.fill_between(x_grid, q25, q75, color=colors.get(method, None), alpha=0.25)
-
-    reference_line = metric_cfg.get("reference_line")
-    if reference_line is not None:
-        ax.axhline(
-            reference_line,
-            linestyle=(0, (3, 3)),
-            color="green",
-            alpha=0.8,
-            label=metric_cfg.get("reference_label", "reference"),
-        )
 
     ax.set_xlabel(X_LABEL)
     ax.set_ylabel(metric_cfg["label"])

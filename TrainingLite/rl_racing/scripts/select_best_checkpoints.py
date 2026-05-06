@@ -103,9 +103,11 @@ class CheckpointSelector:
 
         # Some training runs save checkpoints as extensionless files (e.g. *_ckpt_12345),
         # while others may have a .zip suffix. Accept both.
+        # Skip pretrained model checkpoints (e.g., RCA1-1_ckpt).
         checkpoints = [
             p for p in checkpoints_dir.iterdir()
             if p.is_file() and ("_ckpt_" in p.name or p.suffix.lower() == ".zip")
+            and "RCA1-1_ckpt" not in p.name
         ]
         checkpoints.sort(key=lambda p: self._checkpoint_step(p.name))
         return checkpoints

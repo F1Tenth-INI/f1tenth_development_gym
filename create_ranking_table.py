@@ -13,10 +13,10 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 import seaborn as sns
 
 # Configuration
-DATA_DIR = Path("batch_learning_metrics_summary/RCA2-Final")
-CSV_FILE = DATA_DIR / "learning_metric_leaderboards_RCA2-Final_grouped.csv"
-OUTPUT_EXCEL = DATA_DIR / "ranking_table_RCA2-Final_grouped.xlsx"
-OUTPUT_PNG = DATA_DIR / "ranking_table_RCA2-Final_grouped.png"
+DATA_DIR = Path("batch_learning_metrics_summary/RCA2-ReportFinal")
+CSV_FILE = DATA_DIR / "learning_metric_leaderboards_RCA2-ReportFinal.csv"
+OUTPUT_EXCEL = DATA_DIR / "ranking_table_RCA2-ReportFinal.xlsx"
+OUTPUT_PNG = DATA_DIR / "ranking_table_RCA2-ReportFinal.png"
 
 def load_and_process_data(csv_path):
     """Load CSV and create ranking table."""

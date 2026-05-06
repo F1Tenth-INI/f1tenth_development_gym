@@ -26,9 +26,10 @@ def _abbreviate_column_name(name: str) -> str:
 
 
 METRIC_DEFINITIONS = [
-    {"event_name": "first_lap_lt_30s", "label": "first lap under 30s", "kind": "lap", "threshold": 30.0},
+    # {"event_name": "first_lap_lt_30s", "label": "first lap under 30s", "kind": "lap", "threshold": 30.0},
     {"event_name": "first_lap_lt_27_5s", "label": "first lap under 27.5s", "kind": "lap", "threshold": 27.5},
     {"event_name": "first_lap_lt_25s", "label": "first lap under 25s", "kind": "lap", "threshold": 25.0},
+    {"event_name": "first_lap_lt_24s", "label": "first lap under 24s", "kind": "lap", "threshold": 24.0},
     {
         "event_name": "first_episode_len_ge_2000",
         "label": "first episode length >= 2000",
@@ -55,6 +56,20 @@ METRIC_DEFINITIONS = [
         "kind": "episode_length_and_reward",
         "length_threshold": 500.0,
         "reward_threshold": 0.02,
+    },
+    {
+        "event_name": "first_episode_len_gt_500_mean_step_reward_gt_0_03",
+        "label": "first episode length > 500 and mean step reward > 0.03",
+        "kind": "episode_length_and_reward",
+        "length_threshold": 500.0,
+        "reward_threshold": 0.03,
+    },
+    {
+        "event_name": "first_episode_len_gt_500_mean_step_reward_gt_0_04",
+        "label": "first episode length > 500 and mean step reward > 0.04",
+        "kind": "episode_length_and_reward",
+        "length_threshold": 500.0,
+        "reward_threshold": 0.04,
     },
 ]
 
