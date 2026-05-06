@@ -31,7 +31,8 @@ Key insight: Use consistent timestep during gradient optimization to avoid disco
 but evaluate final costs with variable timestep to match MPPI's planning horizon.
 This preserves RPGD's planning capability while maintaining smooth gradients.
 """
-MODEL_TYPE = 'residual'  # Use residual model for dynamics
+# MODEL_TYPE = 'residual'  # Use residual model for dynamics
+MODEL_TYPE = 'pacejka'  # Use pacejka model for dynamics
 class RPGDPlanner(template_planner):
 
     def __init__(self):
