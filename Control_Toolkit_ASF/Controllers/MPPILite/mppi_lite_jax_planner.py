@@ -65,8 +65,8 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = 0.04
-        self.batch_size = 256
-        self.horizon = 30
+        self.batch_size = 512
+        self.horizon = 40
         
         # Control smoothness parameters
         self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
@@ -159,7 +159,7 @@ class MPPILitePlanner(template_planner):
             
             self.optimal_trajectory = np.array(optimal_traj)
             self.render_utils.update_mpc(
-                rollout_trajectory=self.rollout_trajectories,
+                rollout_trajectory=self.rollout_trajectories[:20,:,:],
                 optimal_trajectory=np.expand_dims(self.optimal_trajectory, axis=0),
             )
 

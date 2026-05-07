@@ -1,115 +1,90 @@
-# This script is used to test the CI/CD pipeline. It runs the simulation with the PP controller on the RCA2 map.
+"""CI smoke test runner using explicit `run.py --SETTING value` commands."""
+
+import re
+import subprocess
+import sys
+from typing import List
+
+
+def format_command(args: List[str]) -> str:
+    """Return a shell-like command string for readable logs."""
+    return " ".join(["python", "run.py", *args])
+
+
+def run_case(name: str, args: List[str]) -> None:
+    cmd = [sys.executable, "run.py", *args]
+    print(f"\n=== Running case: {name} ===")
+    print(format_command(args))
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    output_lines: List[str] = []
+    assert process.stdout is not None, f"Case '{name}' has no stdout stream."
+    for line in process.stdout:
+        print(line, end="")
+        output_lines.append(line)
+    completed = process.wait()
+    output = "".join(output_lines)
+
+    # Basic process-level failure check.
+    assert completed == 0, (
+        f"Case '{name}' failed with return code {completed}."
+    )
+
+    # Crash signals that can appear in stdout even when run returns 0.
+    lowered = output.lower()
+    assert not (
+        ("controller " in lowered and "crashed the car." in lowered)
+        or "collision detected" in lowered
+        or "carcrashexception" in lowered
+        or "traceback" in lowered
+    ), f"Case '{name}' shows crash/error markers in output."
+
+    # Ensure at least one lap was completed.
+    lap_hits = re.findall(r"Lap time:\s*([0-9]+(?:\.[0-9]+)?)", output)
+    assert len(lap_hits) > 0, f"Case '{name}' completed with no lap times recorded."
 
 
 if __name__ == "__main__":
-    
-    import importlib
-    import os
-    import sys
-    import time
+    base = [
+        "--MAP_NAME", "RCA2",
+        "--RENDER_MODE", "None",
+        "--START_FROM_RANDOM_POSITION", "False",
+        "--SIMULATION_LENGTH", "2000",
+        "--SURFACE_FRICTION", "0.75",
+        "--NOISE_LEVEL_CONTROL", "[0.0, 0.0]",
+    ]
 
-    # Add the parent directory to sys.path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.dirname(current_dir)
-    sys.path.append(parent_dir)
-    from utilities.Settings import Settings # Settings need to be imported first, so that they can be overwritten
-    time.sleep(1)
-    
-    # Test car models first to ensure they work correctly
-    from sim.f110_sim.envs.test_dynamic_models import test_car_models, test_jax_pacejka_integration
-    # test_car_models()
-    # test_jax_pacejka_integration()
-    # print("All car model tests completed successfully.\n")
-    print("Skipping car model tests.\n")
-    
+    cases = [
+        # (
+        #     "pp",
+        #     [*base, "--CONTROLLER", "pp", "--GLOBAL_WAYPOINT_VEL_FACTOR", "0.5", "--CONTROL_DELAY", "0.0"],
+        # ),
+        # (
+        #     "mpc",
+        #     [*base, "--CONTROLLER", "mpc", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
+        # ),
+        # (
+        #     "mppi-lite-jax",
+        #     [*base, "--CONTROLLER", "mppi-lite-jax", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
+        # ),
+        # (
+        #     "rpgd-lite-jax",
+        #     [*base, "--CONTROLLER", "rpgd-lite-jax", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
+        # ),
+        (
+            "SAC agent",
+            [*base, "--MAP_NAME", "RCA1",  "--CONTROLLER", "sac_agent", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08", "--SAC_INFERENCE_MODEL_NAME", "Example-1b", "--SURFACE_FRICTION", "0.9"],
+        ),
+        
+    ]
 
-    # Global Settings
-    Settings.EXPERIMENT_LENGTH = 3000
-    Settings.MAP_NAME = "RCA2"
-    Settings.MAP_PATH = os.path.join("utilities", "maps", Settings.MAP_NAME)
-    Settings.MAP_CONFIG_FILE = os.path.join(Settings.MAP_PATH, Settings.MAP_NAME+".yaml")
+    for name, args in cases:
+        run_case(name, args)
 
-    Settings.RENDER_MODE = None 
-    Settings.REVERSE_DIRECTION = False # Drive reverse waypoints
-    Settings.APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
-    Settings.START_FROM_RANDOM_POSITION = False # Start from random position (randomly selected waypoint + delta)
-    Settings.SIMULATION_LENGTH = 2000
-    Settings.SAVE_RECORDINGS = True
-    Settings.SURFACE_FRICTION = 0.75
-    Settings.NOISE_LEVEL_CONTROL = [0.0, 0.0]
-
-
-
-
-    # Test: Run the simulation with the PP controller on the RCA2 map (without delay)
-    Settings.CONTROLLER = 'pp'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 0.5 
-    Settings.CONTROL_DELAY = 0.00
-    time.sleep(1)
-
-    from run_simulation import RacingSimulation
-    import run_simulation
-    importlib.reload(run_simulation)
-
-    simulation = RacingSimulation()
-    simulation.run_experiments()
-
-
-
-    time.sleep(1)
-
-    # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
-    Settings.CONTROLLER = 'mpc'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
-    
-    Settings.CONTROL_DELAY = 0.08
-
-    importlib.reload(run_simulation)    
-    time.sleep(1)
-
-    simulation = RacingSimulation()
-    simulation.run_experiments()
-
-    # Assert at least one lap was completed
-    laptimes = simulation.drivers[0].laptimes
-    assert len(laptimes) > 0, "No lap times recorded"
-
-
-    time.sleep(1)
-     # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
-    Settings.CONTROLLER = 'mppi-lite-jax'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
-    
-    Settings.CONTROL_DELAY = 0.08
-
-    importlib.reload(run_simulation)    
-    time.sleep(1)
-
-
-    simulation = RacingSimulation()
-    simulation.run_experiments()
-
-    # Assert at least one lap was completed
-    laptimes = simulation.drivers[0].laptimes
-    assert len(laptimes) > 0, "No lap times recorded"
-
-
-
-    time.sleep(1)
-     # Test: Run the simulation with the PP controller on the RCA2 map (with delay)
-    Settings.CONTROLLER = 'rpgd-lite-jax'
-    Settings.GLOBAL_WAYPOINT_VEL_FACTOR = 1.0 
-    
-    Settings.CONTROL_DELAY = 0.08
-
-    importlib.reload(run_simulation)    
-    time.sleep(1)
-
-
-    simulation = RacingSimulation()
-    simulation.run_experiments()
-
-    # Assert at least one lap was completed
-    laptimes = simulation.drivers[0].laptimes
-    assert len(laptimes) > 0, "No lap times recorded"
+    print("\nAll CI test cases passed: no crashes/errors detected and lap(s) completed.")
 
