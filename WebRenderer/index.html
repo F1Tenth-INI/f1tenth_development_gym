@@ -1,0 +1,467 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>F1TENTH Web Renderer</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #091f56; color: #fff; font-family: sans-serif; }
+    #root { display: grid; grid-template-rows: 72px 1fr; height: 100%; }
+    #topbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: #0d2f7b; }
+    #status { font-size: 14px; opacity: 0.95; white-space: pre-line; }
+    canvas { width: 100%; height: 100%; display: block; background: #092057; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="topbar">
+      <strong>F1TENTH Web Renderer</strong>
+      <span id="status">Connecting...</span>
+    </div>
+    <canvas id="view"></canvas>
+  </div>
+  <script>
+    const canvas = document.getElementById("view");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    let mapMeta = null;
+    let mapImg = null;
+    let latest = null;
+    let latestSimulationTime = 0.0;
+    let latestSimAtPoll = 0.0;
+    let latestPollWallTimeS = 0.0;
+    let prevPollSimTime = null;
+    let prevPollWallTimeS = null;
+    let simTimeRate = 1.0; // simulated seconds per wall second
+    let observedFetchIntervalS = 0.1;
+    let lastFetchCompleteWallS = null;
+    let lastFrameId = 0;
+    let staticOverlay = {};
+    let frameBuffer = [];
+    let playbackSimTime = null;
+    let lastDrawWallTimeS = null;
+    let cameraFollowEgo = true;
+    let cameraCenter = null;
+    const BUFFER_WINDOW_S = 2.5;
+    const TARGET_BUFFER_DELAY_S = 1.8;
+    const MIN_BUFFER_DELAY_S = 1.2;
+    const HISTORY_POLL_MS = 100;
+    const REQUEST_OVERLAP_FRAMES = 12;
+    const MAX_INFLIGHT_FETCHES = 2;
+    let inflightFetches = 0;
+    let zoom = 60.0; // pixels per meter
+    const ZOOM_MIN = 15.0;
+    const ZOOM_MAX = 300.0;
+    const ZOOM_FACTOR = 1.15;
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function worldToScreen(x, y, cx, cy) {
+      const w = canvas.getBoundingClientRect().width;
+      const h = canvas.getBoundingClientRect().height;
+      const sx = (x - cx) * zoom + 0.5 * w;
+      const sy = h - ((y - cy) * zoom + 0.5 * h);
+      return [sx, sy];
+    }
+
+    function clamp(v, lo, hi) {
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function rgb(color, fallback) {
+      if (Array.isArray(color) && color.length >= 3) {
+        return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+      }
+      return fallback;
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function angleLerp(a, b, t) {
+      let d = b - a;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      return a + d * t;
+    }
+
+    function angleDelta(a, b) {
+      let d = b - a;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      return d;
+    }
+
+    function interpolateState(a, b, t) {
+      const overlaySource = t < 0.5 ? (a.web_overlay || {}) : (b.web_overlay || {});
+      const poses = [];
+      const n = Math.min(a.poses?.length || 0, b.poses?.length || 0);
+      for (let i = 0; i < n; i++) {
+        const pa = a.poses[i];
+        const pb = b.poses[i];
+        poses.push([
+          lerp(pa[0], pb[0], t),
+          lerp(pa[1], pb[1], t),
+          angleLerp(pa[2], pb[2], t),
+        ]);
+      }
+      return {
+        ego_idx: b.ego_idx ?? a.ego_idx ?? 0,
+        simulation_time: lerp(a.simulation_time || 0.0, b.simulation_time || 0.0, t),
+        poses: poses,
+        web_overlay: overlaySource,
+      };
+    }
+
+    function extrapolateState(prev, last, targetTime) {
+      if (!prev || !last) return last;
+      const dt = Math.max(1e-6, last.simulation_time - prev.simulation_time);
+      const extra = Math.max(0.0, targetTime - last.simulation_time);
+      // Short extrapolation only; beyond this we prefer holding last sample.
+      const extraClamped = Math.min(extra, 0.15);
+
+      const poses = [];
+      const n = Math.min(prev.poses?.length || 0, last.poses?.length || 0);
+      for (let i = 0; i < n; i++) {
+        const p0 = prev.poses[i];
+        const p1 = last.poses[i];
+        const vx = (p1[0] - p0[0]) / dt;
+        const vy = (p1[1] - p0[1]) / dt;
+        const w = angleDelta(p0[2], p1[2]) / dt;
+        poses.push([
+          p1[0] + vx * extraClamped,
+          p1[1] + vy * extraClamped,
+          p1[2] + w * extraClamped,
+        ]);
+      }
+      return {
+        ego_idx: last.ego_idx ?? 0,
+        simulation_time: last.simulation_time + extraClamped,
+        poses: poses,
+        web_overlay: last.web_overlay || {},
+      };
+    }
+
+    function stateForRender() {
+      if (frameBuffer.length === 0) return null;
+      if (frameBuffer.length === 1) return frameBuffer[0];
+
+      const nowS = performance.now() / 1000.0;
+      const oldestT = frameBuffer[0].simulation_time;
+      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+
+      if (playbackSimTime === null) {
+        playbackSimTime = newestT - TARGET_BUFFER_DELAY_S;
+        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
+        lastDrawWallTimeS = nowS;
+      } else {
+        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+        lastDrawWallTimeS = nowS;
+
+        // Keep horizon near target; gentle PLL-like correction.
+        const currentHorizon = newestT - playbackSimTime;
+        const horizonError = currentHorizon - TARGET_BUFFER_DELAY_S;
+        const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
+        const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
+
+        if (currentHorizon > MIN_BUFFER_DELAY_S) {
+          playbackSimTime += dtWall * playbackRate;
+        }
+
+        // Never run playback backward; keep inside available buffer.
+        playbackSimTime = Math.max(playbackSimTime, oldestT);
+        playbackSimTime = Math.min(playbackSimTime, newestT + 0.1);
+      }
+      const target = playbackSimTime;
+      if (target <= frameBuffer[0].simulation_time) return frameBuffer[0];
+
+      for (let i = 1; i < frameBuffer.length; i++) {
+        const a = frameBuffer[i - 1];
+        const b = frameBuffer[i];
+        if (target <= b.simulation_time) {
+          const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
+          const t = Math.max(0.0, Math.min(1.0, (target - a.simulation_time) / dt));
+          return interpolateState(a, b, t);
+        }
+      }
+      const last = frameBuffer[frameBuffer.length - 1];
+      const prev = frameBuffer.length > 1 ? frameBuffer[frameBuffer.length - 2] : null;
+      return extrapolateState(prev, last, target);
+    }
+
+    function drawPoints(points, color, radius, cx, cy) {
+      if (!Array.isArray(points)) return;
+      ctx.fillStyle = color;
+      for (const p of points) {
+        if (!Array.isArray(p) || p.length < 2) continue;
+        const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+        ctx.beginPath();
+        ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawSinglePoint(pointList, color, radius, cx, cy) {
+      if (!Array.isArray(pointList) || pointList.length === 0) return;
+      const p = pointList[0];
+      if (!Array.isArray(p) || p.length < 2) return;
+      const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawLine(points, color, lineWidth, cx, cy) {
+      if (!Array.isArray(points) || points.length < 2) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      points.forEach((p, idx) => {
+        if (!Array.isArray(p) || p.length < 2) return;
+        const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+        if (idx === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.stroke();
+    }
+
+    function drawTrajectories(trajectories, color, radius, cx, cy) {
+      if (!Array.isArray(trajectories)) return;
+      ctx.fillStyle = color;
+      for (const traj of trajectories) {
+        if (!Array.isArray(traj)) continue;
+        for (const p of traj) {
+          if (!Array.isArray(p) || p.length < 2) continue;
+          const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+          ctx.beginPath();
+          ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    async function loadMap() {
+      try {
+        const r = await fetch("/map");
+        mapMeta = await r.json();
+        mapImg = new Image();
+        mapImg.src = "/map-image";
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function loadStaticOverlay() {
+      try {
+        const r = await fetch("/overlay-static");
+        staticOverlay = await r.json();
+      } catch (e) {
+        // Keep last static overlay on errors.
+      }
+    }
+
+    async function fetchStateHistoryTick() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
+        return;
+      }
+      inflightFetches += 1;
+      try {
+        const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
+        const r = await fetch(`/state-history?since=${since}`);
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
+        // Ignore stale response snapshots that are older than what we already processed.
+        if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+          return;
+        }
+        const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
+        const nowWall = performance.now() / 1000.0;
+        if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
+          const dSim = newLatestSimulationTime - prevPollSimTime;
+          const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
+          const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
+          // Smooth estimate to avoid jitter in playback speed.
+          simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
+        }
+        prevPollSimTime = newLatestSimulationTime;
+        prevPollWallTimeS = nowWall;
+        latestSimulationTime = newLatestSimulationTime;
+        lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
+        latestSimAtPoll = latestSimulationTime;
+        latestPollWallTimeS = nowWall;
+
+        const cutoff = latestSimulationTime - BUFFER_WINDOW_S;
+        const mergedByFrameId = new Map();
+        for (const s of [...frameBuffer, ...history]) {
+          if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+          if (s.simulation_time < cutoff) continue;
+          const fid = Number(s.frame_id);
+          const existing = mergedByFrameId.get(fid);
+          if (!existing || s.simulation_time >= existing.simulation_time) {
+            mergedByFrameId.set(fid, s);
+          }
+        }
+
+        const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
+          const ta = Number(a.simulation_time);
+          const tb = Number(b.simulation_time);
+          if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+          return Number(a.frame_id) - Number(b.frame_id);
+        });
+
+        // Ensure monotonic simulation_time in buffer (drop regressions).
+        const monotonic = [];
+        let lastT = -Infinity;
+        for (const s of merged) {
+          const t = Number(s.simulation_time);
+          if (t + 1e-9 >= lastT) {
+            monotonic.push(s);
+            lastT = t;
+          }
+        }
+        frameBuffer = monotonic;
+        latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+
+        const labels = latest?.web_overlay?.label_dict || {};
+        const labelText = Object.keys(labels).length > 0
+          ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
+          : "";
+        const camMode = cameraFollowEgo ? "follow-car" : "free";
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+      } catch (e) {
+        statusEl.textContent = "Waiting for simulation state...";
+      } finally {
+        const now = performance.now() / 1000.0;
+        if (lastFetchCompleteWallS !== null) {
+          const interval = Math.max(0.01, now - lastFetchCompleteWallS);
+          observedFetchIntervalS = 0.8 * observedFetchIntervalS + 0.2 * interval;
+        }
+        lastFetchCompleteWallS = now;
+        inflightFetches = Math.max(0, inflightFetches - 1);
+      }
+    }
+
+    function startHistoryPolling() {
+      fetchStateHistoryTick();
+      setInterval(fetchStateHistoryTick, HISTORY_POLL_MS);
+    }
+
+    function draw() {
+      const w = canvas.getBoundingClientRect().width;
+      const h = canvas.getBoundingClientRect().height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#092057";
+      ctx.fillRect(0, 0, w, h);
+
+      const frame = stateForRender();
+      if (frame && frame.poses && frame.poses.length > 0) {
+        const ego = frame.poses[frame.ego_idx || 0];
+        if (cameraFollowEgo || cameraCenter === null) {
+          cameraCenter = [ego[0], ego[1]];
+        }
+        const cx = cameraCenter[0];
+        const cy = cameraCenter[1];
+        const overlay = Object.assign({}, staticOverlay || {}, frame.web_overlay || {});
+        const colors = overlay.colors || {};
+
+        if (mapMeta && mapImg && mapImg.complete) {
+          const mapWm = mapMeta.width * mapMeta.resolution;
+          const mapHm = mapMeta.height * mapMeta.resolution;
+          const [sx, syTop] = worldToScreen(mapMeta.origin[0], mapMeta.origin[1] + mapHm, cx, cy);
+          const drawW = mapWm * zoom;
+          const drawH = mapHm * zoom;
+          ctx.globalAlpha = 0.85;
+          ctx.drawImage(mapImg, sx, syTop, drawW, drawH);
+          ctx.globalAlpha = 1.0;
+        }
+
+        // Base/static overlays first
+        drawPoints(overlay.waypoints, rgb(colors.waypoints, "rgb(180,180,180)"), 1.5, cx, cy);
+        drawPoints(overlay.waypoints_alternative, "rgb(170,170,170)", 1.5, cx, cy);
+        drawPoints(overlay.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
+        drawPoints(overlay.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
+        drawPoints(overlay.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 1.3, cx, cy);
+        drawPoints(overlay.track_border_points, rgb(colors.track_border, "rgb(255,0,0)"), 1.2, cx, cy);
+        drawPoints(overlay.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
+
+        // Histories
+        drawPoints(overlay.past_car_states_alternative, rgb(colors.history_alt, "rgb(255,255,0)"), 2.0, cx, cy);
+        drawPoints(overlay.past_car_states_gt, rgb(colors.history_gt, "rgb(0,128,255)"), 2.0, cx, cy);
+        drawPoints(overlay.past_car_states_prior, rgb(colors.history_prior, "rgb(255,255,255)"), 2.0, cx, cy);
+        drawPoints(overlay.past_car_states_prior_full, rgb(colors.history_prior_full, "rgb(0,255,255)"), 2.0, cx, cy);
+
+        // MPC overlays
+        drawTrajectories(overlay.rollout_trajectory, rgb(colors.mppi, "rgb(250,25,30)"), 1.3, cx, cy);
+        drawTrajectories(overlay.optimal_trajectory, rgb(colors.optimal, "rgb(255,165,0)"), 1.5, cx, cy);
+
+        // Gap / target
+        drawSinglePoint(overlay.largest_gap_middle_point, rgb(colors.gap, "rgb(0,255,0)"), 5.0, cx, cy);
+        drawSinglePoint(overlay.target_point, rgb(colors.target, "rgb(255,204,0)"), 7.0, cx, cy);
+
+        // Steering arrow and emergency slowdown lines
+        if (overlay.steering_arrow && overlay.steering_arrow.start && overlay.steering_arrow.end) {
+          drawLine([overlay.steering_arrow.start, overlay.steering_arrow.end], "rgb(0,204,0)", 2.0, cx, cy);
+        }
+        if (overlay.emergency_slowdown) {
+          const s = overlay.emergency_slowdown;
+          const factor = Math.max(0, Math.min(1, s.speed_reduction_factor ?? 1.0));
+          const red = Math.floor((1 - factor) * 255);
+          const green = Math.floor(factor * 255);
+          const dynamicColor = `rgb(${red}, ${green}, 0)`;
+          drawLine(s.left_line, dynamicColor, 2.0, cx, cy);
+          drawLine(s.right_line, dynamicColor, 2.0, cx, cy);
+          drawLine(s.stop_line, "rgb(255,0,0)", 2.0, cx, cy);
+          if (Array.isArray(s.display_position) && s.display_position.length > 0 && factor < 1.0) {
+            const p = s.display_position[0];
+            const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+            ctx.fillStyle = dynamicColor;
+            ctx.font = "12px sans-serif";
+            ctx.fillText(factor.toFixed(2), sx, sy);
+          }
+        }
+
+        frame.poses.forEach((p, i) => {
+          const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+          const heading = p[2];
+          const carLen = 0.58 * zoom;
+          const carWid = 0.31 * zoom;
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(-heading);
+          ctx.fillStyle = i === (frame.ego_idx || 0) ? "#ac61b9" : "#63345e";
+          ctx.fillRect(-carLen / 2, -carWid / 2, carLen, carWid);
+          ctx.restore();
+        });
+      }
+      requestAnimationFrame(draw);
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        cameraFollowEgo = !cameraFollowEgo;
+      }
+    });
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? ZOOM_FACTOR : (1.0 / ZOOM_FACTOR);
+      zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+    }, { passive: false });
+    resizeCanvas();
+    loadMap();
+    loadStaticOverlay();
+    startHistoryPolling();
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>

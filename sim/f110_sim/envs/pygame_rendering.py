@@ -4,6 +4,7 @@ import yaml
 from PIL import Image
 from f110_sim.envs.collision_models import get_vertices
 from utilities.Settings import Settings
+from utilities.state_utilities import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX
 
 CAR_LENGTH = 0.58
 CAR_WIDTH = 0.31
@@ -65,10 +66,33 @@ class EnvRenderer:
 
     def update_obs(self, obs):
         self.ego_idx = obs['ego_idx']
-        self.poses = np.stack((obs['poses_x'], obs['poses_y'], obs['poses_theta']), axis=-1)
-        self.vels = obs['linear_vels_x']
-        self.lap_count = obs['lap_counts'][self.ego_idx]
-        self.sim_time = obs['simulation_time']
+        self.sim_time = obs.get('simulation_time', 0.0)
+
+        # Support both legacy renderer obs (poses_x/poses_y/poses_theta) and
+        # current simulator obs (car_states).
+        if all(k in obs for k in ('poses_x', 'poses_y', 'poses_theta')):
+            self.poses = np.stack((obs['poses_x'], obs['poses_y'], obs['poses_theta']), axis=-1)
+            self.vels = np.asarray(obs.get('linear_vels_x', np.zeros(len(self.poses), dtype=np.float32)))
+        elif 'car_states' in obs:
+            car_states = np.asarray(obs['car_states'])
+            self.poses = np.stack(
+                (
+                    car_states[:, POSE_X_IDX],
+                    car_states[:, POSE_Y_IDX],
+                    car_states[:, POSE_THETA_IDX],
+                ),
+                axis=-1,
+            )
+            self.vels = car_states[:, LINEAR_VEL_X_IDX]
+        else:
+            self.poses = None
+            self.vels = np.zeros(1, dtype=np.float32)
+
+        lap_counts = obs.get('lap_counts')
+        if lap_counts is not None and len(lap_counts) > self.ego_idx:
+            self.lap_count = lap_counts[self.ego_idx]
+        else:
+            self.lap_count = 0
 
     def draw_car(self, pose, color):
         vertices = get_vertices(pose, CAR_LENGTH, CAR_WIDTH)

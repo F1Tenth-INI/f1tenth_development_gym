@@ -64,9 +64,9 @@ class MPPILitePlanner(template_planner):
         self.translational_control = 0
         self.control_index = 0
 
-        self.dt = 0.02
-        self.batch_size = 256
-        self.horizon = 75
+        self.dt = 0.04
+        self.batch_size = 512
+        self.horizon = 40
         
         # Control smoothness parameters
         self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
@@ -144,6 +144,7 @@ class MPPILitePlanner(template_planner):
                     Q_sequence_refined = refine_optimal_control_adam(
                         Q_sequence_cpu, s_cpu, car_params_cpu, waypoints_cpu, self.horizon
                     )
+                    # Q_sequence_refined = Q_sequence_cpu
                     
                     # Move refined result back to default device
                     Q_sequence = jax.device_put(Q_sequence_refined, self.default_device)
@@ -158,7 +159,7 @@ class MPPILitePlanner(template_planner):
             
             self.optimal_trajectory = np.array(optimal_traj)
             self.render_utils.update_mpc(
-                rollout_trajectory=self.rollout_trajectories,
+                rollout_trajectory=self.rollout_trajectories[:20,:,:],
                 optimal_trajectory=np.expand_dims(self.optimal_trajectory, axis=0),
             )
 
@@ -283,7 +284,7 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
     Q_batch_sequence += noise
     Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
     traj_batch = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
-        s_single, Q_single, car_params, 0.02, horizon, model_type='pacejka'
+        s_single, Q_single, car_params, 0.04, horizon, model_type='pacejka'
     ))(s_batch, Q_batch_sequence)
     
     # Compute costs with only intra-horizon smoothness
@@ -294,7 +295,7 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
     
     total_cost = jnp.sum(cost_batch, axis=1)
     Q_sequence = exponential_weighting_jax(Q_batch_sequence, total_cost)
-    optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.02, horizon, model_type='pacejka')
+    optimal_trajectory = car_steps_sequential_jax(state, Q_sequence, car_params, 0.04, horizon, model_type='pacejka')
     return Q_sequence, optimal_trajectory, traj_batch, total_cost
 
 
@@ -319,7 +320,7 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, horizon,
     opt_state = opt.init(Q_init)
 
     def cost_fn(Q_seq):
-        traj = car_steps_sequential_jax(s0, Q_seq, car_params, 0.02, horizon=horizon, model_type='pacejka')
+        traj = car_steps_sequential_jax(s0, Q_seq, car_params, 0.04, horizon=horizon, model_type='pacejka')
         costs = cost_function_sequence_jax(traj, Q_seq, waypoints, 
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 

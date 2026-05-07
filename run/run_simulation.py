@@ -22,11 +22,10 @@ from utilities.state_utilities import (
     )
 from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
+from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
-
-from utilities.CurriculumSupervisor import CurriculumSupervisor
 
 
 
@@ -47,6 +46,10 @@ class RacingSimulation:
         self.sim_index = 0
 
         self.obs = {}
+        # Single snapshot object representing the "whole environment" at the
+        # current timestep: all car states + simulation/observation data.
+        # Updated in `_update_state_history()`.
+        self.env_state = {}
         self.step_reward = 0
         self.done = False
         self.info = None
@@ -63,6 +66,7 @@ class RacingSimulation:
 
         
         self.renderer = None
+        self.renderer_backend = None
 
         self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
 
@@ -82,16 +86,6 @@ class RacingSimulation:
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
 
-        if Settings.CONTROLLER == 'sac_agent' and (Settings.SAC_INFERENCE_MODEL_NAME == None) and Settings.SAC_SPEED_CURRICULUM_LEARNING:
-            self.curriculum_supervisor = CurriculumSupervisor(
-                initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,
-                max_difficulty = 1.0,
-                sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1,
-                sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2,
-                debug = Settings.SAC_CURRICULUM_DEBUG
-            )
-        else:
-            self.curriculum_supervisor = None
     
 
     '''
@@ -126,22 +120,33 @@ class RacingSimulation:
                 
     
     def prepare_simulation(self):
+        self.renderer = None
+        self.renderer_backend = None
         
         # Init renderer
         
-        if Settings.RENDER_MODE is not None:        
-            from sim.f110_sim.envs.rendering import EnvRenderer
-
+        if Settings.RENDER_MODE is not None:
             map_name = Settings.MAP_NAME
             map_ext = ".png"
             map_path = os.path.join(Settings.MAP_PATH, map_name)
+            self.renderer_backend = str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower()
 
-
-            # screen size is 40% of the actual screen size
-            # Determine screen size
-            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
-            window_height = int(window_width / 1.5)
-            self.renderer = EnvRenderer(window_width, window_height)
+            if self.renderer_backend == "web":
+                from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
+                web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
+                web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765))
+                self.renderer = WebEnvRenderer(host=web_host, port=web_port)
+            elif self.renderer_backend == "pygame":
+                from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
+                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+                window_height = int(window_width / 1.5)
+                self.renderer = EnvRenderer(window_width, window_height)
+            else:
+                from sim.f110_sim.envs.rendering.pyglet_rendering import EnvRenderer
+                # screen size is 40% of the actual screen size
+                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+                window_height = int(window_width / 1.5)
+                self.renderer = EnvRenderer(window_width, window_height)
             if not Settings.BLANK_MAP:
                 self.renderer.update_map(map_path, map_ext)
         
@@ -208,7 +213,12 @@ class RacingSimulation:
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
         for _ in range(Settings.NUMBER_OF_OPPONENTS):
-            opponent = CarSystem(Settings.OPPONENTS_CONTROLLER)
+            lightweight_opponent = Settings.OPPONENTS_CONTROLLER == 'pp'
+            opponent = CarSystem(
+                Settings.OPPONENTS_CONTROLLER,
+                save_recording=False,
+                lightweight_mode=lightweight_opponent,
+            )
             opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
             opponent.save_recordings = False
             opponent.use_waypoints_from_mpc = Settings.OPPONENTS_GET_WAYPOINTS_FROM_MPC
@@ -229,15 +239,11 @@ class RacingSimulation:
         # Normal reset
         self.episode_index = 0
 
-        #TODO: add alpha scaling according to progress
-        if self.curriculum_supervisor is not None:
-            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
-            self.curriculum_supervisor.update_difficulty()
-            self.curriculum_supervisor.adjust_speed(speed_max = 1.1) #TODO: is there some universal max speed factor i should have
 
-            # print("Current Curriculum Difficulty:", self.difficulty)
-            # print("Current global velocity factor:", Settings.GLOBAL_WAYPOINT_VEL_FACTOR)
-        
+        # Random Global Waypoint Velocity Factor
+        if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
+            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = np.random.uniform(0.3, 1.3)
+
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
         self.control_delay_buffer.clear()
@@ -280,7 +286,7 @@ class RacingSimulation:
         driver_obs['car_state'] = self.sim.agents[driver_index].state
         driver_obs['scans'] = self.obs['scans'][driver_index]
         driver_obs['imu'] = self.obs['imus'][driver_index]
-        driver_obs['collision'] = True if self.obs['collisions'][0] else False
+        driver_obs['collision'] = True if self.obs['collisions'][driver_index] else False
         driver_obs['terminated'] = self.obs['terminated']
         driver_obs['interrupted'] = False
         driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
@@ -292,8 +298,10 @@ class RacingSimulation:
     def simulation_step(self):
 
         step_start_time = time.time()
-        
-        self.update_driver_state(self.drivers[0], 0)
+
+        # Build an up-to-date snapshot before control so planners can read the
+        # current environment through `env_state`.
+        self.env_state = self._build_env_state_snapshot()
         agent_controls = self.get_agent_controls()
 
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
@@ -322,8 +330,13 @@ class RacingSimulation:
         time_taken = time.time() - step_start_time
         sleep_time = 0.0
 
-        # human fast mode: realtime
-        if Settings.RENDER_MODE == "human_fast" and time_taken < 0.25 * Settings.TIMESTEP_CONTROL:
+        # human_fast pacing is only needed for blocking local windows (pyglet).
+        # The web backend renders asynchronously and should not throttle sim speed.
+        if (
+            Settings.RENDER_MODE == "human_fast"
+            and self.renderer_backend == "pyglet"
+            and time_taken < 0.25 * Settings.TIMESTEP_CONTROL
+        ):
             sleep_time = max(sleep_time, 0.25 * Settings.TIMESTEP_CONTROL - time_taken)
 
         # Max frequency: if step took less than 1/freq, wait remaining time so it takes exactly 1/freq
@@ -339,23 +352,30 @@ class RacingSimulation:
 
         # End of controller time step
 
-    def _update_state_history(self):
-        """Update state history for respawn functionality"""
-        # Store current state for all agents
-        current_states = []
-        for i in range(self.number_of_drivers):
-            current_states.append(self.sim.agents[i].state.copy())
-        
-        # Store current control inputs
-        current_controls = []
+    def _build_env_state_snapshot(self):
+        """Collect a single intuitive snapshot of the full environment."""
+        car_states = [self.sim.agents[i].state.copy() for i in range(self.number_of_drivers)]
+        controls = []
         for i in range(self.number_of_drivers):
             if hasattr(self.drivers[i], 'angular_control') and hasattr(self.drivers[i], 'translational_control'):
-                current_controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
+                controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
             else:
-                current_controls.append([0.0, 0.0])
-        
-        # Store current observations
-        current_obs = self.obs.copy() if self.obs is not None else {}
+                controls.append([0.0, 0.0])
+        obs_copy = self.obs.copy() if self.obs is not None else {}
+        return {
+            "time": float(self.sim_time),
+            "sim_index": int(self.episode_index),
+            "car_states": car_states,
+            "controls": controls,
+            "obs": obs_copy,
+        }
+
+    def _update_state_history(self):
+        """Update state history for respawn functionality"""
+        self.env_state = self._build_env_state_snapshot()
+        current_states = self.env_state["car_states"]
+        current_controls = self.env_state["controls"]
+        current_obs = self.env_state["obs"]
         
         # Add to history
         self.state_history.append(current_states)
@@ -440,9 +460,8 @@ class RacingSimulation:
             driver : CarSystem = driver
             self.update_driver_state(driver, index)
 
-            # Get control actions from driver 
-            driver_obs = self.get_driver_obs(index)
-            angular_control, translational_control = driver.process_observation(driver_obs)
+            # Get control actions from driver.
+            angular_control, translational_control = driver.process_observation(env_state=self.env_state)
             self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
@@ -482,10 +501,13 @@ class RacingSimulation:
             render_obs.update({
                 'simulation_time': self.sim_time,
             })
+            if self.renderer_backend == "web":
+                render_obs["web_overlay"] = build_web_overlay(self.drivers)
 
             self.renderer.render(render_obs)
-            
-            self.render_callback(self.renderer)
+
+            if self.renderer_backend == "pyglet" and Settings.RENDER_MODE in ("human", "human_fast"):
+                self.render_callback(self.renderer)
 
 
     '''
@@ -558,12 +580,6 @@ class RacingSimulation:
             # print("No starting positions in INI.yaml. Taking value from settings.py")
             starting_positions = Settings.STARTING_POSITION
 
-        if(len(starting_positions) < self.number_of_drivers):
-            print("No starting positions found.")
-            print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-            print("You can also let oponents start at random waypoint positions")
-            exit()
-        
         # Reverse direction of map initial positions
         if Settings.REVERSE_DIRECTION:
             starting_positions = [[0,0,-3.0]]
@@ -585,14 +601,45 @@ class RacingSimulation:
                 random_wp_source = self.drivers[0].waypoint_utils.waypoints
 
             if random_wp_source is not None and len(random_wp_source) > 0:
-                random_wp = np.array(random.choice(random_wp_source), copy=True)
+                n_waypoints = len(random_wp_source)
+                # Ensure list has slots for all drivers before indexed writes.
+                if len(starting_positions) < self.number_of_drivers:
+                    starting_positions = [list(p) for p in starting_positions]
+                    base_fallback = (
+                        list(starting_positions[0])
+                        if len(starting_positions) > 0
+                        else [0.0, 0.0, 0.0]
+                    )
+                    while len(starting_positions) < self.number_of_drivers:
+                        starting_positions.append(list(base_fallback))
+                # Main car: random waypoint
+                base_idx = random.randint(0, n_waypoints - 1)
+                random_wp = np.array(random_wp_source[base_idx], copy=True)
                 random_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
                 random_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
                 random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
                 starting_positions[0] = random_wp[1:4]
+
+                # Opponents: spawn on next waypoints, each 10-40 waypoints ahead from the previous
+                current_idx = base_idx
+                for i in range(1, self.number_of_drivers):
+                    offset = random.randint(10, 40)
+                    current_idx = (current_idx + offset) % n_waypoints
+                    opp_wp = np.array(random_wp_source[current_idx], copy=True)
+                    opp_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
+                    opp_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
+                    opp_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
+                    starting_positions[i] = opp_wp[1:4]
             else:
                 print("Warning: Could not sample random waypoint; falling back to configured start.")
-            # print("Starting position: ", random_wp[1:4])
+
+        # If random spawning is disabled (or failed), ensure we still have
+        # enough configured starts for all drivers.
+        if len(starting_positions) < self.number_of_drivers:
+            print("No starting positions found.")
+            print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
+            print("You can also let oponents start at random waypoint positions")
+            exit()
             
         
         self.starting_positions = starting_positions
@@ -630,13 +677,20 @@ class RacingSimulation:
             driver.car_state_noiseless = driver.car_state
         else:
             car_state_clean = self.sim.agents[agent_index].state
-            car_state_with_noise = self.add_state_noise(car_state_clean)
-
-            driver.set_car_state(car_state_with_noise)
+            if getattr(driver, "lightweight_mode", False):
+                # Opponent fast-path: avoid per-step state noise + IMU bookkeeping.
+                driver.set_car_state(car_state_clean)
+            else:
+                car_state_with_noise = self.add_state_noise(car_state_clean)
+                driver.set_car_state(car_state_with_noise)
             driver.set_scans(self.obs['scans'][agent_index])
+            # Keep controller-facing waypoints consistent with the state used
+            # for control (including optional state noise above).
+            driver.set_waypoints()
             
             # Pass simulation obsrvations to driver for IMU data access
-            driver.sim_obs = self.obs
+            if not getattr(driver, "lightweight_mode", False):
+                driver.sim_obs = self.obs
 
             driver.car_state_noiseless = car_state_clean
 

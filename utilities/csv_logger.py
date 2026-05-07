@@ -65,20 +65,8 @@ def csv_append_index_if_file_exists(csv_filepath):
 
 def create_csv_file_name(Settings, csv_name=None):
     if csv_name is None or csv_name == '':
-
-        if Settings.CONTROLLER is None:
-            controller_name = 'None'
-        else:
-            controller_name = Settings.CONTROLLER
-        
-        reverse_string = 'reverse_' if Settings.REVERSE_DIRECTION else ''
-            
-        dataset_name = Settings.MAP_NAME + '_' + reverse_string + controller_name + '_' + str(
-            int(1 / Settings.TIMESTEP_CONTROL)) + 'Hz' + '_vel_' + str(
-            Settings.GLOBAL_WAYPOINT_VEL_FACTOR) + '_noise_c' + str(Settings.NOISE_LEVEL_CONTROL) + '_mu_' + str(
-            Settings.SURFACE_FRICTION) + '_mu_c_' + str(Settings.FRICTION_FOR_CONTROLLER) + '_'
         timestamp = str(datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-        csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '_' + str(Settings.RECORDING_INDEX) + '_' + dataset_name + '.csv'
+        csv_file_name = timestamp + '_' + Settings.DATASET_NAME + '.csv'
     else:
         if csv_name[-4:] != '.csv':
             csv_name += '.csv'
@@ -113,6 +101,22 @@ def create_csv_header(Settings, controller_name, dt):
     header.append([f'# Speedfactor {Settings.GLOBAL_WAYPOINT_VEL_FACTOR}'])
 
     header.append([f'# Controller: {controller_name}'])
+
+    # Persist core experiment metadata directly in the same CSV file.
+    header.append([f'# Dataset name: {Settings.DATASET_NAME}'])
+    header.append([f'# Recording index: {Settings.RECORDING_INDEX}'])
+    header.append([f'# Map name: {Settings.MAP_NAME}'])
+    header.append([f'# Map path: {Settings.MAP_PATH}'])
+    header.append([f'# Reverse direction: {Settings.REVERSE_DIRECTION}'])
+    header.append([f'# Control frequency: {int(1 / dt)}Hz'])
+    header.append([f'# Global waypoint velocity factor: {Settings.GLOBAL_WAYPOINT_VEL_FACTOR}'])
+    # Avoid commas in the first CSV cell of comment lines. If a comma appears,
+    # csv.writer quotes the cell and the line no longer starts with '#', which
+    # breaks downstream `pd.read_csv(..., comment="#")` parsing.
+    noise_level_control_str = str(Settings.NOISE_LEVEL_CONTROL).replace(",", ";")
+    header.append([f'# Noise level control: {noise_level_control_str}'])
+    header.append([f'# Surface friction: {Settings.SURFACE_FRICTION}'])
+    header.append([f'# Friction for controller: {Settings.FRICTION_FOR_CONTROLLER}'])
 
     header.append(['#'])
     header.append(['# Data:'])

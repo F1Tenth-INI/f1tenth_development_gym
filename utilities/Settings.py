@@ -4,7 +4,7 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "residual"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
     MAP_NAME = "IPZ2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
@@ -14,7 +14,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -32,6 +32,9 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    RANDOM_WAYPOINT_VEL_FACTOR = False
+
+    
     GLOBAL_SPEED_LIMIT = 15.0
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
@@ -41,13 +44,13 @@ class Settings():
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
-    SAVE_VIDEOS = True #False
+    SAVE_VIDEOS = False
     
     RECORDING_INDEX = 0
     RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
-    DATASET_NAME = "Recording1"
+    DATASET_NAME = ""
     RECORDING_MODE = 'online'  # 'online' or 'offline', also 'disable' - partly redundant with SAVE_RECORDINGS
     TIME_LIMITED_RECORDING_LENGTH = None  # FIXME: Not yet working in F1T
 
@@ -58,6 +61,7 @@ class Settings():
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.3
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
+    OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
     
     # Head2Head Settings
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
@@ -78,7 +82,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 1000 #1_000_000 # In sim timesteps: Length until the simulation is terminated
+    SIMULATION_LENGTH = 2000 # In sim timesteps: Length until the simulation is terminated
     MAX_EPISODE_LENGTH = 2000 
 
 
@@ -86,9 +90,11 @@ class Settings():
     CONTROL_DELAY = 0.00 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
+    # NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+
+    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     
@@ -129,7 +135,7 @@ class Settings():
     PP_BACKUP_LOOKAHEAD_POINT_INDEX = 1  # Backup should be obsolete after new change
     PP_MINIMAL_LOOKAHEAD_DISTANCE = 0.5
 
-    RELOAD_WP_IN_BACKGROUND = True  # If True, waypoints are reloaded in a separate thread
+    RELOAD_WP_IN_BACKGROUND = False  # If True, waypoints are reloaded in a separate thread
 
     
     ## MPC Controller ##
@@ -149,9 +155,11 @@ class Settings():
     
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
-    # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = 'human_fast'    #selects rendering cadence only: None, 'human', or 'human_fast'
+    # RENDER_MODE = None          # no rendering
+    RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
+    WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
+    WEB_RENDER_PORT = 8765               # web renderer TCP port
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -179,26 +187,65 @@ class Settings():
 
     ## SAC Agent planner
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
-   
+    # If set (seconds), training actor sends learner terminate once at least two completed laps
+    # are strictly faster than this (so metrics can include the first sub-threshold lap).
+    SAC_TERMINATE_BELOW_LAPTIME = None
+    SAC_AGENT_DEBUG = False
+    LEARNER_SERVER_DEBUG = False
 
-    SAC_SPEED_CURRICULUM_LEARNING = True
-    SAC_CURRICULUM_DEBUG = True
+    SAC_SPEED_CURRICULUM_LEARNING = False
+    SAC_CURRICULUM_DEBUG = False
 
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increate to 1.0 | t2 to end -> 1.0
-    SAC_STAT_TRACKER = True
+    SAC_CURRICULUM_ENABLED = False
+
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    ## t1=0 ensures difficulty rises from the first boost; t1=0.3 required 6+ boosts before any visible change
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.0 
+    SAC_CURRICULUM_T1 = 0.0        # progress threshold: difficulty stays at initial until progress > t1
+    SAC_CURRICULUM_T2 = 0.9
+
+    ## Translational control clipping: curriculum increases clip from min to max as difficulty increases
+    SAC_TRANSLATIONAL_CLIP_MIN = 2.5   # clip at low difficulty (conservative)
+    SAC_TRANSLATIONAL_CLIP_MAX = 6.0   # clip at high difficulty (full range)
+    SAC_TRANSLATIONAL_CONTROL_CLIP = 2.5  # runtime value, updated by curriculum (default for inference)
+
+    ## Curriculum speed limit: v_max in car model increases with difficulty (works with acceleration control)
+    SAC_CURRICULUM_V_MAX_ENABLED = True
+    SAC_CURRICULUM_V_MAX_MIN = 3.0   # v_max at low difficulty [m/s]
+    SAC_CURRICULUM_V_MAX_MAX = 10.0  # v_max at high difficulty [m/s], or use vehicle default
+    SAC_CURRICULUM_V_MAX = None      # runtime value, set by curriculum (None = use vehicle default)
+
+    ## Adaptive curriculum: when avg reward over last N episodes > threshold, boost progress
+    SAC_CURRICULUM_ADAPTIVE = True
+    SAC_CURRICULUM_REWARD_THRESHOLD = 10.0  # avg reward above this triggers difficulty boost (0 = break-even)
+    SAC_CURRICULUM_REWARD_WINDOW = 4       # number of episodes for rolling average (smaller = more responsive)
+    SAC_CURRICULUM_FAST_TRACK_BOOST = 0.05  # progress increment when threshold exceeded
+    ## Episode-length curriculum: when X% of last N episodes reach max length, increase difficulty
+    SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
-    
+    # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
+    # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
+    SAC_TARGET_UDT = None
+    SAC_MAX_UTD = 4 
+    SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
+    SAC_MIN_SIM_FREQUENCY = 20.0
+
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
+    SAC_STAT_TRACKER = False
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
+
+    USE_CUSTOM_SAC_SAMPLING = False
     
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
-    SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
-    SAC_CURRICULUM_T2 = 0.8
 
     
+    ## Speed cap ##
+    ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
+    GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = False
+    GLOBAL_SPEED_LIMIT_MIN = 3.0   # at low difficulty [m/s]
+    GLOBAL_SPEED_LIMIT_MAX = 15.0  # at high difficulty [m/s]
+
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
     

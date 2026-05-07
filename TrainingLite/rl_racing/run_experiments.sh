@@ -1,4 +1,1 @@
-
-
-python TrainingLite/rl_racing/run_training.py --auto-start-client --CONTROLLER sac_agent --SIMULATION_LENGTH 200000 --model-name Example-1
-python run.py --RENDER_MODE human_fast --SIMULATION_LENGTH 1000 --SAVE_RECORDINGS True --CONTROLLER sac_agent --SAC_INFERENCE_MODEL_NAME Example-1
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 128 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 50000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-1

@@ -21,7 +21,7 @@ def speed_pi_to_acceleration(desired_speed, current_speed, speed_error_integral,
 
 @partial(jax.jit, static_argnames=['intermediate_steps'])
 def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1):
-    """Advance car dynamics using JAX-optimized Pacejka model with kinematic blending.
+    """Advance car dynamics using JAX-optimized Pacejka model (matches jit_Pacejka for RL consistency).
     
     Args:
         state (jnp.ndarray): Car state as defined in state_utilities,
@@ -119,8 +119,9 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         max_a_friction = mu * g_
         v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
-        # Prevent division by zero in tire model
-        v_x_safe = jnp.where(v_x == 0.0, 1e-5, v_x)
+        # Prevent division by zero in tire model - use 1e-3 floor like car_model to avoid
+        # extreme slip angles at low speed (which cause spin-out during RL training)
+        v_x_safe = jnp.where(v_x < 1e-3, 1e-3, v_x)
         
         # Compute slip angles
         alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
@@ -143,10 +144,8 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         Fy_f *= weight
         Fy_r *= weight
         
-        # # 3. Curve resistance (tire scrub during cornering)
-        # # Additional rolling resistance due to lateral forces
-        # # This creates the "slowing down in curves" effect
-        # lateral_force_magnitude = jnp.sqrt(Fy_f*Fy_f + Fy_r*Fy_r)
+        # 3. Curve resistance (tire scrub during cornering) - match jit_Pacejka for RL consistency
+        # lateral_force_magnitude = jnp.sqrt(Fy_f * Fy_f + Fy_r * Fy_r)
         # a_curve = -curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
         # v_x_dot += a_curve
                 
@@ -167,7 +166,10 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         psi = psi + dt_sub * d_psi
         psi_dot = psi_dot + dt_sub * d_psi_dot
 
-  
+        # Kinematic blending for low speeds
+        low_speed_threshold, high_speed_threshold = 1.0, 3.0
+        weight = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        weight = jnp.clip(weight, 0.0, 1.0)
 
         # Simple kinematic model for low speeds
         l_wb = lf + lr  # Use correct wheelbase
@@ -185,7 +187,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         # Recalculate derived values (wrap angle)
         psi_sin = jnp.sin(psi)
         psi_cos = jnp.cos(psi)
-        psi = jnp.arctan2(psi_sin, psi_cos)
+        psi = jnp.arctan2(psi_sin, psi_cos)  # wrap angle to [-pi, pi]
         
         # Calculate slip angle properly like original
         v_x_safe = jnp.where(v_x < 1e-3, 1e-3, v_x)

@@ -11,12 +11,15 @@ from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
 class RewardCalculator:
+    # Cap history to avoid unbounded growth → GC pauses and FPS drops after 100k+ steps
+    REWARD_HISTORY_CAP = 10_000
+
     def __init__(self):
         
         self.print_info = False
 
 
-        self.reward_components_history = []
+        self.reward_components_history = deque(maxlen=self.REWARD_HISTORY_CAP)
 
 
         # Weights
@@ -26,7 +29,9 @@ class RewardCalculator:
         self.w_d_steering = 1.5
         self.w_d_acceleration = 0.1
         self.w_speed_cap = 0.0 # 0.3
-        
+
+        if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
+            self.w_speed_cap = 0.3
       
         
         self.increase_difficulty = False
