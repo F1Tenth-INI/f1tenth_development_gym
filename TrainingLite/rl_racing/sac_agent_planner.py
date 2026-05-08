@@ -502,7 +502,7 @@ class RLAgentPlanner(template_planner):
 
     def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
         """
-        If server sent udt_control (SAC_TARGET_UDT set on learner), tune MAX_SIM_FREQUENCY:
+        If server sent udt_control (SAC_TARGET_UTD set on learner), tune MAX_SIM_FREQUENCY:
         UDT too low -> decrease Hz; UDT too high -> increase Hz.
         Uses a proportional correction to reduce overshoot.
         """
@@ -517,8 +517,8 @@ class RLAgentPlanner(template_planner):
         if isinstance(udt_control, dict) and udt_control.get("target_udt") is not None:
             target_udt = float(udt_control["target_udt"])
             fmin = float(udt_control.get("min_sim_frequency_hz", Settings.SAC_MIN_SIM_FREQUENCY))
-        elif Settings.SAC_TARGET_UDT is not None:
-            target_udt = float(Settings.SAC_TARGET_UDT)
+        elif Settings.SAC_TARGET_UTD is not None:
+            target_udt = float(Settings.SAC_TARGET_UTD)
             fmin = float(Settings.SAC_MIN_SIM_FREQUENCY)
         else:
             return

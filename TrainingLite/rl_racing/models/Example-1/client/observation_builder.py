@@ -17,10 +17,11 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
     """
 
     next_waypoints = super_obs["next_waypoints"].astype(np.float32)
-
-    state_features = super_obs["car_state"][
-        [LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX, STEERING_ANGLE_IDX]
-    ].astype(np.float32)
+    state_history_len = 1
+    state_history = super_obs["state_history"].astype(np.float32)
+    state_features = state_history[
+        -state_history_len:, [LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX, STEERING_ANGLE_IDX]
+    ].reshape(-1).astype(np.float32)
     last_actions = super_obs["last_actions"].astype(np.float32)
 
     curvatures = super_obs["next_waypoints"][:, WP_KAPPA_IDX].astype(np.float32)
@@ -43,13 +44,13 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
 
     obs = np.concatenate(
         [
-            [0.1, 1, 1, 2.5] * state_features,
+            np.tile(np.array([0.1, 1.0, 0.3, 2.5], dtype=np.float32), state_history_len) * state_features,
             1.0 * curvatures,
-            0.2 * border_points,
+            0.1* border_points,
             1.0 * last_actions,
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
-            [0.1, 1.0] * pp_action,
+            [1.0, 0.1] * pp_action,
         ]
     ).astype(np.float32)
 

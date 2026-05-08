@@ -17,7 +17,7 @@ for suffix in ${SUFFIXES}; do
     --CONTROLLER sac_agent \
     --SAVE_RECORDINGS False \
     --MAP_NAME RCA1 \
-    --SAC_TARGET_UDT 1 \
+    --SAC_TARGET_UTD 1 \
     --learning-rate 1e-4 \
     --batch-size 64 \
     --SAC_CHECKPOINT_FREQUENCY 10000 \

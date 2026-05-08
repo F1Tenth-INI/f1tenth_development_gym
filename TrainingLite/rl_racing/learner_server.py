@@ -935,7 +935,7 @@ class LearnerServer:
 
     def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
         """Build an extensible training telemetry payload."""
-        target_udt = getattr(Settings, "SAC_TARGET_UDT", None)
+        target_udt = getattr(Settings, "SAC_TARGET_UTD", None)
         udt_control = None
         if target_udt is not None:
             target_udt = float(target_udt)

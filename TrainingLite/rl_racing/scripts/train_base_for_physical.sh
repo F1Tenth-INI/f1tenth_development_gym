@@ -6,7 +6,7 @@ python TrainingLite/rl_racing/run_training.py \
   --FRICTION_FOR_CONTROLLER 0.5 \
   --SAVE_RECORDINGS False \
   --MAP_NAME IPZ38 \
-  --SAC_TARGET_UDT 1.0 \
+  --SAC_TARGET_UTD 1.0 \
   --batch-size 64 \
   --SAC_CHECKPOINT_FREQUENCY 50000 \
   --SIMULATION_LENGTH 200000 \

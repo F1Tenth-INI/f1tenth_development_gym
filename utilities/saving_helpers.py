@@ -33,6 +33,11 @@ def save_experiment_data(csv_filepath):
     save_path = os.path.join(path_to_experiment_recordings, f"{experiment_name}_analysis")
 
     try:
+        # Get the repo root directory
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        env = os.environ.copy()
+        env['PYTHONPATH'] = repo_root + ':' + env.get('PYTHONPATH', '')
+        
         subprocess.run(
             [
                 "python",
@@ -43,6 +48,7 @@ def save_experiment_data(csv_filepath):
                 save_path,
             ],
             check=True,
+            env=env,
         )
     except Exception as e:
         print(f"Warning: CSV analysis did not work. Error: {e}")
