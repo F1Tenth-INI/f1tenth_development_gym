@@ -94,10 +94,37 @@ python run.py --MAP_NAME RCA2 --CONTROLLER pure_pursuit
 # Run with custom simulation length and rendering
 python run.py --SIMULATION_LENGTH 5000 --RENDER_MODE human_fast
 
+# Run with browser backend renderer
+python run.py --SIMULATION_LENGTH 5000 --RENDER_MODE human_fast --RENDER_BACKEND web
+
 # Save recordings with custom settings
 python run.py --SAVE_RECORDINGS True --MAP_NAME RCA1 --CONTROLLER sac_agent --SAC_INFERENCE_MODEL_NAME OriginalReward1
 
 ```
+
+### Web Renderer (Browser)
+
+The browser renderer uses:
+- `RENDER_MODE` for pacing (`None`, `human`, `human_fast`)
+- `RENDER_BACKEND` for backend selection (`pyglet`, `pygame`, `web`)
+
+Example:
+
+```bash
+python run.py --RENDER_MODE human_fast --RENDER_BACKEND web
+```
+
+Then open: [http://localhost:8765](http://localhost:8765)
+
+Controls in browser:
+- `Space`: toggle follow-car / free camera
+- Mouse wheel: zoom
+- Left mouse drag: pan
+
+Implementation notes:
+- Backend server: `sim/f110_sim/envs/web_renderer.py`
+- Browser client: `sim/f110_sim/envs/WebRenderer/index.html`
+- Web overlay builder: `sim/f110_sim/envs/rendering/WebRenderer/overlay_builder.py`
 
 All settings from [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) can be overridden this way.
 

@@ -18,9 +18,9 @@ jobs:
           submodules: "recursive"
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.9" # Specify the Python version
+          python-version: "3.11" # Keep CI aligned with local/project runtime
 
       - name: Cache Python Dependencies
         uses: actions/cache@v3

@@ -12,12 +12,31 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
 import torch
+
+RUN_EVALUATION = False
+
+def _child_death_signal() -> None:
+    """On Linux, make the child receive SIGKILL when the parent dies.
+    Prevents accumulation of orphaned run.py processes when run_training
+    is killed (Ctrl+C, terminal closed, etc.). Uses prctl via ctypes."""
+    if os.name != "posix":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        PR_SET_PDEATHSIG = 1
+        if libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL) != 0:
+            pass  # Ignore failure (e.g. in containers)
+    except (OSError, AttributeError, TypeError):
+        pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if PROJECT_ROOT.exists():
@@ -27,6 +46,17 @@ if PROJECT_ROOT.exists():
 
 from learner_server import LearnerServer  # noqa: E402
 from utilities.parser_utilities import parse_settings_args  # noqa: E402
+
+
+def _parse_bool_arg(value: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"Invalid boolean value '{value}'. Use true/false."
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[str]]:
@@ -64,6 +94,30 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--discount-factor", type=float, default=0.99)
     parser.add_argument("--train-frequency", type=int, default=1)
+    parser.add_argument(
+        "--save_replay_buffer",
+        nargs="?",
+        const=True,
+        type=_parse_bool_arg,
+        default=False,
+        help=(
+            "Persist replay buffer transitions to replay_buffer.csv on saves/checkpoints. "
+            "Supports '--save_replay_buffer' or '--save_replay_buffer true/false'."
+        ),
+    )
+    parser.add_argument(
+        "--load-replay-buffer",
+        "--load_replay_buffer",
+        dest="load_replay_buffer",
+        nargs="?",
+        const=True,
+        type=_parse_bool_arg,
+        default=False,
+        help=(
+            "Load replay buffer transitions from replay_buffer.csv if present. "
+            "Supports '--load-replay-buffer' or '--load-replay-buffer true/false'."
+        ),
+    )
     parser.add_argument(
         "--auto-start-client",
         default=False,
@@ -119,6 +173,7 @@ def start_client_process(
     cmd = [sys.executable, str(script_path), *extra_args]
     cwd = str(script_path.parent)
 
+    preexec = _child_death_signal if os.name == "posix" else None
     try:
         if forward_output:
             process = subprocess.Popen(
@@ -126,6 +181,7 @@ def start_client_process(
                 stdout=None,
                 stderr=None,
                 cwd=cwd,
+                preexec_fn=preexec,
             )
         else:
             process = subprocess.Popen(
@@ -134,6 +190,7 @@ def start_client_process(
                 stderr=subprocess.STDOUT,
                 cwd=cwd,
                 bufsize=1,
+                preexec_fn=preexec,
             )
         print(f"[run_training] Started client process (PID: {process.pid})")
         return process
@@ -227,6 +284,8 @@ def main() -> None:
         learning_rate=run_args.learning_rate,
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
+        save_replay_buffer=run_args.save_replay_buffer,
+        load_replay_buffer=run_args.load_replay_buffer,
     )
 
     try:
@@ -241,9 +300,30 @@ def main() -> None:
     # After the server has terminated normally, optionally run a single
     # evaluation client using the trained model for inference. We only run
     # this when training completed (not when interrupted by Ctrl-C).
-    if run_completed:
+    if run_completed and RUN_EVALUATION:
         model_name = getattr(run_args, "save_model_name", None)
         if model_name is not None:
+            # In some workflows (e.g. short smoke tests or interrupted runs), the
+            # expected `model_name.zip` may not exist yet. Avoid failing hard by
+            # skipping evaluation when no SAC zip is present.
+            try:
+                from TrainingLite.rl_racing.sac_utilities import SacUtilities
+
+                model_path, model_dir = SacUtilities.resolve_model_paths(str(model_name))
+                server_model_path = os.path.join(model_dir, "server", str(model_name))
+                server_zip_path = server_model_path + ".zip"
+                local_zip_path = model_path + ".zip"
+
+                if not os.path.exists(local_zip_path) and not os.path.exists(server_zip_path):
+                    print(
+                        f"[run_training] Skipping evaluation: model zip not found for '{model_name}'. "
+                        f"Tried: {local_zip_path} or {server_zip_path}"
+                    )
+                    return
+            except Exception as e:
+                # Evaluation is non-critical for training; just warn and continue.
+                print(f"[run_training] Warning: could not verify evaluation model existence: {e}")
+
             eval_args = [
                 "--CONTROLLER",
                 "sac_agent",

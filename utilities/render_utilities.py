@@ -9,7 +9,7 @@ import numbers
 if(Settings.ROS_BRIDGE):
     pass
 else:
-    if(Settings.RENDER_MODE is not None):
+    if str(getattr(Settings, "RENDER_BACKEND", getattr(Settings, "RENDRER", "pyglet"))).lower() == "pyglet":
         try:
             from pyglet.gl import GL_POINTS, GL_LINES
             from pyglet.gl import glLineWidth, glPointSize
@@ -53,7 +53,11 @@ self.Render.update(
 
 '''
 
-if not Settings.ROS_BRIDGE and Settings.RENDER_MODE is not None:
+if (
+    not Settings.ROS_BRIDGE
+    and Settings.RENDER_MODE in ("human", "human_fast")
+    and str(getattr(Settings, "RENDER_BACKEND", getattr(Settings, "RENDRER", "pyglet"))).lower() == "pyglet"
+):
     class PointSizeGroup(pyglet.graphics.Group):
         def __init__(self, point_size, parent=None):
             super().__init__(parent)

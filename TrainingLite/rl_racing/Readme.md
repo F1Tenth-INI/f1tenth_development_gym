@@ -33,6 +33,7 @@ python TrainingLite/rl_racing/run_training.py --auto-start-client --SIMULATION_L
 ```
 
 This will automatically:
+
 - Start the learner server
 - Launch the simulation client
 - Begin training
@@ -59,6 +60,7 @@ python run.py --RENDER_MODE human_fast --SIMULATION_LENGTH 2000 --SAVE_RECORDING
 **Available options:**
 
 All settings from `Settings.py` are available as command-line arguments. Common examples include:
+
 - `--RENDER_MODE`: Visualization mode (`None`, `human`, `human_fast`)
 - `--SIMULATION_LENGTH`: Number of timesteps to run
 - `--SAVE_RECORDINGS`: Save episode data to CSV (`True`/`False`)
@@ -68,6 +70,7 @@ All settings from `Settings.py` are available as command-line arguments. Common 
 - And many more from `Settings.py`
 
 When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
+
 - Loads the model weights directly (no server needed)
 - Runs in deterministic mode (no exploration)
 - Does not send transitions to any server
@@ -132,6 +135,7 @@ When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
 **Command-line arguments for training:**
 
 Server-specific arguments:
+
 - `--model-name`: Name of the model (required)
 - `--host`: Server host address (default: `0.0.0.0`)
 - `--port`: Server port (default: `5555`)
@@ -148,6 +152,7 @@ Server-specific arguments:
 - `--forward-client-output`: Forward client output to terminal (flag, enabled by default)
 
 Simulation settings (all from `Settings.py`):
+
 - `--SIMULATION_LENGTH`: Total simulation timesteps
 - `--RENDER_MODE`: Visualization mode
 - `--MAP_NAME`: Select map
@@ -157,6 +162,7 @@ Simulation settings (all from `Settings.py`):
 **Command-line arguments for inference:**
 
 All settings from `Settings.py` are available, including:
+
 - `--SAC_INFERENCE_MODEL_NAME`: Name of trained model to load
 - `--RENDER_MODE`: Visualization (`None`, `human`, `human_fast`)
 - `--SIMULATION_LENGTH`: Number of timesteps to run
@@ -192,21 +198,76 @@ obs *= normalization
 
 ---
 
+## Custom observation builder
+
+You can fully customize the policy input by editing the observation builder function.
+
+**Where to edit**
+
+- Edit `TrainingLite/rl_racing/observation_builder_template.py`
+- Required entrypoint:
+
+```python
+def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> np.ndarray:
+    ...
+```
+
+The function must return a **1D `np.float32` array**.  
+`super_obs` is a dictionary produced by the planner and contains at least:
+
+- `car_state`
+- `next_waypoints`
+- `border_points`
+- `lidar_ranges`
+- `last_actions`
+- `frenet_coordinates`
+- `global_waypoint_vel_factor`
+
+`planner` is optional and can be used if you need planner context.
+
+**How it is used**
+
+- At training startup, the server copies the template into:
+  `TrainingLite/rl_racing/models/<model_name>/client/observation_builder.py`
+- The actor loads that file dynamically and calls `build_observation(...)` every step.
+- During training, when a model sync message arrives, the actor can reload the client-side builder.
+
+This lets you iterate on feature engineering without touching SAC internals.
+
+**Inference behavior**
+
+- In inference mode (`--SAC_INFERENCE_MODEL_NAME ...`), the actor loads:
+  `TrainingLite/rl_racing/models/<model_name>/client/observation_builder.py`
+- The same builder used during training should be kept with the model to avoid schema mismatch.
+
+**Important compatibility rule**
+
+If you change feature order, dimensions, or scaling, you should start a **new model name**.  
+Old checkpoints are tied to the observation schema they were trained with.
+
+Also treat the `super_obs` dictionary as a backward-compatible interface:
+
+- You can **add** new keys/fields to `super_obs`.
+- Do **not remove** existing keys.
+- Do **not change** the meaning/shape of existing keys.
+
+This keeps older `observation_builder.py` versions and older models working.  
+Removing/changing existing `super_obs` entries can break previously trained models.
+
+---
+
 ## Troubleshooting
 
 - **Actor doesn’t move**
-
   - Ensure the server is running and logs `Weights sent to ...`.
   - Actor should print `✅ Actor weights updated.` at least once.
   - Adjust `accel_scale` or warmup settings for initial motion.
 
 - **Actor stuck in warmup**
-
   - Server started `--init-from-scratch` but never sent weights: confirm server logs show the initial broadcast on connect.
   - Ensure `handle_client` always sends `_weights_blob` if present.
 
 - **SB3 environment error (DummyVecEnv)**
-
   - Make sure actor uses **SB3’s** `DummyVecEnv`:
     ```python
     from stable_baselines3.common.vec_env import DummyVecEnv
@@ -214,7 +275,6 @@ obs *= normalization
     ```
 
 - **Crashes dominate early data**
-
   - Start with smaller `accel_scale` and/or “constant” warmup with modest forward.
   - Lower `learning_starts` temporarily (e.g., 2000).
 
@@ -229,19 +289,28 @@ Run multiple sims/actors (different `actor_id`s) pointing to the same learner to
 
 ---
 
-## License
+## Running remotely
 
-MIT (or your preference).
+For remote conenctions I recommend using screen.
 
-
-Run RL remotely in the background:
-Like this you can disconnect from SSH while the training is still going on
+Start a screen called training:
 
 ```
-screen -S experiments
-bash TrainingLite/rl_racing/run_experiments.sh
+screen -S training
 ```
+
+Ctrl+a, d to exit
+
+to reconnect
+
+```
+screen -r training
+```
+
 # To detach from screen (keep session running): Press Ctrl+A, then D
+
 # To reattach later: screen -r experiments
+
 # To list all screen sessions: screen -ls
+
 # To kill a detached session: screen -X -S experiments quit
