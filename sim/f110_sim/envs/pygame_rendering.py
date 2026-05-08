@@ -21,6 +21,7 @@ and draw the same set of visual elements:
 - steering direction arrow
 - emergency slowdown left/right/stop lines + factor display
 - live angular/translational control time-series plots
+- optional motor-speed tone (ego wheel ω or v_x / R); press O to mute
 
 Performance design notes
 ------------------------
@@ -58,6 +59,7 @@ from utilities.state_utilities import (
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
+    WHEEL_ANGULAR_VEL_IDX,
 )
 
 
@@ -217,6 +219,35 @@ class EnvRenderer:
     """
 
     def __init__(self, width, height):
+        self._motor_sr = int(getattr(Settings, "PYGAME_MOTOR_SOUND_SAMPLE_HZ", 44100))
+        self._motor_chunk_sec = float(
+            getattr(Settings, "PYGAME_MOTOR_SOUND_CHUNK_S", 0.045) or 0.045
+        )
+        self._motor_phase = 0.0
+        self._motor_smoothed_hz = float(getattr(Settings, "PYGAME_MOTOR_SOUND_BASE_HZ", 52.0))
+        self._motor_smoothed_vol = 0.0
+        self._motor_sound_ok = False
+        self._motor_audio_ch = None
+        self._motor_sound_muted = False
+        # Output channels for the audio device. Use stereo by default because
+        # macOS Core Audio frequently rejects a mono mixer when other apps
+        # have already opened the default device in stereo. We always emit
+        # the same sample on both channels.
+        self._motor_audio_channels = 2
+        self._motor_first_chunk = True
+        # Pre-init the mixer BEFORE pygame.init() so pygame.init() honors our
+        # sample rate/buffer and we don't double-initialize the audio device.
+        if getattr(Settings, "PYGAME_MOTOR_SOUND", True):
+            try:
+                pygame.mixer.pre_init(
+                    self._motor_sr,
+                    size=-16,
+                    channels=self._motor_audio_channels,
+                    buffer=1024,
+                )
+            except Exception as exc:
+                print(f"[pygame] mixer.pre_init failed: {exc}")
+
         pygame.init()
         self.screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
         pygame.display.set_caption("F1TENTH Sim (pygame)")
@@ -285,6 +316,32 @@ class EnvRenderer:
         self._min_frame_dt = (1.0 / self._target_fps) if self._target_fps > 0.0 else 0.0
         self._last_draw_wall_s = 0.0
         self._fps_ema = 0.0
+
+        if getattr(Settings, "PYGAME_MOTOR_SOUND", True):
+            try:
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init(
+                        frequency=self._motor_sr,
+                        size=-16,
+                        channels=self._motor_audio_channels,
+                        buffer=1024,
+                    )
+                init_info = pygame.mixer.get_init()
+                if init_info is None:
+                    raise RuntimeError("pygame.mixer.get_init() returned None")
+                # init_info is (frequency, format, channels)
+                self._motor_sr = int(init_info[0])
+                self._motor_audio_channels = int(init_info[2])
+                pygame.mixer.set_num_channels(12)
+                self._motor_audio_ch = pygame.mixer.Channel(11)
+                self._motor_audio_ch.set_volume(1.0)
+                self._motor_sound_ok = True
+                print(
+                    f"[pygame] Motor sound ready: {init_info[0]} Hz, "
+                    f"fmt {init_info[1]}, channels {init_info[2]} (press O to mute)"
+                )
+            except Exception as exc:
+                print(f"[pygame] Motor sound disabled (mixer init failed): {exc}")
 
     # ------------------------------------------------------------------
     # Map and observation handling
@@ -361,6 +418,161 @@ class EnvRenderer:
 
         self.overlay = obs.get("web_overlay", {}) or {}
         self._update_control_series()
+        self._pump_motor_sound()
+
+    # ------------------------------------------------------------------
+    # Motor sound (ego wheel speed -> pitch)
+    # ------------------------------------------------------------------
+
+    def _ego_wheel_omega_rad_s(self):
+        if self.poses is None or len(self.poses) == 0:
+            return 0.0
+        R = float(getattr(Settings, "PYGAME_MOTOR_SOUND_WHEEL_RADIUS_M", 0.033) or 0.033)
+        R = max(R, 1e-6)
+        idx_ego = int(min(self.ego_idx, len(self.poses) - 1))
+        if self.car_states is not None and self.car_states.ndim == 2:
+            row = self.car_states[idx_ego]
+            if row.shape[0] > WHEEL_ANGULAR_VEL_IDX:
+                return float(row[WHEEL_ANGULAR_VEL_IDX])
+            if row.shape[0] > LINEAR_VEL_X_IDX:
+                return float(row[LINEAR_VEL_X_IDX]) / R
+        if self.vels is not None and len(self.vels) > idx_ego:
+            return float(self.vels[idx_ego]) / R
+        return 0.0
+
+    def _motor_hz_and_volume(self, omega_rad_s):
+        base = float(getattr(Settings, "PYGAME_MOTOR_SOUND_BASE_HZ", 52.0))
+        k = float(getattr(Settings, "PYGAME_MOTOR_SOUND_HZ_PER_RAD_S", 4.0))
+        f_max = float(getattr(Settings, "PYGAME_MOTOR_SOUND_MAX_HZ", 880.0))
+        f_hz = base + k * abs(omega_rad_s)
+        f_hz = float(np.clip(f_hz, 22.0, f_max))
+        gain = float(getattr(Settings, "PYGAME_MOTOR_SOUND_GAIN", 0.22))
+        spin = float(np.clip(abs(omega_rad_s) / 40.0, 0.0, 1.0))
+        vol = gain * (0.12 + 0.88 * spin)
+        if abs(omega_rad_s) < 0.25:
+            vol *= abs(omega_rad_s) / 0.25
+        return f_hz, vol
+
+    def _synth_motor_chunk(self, f_target_hz, volume):
+        """Render one audio chunk with linearly-ramped frequency and volume.
+
+        Within a chunk, frequency ramps from the previously smoothed value to
+        the new target so the phase derivative is continuous between chunks
+        (no clicks at the chunk boundary). Volume ramps the same way to mask
+        amplitude steps when the wheel speed changes a lot between calls.
+        """
+        sr = self._motor_sr
+        n = max(int(sr * self._motor_chunk_sec), 128)
+        t = np.arange(n, dtype=np.float64) / sr  # seconds within chunk
+        T = float(n) / sr
+
+        f_a = float(self._motor_smoothed_hz)
+        f_b = float(f_target_hz)
+        v_a = float(self._motor_smoothed_vol)
+        v_b = float(np.clip(volume, 0.0, 1.0))
+
+        # Linear ramp f(t) = f_a + (f_b - f_a) * (t / T)
+        # phase(t) = phase_0 + 2π * (f_a * t + (f_b - f_a) * t^2 / (2 T))
+        phi0 = self._motor_phase
+        phase = phi0 + 2.0 * np.pi * (f_a * t + 0.5 * (f_b - f_a) * (t * t) / T)
+
+        # Update accumulators for the next chunk (continuous phase / state).
+        phase_end = phi0 + 2.0 * np.pi * 0.5 * (f_a + f_b) * T
+        self._motor_phase = float(phase_end % (2.0 * np.pi))
+        self._motor_smoothed_hz = f_b
+        self._motor_smoothed_vol = v_b
+
+        # Band-limited square wave from odd-harmonic Fourier series:
+        # square(phi) = (4/pi) * sum_{k=1,3,5,...} sin(k*phi) / k
+        # Drop any harmonic that would land above Nyquist (using f_b as the
+        # worst-case highest frequency in this chunk).
+        max_harmonic = int(getattr(Settings, "PYGAME_MOTOR_SOUND_HARMONICS", 9))
+        squareyness = float(np.clip(
+            getattr(Settings, "PYGAME_MOTOR_SOUND_SQUAREYNESS", 1.0), 0.0, 1.0
+        ))
+        nyquist = 0.5 * sr
+        f_max_in_chunk = max(abs(f_a), abs(f_b), 1e-3)
+
+        sine_part = np.sin(phase)
+        if max_harmonic <= 1 or squareyness <= 0.0:
+            wav = sine_part
+        else:
+            square_part = np.zeros_like(phase)
+            norm = 0.0
+            for k in range(1, max_harmonic + 1, 2):
+                if k * f_max_in_chunk >= nyquist * 0.95:
+                    break
+                square_part += np.sin(k * phase) / k
+                norm += 1.0 / k
+            # Normalize so peak ~ 1 across the band-limit, then crossfade with
+            # the fundamental sine according to user-set "squareyness".
+            if norm > 1e-6:
+                square_part /= norm
+            wav = (1.0 - squareyness) * sine_part + squareyness * square_part
+
+        amp = v_a + (v_b - v_a) * (t / T)
+        wav *= amp
+
+        # Soft fade-in only on the very first chunk so cold-start does not pop.
+        if self._motor_first_chunk:
+            fade_n = min(n // 4, sr // 200)
+            if fade_n > 0:
+                ramp = np.linspace(0.0, 1.0, fade_n)
+                wav[:fade_n] *= ramp
+            self._motor_first_chunk = False
+
+        samples_mono = np.clip(32767.0 * wav, -32767.0, 32767.0).astype(np.int16)
+        # 1-D for mono mixer, (n, 2) for stereo. Wrong shape => silence.
+        if self._motor_audio_channels == 1:
+            arr = np.ascontiguousarray(samples_mono)
+        else:
+            arr = np.ascontiguousarray(
+                np.stack([samples_mono, samples_mono], axis=-1)
+            )
+        return pygame.sndarray.make_sound(arr)
+
+    def _pump_motor_sound(self):
+        if not getattr(Settings, "PYGAME_MOTOR_SOUND", True):
+            if self._motor_audio_ch is not None:
+                self._motor_audio_ch.stop()
+            return
+        if not self._motor_sound_ok or self._motor_audio_ch is None:
+            return
+        if self._motor_sound_muted:
+            self._motor_audio_ch.stop()
+            return
+
+        ch = self._motor_audio_ch
+        # Channel.queue only buffers one extra sound at a time, so we can keep
+        # at most 2 chunks of audio in flight (one playing + one queued). If
+        # both slots are full there's nothing to do; the next render tick will
+        # see one slot free again.
+        try:
+            queued = ch.get_queue() if ch.get_busy() else None
+        except (AttributeError, pygame.error):
+            queued = None
+        if ch.get_busy() and queued is not None:
+            return
+
+        omega = self._ego_wheel_omega_rad_s()
+        f_hz, vol = self._motor_hz_and_volume(omega)
+        # Tiny idle hum so the channel never fully drains while the car is
+        # stationary; this also keeps phase/amplitude state evolving smoothly.
+        vol = max(vol, 0.02)
+
+        try:
+            chunk = self._synth_motor_chunk(f_hz, vol)
+        except Exception as exc:
+            print(f"[pygame] Motor sound synth failed: {exc}")
+            return
+
+        if not ch.get_busy():
+            ch.play(chunk)
+        else:
+            try:
+                ch.queue(chunk)
+            except (AttributeError, pygame.error):
+                pass
 
     # ------------------------------------------------------------------
     # Camera and input
@@ -422,6 +634,8 @@ class EnvRenderer:
             self.camera_follow_ego = not self.camera_follow_ego
         elif key == pygame.K_m:
             self.show_map = not self.show_map
+        elif key == pygame.K_o:
+            self._motor_sound_muted = not self._motor_sound_muted
         elif key == pygame.K_h:
             self.show_position_history = not self.show_position_history
         elif key == pygame.K_b:
@@ -880,11 +1094,15 @@ class EnvRenderer:
             if self.vels is not None and len(self.vels) > 0
             else 0.0
         )
+        if self._motor_sound_ok:
+            snd = "mute" if self._motor_sound_muted else "on"
+        else:
+            snd = "--"
         cam_mode = "follow-car" if self.camera_follow_ego else "free"
         base_text = (
             f"Sim: {self.sim_time:.2f}s | Lap: {self.lap_count} | "
             f"x: {ego_pose[0]:.2f} y: {ego_pose[1]:.2f} yaw: {ego_pose[2]:.2f} v: {ego_v:.2f} | "
-            f"cam: {cam_mode} | zoom: {self.zoom_level:.1f} | fps: {self._fps_ema:.0f}"
+            f"motor: {snd} | cam: {cam_mode} | zoom: {self.zoom_level:.1f} | fps: {self._fps_ema:.0f}"
         )
         text_surface = self.font.render(base_text, True, DEFAULT_COLORS["text"])
         self.screen.blit(text_surface, (10, self.height - 26))
@@ -898,7 +1116,7 @@ class EnvRenderer:
                 self.screen.blit(surf, (10, self.height - 46))
 
         hint = (
-            "M:map  H:history  B:borders  I:car-info  P:plots  "
+            "M:map  O:motor-snd  H:history  B:borders  I:car-info  P:plots  "
             "SPACE/F:follow  scroll:zoom  drag:pan"
         )
         hint_surf = self.small_font.render(hint, True, (200, 200, 200))

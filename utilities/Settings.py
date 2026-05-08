@@ -15,7 +15,13 @@ class Settings():
 
     # Controller Settings
     CONTROLLER = 'sac_agent' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
-    MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
+    # DEPRECATED: the speed-PID front-end now lives in the controller
+    # (see ``utilities.controller_utilities.ControllerUtilities.motor_pid``);
+    # the dynamics consume a normalized [-1, 1] stick whose meaning is set
+    # per car via ``drive_mode`` in the vehicle YAML. This flag is no
+    # longer read by the simulator and is kept here only so legacy code
+    # that still references it does not crash.
+    MOTOR_PID_IN_CAR_MODEL = False
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
@@ -91,7 +97,7 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     # NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
@@ -161,6 +167,24 @@ class Settings():
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
     WEB_RENDER_PORT = 8765               # web renderer TCP port
     PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
+    # Pygame only: pitched motor whine from ego wheel speed (wheel_angular_vel or v_x / R). Toggle with O in the sim window.
+    PYGAME_MOTOR_SOUND = True
+    PYGAME_MOTOR_SOUND_GAIN = .25       # peak sine amplitude (roughly 0..0.35 is safe)
+    PYGAME_MOTOR_SOUND_WHEEL_RADIUS_M = 0.033  # used when car state has no wheel_angular_vel column
+    PYGAME_MOTOR_SOUND_BASE_HZ = 52.0
+    PYGAME_MOTOR_SOUND_HZ_PER_RAD_S = 4.0    # pitch rises with |omega|
+    PYGAME_MOTOR_SOUND_MAX_HZ = 1280.0
+    # Audio chunk length; one is playing and one queued so total buffer is 2x.
+    # Bigger chunks => more glitch tolerance vs render jitter, smaller chunks
+    # => snappier reaction to wheel-speed changes. ~0.12 s is a good compromise.
+    PYGAME_MOTOR_SOUND_CHUNK_S = 0.12
+    PYGAME_MOTOR_SOUND_SAMPLE_HZ = 44100
+    # Timbre: band-limited square wave via additive odd-harmonic synthesis.
+    # 1 -> pure sine, ~12 -> clearly square. Harmonics above Nyquist are
+    # automatically dropped so increasing this number is safe.
+    PYGAME_MOTOR_SOUND_HARMONICS = 9
+    # Mix between sine (0.0) and band-limited square (1.0). 1.0 = full square.
+    PYGAME_MOTOR_SOUND_SQUAREYNESS = 0.0
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

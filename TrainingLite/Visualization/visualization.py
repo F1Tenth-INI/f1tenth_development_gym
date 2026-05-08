@@ -341,7 +341,7 @@ class StateComparisonVisualizer:
                     self.file_label.config(text=f"Loaded: {os.path.basename(csv_path)}")
                     print(f"Loaded CSV from config: {csv_path}")
                     
-                    available_states = [col for col in self.state_columns if col in self.data.columns]
+                    available_states = self._states_for_dropdown()
                     self.state_combo['values'] = available_states
                     # Restore selected state if present and valid
                     cfg_state = config.get('state_name')
@@ -845,8 +845,11 @@ class StateComparisonVisualizer:
                 filename = os.path.basename(file_path)
                 self.file_label.config(text=f"Loaded: {filename}")
                 
-                # Update state combo box with available columns
-                available_states = [col for col in self.state_columns if col in self.data.columns]
+                # Update state combo box with all known state columns; ones
+                # missing from this CSV are still selectable so model
+                # predictions for the new state (e.g. wheel_angular_vel) are
+                # visible even when the recording is older.
+                available_states = self._states_for_dropdown()
                 self.state_combo['values'] = available_states
                 
                 if available_states:
@@ -905,8 +908,9 @@ class StateComparisonVisualizer:
             filename = os.path.basename(self.csv_file_path)
             self.file_label.config(text=f"Reloaded: {filename}")
             
-            # Update state combo box with available columns
-            available_states = [col for col in self.state_columns if col in self.data.columns]
+            # Update state combo box (include states missing from CSV so
+            # predicted-only curves like wheel_angular_vel stay reachable).
+            available_states = self._states_for_dropdown()
             self.state_combo['values'] = available_states
             
             if available_states:
@@ -944,6 +948,20 @@ class StateComparisonVisualizer:
             messagebox.showerror("Error", f"Failed to reload CSV file: {str(e)}")
                 
     
+    def _states_for_dropdown(self):
+        """All state names; CSV-present ones first then any predicted-only ones.
+
+        We deliberately include states that the loaded CSV does not contain
+        (e.g. ``wheel_angular_vel`` for older recordings) so the user can still
+        view the model's *predicted* curve for those states. ``plot_state``
+        already handles a missing ground-truth column gracefully.
+        """
+        if self.data is None:
+            return list(self.state_columns)
+        present = [c for c in self.state_columns if c in self.data.columns]
+        missing = [c for c in self.state_columns if c not in self.data.columns]
+        return present + missing
+
     def on_state_changed(self, event=None):
         """Handle state selection change."""
         self.plot_state()
@@ -1274,7 +1292,13 @@ class StateComparisonVisualizer:
             return
             
         selected_state = self.state_var.get()
-        if not selected_state or selected_state not in self.data.columns:
+        if not selected_state:
+            return
+        # If the recording predates this state column (e.g. wheel_angular_vel
+        # in old CSVs) we still draw the prediction curve, just without a GT
+        # trace. Only refuse to plot for entirely unknown state names.
+        gt_in_csv = selected_state in self.data.columns
+        if not gt_in_csv and selected_state not in self.state_columns:
             return
             
         self.ax.clear()
@@ -1292,15 +1316,18 @@ class StateComparisonVisualizer:
         start_idx = self.start_index
         end_idx = self.end_index if self.end_index is not None else len(self.data)
         
-        # Plot ground truth data
+        # Plot ground truth data (when the column exists in this CSV).
         if self.time_column in self.data.columns:
             time_data = self.data[self.time_column].iloc[start_idx:end_idx]
         else:
             time_data = np.arange(start_idx, end_idx)
         
-        state_data = self.data[selected_state].iloc[start_idx:end_idx]
-        
-        self.ax.plot(time_data, state_data, 'k-', label='Ground Truth', linewidth=2)
+        if gt_in_csv:
+            state_data = self.data[selected_state].iloc[start_idx:end_idx]
+            self.ax.plot(time_data, state_data, 'k-', label='Ground Truth', linewidth=2)
+        else:
+            print(f"[Viz] '{selected_state}' not in CSV; showing model predictions only.")
+            self.ax.set_title(f"{selected_state} (predictions only — column not in CSV)")
         
         # Plot model prediction if comparison is enabled
         if self.enable_comparison.get() and hasattr(self, 'comparison_data_dict') and self.comparison_data_dict:
@@ -2836,8 +2863,10 @@ class StateComparisonVisualizer:
                     filename = os.path.basename(default_csv)
                     self.file_label.config(text=f"Loaded: {filename} (auto)")
                     
-                    # Set up initial state
-                    available_states = [col for col in self.state_columns if col in self.data.columns]
+                    # Set up initial state (include states missing from CSV
+                    # so predicted-only curves like wheel_angular_vel are
+                    # selectable).
+                    available_states = self._states_for_dropdown()
                     self.state_combo['values'] = available_states
                     if available_states:
                         self.state_var.set(available_states[1])  # Start with linear_vel_x

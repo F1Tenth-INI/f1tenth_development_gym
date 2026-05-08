@@ -10,6 +10,7 @@ from utilities.render_utilities import RenderUtils
 from utilities.Settings import Settings
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.controller_utilities import ControllerUtilities
 from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
 
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
@@ -68,18 +69,22 @@ class MPPILitePlanner(template_planner):
         self.batch_size = 512
         self.horizon = 40
         
-        # Control smoothness parameters
-        self.intra_horizon_smoothness_weight = 1.0  # Weight for smoothness within horizon
-        self.angular_smoothness_weight = 1.0  # Relative weight for angular control smoothness
-        self.translational_smoothness_weight = 0.1  # Relative weight for translational control smoothness
-        
-        # Control output smoothing
-        self.control_smoothing_alpha = 0.5  # EMA smoothing factor (0 = no smoothing, 1 = no memory)
+        # Control smoothness parameters. Q is in normalized stick space
+        # [-1, 1]^2 — see RPGD planner for the rationale; angular weight
+        # is scaled by ~s_max^2 so per-step penalty magnitudes match the
+        # legacy radian-units tuning.
+        self.intra_horizon_smoothness_weight = 1.0
+        self.angular_smoothness_weight = 0.18  # ~ 1.0 * 0.4189^2
+        self.translational_smoothness_weight = 0.1
+
+        self.control_smoothing_alpha = 0.5
         self.last_executed_angular = 0.0
         self.last_executed_translational = 0.0
 
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
-        self.car_params_array = VehicleParameters('mpc_car_parameters.yml').to_np_array().astype(np.float32)
+        self.controller_utils = ControllerUtilities()
+        self.vehicle_parameters = self.controller_utils.vehicle_parameters
+        self.car_params_array = self.vehicle_parameters.to_np_array().astype(np.float32)
         
         # Ensure car params are on the selected device
         with jax.default_device(self.default_device):
@@ -94,7 +99,7 @@ class MPPILitePlanner(template_planner):
     def _precompile_functions(self):
         """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
-        dummy_state = jnp.zeros(10, dtype=jnp.float32)
+        dummy_state = jnp.zeros(NUMBER_OF_STATES, dtype=jnp.float32)
         dummy_last_Q = jnp.zeros((self.horizon, 2), dtype=jnp.float32)
         dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
@@ -164,22 +169,33 @@ class MPPILitePlanner(template_planner):
             )
 
             execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
-            raw_angular, raw_translational = Q_sequence[execute_control_index]
-            
-            # Apply exponential moving average smoothing to control outputs
-            self.angular_control = (self.control_smoothing_alpha * float(raw_angular) + 
-                                  (1 - self.control_smoothing_alpha) * self.last_executed_angular)
-            self.translational_control = (self.control_smoothing_alpha * float(raw_translational) + 
-                                        (1 - self.control_smoothing_alpha) * self.last_executed_translational)
-            
-            # Update last executed values for next iteration
-            self.last_executed_angular = self.angular_control
-            self.last_executed_translational = self.translational_control
-            
+            raw_angular_norm, raw_translational_norm = Q_sequence[execute_control_index]
+
+            # Smooth in normalized space (unit-less, drive_mode-agnostic).
+            steer_norm = (
+                self.control_smoothing_alpha * float(raw_angular_norm)
+                + (1 - self.control_smoothing_alpha) * self.last_executed_angular
+            )
+            throttle_norm = (
+                self.control_smoothing_alpha * float(raw_translational_norm)
+                + (1 - self.control_smoothing_alpha) * self.last_executed_translational
+            )
+            self.last_executed_angular = steer_norm
+            self.last_executed_translational = throttle_norm
+
             self.last_Q_sq = np.array(Q_sequence)
             self.control_index += 1
 
-            return float(self.angular_control), float(self.translational_control)
+            # Convert the normalized stick to physical units (the env's
+            # update_pose then divides by the same per-mode scaling and
+            # feeds the dynamics the same normalized stick we just
+            # optimized -> exact round trip).
+            steer_phys, throttle_phys = self.controller_utils.normalized_to_physical(
+                steer_norm, throttle_norm
+            )
+            self.angular_control = steer_phys
+            self.translational_control = throttle_phys
+            return float(steer_phys), float(throttle_phys)
 
 
 @jax.jit
@@ -193,16 +209,20 @@ def compute_waypoint_distance_jax(state, waypoints):
 
 @jax.jit
 def cost_function_jax(state, control, waypoints):
+    """Per-step cost. control is in normalized stick space [-1, 1]^2.
+
+    Weights are scaled from the legacy values so per-step magnitudes
+    are similar to the old radian-units tuning -- otherwise the
+    planner becomes ~6x more averse to steering than before.
+    """
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 1.0
+    angular_control_cost = jnp.abs(control[0]) * 0.4   # was 1.0 in radians
     translational_control_cost = jnp.abs(control[1]) * 0.1
     waypoint_cost = waypoint_dist_sq * 10.0
     target_speed = waypoints[min_idx, 5]
     speed_cost = 0.25 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    
-    # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 15.0  # Heavy penalty for large steering angles
-    
+    angular_quadratic_penalty = control[0] ** 2 * 2.6  # ~ 15 * 0.4189^2
+
     return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty
 
 @jax.jit
@@ -277,12 +297,16 @@ def process_observation_jax(state, last_Q_sq, batch_size, horizon, car_params, w
     
     Q_batch_sequence = jnp.repeat(base_Q[None, :, :], batch_size, axis=0)
     key1, key2 = jax.random.split(key)
+    # Noise stddev calibrated for the normalized [-1, 1] stick
+    # (was 1.2 throttle when control[1] was in m/s^2 -- way too wide here).
     noise = jnp.stack([
         jax.random.normal(key1, (batch_size, horizon)) * 0.1,
-        jax.random.normal(key2, (batch_size, horizon)) * 1.2
+        jax.random.normal(key2, (batch_size, horizon)) * 0.3
     ], axis=-1)
     Q_batch_sequence += noise
-    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-0.4, -5.0]), jnp.array([0.4, 20.0]))
+    # Operate in normalized stick space [-1, 1] so the rollouts here match
+    # what the env's _normalize_controls produces from the executed stick.
+    Q_batch_sequence = jnp.clip(Q_batch_sequence, jnp.array([-1.0, -1.0]), jnp.array([1.0, 1.0]))
     traj_batch = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
         s_single, Q_single, car_params, 0.04, horizon, model_type='pacejka'
     ))(s_batch, Q_batch_sequence)
@@ -332,6 +356,8 @@ def refine_optimal_control_adam(Q_init, s0, car_params, waypoints, horizon,
         grad = jnp.clip(grad, -gradmax_clip, gradmax_clip)
         updates, opt_state = opt.update(grad, opt_state)
         Q_seq = optax.apply_updates(Q_seq, updates)
+        # Stick stays in the normalized box.
+        Q_seq = jnp.clip(Q_seq, jnp.array([-1.0, -1.0]), jnp.array([1.0, 1.0]))
         return Q_seq, opt_state, loss, jnp.linalg.norm(grad)
 
     def scan_step(carry, step_idx):

@@ -34,7 +34,7 @@ sys.path.append(os.path.join(parent_dir, 'utilities'))
 
 from sim.f110_sim.envs.car_model_jax import CarModelJAX
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES
+from utilities.state_utilities import STATE_VARIABLES, STATE_INDICES, NUMBER_OF_STATES
 
 # Control column names
 STEERING_CONTROL_COLUMN = 'angular_control_executed'
@@ -130,16 +130,34 @@ class VisualizationCommon:
                 return filename
         return list(self.available_car_params.keys())[0]  # Default
     
-    def extract_initial_state_at_index(self, index):
-        """Extract initial state from the data at a specific index."""
+    def extract_initial_state_at_index(self, index, wheel_radius_m=0.033):
+        """Extract initial state from the data at a specific index.
+
+        For the new 11-state schema we also need ``wheel_angular_vel``. If the
+        recording predates that column, derive it from ``linear_vel_x / R_w``
+        so model rollouts start with a physically consistent wheel speed
+        (otherwise the very first slip ratio is ~-1 and the prediction blows up
+        in the slip path). ``wheel_radius_m`` defaults to a typical RC value
+        and is overridden by the caller from the loaded car parameters.
+        """
         if self.data is None or index >= len(self.data):
-            return jnp.zeros(10, dtype=jnp.float32)
-            
-        initial_state = np.zeros(10, dtype=np.float32)
+            return jnp.zeros(NUMBER_OF_STATES, dtype=jnp.float32)
+
+        initial_state = np.zeros(NUMBER_OF_STATES, dtype=np.float32)
         for col_name, idx in self.state_indices.items():
             if col_name in self.data.columns:
                 initial_state[idx] = self.data[col_name].iloc[index]
-                
+
+        wheel_idx = self.state_indices.get('wheel_angular_vel')
+        v_x_idx = self.state_indices.get('linear_vel_x')
+        if (
+            wheel_idx is not None
+            and v_x_idx is not None
+            and 'wheel_angular_vel' not in self.data.columns
+        ):
+            R = max(float(wheel_radius_m), 1e-6)
+            initial_state[wheel_idx] = float(initial_state[v_x_idx]) / R
+
         return jnp.array(initial_state)
     
     def extract_control_sequence_at_index(self, start_index, horizon, steering_delay=0, acceleration_delay=0):
@@ -247,6 +265,65 @@ class VisualizationCommon:
                 comparison_data[col_name] = predicted_states[:, idx]
         return comparison_data
     
+    def _normalize_recorded_controls(self, control_seq, car_params):
+        """Map recorded physical-unit controls to the normalized [-1, 1] stick.
+
+        The dynamics now consume a normalized stick (per-car ``drive_mode``
+        decides what +1 means). Recordings from before that change still
+        contain physical-unit values (steering in rad, throttle in m/s^2 /
+        m/s / N*m / A depending on the planner). We auto-detect by range:
+        if any axis is outside [-1.05, 1.05], we treat it as physical and
+        apply the inverse of the per-mode mapping using ``car_params``.
+        """
+        seq = np.asarray(control_seq, dtype=np.float32)
+        if seq.size == 0:
+            return seq
+
+        max_abs = float(np.max(np.abs(seq))) if seq.size else 0.0
+        if max_abs <= 1.05:
+            return jnp.array(np.clip(seq, -1.0, 1.0))
+
+        # Layout from VehicleParameters.to_np_array(); see that file for the
+        # canonical order. We pull only what we need here.
+        s_min = float(car_params[16])
+        s_max = float(car_params[17])
+        a_min = float(car_params[20])
+        a_max = float(car_params[21])
+        v_min = float(car_params[22])
+        v_max = float(car_params[23])
+        tau_max = float(car_params[35])
+        tau_regen = float(car_params[36])
+        drive_mode_id = float(car_params[47])
+        i_max = float(car_params[48])
+        kt = float(car_params[49])
+        gear = float(car_params[50])
+
+        steer = seq[:, 0]
+        steer_norm = np.where(
+            steer >= 0.0,
+            steer / max(abs(s_max), 1e-6),
+            steer / max(abs(s_min), 1e-6),
+        )
+        steer_norm = np.clip(steer_norm, -1.0, 1.0)
+
+        long = seq[:, 1]
+        if drive_mode_id < 0.5:           # torque
+            denom_pos = max(tau_max, 1e-6)
+            denom_neg = max(tau_regen, 1e-6)
+        elif drive_mode_id < 1.5:         # accel
+            denom_pos = max(a_max, 1e-6)
+            denom_neg = max(-a_min, 1e-6)
+        elif drive_mode_id < 2.5:         # speed
+            denom_pos = max(v_max, 1e-6)
+            denom_neg = max(-v_min, 1e-6)
+        else:                              # current (symmetric)
+            denom_pos = denom_neg = max(i_max * kt * gear, 1e-6)
+        long_norm = np.where(long >= 0.0, long / denom_pos, long / denom_neg)
+        long_norm = np.clip(long_norm, -1.0, 1.0)
+
+        out = np.stack([steer_norm, long_norm], axis=1).astype(np.float32)
+        return jnp.array(out)
+
     def run_single_comparison(self, start_index, model_name, param_file, horizon, steering_delay=0, acceleration_delay=0):
         """Run model comparison for a single start index."""
         try:
@@ -266,10 +343,19 @@ class VisualizationCommon:
                 print(f"[Viz] Params '{param_file}': mu={mu:.3f}, lf={lf:.3f}, lr={lr:.3f}, m={m:.1f}, Bf={B_f:.3f}, Cf={C_f:.2f}, Dr={D_r:.2f}, c_rr={c_rr:.4f}, brake_mult={brake_multiplier:.2f}")
             except Exception:
                 pass
-            
+
+            # Wheel radius lives at the start of the longitudinal-slip block
+            # in to_np_array. Index 33 matches the unpack order in the JAX
+            # dynamics. Falls back to the default if the array is short.
+            wheel_radius_m = float(car_params[33]) if len(car_params) > 33 else 0.033
+
             # Prepare initial state and controls with delay
-            initial_state = self.extract_initial_state_at_index(start_index)
+            initial_state = self.extract_initial_state_at_index(start_index, wheel_radius_m=wheel_radius_m)
             control_sequence = self.extract_control_sequence_at_index(start_index, horizon, steering_delay, acceleration_delay)
+            # JAX dynamics now consume normalized [-1, 1]; if the recording
+            # is in legacy physical units, convert here using the loaded
+            # car_params (drive_mode + per-mode caps).
+            control_sequence = self._normalize_recorded_controls(control_sequence, car_params)
             
             # Store start_index for residual model
             self._current_start_index = start_index

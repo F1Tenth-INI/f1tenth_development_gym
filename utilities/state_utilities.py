@@ -12,7 +12,8 @@ STATE_VARIABLES = np.sort([
     'pose_x',  # x0: x position in global coordinates
     'pose_y',  # x1: y position in global coordinates
     'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
-    'steering_angle'  # x2: steering angle of front wheels
+    'steering_angle',  # x2: steering angle of front wheels
+    'wheel_angular_vel',  # 4WD locked: common shaft / wheel speed [rad/s]
 ])
 
 NUMBER_OF_STATES = len(STATE_VARIABLES)
@@ -36,6 +37,7 @@ LINEAR_VEL_Y_IDX = STATE_INDICES['linear_vel_y']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
+WHEEL_ANGULAR_VEL_IDX = STATE_INDICES['wheel_angular_vel']
 
 def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
     """

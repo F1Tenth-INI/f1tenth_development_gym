@@ -118,6 +118,24 @@ def create_csv_header(Settings, controller_name, dt):
     header.append([f'# Surface friction: {Settings.SURFACE_FRICTION}'])
     header.append([f'# Friction for controller: {Settings.FRICTION_FOR_CONTROLLER}'])
 
+    # Per-car physical-unit interpretation of the recorded translational
+    # control. The dynamics consume normalized [-1, 1], but planners still
+    # emit physical units, so the value in the CSV column matches drive_mode.
+    try:
+        from utilities.car_files.vehicle_parameters import VehicleParameters
+        vp = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        unit_per_mode = {
+            'torque': 'N*m',
+            'accel': 'm/s^2',
+            'speed': 'm/s',
+            'current': 'A',
+        }
+        ctl_unit = unit_per_mode.get(getattr(vp, 'drive_mode', 'accel'), 'unknown')
+        header.append([f'# Drive mode: {getattr(vp, "drive_mode", "unknown")}'])
+        header.append([f'# Translational control unit: {ctl_unit}'])
+    except Exception as exc:
+        header.append([f'# Drive mode: unknown ({exc})'])
+
     header.append(['#'])
     header.append(['# Data:'])
 

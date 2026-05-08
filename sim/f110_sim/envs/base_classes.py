@@ -188,6 +188,9 @@ class RaceCar(object):
         self.state_history = np.zeros((40, StateIndices.number_of_states))
         self.control_history = np.zeros((40, 2))
 
+        # Low-pass state for RC-style longitudinal actuator (jax/jit Pacejka path)
+        self._motor_longitudinal_lp = 0.0
+
         # initialize scan sim
         if RaceCar.scan_simulator is None:
             self.scan_rng = np.random.default_rng(seed=self.seed)
@@ -272,10 +275,12 @@ class RaceCar(object):
         # clear control inputs
         self.accel = 0.0
         self.steer_angle_vel = 0.0
+        self._motor_longitudinal_lp = 0.0
         # clear collision indicator
         self.in_collision = False
         # clear state
-        self.state = initial_state
+        self.state = np.asarray(initial_state, dtype=np.float32).reshape(-1)
+        self._align_state_vector_length()
         if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > StateIndices.v_x:
             self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
@@ -288,6 +293,77 @@ class RaceCar(object):
         self.control_history = np.zeros((40, 2))
         # Initialize with current state
         self.state_history[-1] = self.state.copy()
+
+    def _align_state_vector_length(self):
+        """Match ``self.state`` to ``StateIndices.number_of_states`` for buffers and indices.
+
+        SI_Toolkit ``ODE_TF`` returns 10 states; Pacejka JIT/JAX use 11 (last: ``wheel_omega``).
+        Pad missing trailing components with ``v_x / R`` like ``reset``; truncate if too long.
+        """
+        st = np.asarray(self.state, dtype=np.float32).reshape(-1)
+        n = StateIndices.number_of_states
+        if st.shape[0] == n:
+            self.state = st
+            return
+        if st.shape[0] > n:
+            self.state = st[:n].copy()
+            return
+        rw = float(self.params.get("wheel_radius_m", 0.033) or 0.033)
+        omega0 = float(st[StateIndices.v_x]) / max(rw, 1e-6) if st.shape[0] > StateIndices.v_x else 0.0
+        missing = n - st.shape[0]
+        tail = np.full((missing,), omega0, dtype=np.float32)
+        self.state = np.concatenate([st, tail])
+
+    def _normalize_controls(self, des_steering_angle, des_long):
+        """Convert legacy physical commands to normalized [-1, 1] controls.
+
+        Public dynamics now consume a normalized stick: ``+1`` on the steering
+        axis means ``s_max``, ``+1`` on the throttle axis means the YAML's
+        per-mode peak (drive_mode = torque/accel/speed/current). Planners
+        that still emit physical units (most of the existing stack) come
+        through this adapter; planners that already emit normalized values
+        can pass ``[-1, 1]`` directly and we just clip.
+        """
+        params = self.params
+        s_max = float(params.get('s_max', 0.4189))
+        s_min = float(params.get('s_min', -0.4189))
+        steer_denom = s_max if des_steering_angle >= 0.0 else max(-s_min, 1e-6)
+        steer_norm = float(np.clip(
+            des_steering_angle / max(abs(steer_denom), 1e-6), -1.0, 1.0
+        ))
+
+        drive_mode = str(params.get('drive_mode', 'accel') or 'accel').lower()
+        if drive_mode == 'torque':
+            tau_max = float(params.get('tau_wheel_max_nm', 0.55))
+            tau_regen = float(params.get('tau_wheel_regen_max_nm', 0.45))
+            denom = tau_max if des_long >= 0.0 else max(tau_regen, 1e-6)
+        elif drive_mode == 'current':
+            denom = float(params.get('motor_current_max_a', 60.0))
+        else:  # 'accel' (no in-dynamics speed mode; PID lives in the controller)
+            a_max = float(params.get('a_max', 5.0))
+            a_min = float(params.get('a_min', -5.0))
+            denom = a_max if des_long >= 0.0 else max(-a_min, 1e-6)
+        throttle_norm = float(np.clip(
+            des_long / max(abs(denom), 1e-6), -1.0, 1.0
+        ))
+        return np.array([steer_norm, throttle_norm], dtype=np.float32)
+
+    def _apply_longitudinal_actuator_dynamics(self, u_cmd):
+        """RC-style motor low-pass and speed-dependent torque for direct-accel mode."""
+        u = np.asarray(u_cmd, dtype=np.float64).copy()
+        tau = float(self.params.get("motor_longitudinal_tau_s", 0.0) or 0.0)
+        if tau > 1e-9:
+            dt = float(Settings.TIMESTEP_SIM)
+            alpha = 1.0 - np.exp(-dt / tau)
+            self._motor_longitudinal_lp += alpha * (u[1] - self._motor_longitudinal_lp)
+            u[1] = self._motor_longitudinal_lp
+        k_drop = float(self.params.get("motor_speed_torque_drop", 0.0) or 0.0)
+        if k_drop > 0.0 and u[1] > 0.0:
+            vx = float(self.state[StateIndices.v_x])
+            v_max_p = float(self.params["v_max"])
+            scale = max(0.15, 1.0 - k_drop * min(1.0, vx / max(v_max_p, 1e-3)))
+            u[1] *= scale
+        return u.astype(np.float32)
 
     def ray_cast_agents(self, scan):
         """
@@ -386,20 +462,40 @@ class RaceCar(object):
 
         
         elif self.ode_implementation == 'jit_Pacejka':
+            # Deprecated. Kept compiling but its math still expects legacy
+            # physical inputs; new code paths use jax_pacejka.
             u = np.array([desired_steering_angle, desired_speed])
             applied_control = u
-            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
+            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)
             
         elif self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
-            u = np.array([desired_steering_angle, desired_speed])
-            applied_control = u
-            # Convert to JAX arrays and back to numpy
+
+            drive_mode = str(self.params.get('drive_mode', 'accel') or 'accel').lower()
+            # Optional first-order low-pass on the legacy accel command between
+            # sim ticks. Only meaningful for drive_mode == "accel"; other modes
+            # let the dynamics handle their own actuator behavior.
+            tau_lp = float(self.params.get('motor_longitudinal_tau_s', 0.0) or 0.0)
+            if drive_mode == 'accel' and tau_lp > 0.0:
+                alpha = 0.01 / (tau_lp + 0.01)
+                self._motor_longitudinal_lp += alpha * (
+                    float(desired_speed) - self._motor_longitudinal_lp
+                )
+                cmd_long = self._motor_longitudinal_lp
+            else:
+                cmd_long = float(desired_speed)
+                self._motor_longitudinal_lp = cmd_long
+
+            # Record the legacy physical command for downstream tooling.
+            applied_control = np.array([desired_steering_angle, cmd_long])
+            # Translate to normalized stick before handing to the dynamics.
+            u_norm = self._normalize_controls(desired_steering_angle, cmd_long)
             jax_state = jnp.array(self.state)
-            jax_u = jnp.array(u)
+            jax_u = jnp.array(u_norm)
             jax_params = jnp.array(self.car_params_array)
-            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = np.array(new_state)   
+            # 4 sub-Euler steps per 10 ms keeps numerics smooth at low cost.
+            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01, 4)
+            self.state = np.array(new_state)
             
         elif self.ode_implementation == 'residual':
             import jax.numpy as jnp
@@ -419,6 +515,8 @@ class RaceCar(object):
             
         if self.ode_implementation == 'f1tenth_st':
             raise NotImplementedError("ODE implementation for 'f1tenth_st' is not yet implemented.")
+
+        self._align_state_vector_length()
 
         # clip linear_vel_x to SpeedCap when set
         if Settings.GLOBAL_SPEED_LIMIT is not None:

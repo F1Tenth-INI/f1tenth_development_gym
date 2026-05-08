@@ -163,10 +163,9 @@ class PurePursuitPlanner(template_planner):
             self.correcting_index = 0
 
     
-        if(not Settings.MOTOR_PID_IN_CAR_MODEL):
-            translational_control = self.controller_utils.motor_pid(speed, v_x)
-        else:
-            translational_control = speed
+        # Dynamics now consume a normalized stick (per-car drive_mode),
+        # never a desired speed. Convert speed -> acceleration here.
+        translational_control = self.controller_utils.motor_pid(speed, v_x)
         
         self.angular_control = steering_angle
         self.translational_control = translational_control

@@ -30,7 +30,7 @@ class DynamicsModelResidual:
         self.predictor = Predictor(model_dir)
 
         # Init rolling window of state and control history (JAX arrays for max performance)
-        self.state_history = jnp.zeros((self.history_length, 10), dtype=jnp.float32)
+        self.state_history = jnp.zeros((self.history_length, NUMBER_OF_STATES), dtype=jnp.float32)
         self.control_history = jnp.zeros((self.history_length, 2), dtype=jnp.float32)
 
 
@@ -148,7 +148,7 @@ def predict_single_step_jax(state, control, state_history, control_history,
 # Test function
 if __name__ == "__main__":
     dynamics_model_residual = DynamicsModelResidual()
-    state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    state = np.zeros(NUMBER_OF_STATES, dtype=np.float32)
     control = np.array([0.0, 0.0], dtype=np.float32)
 
 

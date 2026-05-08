@@ -9,7 +9,14 @@ from utilities.render_utilities import RenderUtils
 from utilities.Settings import Settings
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
+from utilities.controller_utilities import ControllerUtilities
+from utilities.state_utilities import (
+    NUMBER_OF_STATES,
+    POSE_X_IDX,
+    POSE_Y_IDX,
+    POSE_THETA_IDX,
+    LINEAR_VEL_X_IDX,
+)
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 
 # Configure JAX for optimal GPU usage
@@ -73,7 +80,7 @@ class RPGDPlanner(template_planner):
         
         # History for residual model (HISTORY_LENGTH = 10)
         HISTORY_LENGTH = 10
-        self.state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        self.state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
         self.control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
 
         self.render_utils = RenderUtils()
@@ -84,13 +91,17 @@ class RPGDPlanner(template_planner):
         self.control_index = 0
 
         self.dt = T_CONTROL
-        self.batch_size = 8  # Rollouts
-        self.horizon = 30  
-        
-        # RPGD specific parameters 
-        self.elite_size = 6  # opt_keep_k_ratio
-        self.gradient_steps = 10  # More: Better convergence, but slower
-        self.resampling_freq = 5 
+        # batch_size = 8 was way too small: with 6 elites and only 2 fresh
+        # samples per resample, argmin over 8 candidates is dominated by
+        # randomness and frequently picks brake-heavy plans even when the
+        # speed cost says "go faster". 16 gives much steadier selection.
+        self.batch_size = 16
+        self.horizon = 30
+
+        # RPGD specific parameters
+        self.elite_size = 8  # roughly half the batch
+        self.gradient_steps = 16  # 16 * lr=0.01 -> up to ~0.16 throttle change per cycle
+        self.resampling_freq = 5
         
         self.rollout_trajectories = None  # Store trajectories for rendering
         
@@ -98,13 +109,20 @@ class RPGDPlanner(template_planner):
         self.use_interpolation = False  
         self.num_interpolation_points = 1
         
-        # Control smoothness parameters
-        self.intra_horizon_smoothness_weight = 5.0  # Weight for smoothness within horizon
-        self.angular_smoothness_weight = 1.0  # Relative weight for angular control smoothness
-        self.translational_smoothness_weight = 0.1  # Relative weight for translational control smoothness
+        # Control smoothness parameters. NOTE: weights are calibrated for
+        # the normalized stick (steer/throttle in [-1, 1]). The angular
+        # weight used to be 1.0 when steer was in [-0.4189, 0.4189] rad —
+        # we scale it by s_max^2 so the per-step penalty magnitude stays
+        # similar (otherwise the planner becomes ~6x more averse to
+        # steering and can't corner).
+        self.intra_horizon_smoothness_weight = 0.5
+        self.angular_smoothness_weight = 0.1  # ~ 1.0 * 0.4189^2
+        self.translational_smoothness_weight = 0.1
         
-        # Control output smoothing (low pass filter )
-        self.control_smoothing_alpha = 0.5  # EMA smoothing factor (1 = no filter, 0 = extreme filter)
+        # Output smoothing in normalized stick space. Was 0.5 (= halve every
+        # plan) which compounded with the planner's own oscillations and
+        # left the executed throttle at ~0.1 even with v_target=2 m/s.
+        self.control_smoothing_alpha = 0.8
         self.last_executed_angular = 0.0
         self.last_executed_translational = 0.0
 
@@ -113,11 +131,18 @@ class RPGDPlanner(template_planner):
         self.optimal_control_sequence = np.zeros((self.horizon, 2), dtype=np.float32)
         self.config_optimizer = dict()
         self.config_optimizer["mpc_timestep"] = self.dt  # Fixed timestep for RPGD optimization
-            
+
+        # Q is in normalized stick space [-1, 1] x [-1, 1] — same as what
+        # the JAX dynamics consume. We convert back to physical units only
+        # at the very end (see ControllerUtilities.normalized_to_physical),
+        # so the env's _normalize_controls round-trips exactly.
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
-        self.last_Q_sq[:, 0] = 0.0  # Straight steering (0 steering angle)
-        self.last_Q_sq[:, 1] = 1.0  # Acceleration (1 m/s²)
-        self.car_params_array = VehicleParameters('mpc_car_parameters.yml').to_np_array().astype(np.float32)
+        self.last_Q_sq[:, 0] = 0.0
+        self.last_Q_sq[:, 1] = 0.5   # default: 50% forward stick
+
+        self.controller_utils = ControllerUtilities()
+        self.vehicle_parameters = self.controller_utils.vehicle_parameters
+        self.car_params_array = self.vehicle_parameters.to_np_array().astype(np.float32)
 
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
@@ -149,7 +174,7 @@ class RPGDPlanner(template_planner):
     def _precompile_functions(self):
         """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
-        dummy_state = jnp.zeros(10, dtype=jnp.float32)
+        dummy_state = jnp.zeros(NUMBER_OF_STATES, dtype=jnp.float32)
         dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
         
@@ -161,7 +186,7 @@ class RPGDPlanner(template_planner):
         
         # Create dummy history for compilation
         HISTORY_LENGTH = 10
-        dummy_state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        dummy_state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
         dummy_control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
         
         # Trigger compilation on the selected device
@@ -246,39 +271,71 @@ class RPGDPlanner(template_planner):
             self.trajectory_costs = np.array(total_cost_batch)
             
             self.optimal_trajectory = np.array(optimal_traj)
-            self.optimal_control_sequence = np.array(Q_sequence)
-            
+            # Storage convention for optimal_control_sequence: physical
+            # units. car_system.extract_control_from_control_sequence reads
+            # this and feeds it to update_pose unmodified, so it must match
+            # what the env expects. The internal Q (last_Q_sq, elite_plans,
+            # control_history, ...) stays in normalized stick space.
+            self.optimal_control_sequence = self.controller_utils.normalized_sequence_to_physical(
+                np.array(Q_sequence)
+            )
+
             self.render_utils.update_mpc(
                 rollout_trajectory=self.rollout_trajectories,
                 optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
             )
 
             execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
-            raw_angular, raw_translational = Q_sequence[execute_control_index]
-            
-            # Apply exponential moving average smoothing to control outputs
-            self.angular_control = (self.control_smoothing_alpha * float(raw_angular) + 
-                                  (1 - self.control_smoothing_alpha) * self.last_executed_angular)
-            self.translational_control = (self.control_smoothing_alpha * float(raw_translational) + 
-                                        (1 - self.control_smoothing_alpha) * self.last_executed_translational)
-            
-            # Update last executed values for next iteration
-            self.last_executed_angular = self.angular_control
-            self.last_executed_translational = self.translational_control
-            
-            # Update state and control history for residual model
-            # Roll history forward and add current state/control
-            executed_control = jnp.array([self.angular_control, self.translational_control], dtype=jnp.float32)
+            raw_angular_norm, raw_translational_norm = Q_sequence[execute_control_index]
+
+            # Smooth in normalized space (so the smoothing constant is unit-
+            # less and unaffected by drive_mode / per-car limits).
+            steer_norm_smoothed = (
+                self.control_smoothing_alpha * float(raw_angular_norm)
+                + (1 - self.control_smoothing_alpha) * self.last_executed_angular
+            )
+            throttle_norm_smoothed = (
+                self.control_smoothing_alpha * float(raw_translational_norm)
+                + (1 - self.control_smoothing_alpha) * self.last_executed_translational
+            )
+
+            self.last_executed_angular = steer_norm_smoothed
+            self.last_executed_translational = throttle_norm_smoothed
+
+            # Update state and control history (in normalized space, same as
+            # the elite plans we keep around).
+            executed_control = jnp.array(
+                [steer_norm_smoothed, throttle_norm_smoothed], dtype=jnp.float32
+            )
             self.state_history = jnp.roll(self.state_history, -1, axis=0)
             self.state_history = self.state_history.at[-1, :].set(s)
             self.control_history = jnp.roll(self.control_history, -1, axis=0)
             self.control_history = self.control_history.at[-1, :].set(executed_control)
-            
+
             self.last_Q_sq = np.array(Q_sequence)
             self.control_index += 1
             self.iteration_count += 1
 
-            return float(self.angular_control), float(self.translational_control)
+            # Convert the normalized stick the planner optimized into the
+            # physical units the env's update_pose expects. The env then
+            # divides by the same per-mode scaling and feeds the dynamics
+            # the same normalized stick we just optimized -> exact round
+            # trip -> what we predicted is what the simulator does.
+            steer_phys, throttle_phys = self.controller_utils.normalized_to_physical(
+                steer_norm_smoothed, throttle_norm_smoothed
+            )
+            self.angular_control = steer_phys
+            self.translational_control = throttle_phys
+
+            # car_system.process_observation ignores the return value and
+            # re-reads optimal_control_sequence[CONTROL_DELAY / dt]. That row
+            # must be the same physical command we just computed (including
+            # EMA smoothing), not the raw plan row.
+            self.optimal_control_sequence[execute_control_index] = np.array(
+                [steer_phys, throttle_phys], dtype=np.float32
+            )
+
+            return float(steer_phys), float(throttle_phys)
 
 
     def _update_elite_plans(self, Q_batch_sequence, total_cost_batch):
@@ -306,30 +363,30 @@ class RPGDPlanner(template_planner):
         return jax.vmap(interpolate_single_batch)(Q_inducing)
 
     def _sample_inducing_points(self, key, batch_size):
-        """Sample inducing points for interpolation - match config uniform_dist_min/max"""
-        return jax.random.uniform(key, (batch_size, self.num_interpolation_points, 2), 
-                                 minval=jnp.array([-0.4, -10]), # Match config: uniform_dist_min: [-0.4, -10]
-                                 maxval=jnp.array([0.4, 10]))   # Match config: uniform_dist_max: [0.4, 10]
+        """Sample inducing points uniformly in the normalized stick box."""
+        return jax.random.uniform(
+            key, (batch_size, self.num_interpolation_points, 2),
+            minval=jnp.array([-1.0, -1.0]),
+            maxval=jnp.array([1.0, 1.0]),
+        )
 
     def _sample_full_sequences(self, key, batch_size, warmstart_sequence=None):
-        """Sample full control sequences - with optional warmstart"""
+        """Sample full control sequences in normalized stick space.
+
+        Throttle is biased forward (default 0.5, lower clip -0.3) so resamples
+        don't keep injecting brake-heavy plans that the planner sometimes
+        latches onto when the cost gradient is weak.
+        """
         if warmstart_sequence is not None:
-            # Use warmstart sequence as base for all trajectories
             base_sequences = jnp.tile(warmstart_sequence[None, :, :], (batch_size, 1, 1))
-            # Add exploration noise
-            noise = jax.random.normal(key, (batch_size, self.horizon, 2)) * jnp.array([0.05, 0.3])
+            noise = jax.random.normal(key, (batch_size, self.horizon, 2)) * jnp.array([0.15, 0.2])
             sequences = base_sequences + noise
         else:
-            # Original initialization: Start with straight steering (0) and moderate acceleration (1 m/s²)
-            base_control = jnp.array([0.0, 1.0])
-            # Add some noise around this base for exploration
-            noise = jax.random.normal(key, (batch_size, self.horizon, 2)) * jnp.array([0.1, 0.5])
+            base_control = jnp.array([0.0, 0.5])
+            noise = jax.random.normal(key, (batch_size, self.horizon, 2)) * jnp.array([0.1, 0.3])
             sequences = jnp.tile(base_control, (batch_size, self.horizon, 1)) + noise
-        
-        # Clip to valid bounds
-        return jnp.clip(sequences, 
-                       jnp.array([-0.4, -10]), # Match config: uniform_dist_min: [-0.4, -10]
-                       jnp.array([0.4, 10]))   # Match config: uniform_dist_max: [0.4, 10]
+
+        return jnp.clip(sequences, jnp.array([-1.0, -0.3]), jnp.array([1.0, 1.0]))
 
     def _initialize_or_resample_full_sequences(self, key, current_state=None, waypoints=None):
         """Initialize full sequences or resample non-elite ones (no interpolation)"""
@@ -352,22 +409,19 @@ class RPGDPlanner(template_planner):
         return Q_batch_sequence
     
     def _time_shift_and_expand_elite_sequences(self, key):
-        """Time shift elite sequences and expand with new random ones """
-        # Time shift elite plans (shift by 3 steps as in config)
-        shift_steps = 2  # Why 2 ? 2 works best. Discuss
+        """Time shift elite sequences and expand with new random ones."""
+        shift_steps = 2
         shifted_elite = jnp.roll(self.elite_plans, shift=-shift_steps, axis=1)
-        # Fill the last shift_steps with the last control value + small noise
         key1, key2 = jax.random.split(key)
         noise = jax.random.normal(key1, (self.elite_size, shift_steps, 2)) * 0.1
         last_controls = jnp.tile(self.elite_plans[:, -1:, :], (1, shift_steps, 1))
         shifted_elite = shifted_elite.at[:, -shift_steps:].set(
-            jnp.clip(last_controls + noise, jnp.array([-0.4, -10]), jnp.array([0.4, 10]))
+            jnp.clip(last_controls + noise, jnp.array([-1.0, -0.3]), jnp.array([1.0, 1.0]))
         )
-        
-        # Add new random sequences
+
         num_new = self.batch_size - self.elite_size
         new_sequences = self._sample_full_sequences(key2, num_new, None)
-        
+
         return jnp.concatenate([shifted_elite, new_sequences], axis=0)
     
     def _update_elite_plans_with_full_sequences(self, Q_batch_sequence, total_cost_batch):
@@ -391,19 +445,17 @@ class RPGDPlanner(template_planner):
         return Q_inducing_batch
     
     def _time_shift_and_expand_elite_inducing_points(self, key):
-        """Time shift elite inducing points and expand with new random ones (like original RPGD)"""
-        # Time shift is handled differently for inducing points
-        # We keep the inducing points but adjust their influence
-        # Add small noise to elite inducing points for exploration
+        """Time shift elite inducing points and expand with new random ones."""
         key1, key2 = jax.random.split(key)
-        noise = jax.random.normal(key1, self.elite_plans.shape) * 0.1  # Small exploration noise
-        shifted_elite = jnp.clip(self.elite_plans + noise, 
-                               jnp.array([-0.4, -10]), jnp.array([0.4, 10]))  # Match config bounds
-        
-        # Add new random inducing points
+        noise = jax.random.normal(key1, self.elite_plans.shape) * 0.1
+        shifted_elite = jnp.clip(
+            self.elite_plans + noise,
+            jnp.array([-1.0, -1.0]), jnp.array([1.0, 1.0]),
+        )
+
         num_new = self.batch_size - self.elite_size
         new_inducing_points = self._sample_inducing_points(key2, num_new)
-        
+
         return jnp.concatenate([shifted_elite, new_inducing_points], axis=0)
     
     def _update_elite_plans_with_inducing_points(self, Q_inducing_final, total_cost_batch):
@@ -460,58 +512,60 @@ class RPGDPlanner(template_planner):
                 self.trajectory_ages = jnp.concatenate([elite_ages, new_ages], axis=0)
 
     def _generate_warmstart_control_sequence(self, current_state, waypoints):
-        """Generate a warmstart control sequence based on waypoints and current state"""
+        """Warmstart in normalized stick space.
+
+        Outputs a (horizon, 2) array in [-1, 1]^2 (steer_norm, throttle_norm).
+        Internally we still simulate a rough bicycle model in physical units
+        for state propagation, but the controls we *emit* are normalized.
+        """
+        s_max_phys = float(self.vehicle_parameters.s_max)
+        a_max_phys = float(self.vehicle_parameters.a_max)
+        v_max_phys = float(self.vehicle_parameters.v_max)
+        wb = float(self.vehicle_parameters.lf + self.vehicle_parameters.lr)
+
         controls = np.zeros((self.horizon, 2), dtype=np.float32)
-        
-        # Extract current position and heading
+
         current_x = float(current_state[POSE_X_IDX])
         current_y = float(current_state[POSE_Y_IDX])
-        current_heading = float(current_state[2])  # Assuming heading is at index 2
+        # State is sorted alphabetically (state_utilities.STATE_VARIABLES);
+        # index 2 is linear_vel_y, NOT yaw. Use POSE_THETA_IDX explicitly.
+        current_heading = float(current_state[POSE_THETA_IDX])
         current_speed = float(current_state[LINEAR_VEL_X_IDX])
-        
-        # Convert waypoints to numpy for easier handling
+
         wp_array = np.array(waypoints)
-        
-        # Find nearest waypoint
-        distances = np.sqrt((wp_array[:, 1] - current_x)**2 + (wp_array[:, 2] - current_y)**2)
+        distances = np.sqrt((wp_array[:, 1] - current_x) ** 2 + (wp_array[:, 2] - current_y) ** 2)
         nearest_idx = np.argmin(distances)
-        
-        # Generate control sequence
+
         for i in range(self.horizon):
-            # Look ahead waypoint (with some lookahead distance)
-            lookahead_idx = min(nearest_idx + i + 5, len(wp_array) - 1)  # Look ahead 5 waypoints
+            lookahead_idx = min(nearest_idx + i + 5, len(wp_array) - 1)
             target_x = wp_array[lookahead_idx, 1]
             target_y = wp_array[lookahead_idx, 2]
             target_speed = wp_array[lookahead_idx, 5]
-            
-            # Compute desired heading to target
+
             dx = target_x - current_x
             dy = target_y - current_y
             desired_heading = np.arctan2(dy, dx)
-            
-            # Compute steering angle (simple proportional controller)
             heading_error = desired_heading - current_heading
-            # Normalize heading error to [-pi, pi]
             heading_error = np.arctan2(np.sin(heading_error), np.cos(heading_error))
-            
-            # Steering control (proportional)
-            steering = np.clip(heading_error * 0.5, -0.3, 0.3)  # Conservative steering
-            
-            # Speed control (simple proportional to target speed)
+
+            # Normalized steering: a 0.6 rad heading error -> ~70% stick.
+            steering_norm = float(np.clip(heading_error / max(s_max_phys, 1e-3) * 0.6, -0.7, 0.7))
+            # Normalized throttle: 1 m/s under target -> ~40% stick.
             speed_error = target_speed - current_speed
-            acceleration = np.clip(speed_error * 2.0, -3.0, 3.0)  # Conservative acceleration
-            
-            controls[i, 0] = steering
-            controls[i, 1] = acceleration
-            
-            # Update position estimate for next step (simple forward simulation)
+            throttle_norm = float(np.clip(speed_error * 2.0 / max(a_max_phys, 1e-3), -0.6, 0.6))
+
+            controls[i, 0] = steering_norm
+            controls[i, 1] = throttle_norm
+
+            # Forward-simulate (physical units, separate from emitted norm).
             dt = self.dt
+            steer_phys = steering_norm * s_max_phys
+            accel_phys = throttle_norm * a_max_phys
             current_x += current_speed * np.cos(current_heading) * dt
             current_y += current_speed * np.sin(current_heading) * dt
-            current_heading += current_speed * np.tan(steering) / 2.5 * dt  # Approximate bicycle model
-            current_speed += acceleration * dt
-            current_speed = np.clip(current_speed, 0.1, 15.0)  # Reasonable speed bounds
-        
+            current_heading += current_speed * np.tan(steer_phys) / max(wb, 0.1) * dt
+            current_speed = float(np.clip(current_speed + accel_phys * dt, 0.1, v_max_phys))
+
         return controls
 
 
@@ -526,17 +580,32 @@ def compute_waypoint_distance_jax(state, waypoints):
 
 @jax.jit
 def cost_function_jax(state, control, waypoints):
+    """Per-step cost. control is in normalized stick space [-1, 1]^2.
+
+    Includes an explicit progress signal (negative cost for advancing along
+    the waypoint index) so a stationary car is NOT optimal even if it sits
+    on the line. Without this, ``waypoint_dist_sq`` is minimised by not
+    moving and the planner converges to a crawl.
+    """
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 0.1
+    angular_control_cost = jnp.abs(control[0]) * 0.04
     translational_control_cost = jnp.abs(control[1]) * 0.0
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]
-    speed_cost = 5.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    
-    # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
-    
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty
+    speed_cost = 20.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
+    # Reward forward motion directly. Capped because target_speed already
+    # provides a saturation point via speed_cost.
+    progress_reward = -3.0 * jnp.clip(state[LINEAR_VEL_X_IDX], -2.0, 5.0)
+    angular_quadratic_penalty = control[0] ** 2 * 1.76  # ~ 10 * 0.4189^2
+
+    return (
+        speed_cost
+        + angular_control_cost
+        + translational_control_cost
+        + waypoint_cost
+        + angular_quadratic_penalty
+        + progress_reward
+    )
 
 @jax.jit
 def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, 
@@ -551,10 +620,13 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints,
     # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
     control_diff = control_sequence[1:] - control_sequence[:-1]
     
-    # Individual step smoothness costs
+    # Individual step smoothness costs. The legacy code multiplied the
+    # angular term by an extra 10x, which on top of the radian-units
+    # tuning made the planner extremely averse to changing throttle and
+    # caused it to latch onto whatever throttle it started with.
     step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
     step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
-    step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
+    step_smoothness_costs = step_angular_smoothness + step_translational_smoothness
     
     # Add individual smoothness penalties to corresponding cost elements
     total_costs = standard_costs.at[1:].add(step_smoothness_costs)
@@ -600,7 +672,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Initialize histories if None
     if state_history is None:
         HISTORY_LENGTH = 10
-        state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
     if control_history is None:
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
@@ -638,9 +710,9 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         
         # Parameter update
         Q_batch_new = Q_batch - learning_rate * m_hat / (jnp.sqrt(v_hat) + eps)
-        
-        # Clip to bounds (match config uniform_dist_min/max)
-        Q_batch_new = jnp.clip(Q_batch_new, jnp.array([-0.4, -10]), jnp.array([0.4, 10]))
+
+        # Clip to the normalized stick box.
+        Q_batch_new = jnp.clip(Q_batch_new, jnp.array([-1.0, -1.0]), jnp.array([1.0, 1.0]))
         
         return (Q_batch_new, m_new, v_new, t), None
     
