@@ -160,6 +160,7 @@ class Settings():
     RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
     WEB_RENDER_PORT = 8765               # web renderer TCP port
+    PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

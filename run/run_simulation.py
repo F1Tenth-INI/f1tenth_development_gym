@@ -501,12 +501,20 @@ class RacingSimulation:
             render_obs.update({
                 'simulation_time': self.sim_time,
             })
-            if self.renderer_backend == "web":
+            if self.renderer_backend in ("web", "pygame"):
                 render_obs["web_overlay"] = build_web_overlay(self.drivers)
 
             self.renderer.render(render_obs)
 
-            if self.renderer_backend == "pyglet" and Settings.RENDER_MODE in ("human", "human_fast"):
+            # render_callback uses pyglet-specific window attributes (left/right/top/
+            # bottom/zoomed_*). Only invoke it when the legacy pyglet backend was
+            # actually loaded; if pyglet was unavailable we fell back to pygame
+            # under the same `pyglet` name and the callback would crash.
+            if (
+                self.renderer_backend == "pyglet"
+                and Settings.RENDER_MODE in ("human", "human_fast")
+                and hasattr(self.renderer, "zoomed_height")
+            ):
                 self.render_callback(self.renderer)
 
 
