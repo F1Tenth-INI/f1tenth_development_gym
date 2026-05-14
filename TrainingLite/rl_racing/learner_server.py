@@ -132,9 +132,6 @@ class CustomReplayBuffer(ReplayBuffer):
 
         if self.stat_tracker is not None:
             self.stat_tracker.register_transition(obs, action, idx, reward, done, info=infos) #gets the unnormalized obs directly
-            # self.stat_tracker.print_stats()
-            # if self.stat_tracker_full_obs_action_save:
-            #     self.stat_tracker.save_full_obs_action(obs, action)
 
         if not self.custom_sampling:
             return
@@ -145,7 +142,6 @@ class CustomReplayBuffer(ReplayBuffer):
         #update new TD weights to max weight before first sample
         self.TD_weights[idx] = self.new_weight_priority
 
-        #TODO: the observations are normalized, is that bad or not?
         #compute weight
         d = None
         e = None
@@ -927,46 +923,11 @@ class LearnerServer:
                 n_added += 1
         return n_added
 
-    def _ingest_episodes_into_replay_old(self, episodes: List[List[dict]]) -> int:
-        if self.model is None or self.replay_buffer is None:
-            return 0
-        n_added = 0
-        for ep in episodes:
-            for t in ep:
-                obs = t["obs"].astype(np.float32)
-                next_obs = t["next_obs"].astype(np.float32)
-                if expected_obs_dim is not None:
-                    obs_dim = int(np.asarray(obs).reshape(-1).shape[0])
-                    next_obs_dim = int(np.asarray(next_obs).reshape(-1).shape[0])
-                    if obs_dim != expected_obs_dim or next_obs_dim != expected_obs_dim:
-                        dropped_for_dim_mismatch += 1
-                        continue
-                action = t["action"].astype(np.float32)
-                reward = float(t["reward"])
-                done = bool(t["done"])
-                # normalize obs like SB3 would during collection
-                obs = self._normalize_obs(obs)
-                next_obs = self._normalize_obs(next_obs)
-                # sampling_weight = self.single_weight(obs, action, next_obs, reward)
-                self.replay_buffer.add(
-                    obs=obs,
-                    next_obs=next_obs,
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    infos={},  # could pass TimeLimit info here if you track it
-                    # sampling_weight = sampling_weight
-                )
-                n_added += 1
-        if dropped_for_dim_mismatch > 0:
-            print(
-                f"[server] Dropped {dropped_for_dim_mismatch} transition(s) due to "
-                f"observation dim mismatch (expected {expected_obs_dim})."
-            )
-        return n_added
     
     def _compute_n_step_transitions(self, episode: List[dict]) -> List[dict]:
         """
+        -> Not used in report
+
         Takes list of episode transitions, converts into n-step reward structure.
         
         According to the n-step SAC formulation (eq. 8 from the paper):
@@ -995,14 +956,6 @@ class LearnerServer:
             # assert steps_taken >= 1
             # assert steps_taken <= self.n_step
 
-
-            #TODO: figure out wth is going on here
-
-
-            # If we were able to go full N steps without ending the episode:
-            # The next state is the observation N steps later.
-            # But wait: if i+n is typically the start of the n-th step. 
-            # We want the state AFTER n steps.
             
             # Case A: We ran out of episode (Terminal within window)
             if episode[final_index]["done"]:
@@ -1018,8 +971,6 @@ class LearnerServer:
     
             
             # Case B: We successfully looked ahead N steps (Non-terminal)
-            # The "next state" for the update is the 'obs' of the transition at i + n
-            # OR the 'next_obs' of the transition at i + n - 1. They are the same.
             elif i + n < episode_length:
                 target_transition = episode[i + n]
                 next_obs = target_transition["obs"] # The state at start of step t+n
@@ -1035,8 +986,6 @@ class LearnerServer:
                 else:
                     done = bool(target_transition["done"])
 
-            # --- 3. Build the Transition ---
-            # We preserve the ORIGINAL observation and action from step 'i'
             current_transition = episode[i]
             
             new_transition = {
@@ -1169,46 +1118,6 @@ class LearnerServer:
 
  
 
-    # def _save_model_checkpoint(self, checkpoint_name: str):
-    #     checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
-    #     os.makedirs(checkpoint_dir, exist_ok=True)
-    #     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
-
-    #     try:
-    #         self.model.save(checkpoint_path)
-    #         print(f"[server] Checkpoint saved to {checkpoint_path} as {checkpoint_name}")
-    #         self.last_checkpoint_timestep = self.total_actor_timesteps
-    #     except Exception as e:
-    #         print(f"[server] Error saving checkpoint: {e}")
-
-    # def redistribute_crash_penalty(self, episode, ramp_steps: int = 20, crash_penalty: float = 15.0):
-    #     crash_idx = None
-    #     for i in reversed(range(len(episode))):
-    #         t = episode[i]
-    #         info = t.get("info", {})
-    #         if t.get("done", False) and info.get("truncated", False):
-    #             crash_idx = i
-    #             break
-    #     if crash_idx is None:
-    #         # no crash in this episode -> leave rewards unchanged
-    #         return episode
-
-    #     #remove original penalty
-    #     episode[crash_idx]["reward"] += crash_penalty
-
-    #     # closer to crash -> larger share
-    #     for k in range(ramp_steps):
-    #         idx = crash_idx - k
-    #         if idx < 0:
-    #             break
-    #         t = episode[idx]
-    #         # weight from 0..1, increasing towards crash
-    #         w = (ramp_steps - k) / ramp_steps
-    #         shaped_penalty = w * (crash_penalty/2) #divide by 2 so total penalty is not too high
-    #         t["reward"] -= shaped_penalty
-    #     return episode
-
-
     async def _train_loop(self):
         """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
         while True:
@@ -1267,20 +1176,6 @@ class LearnerServer:
                     f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
                 await self._broadcast_training_status()
                 
-            # debug_time_2 = time.time()
-            # =================================================================
-            # NEW: Auto-Shutdown Check
-            # =================================================================
-            # if self.total_actor_timesteps >= Settings.SIMULATION_LENGTH:
-            #     print(f"[server] Training Goal Reached! ({self.total_actor_timesteps}/{Settings.SIMULATION_LENGTH} steps). Initiating Shutdown.")
-                
-            #     # Signal the monitor loop to close the server
-            #     async with self._terminate_lock:
-            #         self._should_terminate = True
-                
-            #     # Break out of the training loop immediately
-            #     return
-            # =================================================================
 
             # Calculate trainign steps per sample
             current_udt = self._current_udt()
@@ -1361,9 +1256,7 @@ class LearnerServer:
                         # Reduce batch size to avoid OOM
                         safe_batch_size = min(self.batch_size, 4096)
 
-                        #NIKITA: testing testing testing
-                        # old_alpha = self.replay_buffer.alpha
-                        # self.replay_buffer.alpha = 0.0
+
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             old_alpha = self.replay_buffer.alpha
                             self.replay_buffer.alpha = 0.0
@@ -1381,6 +1274,7 @@ class LearnerServer:
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             self.replay_buffer.alpha = old_alpha
 
+
                         obs      = data.observations
                         actions  = data.actions
                         next_obs = data.next_observations
@@ -1388,7 +1282,6 @@ class LearnerServer:
                         dones    = data.dones
                         steps_taken = data.steps_taken
 
-                        #TODO: Have the IS sampling weights be returned here
                         is_weights = data.is_weights if hasattr(data, "is_weights") else torch.ones((safe_batch_size, 1), device=obs.device)
 
                         # Critic update
@@ -1430,8 +1323,7 @@ class LearnerServer:
                                     print(f"[SAC DEBUG][step={step}] target_q mean={tq.mean():.4f}, min={tq.min():.4f}, max={tq.max():.4f} | is_weights mean={iw.mean():.4f}")
                             except Exception:
                                 pass
-                            # target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
-                        # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
+   
 
                         current_q1, current_q2 = critic(obs, actions)
 
@@ -1454,11 +1346,9 @@ class LearnerServer:
 
                                 TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
 
-                                # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
                                 TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
                                 TD_update_priorities += 1e-6
                                 
-
                                 if self.replay_buffer.stat_tracker:
                                     self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
 
@@ -1481,7 +1371,6 @@ class LearnerServer:
                             dones    = data.dones
                             steps_taken = data.steps_taken
 
-                            #TODO: Have the IS sampling weights be returned here
                             is_weights = data.is_weights
 
                             #NIKITA: get TD error wtice, for actor batch also
@@ -1517,7 +1406,6 @@ class LearnerServer:
 
                                     TD_update_priorities = ((TD_error_1 + TD_error_2) / 2.0)
 
-                                    # TD_update_priorities = TD_update_priorities * discounts.clamp(min=1e-6)
                                     TD_update_priorities = TD_update_priorities.cpu().numpy().flatten()
                                     TD_update_priorities += 1e-6
                                     
@@ -1525,9 +1413,6 @@ class LearnerServer:
                                     if self.replay_buffer.stat_tracker:
                                         self.replay_buffer.stat_tracker.batch_update_TD_errors(self.replay_buffer.current_sampled_inds, TD_update_priorities)
 
-                                    # NIKITA: TESTING INVERTED TD ERROR PRIORITIES
-                                    # TD_update_priorities = 1.0 / TD_update_priorities
-                                    # TD_update_priorities = TD_update_priorities / TD_update_priorities.max() #normalize :)
 
                                     # optional clipping
                                     if self.replay_buffer.clip_weights:
