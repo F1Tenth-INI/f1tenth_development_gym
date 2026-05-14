@@ -26,6 +26,8 @@ if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
+from utilities.CurriculumSupervisor import CurriculumSupervisor
+
 
 
 
@@ -79,6 +81,19 @@ class RacingSimulation:
         self.sim_time_history = []  # Store last N timesteps of simulation time
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
+
+        if (Settings.CONTROLLER == 'sac_agent' and Settings.SAC_INFERENCE_MODEL_NAME == None and
+            (Settings.SAC_CURRICULUM_SPEED or Settings.SAC_CURRICULUM_TRACK_WIDTH_SCALING or Settings.SAC_CURRICULUM_NOISE_SCALING)):
+            
+            self.curriculum_supervisor = CurriculumSupervisor(
+                initial_difficulty = Settings.SAC_CURRICULUM_STARTING_DIFFICULTY,
+                max_difficulty = Settings.SAC_CURRICULUM_MAX_DIFFICULTY,
+                sac_curriculum_t1 = Settings.SAC_CURRICULUM_T1,
+                sac_curriculum_t2 = Settings.SAC_CURRICULUM_T2,
+                debug = Settings.SAC_CURRICULUM_DEBUG
+            )
+        else:
+            self.curriculum_supervisor = None
 
     
 
@@ -216,6 +231,28 @@ class RacingSimulation:
                 print(f"Respawning instead of full reset (P[respawn]: {Settings.RESPAWN_PROBABILITY}).")
                 self.respawn()
                 return
+            
+        if self.curriculum_supervisor is not None:
+     
+            self.curriculum_supervisor.update_progress(self.sim_index / Settings.SIMULATION_LENGTH)
+            self.curriculum_supervisor.update_difficulty_linear()
+
+            """SUCCESS RATE VERSION"""
+            # intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
+            # self.curriculum_supervisor.update_completed_episodes(int(self.episode_index >= intermediate_steps * Settings.MAX_EPISODE_LENGTH))
+            # print(self.curriculum_supervisor.completed_episodes)
+            # self.curriculum_supervisor.calculate_success_rate()
+            # self.curriculum_supervisor.update_difficulty_dynamic()
+            """SUCCESS RATE VERSION END"""
+
+            if Settings.SAC_CURRICULUM_SPEED_ADJUST_MODE == 'speed_cap' or Settings.SAC_CURRICULUM_SPEED_ADJUST_MODE == 'vel_factor':
+                self.curriculum_supervisor.adjust_speed(speed_max = 1.0)
+
+            if Settings.SAC_CURRICULUM_TRACK_WIDTH_SCALING:
+                self.curriculum_supervisor.adjust_track_width(base_width = 1.0)
+            
+            if Settings.SAC_CURRICULUM_NOISE_SCALING:
+                self.curriculum_supervisor.adjust_noise(base_noise = 1.0)
         
         # Normal reset
         self.episode_index = 0

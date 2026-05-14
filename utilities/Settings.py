@@ -157,8 +157,8 @@ class Settings():
     ## Visualization ##
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     # RENDER_MODE = 'human' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
-    # RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    # RENDER_MODE = 'human_fast' # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
+    RENDER_MODE = None # slow rendering ('human') and fast rendering ('human_fast') an no rendering (None)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
@@ -227,7 +227,7 @@ class Settings():
     SAC_RECENCY_MIN_WEIGHT = 0.05
 
 
-    SAC_CUSTOM_SEPARATE_BATCHES_ACTOR_CRITIC = True
+    SAC_CUSTOM_SEPARATE_BATCHES_ACTOR_CRITIC = False
 
     SAC_DYNAMIC_IS_CORRECTOR = True
     SAC_USE_IS_WEIGHTS_FOR_ACTOR = False #seems to be pretty bad if i turn this on
@@ -252,33 +252,7 @@ class Settings():
 
     SAC_CURRICULUM_DEBUG = True
 
-    SAC_CURRICULUM_ENABLED = False
-
-    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
-    ## t1=0 ensures difficulty rises from the first boost; t1=0.3 required 6+ boosts before any visible change
-    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.0 
-    SAC_CURRICULUM_T1 = 0.0        # progress threshold: difficulty stays at initial until progress > t1
-    SAC_CURRICULUM_T2 = 0.9
-
-    ## Translational control clipping: curriculum increases clip from min to max as difficulty increases
-    SAC_TRANSLATIONAL_CLIP_MIN = 2.5   # clip at low difficulty (conservative)
-    SAC_TRANSLATIONAL_CLIP_MAX = 6.0   # clip at high difficulty (full range)
-    SAC_TRANSLATIONAL_CONTROL_CLIP = 2.5  # runtime value, updated by curriculum (default for inference)
-
-    ## Curriculum speed limit: v_max in car model increases with difficulty (works with acceleration control)
-    SAC_CURRICULUM_V_MAX_ENABLED = True
-    SAC_CURRICULUM_V_MAX_MIN = 3.0   # v_max at low difficulty [m/s]
-    SAC_CURRICULUM_V_MAX_MAX = 10.0  # v_max at high difficulty [m/s], or use vehicle default
-    SAC_CURRICULUM_V_MAX = None      # runtime value, set by curriculum (None = use vehicle default)
-
-    ## Adaptive curriculum: when avg reward over last N episodes > threshold, boost progress
-    SAC_CURRICULUM_ADAPTIVE = True
-    SAC_CURRICULUM_REWARD_THRESHOLD = 10.0  # avg reward above this triggers difficulty boost (0 = break-even)
-    SAC_CURRICULUM_REWARD_WINDOW = 4       # number of episodes for rolling average (smaller = more responsive)
-    SAC_CURRICULUM_FAST_TRACK_BOOST = 0.05  # progress increment when threshold exceeded
-    ## Episode-length curriculum: when X% of last N episodes reach max length, increase difficulty
-    SAC_CURRICULUM_MAX_LENGTH_PERCENTAGE = 0.6  # fraction of episodes at max length to trigger boost (e.g. 0.6 = 60%)
-
+    
     SAC_SAVE_MODEL_CHECKPOINTS = True
     SAC_CHECKPOINT_FREQUENCY = 10000 #in timesteps
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
@@ -296,29 +270,29 @@ class Settings():
 
     #NOTE: these are all nikita old curriculum settings
     
-    # ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
-    # SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
-    # SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
-    # SAC_CURRICULUM_T2 = 0.6
-    # SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
+    ## start to t1 -> starting difficulty | t1 to t2 -> linear increase to 1.0 | t2 to end -> 1.0
+    SAC_CURRICULUM_STARTING_DIFFICULTY = 0.2
+    SAC_CURRICULUM_T1 = 0.05        # in % of total learning progress
+    SAC_CURRICULUM_T2 = 0.6
+    SAC_CURRICULUM_MAX_DIFFICULTY = 1.0
 
-    # SAC_CURRICULUM_SPEED = False
-    # SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
+    SAC_CURRICULUM_SPEED = False
+    SAC_CURRICULUM_SPEED_ADJUST_MODE = 'speed_cap' #'speed cap' or 'vel_factor'
 
-    # SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
-    # SAC_ACCEL_CAP = 3.0
+    SAC_ACCEL_CAP_MAX = 3.0 #3.0 is the max, and this can be scaled down based on difficulty
+    SAC_ACCEL_CAP = 3.0
 
-    # SAC_CURRICULUM_SPEED_LIMIT_MAX = 15 #absolute max speed limit during curriculum learning
-    # SAC_CURRICULUM_SPEED_LIMIT = 15
+    SAC_CURRICULUM_SPEED_LIMIT_MAX = 13 #absolute max speed limit during curriculum learning
+    SAC_CURRICULUM_SPEED_LIMIT = 13
 
-    # SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
-    # SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
+    SAC_CURRICULUM_TRACK_WIDTH_SCALING = False
+    SAC_CURRICULUM_TRACK_WIDTH_FACTOR = 1.0
 
-    # SAC_CURRICULUM_NOISE_SCALING = False
-    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    # # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
-    # # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    SAC_CURRICULUM_NOISE_SCALING = False
+    SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.1, 0.1, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    # SAC_NOISE_LEVEL_CAR_STATE_MAX = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    SAC_NOISE_LEVEL_CONTROL_MAX = [0.35, 0.7] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
 
     SAC_AMPLIFY_NEGATIVE_PROGRESS_REWARD = False
     SAC_NEGATIVE_PROGRESS_REWARD_AMPLIFICATION_FACTOR = 20
@@ -327,13 +301,6 @@ class Settings():
     SAC_PREFILL_BUFFER_WITH_PP_AMOUNT = 30000 #number of transitions to prefill
     SAC_PREFILL_BEHAVIOR_CLONING_EPOCHS = 20
 
-
-    
-    ## Speed cap ##
-    ## Curriculum speed cap: GLOBAL_SPEED_LIMIT increases with difficulty (clips car state in base_classes)
-    GLOBAL_SPEED_LIMIT_CURRICULUM_ENABLED = True
-    GLOBAL_SPEED_LIMIT_MIN = 3.0   # at low difficulty [m/s]
-    GLOBAL_SPEED_LIMIT_MAX = 15.0  # at high difficulty [m/s]
 
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient

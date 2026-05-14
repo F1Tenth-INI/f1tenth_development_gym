@@ -9,6 +9,8 @@ Create improved learning curve figures with better readability:
 - optional Plotly interactive export
 
 Usage: run from repo root or adjust glob paths as needed.
+
+python TrainingLite/rl_racing/scripts/create_better_learning_curve_figures.py --output-name test
 """
 import argparse
 import ast
@@ -27,14 +29,23 @@ from matplotlib.colors import to_hex
 
 # --------- Configure experiments (reuse patterns from original script) ---------
 EXPERIMENTS = {
-    "uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_CUSTOM_uniform*/learning_metrics.csv"),
-    # "proportional (TD-error; alpha=0.3)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.3*/learning_metrics.csv"),
-    # "proportional (TD-error; alpha=0.5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.5*/learning_metrics.csv"),
-    # "proportional (TD-error; alpha=0.8)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.8*/learning_metrics.csv"),
-    "proportional (State; rew=3, d=3, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
-    "proportional (State; rew=7, d=3, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_7.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
-    "proportional (State; vel=3, rew=5, d=5, e=5)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_VelW_3.0_Wrew_5_Wd_5_We_5*/learning_metrics.csv"),
-    "proportional (State; rew=3, d=5, e=3)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_5.0_We_3.0*/learning_metrics.csv"),
+    # "Uniform": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_CUSTOM_uniform*/learning_metrics.csv"),
+    # "TD-error; alpha=0.3": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.3*/learning_metrics.csv"),
+    # "TD-error; alpha=0.5": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.5*/learning_metrics.csv"),
+    # "TD-error; alpha=0.8": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_OneBatch_TD_A_0.8*/learning_metrics.csv"),
+    # "DI; r=3, d=3, e=5": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
+    # "DI; r=7, d=3, e=5": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_7.0_Wd_3.0_We_5.0*/learning_metrics.csv"),
+    # "DI; r=5, d=5, e=5, v=3": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_VelW_3.0_Wrew_5_Wd_5_We_5*/learning_metrics.csv"),
+    # "DI; r=3, d=5, e=3": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_State_Wrew_3.0_Wd_5.0_We_3.0*/learning_metrics.csv"),
+    # "Cur;Speed Cap 10": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_A00_curriculum_speed_cap_10*/learning_metrics.csv"),
+    # "Cur; Track Width)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_A00_curriculum_track_width*/learning_metrics.csv"),
+    # "Cur;Velocity Factor)": glob.glob("TrainingLite/rl_racing/models/RCA2-ReportFinal_UTD125_A00_curriculum_vel_factor*/learning_metrics.csv"),
+
+    "Uniform 1": (glob.glob("TrainingLite/rl_racing/models/Physical-20-CustomUniform-a/learning_metrics.csv")),
+    "Uniform 2; alpha=0.0": (glob.glob("TrainingLite/rl_racing/models/Physical-20b/learning_metrics.csv")),
+    "TD-error 1; alpha=0.6": glob.glob("TrainingLite/rl_racing/models/Physical-20d_TD_A_06/learning_metrics.csv"),
+    "TD-error 2; alpha=0.6": glob.glob("TrainingLite/rl_racing/models/Physical-20b_TD_A_06/learning_metrics.csv"),
+    "DI; r=10, d=10, e=3": glob.glob("TrainingLite/rl_racing/models/Physical-20-State_Wrew_10_Wd_10_We_3/learning_metrics.csv"),
 }
 
 METRICS = {
@@ -42,27 +53,38 @@ METRICS = {
         "columns": ["episode_mean_step_rewards"],
         "label": "Episode Mean Step Reward",
         "output": "learning_curve_episode_mean_step_reward.png",
+        "legend_loc": "lower right",
     },
     "episode_reward": {
         "columns": ["episode_rewards"],
         "label": "Episode Reward",
         "output": "learning_curve_episode_reward.png",
+        "legend_loc": "upper left",
     },
     "lap_time": {
         "columns": ["lap_times"],
         "label": "Lap Time (s)",
         "output": "learning_curve_lap_time.png",
+        "legend_loc": "upper right",
     },
     "critic_loss": {
         "columns": ["critic_loss"],
         "label": "Critic Loss",
         "output": "learning_curve_critic_loss.png",
+        "legend_loc": "upper right", 
     },
     "actor_loss": {
         "columns": ["actor_loss"],
         "label": "Actor Loss",
         "output": "learning_curve_actor_loss.png",
+        "legend_loc": "lower right",  
     },
+    "episode_length": {
+        "columns": ["episode_lengths"],
+        "label": "Episode Length (steps)",
+        "output": "learning_curve_episode_length.png",
+        "legend_loc": "upper left",
+    }
 }
 
 
@@ -175,7 +197,7 @@ def make_plots(
     labels = list(EXPERIMENTS.keys())
     palette = sns.color_palette("colorblind", n_colors=max(2, len(labels)))
     colors = {lab: palette[i % len(palette)] for i, lab in enumerate(labels)}
-    colors["uniform"] = "black"
+    colors["Uniform"] = "black"
     plotly_colors = {lab: to_hex(color) if not isinstance(color, str) else color for lab, color in colors.items()}
 
     plot_variants = [
@@ -216,12 +238,14 @@ def make_plots(
                 med, q25, q75 = align_and_summarize(curves, x_grid)
                 if apply_smoothing:
                     med = smooth_series(med, smooth_window)
-                    q25 = smooth_series(q25, max(1, smooth_window // 2))
-                    q75 = smooth_series(q75, max(1, smooth_window // 2))
-                linewidth = uniform_width if method == "uniform" else other_width
+                    # q25 = smooth_series(q25, max(1, smooth_window // 2))
+                    # q75 = smooth_series(q75, max(1, smooth_window // 2))
+                    q25 = smooth_series(q25, smooth_window)
+                    q75 = smooth_series(q75, smooth_window)
+                linewidth = uniform_width if method == "Uniform" else other_width
 
                 ax.plot(x_grid, med, label=method, color=colors.get(method), linewidth=linewidth)
-                ax.fill_between(x_grid, q25, q75, color=colors.get(method), alpha=0.12)
+                ax.fill_between(x_grid, q25, q75, color=colors.get(method), alpha=0.12, edgecolor='none')
 
             ax.set_xlabel("training step")
             ax.set_ylabel(cfg["label"])
@@ -229,8 +253,16 @@ def make_plots(
             suffix_label = "smoothed" if apply_smoothing else "raw"
             ax.set_title(f"Learning Curve: {cfg['label']} ({suffix_label})")
 
-            # put legend on top-left with semi-transparent background
-            ax.legend(loc='upper left', frameon=True, framealpha=0.95, fancybox=True)
+            # ax.legend(loc='upper left', frameon=True, framealpha=0.95, fancybox=True)
+
+            ax.legend(
+                # loc=cfg.get("legend_loc", "best"), 
+                loc = 'best',
+                frameon=True, 
+                framealpha=0.95, 
+                fancybox=True,
+                prop={'size': 22}
+            )
 
             plt.tight_layout()
             out_png = variant_path / cfg["output"]
@@ -250,7 +282,7 @@ def make_plots(
                             med = smooth_series(med, smooth_window)
                             q25 = smooth_series(q25, max(1, smooth_window // 2))
                             q75 = smooth_series(q75, max(1, smooth_window // 2))
-                        line_width = uniform_width if method == "uniform" else other_width
+                        line_width = uniform_width if method == "Uniform" else other_width
                         line_color = plotly_colors.get(method, "black")
                         figly.add_trace(go.Scatter(x=x_grid, y=med, mode='lines', name=method, line=dict(color=line_color, width=line_width)))
                         figly.add_trace(go.Scatter(x=np.concatenate([x_grid, x_grid[::-1]]), y=np.concatenate([q75, q25[::-1]]), fill='toself', fillcolor='rgba(0,0,0,0.1)', line=dict(color='rgba(255,255,255,0)'), hoverinfo='skip', showlegend=False))

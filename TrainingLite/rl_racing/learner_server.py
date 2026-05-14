@@ -109,13 +109,6 @@ class CustomReplayBuffer(ReplayBuffer):
                     f"tau={self.recency_tau}, min_weight={self.recency_min_weight})"
                 )
 
-        # if Settings.SAC_STAT_TRACKER:
-        #     self.stat_tracker = StatTracker()
-        # else:
-        #     self.stat_tracker = None
-
-        #TODO: Nikita: implement higher weighting on recently added experiences
-
     def increment_batch_counter(self) -> None:
         """Mark the beginning of a newly ingested episode batch."""
         self.current_batch_id += 1
@@ -149,8 +142,7 @@ class CustomReplayBuffer(ReplayBuffer):
         #store steps taken for each transition over whole buffer
         self.steps_taken[idx] = steps_taken
 
-        #set to max samplepriority for newest transitions
-        #TODO: option to have this be able to be set in settings
+        #update new TD weights to max weight before first sample
         self.TD_weights[idx] = self.new_weight_priority
 
         #TODO: the observations are normalized, is that bad or not?
@@ -179,9 +171,8 @@ class CustomReplayBuffer(ReplayBuffer):
         rew_norm = (rew_clipped + 15.0) / 16.0
         rew_final = (1e-3 + rew_norm) ** 2.0
 
-        # Scale the reward contribution to the priority by the number of steps in the n-step transition.
-        # Without this, longer n-step transitions are over-prioritised.
-        # Use per-step average reward for priority computation.
+        
+        #n: step code -> not used properly but semi implemented -> steps taken is just 1 as is right now
         try:
             reward_per_step = float(rew_final) / max(1, int(steps_taken))
         except Exception:
@@ -189,7 +180,6 @@ class CustomReplayBuffer(ReplayBuffer):
 
         #velx = obs[0] and vely = obs[1]
         vel = np.sqrt(obs[0]**2 + obs[1]**2)
-        # vel = (1/(1-e)) * vel #we only care about speed into the right direction
         vel = (1 - min(e, 0.9)) * vel #we only care about speed into the right direction
         # print(rew)
 
@@ -211,7 +201,6 @@ class CustomReplayBuffer(ReplayBuffer):
 
         """NIKITA: testing out more rigorous implementation, however makes more computation: TODO: see if this is worth, maybe remove"""
         # Calculate true maximum of combined weights across entire buffer
-        # Account for the buffer not being fully filled initially
         valid_length = self.pos if not self.full else self.buffer_size
         combined_all = (self.TD_weights[:valid_length] * (1 - self.state_to_TD_ratio) + 
                         self.state_weights[:valid_length] * self.state_to_TD_ratio)
@@ -224,74 +213,6 @@ class CustomReplayBuffer(ReplayBuffer):
 
         return
     
-    # def _recompute_probs(self, possible_inds):
-    #     w_vec = self.state_weights[possible_inds].astype(np.float64)
-    #     TD_vec = self.TD_weights[possible_inds].astype(np.float64)
-    #     combined = TD_vec * (1 - self.state_to_TD_ratio) + w_vec * self.state_to_TD_ratio
-    #     combined = np.log1p(combined)
-
-    #     if self.rank_based_sampling:
-    #         sorted_inds = np.argsort(-combined)
-    #         ranked_buffer_inds = possible_inds[sorted_inds]
-    #         ranks = np.arange(1, len(possible_inds) + 1)
-    #         p = ranks ** -self.alpha
-    #     else:
-    #         p = combined ** self.alpha
-    #         ranked_buffer_inds = None
-
-    #     p_tot = p.sum()
-    #     if p_tot <= 0 or not np.isfinite(p_tot):
-    #         p = np.ones_like(p) / len(possible_inds)
-    #     else:
-    #         p /= p_tot
-
-    #     self._cached_p = p
-    #     self._cached_possible_inds = possible_inds
-    #     self._cached_ranked_inds = ranked_buffer_inds
-    #     self._cached_length = len(possible_inds)
-
-    # def sample_recompute(self, safe_batch_size, env=None):
-    #     if not self.custom_sampling:
-    #         return super().sample(batch_size=safe_batch_size, env=env)
-
-    #     # compute possible_inds (same as you already do)
-    #     if self.full:
-    #         possible_inds = np.arange(self.buffer_size)
-    #         mask = possible_inds != self.pos #mask which would set the self.pos index as false
-    #         possible_inds = possible_inds[mask]
-    #     else:
-    #         possible_inds = np.arange(self.pos)
-
-    #     self._sample_calls += 1
-    #     need_recalc = (
-    #         self._cached_p is None
-    #         or self._sample_calls % self.recalc_every == 0
-    #         or self._cached_length != len(possible_inds)
-    #     )
-
-    #     if need_recalc:
-    #         print("RECOMPUTING PROBABILITIES FOR SAMPLING...")
-    #         self._recompute_probs(possible_inds)
-    #     # else:
-    #         # print("not recomputing prob :()")
-
-    #     p = self._cached_p
-    #     sampled_p_index = np.random.choice(self._cached_length, size=safe_batch_size, p=p)
-
-    #     if self.rank_based_sampling:
-    #         batch_inds = self._cached_ranked_inds[sampled_p_index]
-    #     else:
-    #         batch_inds = self._cached_possible_inds[sampled_p_index]
-
-    #     # IS weights based on cached p
-    #     sample_probs = p[sampled_p_index]
-    #     is_weights = (1 / (self._cached_length * sample_probs)) ** self.beta
-    #     is_weights = is_weights / is_weights.max()
-
-    #     self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
-    #     self.current_sampled_inds = batch_inds
-
-    #     return self._get_samples(batch_inds, env=env)
 
     def sample(self, safe_batch_size: int, invert_TD = False, env=None):
         """custom sample function, if none then use default SB3"""
@@ -300,9 +221,6 @@ class CustomReplayBuffer(ReplayBuffer):
         if not self.custom_sampling:
             return super().sample(batch_size=safe_batch_size, env=env)
         
-        #IDEA -> prioritize bad and difficult states -> far from line, large curve, large heading error 
-        #the index self.pos cannot be sampled, this is the index which will be overwritten next, and as such it contains invalid data
-        #sac needs current obs and next obs, and next obs is not given yet at index self.pos
         if self.full:
             possible_inds = np.arange(self.buffer_size)
             mask = possible_inds != self.pos #mask which would set the self.pos index as false
@@ -365,11 +283,7 @@ class CustomReplayBuffer(ReplayBuffer):
         else:
             p /= p_tot
 
-        #TODO: do i want replace or not? :/
         sampled_p_index = np.random.choice(length, size=safe_batch_size, p=p, replace=self.custom_sampling_replace)
-
-        #DEBUG
-        # print(p)
         
         if self.rank_based_sampling:
             batch_inds = ranked_buffer_inds[sampled_p_index]
@@ -378,28 +292,10 @@ class CustomReplayBuffer(ReplayBuffer):
             batch_inds = possible_inds[sampled_p_index]
 
 
-        """"""""""""""""""""""""""""""""""""""""""""""""
-        """DEBUG DEBUG DEBUG"""
-
-        # if self.counter % 1000 == 0:
-        #     # Check if this index was just sampled
-        #     if actual_buffer_idx in batch_inds:
-        #         print(f"✅ ALERT: The Max Weight Index {actual_buffer_idx} WAS SAMPLED this batch!")
-        #     else:
-        #         print(f"❌ The Max Weight Index {actual_buffer_idx} was NOT sampled.")
-
-            
-        self.counter += 1
-
-        """"""""""""""""""""""""""""""""""""""""""""""""
-        """DEBUG DEBUG DEBUG"""
-
         #set all the is_weights
         sample_probs = p[sampled_p_index]
         is_weights = (1 / (length * sample_probs)) ** self.beta
         is_weights = is_weights / is_weights.max()
-
-        #print("the current beta is:" + str(self.beta))
 
 
         self.batch_is_correctors = is_weights.reshape(-1, 1).astype(np.float32)
@@ -1484,7 +1380,6 @@ class LearnerServer:
 
                         if Settings.SAC_CUSTOM_UNIFORM_CRITIC:
                             self.replay_buffer.alpha = old_alpha
-                        # self.replay_buffer.alpha = old_alpha
 
                         obs      = data.observations
                         actions  = data.actions
@@ -1495,10 +1390,6 @@ class LearnerServer:
 
                         #TODO: Have the IS sampling weights be returned here
                         is_weights = data.is_weights if hasattr(data, "is_weights") else torch.ones((safe_batch_size, 1), device=obs.device)
-
-                        # print("IS WEIGHTS WORKED?????")
-                        # print(is_weights)
-                        # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
 
                         # Critic update
                         with torch.no_grad():
@@ -1545,7 +1436,7 @@ class LearnerServer:
                         current_q1, current_q2 = critic(obs, actions)
 
 
-                        ###Nikita: this is my critic loss!
+                        #critic loss with importance sampling weights
                         critic_loss = ((is_weights * ((current_q1 - target_q).pow(2))).mean() 
                                        + (is_weights * ((current_q2 - target_q).pow(2))).mean())
                         # critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
@@ -1659,7 +1550,6 @@ class LearnerServer:
                         actor_loss.backward()
                         actor_optimizer.step()
 
-                        # print(f"[server] Actor updated in {(time.time() - then):.5f} seconds.")
 
                         # Entropy coefficient update
                         if log_ent_coef is not None and ent_coef_optimizer is not None:
@@ -1668,19 +1558,15 @@ class LearnerServer:
                             ent_coef_loss.backward()
                             ent_coef_optimizer.step()
 
-                        # print(f"[server] Entropy coefficient updated in {(time.time() - then):.5f} seconds.")
 
                         # Soft update of target network
                         for param, target_param in zip(critic.parameters(), critic_target.parameters()):
                             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-                        # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
                         self.total_weight_updates += 1
                         training_steps_done += 1
 
-                        # Free unused memory
-                        # if self.device == "cuda":
-                        #     torch.cuda.empty_cache()
+
                     except torch.cuda.OutOfMemoryError as e:
                         print(f"[server] CUDA OOM during training step {step}: {e}")
                         if self.device == "cuda":
