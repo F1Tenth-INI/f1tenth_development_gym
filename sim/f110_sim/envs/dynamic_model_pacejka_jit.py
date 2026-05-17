@@ -50,7 +50,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     # Unpack car parameters from NumPy array
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
     servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch, c_rr, \
-    v_dead, curve_resistance_factor, brake_multiplier = car_params
+    v_dead, curve_resistance_factor, brake_multiplier = car_params[:28]
 
     # Unpack state
     psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s
