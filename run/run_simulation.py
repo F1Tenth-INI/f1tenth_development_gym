@@ -19,8 +19,9 @@ from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.state_utilities import (
-    STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
-    )
+    STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX,
+    LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX, MOTOR_ANGULAR_VEL_IDX,
+)
 from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
@@ -125,24 +126,31 @@ class RacingSimulation:
         self.renderer_backend = None
 
         manual_controller = Settings.CONTROLLER == "manual"
-        # macOS + pygame: open the pad after the window (with SDL_JOYSTICK_HIDAPI).
-        # pyglet / other backends: open before renderer to avoid pygame.display side effects.
+        self.renderer_backend = str(
+            getattr(Settings, "RENDER_BACKEND", "pyglet")
+        ).lower()
+        # Pygame manual: open gamepad before the display window (standard SDL order).
+        manual_pad_before_window = (
+            manual_controller and self.renderer_backend == "pygame"
+        )
+        # Legacy pyglet path on macOS: pad after the GL window.
         manual_after_renderer = (
             manual_controller
             and sys.platform == "darwin"
             and Settings.RENDER_MODE is not None
-            and str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower() == "pygame"
+            and self.renderer_backend == "pyglet"
         )
-        if manual_controller and not manual_after_renderer:
+        if manual_pad_before_window or (
+            manual_controller and not manual_after_renderer
+        ):
             self.init_drivers()
 
         # Init renderer
-        
+
         if Settings.RENDER_MODE is not None:
             map_name = Settings.MAP_NAME
             map_ext = ".png"
             map_path = os.path.join(Settings.MAP_PATH, map_name)
-            self.renderer_backend = str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower()
 
             if self.renderer_backend == "web":
                 from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
@@ -316,6 +324,9 @@ class RacingSimulation:
 
         # Build an up-to-date snapshot before control so planners can read the
         # current environment through `env_state`.
+        if self.renderer_backend == "pygame":
+            import pygame
+            pygame.event.pump()
         self.env_state = self._build_env_state_snapshot()
         agent_controls = self.get_agent_controls()
 
@@ -518,6 +529,12 @@ class RacingSimulation:
             })
             if self.renderer_backend in ("web", "pygame"):
                 render_obs["web_overlay"] = build_web_overlay(self.drivers)
+            if (
+                self.renderer_backend == "pygame"
+                and self.env_state is not None
+                and self.env_state.get("controls")
+            ):
+                render_obs["debug_controls"] = self.env_state["controls"]
 
             self.renderer.render(render_obs)
 
@@ -687,6 +704,7 @@ class RacingSimulation:
                 initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
                 initial_states[i][LINEAR_VEL_X_IDX] = 0.0
                 initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
+                initial_states[i][MOTOR_ANGULAR_VEL_IDX] = 0.0
         return initial_states
 
     '''
@@ -720,8 +738,12 @@ class RacingSimulation:
     # Noise Level can now be set in Settings.py
     def add_state_noise(self, state):
 
-        noise_level = Settings.NOISE_LEVEL_CAR_STATE
-        noise_array = np.array(noise_level) * np.random.uniform(-1, 1, len(noise_level))
+        noise_level = np.asarray(Settings.NOISE_LEVEL_CAR_STATE, dtype=np.float32)
+        if noise_level.size < len(state):
+            noise_level = np.pad(noise_level, (0, len(state) - noise_level.size))
+        elif noise_level.size > len(state):
+            noise_level = noise_level[:len(state)]
+        noise_array = noise_level * np.random.uniform(-1, 1, len(state))
         state_with_noise = state + noise_array
         
         # Recalculate sin and cos of theta

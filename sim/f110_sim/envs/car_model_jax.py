@@ -27,7 +27,7 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     Run car dynamics for a single car sequentially.
 
     Args:
-        s0: (10,) initial state
+        s0: (11,) initial state
         Q_sequence: (H, 2) sequence of H controls applied to the car
         car_params: array of car parameters
         dt: time step (float)
@@ -38,7 +38,7 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
         control_history: (10, 2) history of last 10 controls
 
     Returns:
-        trajectory: (H, 10) trajectory of states during applying the H controls
+        trajectory: (H, 11) trajectory of states during applying the H controls
     """
    
     if model_type == 'residual':

@@ -3,8 +3,8 @@ class Settings():
 
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
-    ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    ENV_CAR_PARAMETER_FILE = "yokomo_car_parameters.yml" # Car parameters for simulated car
+    SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
@@ -91,7 +91,7 @@ class Settings():
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
     # NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [0.0] * 11  # one per STATE_VARIABLES entry (incl. motor_angular_vel)
 
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
@@ -161,6 +161,14 @@ class Settings():
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
     WEB_RENDER_PORT = 8765               # web renderer TCP port
     PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
+    # Pygame-only: continuous sine from motor_angular_vel via sounddevice (PortAudio callback).
+    PYGAME_MOTOR_AUDIO = True
+    PYGAME_MOTOR_AUDIO_F_MIN_HZ = 55.0
+    PYGAME_MOTOR_AUDIO_F_MAX_HZ = 650.0
+    PYGAME_MOTOR_AUDIO_OMEGA_MAX_RAD_S = 2000.0   # |omega| at which tone reaches F_MAX
+    PYGAME_MOTOR_AUDIO_MIN_OMEGA_RAD_S = 3.0      # below this, audio fades out
+    PYGAME_MOTOR_AUDIO_VOLUME = 0.12
+    PYGAME_MOTOR_AUDIO_SMOOTH_TAU_S = 0.08        # pitch/volume smoothing (reduces harsh jumps)
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen

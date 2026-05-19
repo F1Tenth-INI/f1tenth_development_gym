@@ -16,4 +16,3 @@ class EnvRenderer:
 
     def close(self):
         self._impl.close()
-

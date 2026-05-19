@@ -80,6 +80,7 @@ ruamel.yaml==0.18.15
 ruamel.yaml.clib==0.2.12
 scikit-image==0.25.2
 scipy==1.15.3
+sounddevice==0.5.1
 seaborn==0.13.2
 shapely==2.1.1
 -e git+https://github.com/SensorsINI/SI_Toolkit@04b18737cfbf0250283ed430a2bb89294c8a1d6f#egg=SI_Toolkit&subdirectory=../../SI_Toolkit

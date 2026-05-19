@@ -2,18 +2,20 @@ import numpy as np
 import math
 
 
-STATE_VARIABLES = np.sort([
-    'angular_vel_z',  # x5: yaw rate
-    'linear_vel_x',   # x3: velocity in x direction
-    'linear_vel_y',   # x6: velocity in y direction 
-    'pose_theta',  # x4: yaw angle
+# Order matches sim/f110_sim dynamics (StateIndices) — do not sort alphabetically.
+STATE_VARIABLES = np.array([
+    'angular_vel_z',       # 0: yaw rate
+    'linear_vel_x',        # 1: body-frame longitudinal velocity
+    'linear_vel_y',        # 2: body-frame lateral velocity
+    'pose_theta',          # 3: yaw angle
     'pose_theta_cos',
     'pose_theta_sin',
-    'pose_x',  # x0: x position in global coordinates
-    'pose_y',  # x1: y position in global coordinates
-    'slip_angle',  # [DEPRECATED] x6: slip angle at vehicle center
-    'steering_angle'  # x2: steering angle of front wheels
-])
+    'pose_x',
+    'pose_y',
+    'slip_angle',
+    'steering_angle',
+    'motor_angular_vel',   # 10: motor shaft angular velocity [rad/s] (VESC ERPM * 2*pi/60)
+], dtype=object)
 
 NUMBER_OF_STATES = len(STATE_VARIABLES)
 
@@ -36,6 +38,8 @@ LINEAR_VEL_Y_IDX = STATE_INDICES['linear_vel_y']
 ANGULAR_VEL_Z_IDX = STATE_INDICES['angular_vel_z']
 SLIP_ANGLE_IDX = STATE_INDICES['slip_angle']
 STEERING_ANGLE_IDX = STATE_INDICES['steering_angle']
+MOTOR_ANGULAR_VEL_IDX = STATE_INDICES['motor_angular_vel']
+
 
 def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
     """
@@ -56,7 +60,7 @@ def create_car_state(state: dict = {}, dtype=None) -> np.ndarray:
 
     s = np.zeros_like(STATE_VARIABLES, dtype=np.float32)
     for i, v in enumerate(STATE_VARIABLES):
-        s[i] = state.get(v) if v in state.keys() else s[ i]
+        s[i] = state.get(v) if v in state.keys() else s[i]
     return s
 
 

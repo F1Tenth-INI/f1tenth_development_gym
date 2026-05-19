@@ -13,9 +13,9 @@ class StateIndices:
     pose_y = 7
     slip_angle = 8
     steering_angle = 9
+    motor_angular_vel = 10
 
-
-    number_of_states = 10
+    number_of_states = 11
     
     
     
@@ -53,7 +53,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     c_rr, v_dead, curve_resistance_factor, brake_multiplier = car_params[25:29]
 
     # Unpack state
-    psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s
+    psi_dot, v_x, v_y ,psi, _,  _,s_x, s_y,  _, delta= s[:10]
 
     # Unpack control inputs
     desired_steering_angle, translational_control = Q
@@ -155,8 +155,18 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
     v_x_safe = v_x if v_x >= 1e-3 else 1e-3
     slip_angle = np.arctan(v_y / v_x_safe)
     
-    # Return the updated state (10 elements) 
-    return np.array([psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta], dtype=np.float32)
+    gear_ratio = car_params[39] if car_params.shape[0] > 39 else 1.0
+    wheel_radius = car_params[31] if car_params.shape[0] > 31 else 0.05
+    if wheel_radius < 1.0e-4:
+        wheel_radius = 0.05
+    if gear_ratio < 1.0e-3:
+        gear_ratio = 1.0
+    motor_angular_vel = v_x * gear_ratio / wheel_radius
+
+    return np.array(
+        [psi_dot, v_x, v_y, psi, psi_cos, psi_sin, s_x, s_y, slip_angle, delta, motor_angular_vel],
+        dtype=np.float32,
+    )
 
 
 
@@ -176,7 +186,7 @@ def car_steps_sequential(s, Q_sequence, car_params, t_step, num_steps):
     - state_trajectory: Trajetory of states during apng aplying the H controlls
     """
     
-    state_trajectory = np.zeros((num_steps, 10), dtype=np.float32)
+    state_trajectory = np.zeros((num_steps, 11), dtype=np.float32)
     
     for i in range(num_steps):
         s = car_dynamics_pacejka_jit(s, Q_sequence[i], car_params, t_step)

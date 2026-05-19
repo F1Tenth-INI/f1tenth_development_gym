@@ -1,5 +1,4 @@
 from utilities.my_joystick import UniversalJoystick
-import pygame
 from Control_Toolkit_ASF.Controllers import template_planner
 
 class manual_planner(template_planner):
@@ -10,8 +9,6 @@ class manual_planner(template_planner):
     def __init__(self):
 
         super().__init__()
-
-        pygame.init()
 
         self.joystick = UniversalJoystick(
             index=0,
@@ -28,7 +25,7 @@ class manual_planner(template_planner):
         self.angular_control_normed = None
         self.translational_control_normed = None
 
-    def process_observation(self):
+    def process_observation(self, env_state=None, **kwargs):
         self.angular_control_normed, self.translational_control_normed = self.joystick.read()
 
         self.translational_control = 5 * self.translational_control_normed

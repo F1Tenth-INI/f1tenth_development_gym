@@ -385,6 +385,11 @@ class RaceCar(object):
             s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
             # wrap yaw angle
             s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
+            if len(s) < StateIndices.number_of_states:
+                gear = float(self.params.get('gear_ratio', 6.6))
+                wheel_r = float(self.params.get('wheel_radius_m', 0.05))
+                motor_omega = s[StateIndices.v_x] * gear / max(wheel_r, 1e-4)
+                s = np.append(s, motor_omega)
             self.state = s
             
 
@@ -409,6 +414,12 @@ class RaceCar(object):
             )
             self.state = np.array(new_state)
             self.state[StateIndices.yaw_angle] = wrap_angle_rad(self.state[StateIndices.yaw_angle])
+            if not np.all(np.isfinite(self.state)):
+                self.state[StateIndices.v_x] = 0.0
+                self.state[StateIndices.v_y] = 0.0
+                self.state[StateIndices.yaw_rate] = 0.0
+                self.state[StateIndices.motor_angular_vel] = 0.0
+                self.state = np.nan_to_num(self.state, nan=0.0, posinf=0.0, neginf=0.0)
 
         elif self.ode_implementation == 'residual':
             import jax.numpy as jnp

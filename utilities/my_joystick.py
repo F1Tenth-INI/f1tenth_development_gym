@@ -68,9 +68,11 @@ class UniversalJoystick:
         self.throttle_invert = bool(throttle_invert)
         self.prefer_axis3_for_sony = bool(prefer_detected_axis3_for_sony)
 
-        # pygame setup
-        pygame.init()
-        pygame.joystick.init()
+        # pygame setup (display may already be open from the pygame renderer)
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.joystick.get_init():
+            pygame.joystick.init()
 
         if pygame.joystick.get_count() < 1:
             raise RuntimeError("No joysticks detected by pygame.")
@@ -211,6 +213,14 @@ class UniversalJoystick:
 
     def read(self) -> Tuple[float, float]:
         pygame.event.pump()
+        # Process joystick events so SDL/HIDAPI backends refresh axis state.
+        joy_types = []
+        if hasattr(pygame, "JOYAXISMOTION"):
+            joy_types.append(pygame.JOYAXISMOTION)
+        if hasattr(pygame, "JOYDEVICEADDED"):
+            joy_types.append(pygame.JOYDEVICEADDED)
+        if joy_types:
+            pygame.event.get(joy_types)
         for i in range(self.num_axes):
             raw = self.joy.get_axis(i)
             self.axes[i] = raw - self.offsets[i]

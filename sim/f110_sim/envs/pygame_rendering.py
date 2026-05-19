@@ -59,10 +59,12 @@ from f110_sim.envs.collision_models import get_vertices
 from utilities.Settings import Settings
 from utilities.state_utilities import (
     LINEAR_VEL_X_IDX,
+    MOTOR_ANGULAR_VEL_IDX,
     POSE_THETA_IDX,
     POSE_X_IDX,
     POSE_Y_IDX,
 )
+from sim.f110_sim.envs.motor_speed_audio import MotorSpeedAudio, motor_erpm_from_omega
 
 
 CAR_LENGTH = 0.58
@@ -246,6 +248,7 @@ class EnvRenderer:
         # Static overlay surface (waypoints + track borders pre-rasterized).
         self._static_layers_surface = None
         self._static_layers_origin = np.array([0.0, 0.0], dtype=np.float32)
+        self._static_layers_max_y = 0.0
         self._static_layers_shape = (0, 0)  # (width_px, height_px)
         self._static_layers_resolution = 1.0 / STATIC_OVERLAY_PIXELS_PER_METER
         self._static_layers_scaled = None
@@ -290,6 +293,14 @@ class EnvRenderer:
         self._last_draw_wall_s = 0.0
         self._fps_ema = 0.0
 
+        self._debug_controls = None
+
+        self._motor_audio = None
+        if getattr(Settings, "PYGAME_MOTOR_AUDIO", True):
+            self._motor_audio = MotorSpeedAudio.from_settings()
+            if self._motor_audio.available:
+                self._motor_audio.start()
+
     # ------------------------------------------------------------------
     # Map and observation handling
     # ------------------------------------------------------------------
@@ -319,6 +330,8 @@ class EnvRenderer:
         self.map_surface = pygame.image.frombuffer(
             rgba.tobytes(), (map_width, map_height), "RGBA"
         ).convert_alpha()
+        # Row 0 is world min-Y after FLIP_TOP_BOTTOM; flip so blit top-left = north edge.
+        self.map_surface = pygame.transform.flip(self.map_surface, False, True)
 
         self.map_origin = np.array([origin_x, origin_y], dtype=np.float32)
         self.map_resolution = res
@@ -364,17 +377,37 @@ class EnvRenderer:
             self.lap_count = 0
 
         self.overlay = obs.get("web_overlay", {}) or {}
+        self._debug_controls = obs.get("debug_controls")
         self._update_control_series()
+        self._update_motor_audio()
+
+    def _update_motor_audio(self) -> None:
+        """Feed latest motor speed to the async audio stream (non-blocking)."""
+        if self._motor_audio is None or not self._motor_audio.available:
+            return
+        if self.car_states is None or self.car_states.shape[1] <= MOTOR_ANGULAR_VEL_IDX:
+            return
+        idx = min(self.ego_idx, len(self.car_states) - 1)
+        omega = float(self.car_states[idx, MOTOR_ANGULAR_VEL_IDX])
+        if np.isfinite(omega):
+            self._motor_audio.set_target_omega(omega)
 
     # ------------------------------------------------------------------
     # Camera and input
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _screen_int(x, y):
+        if not (np.isfinite(x) and np.isfinite(y)):
+            return 0, 0
+        return int(x), int(y)
+
     def world_to_screen(self, point):
         x, y = float(point[0]), float(point[1])
         sx = (x - self.camera_offset[0]) * self.zoom_level + self.width / 2
-        sy = (y - self.camera_offset[1]) * self.zoom_level + self.height / 2
-        return int(sx), int(sy)
+        # Match web renderer: world +Y is up, pygame screen +Y is down.
+        sy = self.height / 2 - (y - self.camera_offset[1]) * self.zoom_level
+        return self._screen_int(sx, sy)
 
     def _world_to_screen_array(self, pts, offset_xy=(0.0, 0.0)):
         """
@@ -385,13 +418,23 @@ class EnvRenderer:
         sx = (pts[:, 0] - self.camera_offset[0]) * self.zoom_level + (
             self.width / 2 - offset_xy[0]
         )
-        sy = (pts[:, 1] - self.camera_offset[1]) * self.zoom_level + (
-            self.height / 2 - offset_xy[1]
+        sy = self.height / 2 - (pts[:, 1] - self.camera_offset[1]) * self.zoom_level - (
+            offset_xy[1]
         )
         return sx, sy
 
     def handle_events(self):
-        for event in pygame.event.get():
+        pygame.event.pump()
+        # Do not drain JOY* events — manual control reads axes via pygame.joystick.
+        ui_events = (
+            pygame.QUIT,
+            pygame.VIDEORESIZE,
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEBUTTONUP,
+            pygame.MOUSEMOTION,
+            pygame.KEYDOWN,
+        )
+        for event in pygame.event.get(ui_events):
             if event.type == pygame.QUIT:
                 pygame.quit()
                 raise Exception("Rendering window was closed.")
@@ -446,13 +489,21 @@ class EnvRenderer:
             return
         mouse_x, mouse_y = pygame.mouse.get_pos()
         screen_center = np.array([self.width / 2, self.height / 2])
-        world_mouse_before = (
-            np.array([mouse_x, mouse_y]) - screen_center
-        ) / self.zoom_level + self.camera_offset
+        world_mouse_before = np.array(
+            [
+                (mouse_x - self.width / 2) / self.zoom_level + self.camera_offset[0],
+                self.camera_offset[1]
+                - (mouse_y - self.height / 2) / self.zoom_level,
+            ]
+        )
         self.zoom_level = new_zoom
-        world_mouse_after = (
-            np.array([mouse_x, mouse_y]) - screen_center
-        ) / self.zoom_level + self.camera_offset
+        world_mouse_after = np.array(
+            [
+                (mouse_x - self.width / 2) / self.zoom_level + self.camera_offset[0],
+                self.camera_offset[1]
+                - (mouse_y - self.height / 2) / self.zoom_level,
+            ]
+        )
         self.camera_offset += world_mouse_before - world_mouse_after
         # Re-scaling of cached surfaces happens lazily in their draw paths.
         self.last_map_scale = None
@@ -465,7 +516,8 @@ class EnvRenderer:
         if not self.camera_follow_ego or self.poses is None or len(self.poses) == 0:
             return
         ego = self.poses[min(self.ego_idx, len(self.poses) - 1)]
-        self.camera_offset = np.array([float(ego[0]), float(ego[1])], dtype=np.float32)
+        if np.all(np.isfinite(ego[:2])):
+            self.camera_offset = np.array([float(ego[0]), float(ego[1])], dtype=np.float32)
 
     # ------------------------------------------------------------------
     # Sprite cache + batched dot drawing
@@ -501,12 +553,7 @@ class EnvRenderer:
         half_h = sh / 2
 
         if target_surface is None:
-            sx = (pts[:, 0] - self.camera_offset[0]) * self.zoom_level + (
-                self.width / 2 - half_w
-            )
-            sy = (pts[:, 1] - self.camera_offset[1]) * self.zoom_level + (
-                self.height / 2 - half_h
-            )
+            sx, sy = self._world_to_screen_array(pts, offset_xy=(half_w, half_h))
             surf = self.screen
             surf_w = self.width
             surf_h = self.height
@@ -639,6 +686,7 @@ class EnvRenderer:
             self._static_layers_surface = None
             self._static_layers_scaled = None
             self._static_layers_last_scale = None
+            self._static_layers_max_y = 0.0
             return
 
         combined = np.concatenate(all_pts, axis=0)
@@ -673,8 +721,11 @@ class EnvRenderer:
                 pixels_per_meter=ppm,
             )
 
-        self._static_layers_surface = surface.convert_alpha()
+        self._static_layers_surface = pygame.transform.flip(
+            surface.convert_alpha(), False, True
+        )
         self._static_layers_origin = min_xy.astype(np.float32)
+        self._static_layers_max_y = float(max_xy[1])
         self._static_layers_shape = (width_px, height_px)
         self._static_layers_resolution = 1.0 / ppm
         self._static_layers_scaled = None
@@ -693,7 +744,11 @@ class EnvRenderer:
             )
             self._static_layers_last_scale = scale
         if self._static_layers_scaled is not None:
-            sx, sy = self.world_to_screen(self._static_layers_origin)
+            nw = (
+                float(self._static_layers_origin[0]),
+                float(self._static_layers_max_y),
+            )
+            sx, sy = self.world_to_screen(nw)
             self.screen.blit(self._static_layers_scaled, (sx, sy))
 
     # ------------------------------------------------------------------
@@ -712,7 +767,12 @@ class EnvRenderer:
             self.last_map_scale = scale
 
         if self.scaled_map_surface is not None:
-            map_pos_on_screen = self.world_to_screen(self.map_origin)
+            map_h_m = self.map_image_shape[1] * self.map_resolution
+            map_nw = (
+                float(self.map_origin[0]),
+                float(self.map_origin[1] + map_h_m),
+            )
+            map_pos_on_screen = self.world_to_screen(map_nw)
             self.screen.blit(self.scaled_map_surface, map_pos_on_screen)
 
     # ------------------------------------------------------------------
@@ -884,12 +944,23 @@ class EnvRenderer:
             if self.vels is not None and len(self.vels) > 0
             else 0.0
         )
+        motor_omega = None
+        if self.car_states is not None and self.car_states.shape[1] > MOTOR_ANGULAR_VEL_IDX:
+            motor_omega = float(
+                self.car_states[min(self.ego_idx, len(self.car_states) - 1), MOTOR_ANGULAR_VEL_IDX]
+            )
         cam_mode = "follow-car" if self.camera_follow_ego else "free"
         base_text = (
             f"Sim: {self.sim_time:.2f}s | Lap: {self.lap_count} | "
             f"x: {ego_pose[0]:.2f} y: {ego_pose[1]:.2f} yaw: {ego_pose[2]:.2f} v: {ego_v:.2f} | "
             f"cam: {cam_mode} | zoom: {self.zoom_level:.1f} | fps: {self._fps_ema:.0f}"
         )
+        if motor_omega is not None and np.isfinite(motor_omega):
+            motor_rpm = motor_omega * 60.0 / (2.0 * np.pi)
+            motor_erpm = motor_erpm_from_omega(motor_omega)
+            base_text += (
+                f" | motor: {motor_omega:.0f} rad/s ({motor_rpm:.0f} RPM, {motor_erpm:.0f} ERPM)"
+            )
         text_surface = self.font.render(base_text, True, DEFAULT_COLORS["text"])
         self.screen.blit(text_surface, (10, self.height - 26))
 
@@ -905,6 +976,9 @@ class EnvRenderer:
             "M:map  H:history  B:borders  I:car-info  P:plots  "
             "SPACE/F:follow  scroll:zoom  drag:pan"
         )
+        if self._debug_controls is not None and len(self._debug_controls) > self.ego_idx:
+            c = self._debug_controls[self.ego_idx]
+            hint += f"  |  steer: {float(c[0]):+.3f}  thr: {float(c[1]):+.3f}"
         hint_surf = self.small_font.render(hint, True, (200, 200, 200))
         self.screen.blit(hint_surf, (10, 6))
 
@@ -1091,6 +1165,9 @@ class EnvRenderer:
         pygame.display.flip()
 
     def close(self):
+        if self._motor_audio is not None:
+            self._motor_audio.stop()
+            self._motor_audio = None
         pygame.quit()
 
     def flip(self):
