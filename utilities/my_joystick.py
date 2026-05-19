@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 # universal_joystick.py
+import sys
 import time
 import logging
 from typing import Optional, Tuple, Dict, Any, List
 
 import numpy as np
-import pygame
+
+from utilities.sdl_env import configure_macos_bluetooth_gamepad
+
+configure_macos_bluetooth_gamepad()
+import pygame  # noqa: E402  # SDL env must be set before first SDL import
 
 LOG_LEVEL = logging.INFO
 logger = logging.getLogger("universal_joystick")
@@ -137,11 +142,16 @@ class UniversalJoystick:
             self.Brake = 4 if self.num_axes > 4 else (2 if self.num_axes > 2 else None)
 
         elif self._is_sony():
-            # Steering on axis 3 (from your test)
-            self.Steering = 3 if (self.prefer_axis3_for_sony and self.num_axes > 3) else 0
-            # Throttle on left stick Y (axis 1), neutral = 0
+            # Throttle: left stick Y (axis 1) on all platforms.
             self.Throttle = 1
-            self.Brake = None  # ignore triggers if you don’t need them
+            self.Brake = None
+            if sys.platform == "darwin":
+                # macOS/SDL: left 0/1, right stick X=2 (steer), Y=3.
+                self.Steering = 2 if self.num_axes > 2 else 0
+            elif self.prefer_axis3_for_sony and self.num_axes > 3:
+                self.Steering = 3  # Linux DS4 quirk
+            else:
+                self.Steering = 2 if self.num_axes > 2 else 0
         else:
             # Generic fallback: left stick X for steering, rightmost axis for throttle
             self.Steering = 0 if self.num_axes > 0 else 0

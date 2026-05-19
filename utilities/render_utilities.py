@@ -5,22 +5,46 @@ from utilities.state_utilities import *
 from typing import Dict, Any, Optional
 import numbers
 
+def _render_backend() -> str:
+    return str(getattr(Settings, "RENDER_BACKEND", getattr(Settings, "RENDRER", "pyglet"))).lower()
+
+
+def _needs_pyglet_gl() -> bool:
+    """Pyglet GL is used by render_gym and when pygame may fall back to pyglet."""
+    if Settings.ROS_BRIDGE:
+        return False
+    return _render_backend() in ("pyglet", "pygame")
+
+
 # Imports depending on ROS/Gym
-if(Settings.ROS_BRIDGE):
-    pass
-else:
-    if str(getattr(Settings, "RENDER_BACKEND", getattr(Settings, "RENDRER", "pyglet"))).lower() == "pyglet":
-        try:
-            from pyglet.gl import GL_POINTS, GL_LINES
-            from pyglet.gl import glLineWidth, glPointSize
-            import pyglet.gl as gl
-            from pyglet import shapes
-            import pyglet
-        except ImportError as e:
-            print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
-            print(f"ImportError: {e}")
-   
-            Settings.RENDER_MODE = None
+GL_POINTS = GL_LINES = glLineWidth = glPointSize = gl = shapes = pyglet = None
+if _needs_pyglet_gl():
+    try:
+        from pyglet.gl import GL_POINTS, GL_LINES
+        from pyglet.gl import glLineWidth, glPointSize
+        import pyglet.gl as gl
+        from pyglet import shapes
+        import pyglet
+    except ImportError as e:
+        print("Pyglet is not installed. Please install it using 'pip install pyglet'.")
+        print(f"ImportError: {e}")
+        Settings.RENDER_MODE = None
+
+
+def _ensure_pyglet_gl():
+    """Lazy import when RENDER_BACKEND changed after this module was loaded."""
+    global GL_POINTS, GL_LINES, glLineWidth, glPointSize, gl, shapes, pyglet
+    if pyglet is not None:
+        return
+    from pyglet.gl import GL_POINTS as _GL_POINTS, GL_LINES as _GL_LINES
+    from pyglet.gl import glLineWidth as _glLineWidth, glPointSize as _glPointSize
+    import pyglet.gl as _gl
+    from pyglet import shapes as _shapes
+    import pyglet as _pyglet
+
+    GL_POINTS, GL_LINES = _GL_POINTS, _GL_LINES
+    glLineWidth, glPointSize = _glLineWidth, _glPointSize
+    gl, shapes, pyglet = _gl, _shapes, _pyglet
 
 
 
@@ -56,7 +80,7 @@ self.Render.update(
 if (
     not Settings.ROS_BRIDGE
     and Settings.RENDER_MODE in ("human", "human_fast")
-    and str(getattr(Settings, "RENDER_BACKEND", getattr(Settings, "RENDRER", "pyglet"))).lower() == "pyglet"
+    and _needs_pyglet_gl()
 ):
     class PointSizeGroup(pyglet.graphics.Group):
         def __init__(self, point_size, parent=None):
@@ -264,11 +288,11 @@ class RenderUtils:
 
         if(Settings.ROS_BRIDGE):
             self.render_ros()
-        else:
+        elif e is not None and hasattr(e, "batch"):
             self.render_gym(e)
-            
 
     def render_gym(self, e):
+        _ensure_pyglet_gl()
 
         if Settings.RENDER_INFO:
             label_text = "\n".join([f"{key}: {value}" for key, value in sorted(self.label_dict.items())])

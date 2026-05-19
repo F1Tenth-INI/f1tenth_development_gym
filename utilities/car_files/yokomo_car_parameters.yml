@@ -1,0 +1,101 @@
+# MPC-based tuned parameters (single document; previously duplicated blocks merged).
+# Pacejka B values: front 5.0 / rear 7.0 from the later tuning block.
+
+mu: 0.5
+C_Sf: 4.718
+C_Sr: 5.4562
+
+lf: 0.13
+lr: 0.12
+l_wb: 0.25
+h: 0.05
+h_cg: 0.014
+m: 2.9
+I_z: 0.05
+g: 9.81
+
+width: 0.20
+length: 0.35
+
+s_min: -0.6
+s_max: 0.6
+sv_min: -3.2
+sv_max: 3.2
+
+a_max: 5.0
+a_min: -5.0
+v_min: -5.0
+v_max: 10.0
+v_switch: 7.319
+
+servo_p: 10
+steering_diff_low: 0.001
+
+min_speed_st: 0.5
+min_speed_pacejka: 0.7
+
+C_0d: 0.41117415569890003
+
+C_Pf:
+  - 5.0
+  - 1.3
+  - 1.0
+  - 0.0
+
+C_Pr:
+  - 7.0
+  - 1.1
+  - 1.0
+  - 0.0
+
+C_R: 3.693303119695026
+
+C_acc: 5.0
+C_d: 0.0
+C_dec: 6.0
+
+c_rr: 0.10
+v_dead: 0.05
+curve_resistance_factor: 0.44
+brake_multiplier: 1.0
+
+# RC-style driveline feel (longitudinal low-pass time constant; 0 disables).
+motor_longitudinal_tau_s: 0.065
+# At v_max, positive accel command is scaled by (1 - motor_speed_torque_drop); clamped to >= 0.15.
+motor_speed_torque_drop: 0.12
+
+# Public control input is normalized [-1, 1] on both axes. drive_mode picks
+# the per-car physical mapping inside the dynamics. Options: torque | accel | current.
+drive_mode: torque
+
+# Longitudinal slip + 4WD locked (one wheel speed state). When true, the
+# integrator runs Pacejka Fx + wheel-omega state; otherwise it falls back to
+# the legacy direct-acceleration path (matches drive_mode "accel" semantics).
+# VESC typically closes motor current (torque ~ K_t * I); log ERPM to compare with wheel_angular_vel * gear.
+use_longitudinal_slip: true
+wheel_radius_m: 0.033
+wheel_inertia_kg_m2: 0.00012
+# Forward drive torque at throttle_norm=+1 (sum both axles, 4WD locked). Values
+# ~0.05-0.1 N·m are far too small for m≈4 kg: rolling resistance alone is
+# ~0.25 m/s² equivalent, so the car barely accelerates and planners look
+# broken. Tune to match your RC (dyno / log / sys-id).
+tau_wheel_max_nm: 0.2
+tau_wheel_regen_max_nm: 0.45
+omega_viscous_damping: 0.00002
+kappa_den_min_m_s: 0.12
+C_Pxf:
+  - 12.0
+  - 1.9
+  - 1.0
+  - 0.97
+C_Pxr:
+  - 12.0
+  - 1.9
+  - 1.0
+  - 0.97
+
+# Used only when drive_mode == "current" (VESC current/I_q control). The
+# equivalent wheel torque is throttle_norm * motor_current_max_a * motor_K_t * gear_ratio.
+motor_current_max_a: 60.0
+motor_K_t: 0.012
+gear_ratio: 6.6

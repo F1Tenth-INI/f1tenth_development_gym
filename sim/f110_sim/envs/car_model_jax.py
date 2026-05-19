@@ -68,7 +68,11 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
         return trajectory
     
     elif model_type == 'pacejka':
-        dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(s, c, car_params, dt, intermediate_steps)
+        from utilities.Settings import Settings
+        dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(
+            s, c, car_params, dt, intermediate_steps,
+            ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+        )
         def rollout_fn(state, control):
             next_state = dynamics_fn(state, control)
             return next_state, next_state

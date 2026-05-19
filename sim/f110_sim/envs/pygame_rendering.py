@@ -47,7 +47,11 @@ import time
 from collections import deque
 
 import numpy as np
-import pygame
+
+from utilities.sdl_env import configure_macos_bluetooth_gamepad
+
+configure_macos_bluetooth_gamepad()
+import pygame  # noqa: E402
 import yaml
 from PIL import Image
 

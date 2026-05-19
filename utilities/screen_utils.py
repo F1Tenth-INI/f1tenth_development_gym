@@ -1,32 +1,57 @@
 """
-Screen utility functions for cross-platform screen size detection using pygame
+Screen utility functions for cross-platform screen size detection.
+
+Avoid pygame.display here: on macOS, initializing the SDL video subsystem
+before opening a Bluetooth gamepad makes pygame.joystick.get_count() return 0
+(DualShock 4 / PS4 Controller).
 """
 
-import pygame
+import sys
 
 
 class ScreenUtils:
-    """Utility class for screen size detection and window sizing using pygame"""
-    
+    """Utility class for screen size detection and window sizing."""
+
     @staticmethod
     def get_screen_size():
         """
-        Get the primary screen size using pygame
-        
+        Get the primary screen size without touching pygame.display.
+
         Returns:
             tuple: (width, height) of the primary screen in pixels
         """
         try:
-            pygame.init()
-            info = pygame.display.Info()
-            width, height = info.current_w, info.current_h
-            pygame.quit()
+            if sys.platform == "darwin":
+                width, height = ScreenUtils._get_screen_size_macos()
+            else:
+                width, height = ScreenUtils._get_screen_size_tkinter()
             print(f"Detected primary screen size: {width}x{height}")
             return width, height
         except Exception as e:
             print(f"Error detecting screen size: {e}")
             print("Using default screen size: 1920x1080")
             return 1920, 1080  # Default fallback
+
+    @staticmethod
+    def _get_screen_size_tkinter():
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        width = int(root.winfo_screenwidth())
+        height = int(root.winfo_screenheight())
+        root.destroy()
+        return width, height
+
+    @staticmethod
+    def _get_screen_size_macos():
+        try:
+            from AppKit import NSScreen
+
+            frame = NSScreen.mainScreen().frame()
+            return int(frame.size.width), int(frame.size.height)
+        except ImportError:
+            return ScreenUtils._get_screen_size_tkinter()
     
     @staticmethod
     def get_scaled_window_size(scale_factor=0.4):

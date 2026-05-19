@@ -1,5 +1,9 @@
 import os
 
+from utilities.sdl_env import configure_macos_bluetooth_gamepad
+
+configure_macos_bluetooth_gamepad()
+
 # Must be set BEFORE importing numpy, torch, jax, etc.
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"

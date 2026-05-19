@@ -19,7 +19,7 @@ class manual_planner(template_planner):
             steering_invert=True,
             throttle_invert=True,
             auto_calibrate=False,
-            prefer_detected_axis3_for_sony=True,  # matches your DS4 case
+            prefer_detected_axis3_for_sony=True,  # Linux DS4; macOS uses axis 0 in UniversalJoystick
         )
 
         self.angular_control = None

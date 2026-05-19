@@ -41,7 +41,10 @@ def _jax_step(state, steer, acc, car_params_jax, ode_model):
 @pytest.fixture
 def models():
     Settings.MOTOR_PID_IN_CAR_MODEL = False
-    car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array()
+    car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array().copy()
+    # ODE_TF has no rolling/curve resistance; disable for equivalence tests
+    car_params[25] = 0.0
+    car_params[27] = 0.0
     cm = car_model(
         model_of_car_dynamics=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
         batch_size=1,
@@ -86,9 +89,50 @@ def test_low_speed_ks_blend_region(models):
     np.testing.assert_allclose(s_ode, s_jax, rtol=1e-5, atol=1e-5)
 
 
+def test_rolling_resistance_matches_jit():
+    from sim.f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit
+
+    car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array().copy()
+    car_params[25] = 0.05
+    car_params[27] = 0.0
+    car_params_jax = jnp.array(car_params)
+
+    s0 = np.array([0.0, 4.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    u = np.array([0.0, 1.0], dtype=np.float32)
+
+    s_jit = car_dynamics_pacejka_jit(s0.copy(), u, car_params, Settings.TIMESTEP_SIM)
+    s_jax = np.array(car_dynamics_pacejka_jax(
+        jnp.array(s0), jnp.array(u), car_params_jax, Settings.TIMESTEP_SIM,
+        ode_model='ODE:pacejka',
+    ))
+    np.testing.assert_allclose(s_jit, s_jax, rtol=1e-5, atol=1e-5)
+
+
+def test_curve_resistance_slows_under_steering():
+    """With curve_resistance_factor > 0, steering reduces v_x more than straight line."""
+    from sim.f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit
+
+    car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array().copy()
+    car_params[27] = 0.14
+    car_params_jax = jnp.array(car_params)
+
+    s0 = np.array([0.0, 3.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.2], dtype=np.float32)
+    u = np.array([0.3, 0.0], dtype=np.float32)
+
+    s_jit = car_dynamics_pacejka_jit(s0.copy(), u, car_params, Settings.TIMESTEP_SIM)
+    s_jax = np.array(car_dynamics_pacejka_jax(
+        jnp.array(s0), jnp.array(u), car_params_jax, Settings.TIMESTEP_SIM,
+        ode_model='ODE:pacejka',
+    ))
+    np.testing.assert_allclose(s_jit, s_jax, rtol=1e-5, atol=1e-5)
+    assert s_jax[1] < s0[1], "curve resistance should reduce longitudinal speed when steering"
+
+
 if __name__ == "__main__":
     m = models()
     test_single_step_matches_ode_tf(m)
     test_feedforward_trajectory_matches_ode_tf(m)
     test_low_speed_ks_blend_region(m)
+    test_rolling_resistance_matches_jit()
+    test_curve_resistance_slows_under_steering()
     print("All ODE_TF vs jax_pacejka tests passed.")

@@ -153,9 +153,13 @@ class RaceCar(object):
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
-            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = np.array(new_state)   
-            
+            new_state = self.step_dynamics(
+                jax_state, jax_u, jax_params, Settings.TIMESTEP_SIM,
+                intermediate_steps=1,
+                ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+            )
+            self.state = np.array(new_state)
+
         if self.ode_implementation == 'residual':
             from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
             self.dynamic_model = DynamicsModelResidual(dt=0.01)
@@ -398,9 +402,14 @@ class RaceCar(object):
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
-            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = np.array(new_state)   
-            
+            new_state = self.step_dynamics(
+                jax_state, jax_u, jax_params, Settings.TIMESTEP_SIM,
+                intermediate_steps=1,
+                ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+            )
+            self.state = np.array(new_state)
+            self.state[StateIndices.yaw_angle] = wrap_angle_rad(self.state[StateIndices.yaw_angle])
+
         elif self.ode_implementation == 'residual':
             import jax.numpy as jnp
             u = np.array([desired_steering_angle, desired_speed])

@@ -1,6 +1,7 @@
 from operator import index
 import psutil
 import os
+import sys
 import time
 import yaml
 
@@ -122,7 +123,19 @@ class RacingSimulation:
     def prepare_simulation(self):
         self.renderer = None
         self.renderer_backend = None
-        
+
+        manual_controller = Settings.CONTROLLER == "manual"
+        # macOS + pygame: open the pad after the window (with SDL_JOYSTICK_HIDAPI).
+        # pyglet / other backends: open before renderer to avoid pygame.display side effects.
+        manual_after_renderer = (
+            manual_controller
+            and sys.platform == "darwin"
+            and Settings.RENDER_MODE is not None
+            and str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower() == "pygame"
+        )
+        if manual_controller and not manual_after_renderer:
+            self.init_drivers()
+
         # Init renderer
         
         if Settings.RENDER_MODE is not None:
@@ -149,9 +162,11 @@ class RacingSimulation:
                 self.renderer = EnvRenderer(window_width, window_height)
             if not Settings.BLANK_MAP:
                 self.renderer.update_map(map_path, map_ext)
-        
-        
-        self.init_drivers()
+
+        if manual_controller and manual_after_renderer:
+            self.init_drivers()
+        elif not manual_controller:
+            self.init_drivers()
         self.get_starting_positions()
         self.setup_gym_environment()
         

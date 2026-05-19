@@ -2,6 +2,9 @@
 
 Matches ODE:pacejka, ODE:ks, and ODE:ks_pacejka from car_model when used with the same
 servo PID, acceleration constraints, and control interpretation as base_classes.ODE_TF.
+
+Also applies c_rr (rolling resistance) and curve_resistance_factor (cornering drag),
+matching jit_Pacejka.
 """
 import jax
 import jax.numpy as jnp
@@ -32,6 +35,14 @@ def _accl_constraints(v_x, accl, a_min, a_max, v_min, v_max, v_switch, mu, g_):
     return jnp.clip(accl, -max_a_friction, max_a_friction)
 
 
+def _apply_rolling_resistance(v_x, v_x_dot, c_rr, v_dead, g_, mu):
+    """Rolling drag and friction re-limit (matches dynamic_model_pacejka_jit)."""
+    smooth_sign = v_x / jnp.sqrt(v_x * v_x + v_dead * v_dead)
+    v_x_dot = v_x_dot - c_rr * g_ * smooth_sign
+    max_a_friction = mu * g_
+    return jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
+
+
 def _servo_proportional(desired_steering_angle, delta, servo_p, steering_diff_low, sv_min, sv_max):
     steering_angle_difference = desired_steering_angle - delta
     active = jnp.abs(steering_angle_difference) > steering_diff_low
@@ -41,7 +52,7 @@ def _servo_proportional(desired_steering_angle, delta, servo_p, steering_diff_lo
 
 def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                   lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                  mu, s_min, s_max, dt_sub):
+                  mu, s_min, s_max, dt_sub, v_dead, curve_resistance_factor):
     v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
     alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
@@ -53,6 +64,11 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
         C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
     F_yr = mu * F_zr * D_r * jnp.sin(
         C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
+
+    # Cornering drag (matches dynamic_model_pacejka_jit / curve_resistance_factor in car YAML)
+    smooth_sign = v_x / jnp.sqrt(v_x * v_x + v_dead * v_dead)
+    lateral_force_magnitude = jnp.sqrt(F_yf * F_yf + F_yr * F_yr)
+    v_x_dot = v_x_dot - curve_resistance_factor * lateral_force_magnitude / m * smooth_sign
 
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
@@ -112,6 +128,9 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     """
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
         servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params[:25]
+    c_rr = car_params[25] if car_params.shape[0] > 25 else jnp.float32(0.0)
+    v_dead = car_params[26] if car_params.shape[0] > 26 else jnp.float32(0.05)
+    curve_resistance_factor = car_params[27] if car_params.shape[0] > 27 else jnp.float32(0.0)
     steering_diff_low = car_params[29] if car_params.shape[0] > 29 else jnp.float32(0.0)
     l_wb = lf + lr
     dt_sub = dt / intermediate_steps
@@ -137,16 +156,17 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
                 speed_error_integral + speed_error * dt_sub, -5.0, 5.0)
             v_x_dot = speed_kp * speed_error + speed_ki * speed_error_integral
         else:
-            v_x_dot = translational_control
+            v_x_dot = 1.4 * translational_control
             speed_error_integral = speed_error_integral
 
         v_x_dot = _accl_constraints(v_x, v_x_dot, a_min, a_max, v_min, v_max, v_switch, mu, g_)
+        v_x_dot = _apply_rolling_resistance(v_x, v_x_dot, c_rr, v_dead, g_, mu)
 
         if use_pacejka:
             p_s_x, p_s_y, p_delta, p_v_x, p_v_y, p_psi, p_psi_dot = _pacejka_step(
                 s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                 lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                mu, s_min, s_max, dt_sub)
+                mu, s_min, s_max, dt_sub, v_dead, curve_resistance_factor)
             s_pacejka = _next_step_output(p_psi_dot, p_v_x, p_v_y, p_psi, p_s_x, p_s_y, p_delta)
         else:
             s_pacejka = state_in
