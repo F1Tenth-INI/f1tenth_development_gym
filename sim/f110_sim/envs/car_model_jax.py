@@ -34,7 +34,7 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
         horizon: number of steps to run
         model_type: 'pacejka' or 'ks_pacejka' or 'residual'
         intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
-        state_history: (10, 10) history of last 10 states
+        state_history: (10, 11) history of last 10 states
         control_history: (10, 2) history of last 10 controls
 
     Returns:
@@ -69,13 +69,19 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     
     elif model_type == 'pacejka':
         from utilities.Settings import Settings
+        sim_dt = dt / intermediate_steps
         dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(
-            s, c, car_params, dt, intermediate_steps,
+            s, c, car_params, sim_dt, 1,
             ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
         )
+
         def rollout_fn(state, control):
-            next_state = dynamics_fn(state, control)
-            return next_state, next_state
+            def substep(carry, _):
+                next_state = dynamics_fn(carry, control)
+                return next_state, None
+            final_state, _ = jax.lax.scan(substep, state, None, length=intermediate_steps)
+            return final_state, final_state
+
         _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
         return trajectory
     
@@ -123,13 +129,13 @@ class CarModelJAX:
         """Run car dynamics sequentially.
         
         Args:
-            initial_state: (10,) initial state
+            initial_state: (11,) initial state
             control_sequence: (H, 2) sequence of controls
             state_history: optional state history (for residual model)
             control_history: optional control history (for residual model)
         
         Returns:
-            trajectory: (H, 10) trajectory of states
+            trajectory: (H, 11) trajectory of states
         """
         # Convert to JAX arrays
         initial_state_jax = jnp.array(initial_state)

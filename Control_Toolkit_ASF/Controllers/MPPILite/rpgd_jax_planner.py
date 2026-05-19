@@ -15,7 +15,9 @@ from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
 
-T_CONTROL = 0.04  # Control timestep
+T_CONTROL = Settings.TIMESTEP_CONTROL
+# Match sim integration: one control step = TIMESTESTEP_CONTROL with TIMESTEP_SIM substeps.
+ROLLOUT_INTERMEDIATE_STEPS = max(1, int(round(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)))
 """
 RPGD Planner Optimizations for Performance:
 
@@ -73,7 +75,7 @@ class RPGDPlanner(template_planner):
         
         # History for residual model (HISTORY_LENGTH = 10)
         HISTORY_LENGTH = 10
-        self.state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        self.state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
         self.control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
 
         self.render_utils = RenderUtils()
@@ -117,7 +119,7 @@ class RPGDPlanner(template_planner):
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.last_Q_sq[:, 0] = 0.0  # Straight steering (0 steering angle)
         self.last_Q_sq[:, 1] = 1.0  # Acceleration (1 m/s²)
-        self.car_params_array = VehicleParameters('mpc_car_parameters.yml').to_np_array().astype(np.float32)
+        self.car_params_array = VehicleParameters('yokomo_car_parameters.yml').to_np_array().astype(np.float32)
 
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
@@ -149,7 +151,7 @@ class RPGDPlanner(template_planner):
     def _precompile_functions(self):
         """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
-        dummy_state = jnp.zeros(10, dtype=jnp.float32)
+        dummy_state = jnp.zeros(NUMBER_OF_STATES, dtype=jnp.float32)
         dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
         
@@ -161,7 +163,7 @@ class RPGDPlanner(template_planner):
         
         # Create dummy history for compilation
         HISTORY_LENGTH = 10
-        dummy_state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        dummy_state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
         dummy_control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
         
         # Trigger compilation on the selected device
@@ -232,12 +234,18 @@ class RPGDPlanner(template_planner):
             self._update_trajectory_ages()
             
             # Compute optimal trajectory for visualization (using constant dt)
-            optimal_traj = car_steps_sequential_jax(s, Q_sequence, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE, state_history=self.state_history, control_history=self.control_history)
+            optimal_traj = car_steps_sequential_jax(
+                s, Q_sequence, self.car_params_jax, self.dt, self.horizon,
+                model_type=MODEL_TYPE, intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+                state_history=self.state_history, control_history=self.control_history,
+            )
             
             # Batch rollout using vmap over car_steps_sequential_jax
             # Note: Each trajectory in the batch uses the same initial history
             batch_rollout_fn = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
-                s_single, Q_single, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE, state_history=self.state_history, control_history=self.control_history
+                s_single, Q_single, self.car_params_jax, self.dt, self.horizon,
+                model_type=MODEL_TYPE, intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+                state_history=self.state_history, control_history=self.control_history,
             ))
             state_batch_sequence = batch_rollout_fn(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence)
 
@@ -600,7 +608,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Initialize histories if None
     if state_history is None:
         HISTORY_LENGTH = 10
-        state_history = jnp.zeros((HISTORY_LENGTH, 10), dtype=jnp.float32)
+        state_history = jnp.zeros((HISTORY_LENGTH, NUMBER_OF_STATES), dtype=jnp.float32)
     if control_history is None:
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
@@ -608,7 +616,11 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with constant timestep (use literal value for static compilation)
-        trajectory = car_steps_sequential_jax(state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
+        trajectory = car_steps_sequential_jax(
+            state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE,
+            intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+            state_history=state_history, control_history=control_history,
+        )
         # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
                                          intra_horizon_smoothness_weight,
@@ -621,6 +633,8 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         
         # Compute gradients w.r.t. full sequences (like original RPGD)
         gradients = jax.vmap(jax.grad(gradient_cost_fn))(Q_batch)
+        # Slip/motor Pacejka can yield NaNs in ∂/∂steering over multi-step rollouts; keep translational grads.
+        gradients = jnp.nan_to_num(gradients, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Clip gradients by norm (match original RPGD)
         gradients = jnp.clip(gradients, -gradmax_clip, gradmax_clip)
@@ -650,7 +664,11 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
-        trajectory = car_steps_sequential_jax(state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
+        trajectory = car_steps_sequential_jax(
+            state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE,
+            intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+            state_history=state_history, control_history=control_history,
+        )
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 

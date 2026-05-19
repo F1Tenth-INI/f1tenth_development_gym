@@ -190,6 +190,11 @@ def _clip_pacejka_state(psi_dot, v_x, v_y, psi, s_x, s_y, delta, omega_motor, p)
     return psi_dot, v_x, v_y, psi, s_x, s_y, delta, omega_motor
 
 
+def _longitudinal_speed_for_tires(v_x, eps=1.0e-3):
+    """Signed minimum speed for tire slip angles (smooth through v_x ≈ 0)."""
+    return jnp.sign(v_x + 1.0e-8) * jnp.maximum(jnp.abs(v_x), eps)
+
+
 def _longitudinal_slip_kappa(v_x, omega_motor, wheel_radius, gear_ratio, kappa_den_min):
     omega_wheel = omega_motor / jnp.maximum(gear_ratio, 1.0e-3)
     v_wheel = omega_wheel * wheel_radius
@@ -206,7 +211,7 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     wheel_radius, wheel_inertia = p['wheel_radius'], p['wheel_inertia']
     gear_ratio, omega_viscous = p['gear_ratio'], p['omega_viscous']
 
-    v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
+    v_x_safe = _longitudinal_speed_for_tires(v_x)
     alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
 
@@ -266,7 +271,7 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
 def _pacejka_step_legacy(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                          lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
                          mu, s_min, s_max, dt_sub, v_dead, curve_resistance_factor):
-    v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
+    v_x_safe = _longitudinal_speed_for_tires(v_x)
     alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
 
@@ -320,7 +325,7 @@ def _kinematic_motor_omega(v_x, gear_ratio, wheel_radius):
 
 
 def _next_step_output(psi_dot, v_x, v_y, psi, s_x, s_y, delta, omega_motor):
-    v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
+    v_x_safe = _longitudinal_speed_for_tires(v_x)
     slip_angle = jnp.arctan(v_y / v_x_safe)
     return jnp.array([
         psi_dot, v_x, v_y, psi, jnp.cos(psi), jnp.sin(psi),
