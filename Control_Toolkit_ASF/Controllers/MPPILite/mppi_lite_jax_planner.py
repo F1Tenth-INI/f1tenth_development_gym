@@ -163,8 +163,8 @@ class MPPILitePlanner(template_planner):
                 optimal_trajectory=np.expand_dims(self.optimal_trajectory, axis=0),
             )
 
-            execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
-            raw_angular, raw_translational = Q_sequence[execute_control_index]
+            # First MPC input (same convention as TF RPGD u_nom[0, 0, :]); sim delay is control_delay_buffer only.
+            raw_angular, raw_translational = Q_sequence[0]
             
             # Apply exponential moving average smoothing to control outputs
             self.angular_control = (self.control_smoothing_alpha * float(raw_angular) + 

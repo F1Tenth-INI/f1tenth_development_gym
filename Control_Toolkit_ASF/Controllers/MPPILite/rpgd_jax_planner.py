@@ -15,23 +15,20 @@ from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
 
-T_CONTROL = Settings.TIMESTEP_CONTROL
-# Match sim integration: one control step = TIMESTESTEP_CONTROL with TIMESTEP_SIM substeps.
-ROLLOUT_INTERMEDIATE_STEPS = max(1, int(round(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)))
+T_CONTROL = float(Settings.TIMESTEP_CONTROL)
+ROLLOUT_DT = jnp.float32(T_CONTROL)
+_sim_substeps = max(1, int(round(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)))
+EVAL_INTERMEDIATE_STEPS = int(getattr(Settings, 'RPGD_EVAL_INTERMEDIATE_STEPS', _sim_substeps))
 """
-RPGD Planner Optimizations for Performance:
+RPGD (Heetmeyer et al., ICRA 2023) JAX implementation notes:
 
-1. Maintained original horizon (50 steps: 30@T_CONTROLs + 20@T_CONTROLs like MPPI)
-2. Hybrid timestep approach: consistent dt for gradient optimization, variable dt for evaluation
-3. Eliminated redundant cost calculations (was computing costs twice per gradient step)
-4. Removed expensive CPU-GPU transfers for Adam refinement
-5. Optimized gradient steps (8 vs original 15) with better learning rate
-6. Optimized elite plan management
-7. Reduced debug output frequency
+- Eq. (1): use one discrete-time model f_hat for rollouts and for jax.grad (same Pacejka substeps per
+  TIMESTEP_CONTROL step as in sim).
+- Sec. II step 3 / Fig. 2: apply the first control of the best plan; time-shift the sequence afterward.
+  Reference TF code: Control_Toolkit/Optimizers/optimizer_rpgd.py returns u_nom[0, 0, :].
+- Actuation delay is modeled by run_simulation.py control_delay_buffer, not by indexing Q[delay/dt].
 
-Key insight: Use consistent timestep during gradient optimization to avoid discontinuities,
-but evaluate final costs with variable timestep to match MPPI's planning horizon.
-This preserves RPGD's planning capability while maintaining smooth gradients.
+Population / Adam hyperparameters: tune via Settings.RPGD_* (batch, horizon, G, elite, viz batch).
 """
 # MODEL_TYPE = 'residual'  # Use residual model for dynamics
 MODEL_TYPE = 'pacejka'  # Use pacejka model for dynamics
@@ -86,13 +83,24 @@ class RPGDPlanner(template_planner):
         self.control_index = 0
 
         self.dt = T_CONTROL
-        self.batch_size = 8  # Rollouts
-        self.horizon = 30  
-        
-        # RPGD specific parameters 
-        self.elite_size = 6  # opt_keep_k_ratio
-        self.gradient_steps = 10  # More: Better convergence, but slower
-        self.resampling_freq = 5 
+        self.rollout_dt = ROLLOUT_DT
+        self.eval_intermediate_steps = EVAL_INTERMEDIATE_STEPS
+        self.batch_size = int(getattr(Settings, 'RPGD_BATCH_SIZE', 8))
+        self.horizon = int(getattr(Settings, 'RPGD_HORIZON', 30))
+        self.gradient_steps = int(getattr(Settings, 'RPGD_GRADIENT_STEPS', 4))
+        self.elite_size = int(getattr(Settings, 'RPGD_ELITE_SIZE', 6))
+        self.resampling_freq = int(getattr(Settings, 'RPGD_RESAMPLING_FREQ', 5))
+        self.full_rollout_batch_for_viz = bool(getattr(Settings, 'RPGD_FULL_ROLLOUT_BATCH_FOR_VIZ', False))
+        if self.elite_size >= self.batch_size:
+            self.elite_size = max(1, self.batch_size - 1)
+        if self.elite_size < 1:
+            self.elite_size = 1
+        print(
+            f"RPGD rollout: dt={T_CONTROL}s, horizon={self.horizon} ({self.horizon * T_CONTROL:.2f}s), "
+            f"batch={self.batch_size}, G={self.gradient_steps}, elite={self.elite_size}, "
+            f"Pacejka substeps/40ms={self.eval_intermediate_steps}, "
+            f"full_batch_viz={self.full_rollout_batch_for_viz}"
+        )
         
         self.rollout_trajectories = None  # Store trajectories for rendering
         
@@ -119,7 +127,12 @@ class RPGDPlanner(template_planner):
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.last_Q_sq[:, 0] = 0.0  # Straight steering (0 steering angle)
         self.last_Q_sq[:, 1] = 1.0  # Acceleration (1 m/s²)
-        self.car_params_array = VehicleParameters('yokomo_car_parameters.yml').to_np_array().astype(np.float32)
+        # Must match sim (RaceCar) so rollouts see the same Pacejka / limits as execution.
+        self.car_params_array = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array().astype(np.float32)
+        # to_np_array: servo_p at 15, s_min at 16, s_max at 17 — clip controls to same limits as dynamics.
+        self._steer_lim_lo = float(self.car_params_array[16])
+        self._steer_lim_hi = float(self.car_params_array[17])
+        self._wheelbase_m = float(self.car_params_array[1] + self.car_params_array[2])
 
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
@@ -171,7 +184,7 @@ class RPGDPlanner(template_planner):
         _ = rpgd_process_observation_jax(
             dummy_state, dummy_Q_batch, self.batch_size, self.horizon,
             self.car_params_jax, dummy_waypoints, dummy_key, dummy_dt,
-            execute_control_index=4,
+            eval_intermediate_steps=self.eval_intermediate_steps,
             intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
             angular_smoothness_weight=self.angular_smoothness_weight,
             translational_smoothness_weight=self.translational_smoothness_weight,
@@ -205,7 +218,7 @@ class RPGDPlanner(template_planner):
             Q_batch_sequence, total_cost_batch, Q_final_unused, adam_m_new, adam_v_new, adam_step_new = rpgd_process_observation_jax(
                 s, Q_batch_sequence, self.batch_size, self.horizon,
                 self.car_params_jax, waypoints, subkey, self.dt,
-                execute_control_index=0,
+                eval_intermediate_steps=self.eval_intermediate_steps,
                 intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
                 angular_smoothness_weight=self.angular_smoothness_weight,
                 translational_smoothness_weight=self.translational_smoothness_weight,
@@ -220,7 +233,7 @@ class RPGDPlanner(template_planner):
             self.adam_step = adam_step_new
             
             # RPGD Step 3: Select best plan
-            best_plan_idx = jnp.argmin(total_cost_batch)
+            best_plan_idx = int(jnp.argmin(total_cost_batch))
             Q_sequence = Q_batch_sequence[best_plan_idx]
             
             # Debug info (reduced frequency)
@@ -233,23 +246,24 @@ class RPGDPlanner(template_planner):
             # Update trajectory ages
             self._update_trajectory_ages()
             
-            # Compute optimal trajectory for visualization (using constant dt)
-            optimal_traj = car_steps_sequential_jax(
-                s, Q_sequence, self.car_params_jax, self.dt, self.horizon,
-                model_type=MODEL_TYPE, intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
-                state_history=self.state_history, control_history=self.control_history,
-            )
-            
-            # Batch rollout using vmap over car_steps_sequential_jax
-            # Note: Each trajectory in the batch uses the same initial history
-            batch_rollout_fn = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
-                s_single, Q_single, self.car_params_jax, self.dt, self.horizon,
-                model_type=MODEL_TYPE, intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
-                state_history=self.state_history, control_history=self.control_history,
-            ))
-            state_batch_sequence = batch_rollout_fn(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence)
+            # Rollouts for HUD: optional full population (slow) or best plan only (Settings.RPGD_FULL_ROLLOUT_BATCH_FOR_VIZ).
+            if self.full_rollout_batch_for_viz:
+                batch_rollout_fn = jax.vmap(lambda s_single, Q_single: car_steps_sequential_jax(
+                    s_single, Q_single, self.car_params_jax, self.rollout_dt, self.horizon,
+                    model_type=MODEL_TYPE, intermediate_steps=self.eval_intermediate_steps,
+                    state_history=self.state_history, control_history=self.control_history,
+                ))
+                state_batch_sequence = batch_rollout_fn(
+                    jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence)
+                optimal_traj = state_batch_sequence[best_plan_idx]
+            else:
+                optimal_traj = car_steps_sequential_jax(
+                    s, Q_sequence, self.car_params_jax, self.rollout_dt, self.horizon,
+                    model_type=MODEL_TYPE, intermediate_steps=self.eval_intermediate_steps,
+                    state_history=self.state_history, control_history=self.control_history,
+                )
+                state_batch_sequence = jnp.expand_dims(optimal_traj, 0)
 
-            # Move results back to CPU for rendering (if needed)
             self.rollout_trajectories = np.array(state_batch_sequence)
             self.trajectory_costs = np.array(total_cost_batch)
             
@@ -261,8 +275,8 @@ class RPGDPlanner(template_planner):
                 optimal_trajectory=np.expand_dims(np.array(optimal_traj), axis=0),
             )
 
-            execute_control_index = int(Settings.CONTROL_DELAY / self.dt)
-            raw_angular, raw_translational = Q_sequence[execute_control_index]
+            # Paper / TF RPGD: apply first control of best plan (μ = ν_k); delay is sim FIFO only.
+            raw_angular, raw_translational = Q_sequence[0]
             
             # Apply exponential moving average smoothing to control outputs
             self.angular_control = (self.control_smoothing_alpha * float(raw_angular) + 
@@ -314,10 +328,12 @@ class RPGDPlanner(template_planner):
         return jax.vmap(interpolate_single_batch)(Q_inducing)
 
     def _sample_inducing_points(self, key, batch_size):
-        """Sample inducing points for interpolation - match config uniform_dist_min/max"""
-        return jax.random.uniform(key, (batch_size, self.num_interpolation_points, 2), 
-                                 minval=jnp.array([-0.4, -10]), # Match config: uniform_dist_min: [-0.4, -10]
-                                 maxval=jnp.array([0.4, 10]))   # Match config: uniform_dist_max: [0.4, 10]
+        """Sample inducing points for interpolation — steering range matches car YAML (s_min, s_max)."""
+        return jax.random.uniform(
+            key, (batch_size, self.num_interpolation_points, 2),
+            minval=jnp.array([self._steer_lim_lo, -10.0], dtype=jnp.float32),
+            maxval=jnp.array([self._steer_lim_hi, 10.0], dtype=jnp.float32),
+        )
 
     def _sample_full_sequences(self, key, batch_size, warmstart_sequence=None):
         """Sample full control sequences - with optional warmstart"""
@@ -334,10 +350,9 @@ class RPGDPlanner(template_planner):
             noise = jax.random.normal(key, (batch_size, self.horizon, 2)) * jnp.array([0.1, 0.5])
             sequences = jnp.tile(base_control, (batch_size, self.horizon, 1)) + noise
         
-        # Clip to valid bounds
-        return jnp.clip(sequences, 
-                       jnp.array([-0.4, -10]), # Match config: uniform_dist_min: [-0.4, -10]
-                       jnp.array([0.4, 10]))   # Match config: uniform_dist_max: [0.4, 10]
+        lo = jnp.array([self._steer_lim_lo, -10.0], dtype=jnp.float32)
+        hi = jnp.array([self._steer_lim_hi, 10.0], dtype=jnp.float32)
+        return jnp.clip(sequences, lo, hi)
 
     def _initialize_or_resample_full_sequences(self, key, current_state=None, waypoints=None):
         """Initialize full sequences or resample non-elite ones (no interpolation)"""
@@ -361,16 +376,16 @@ class RPGDPlanner(template_planner):
     
     def _time_shift_and_expand_elite_sequences(self, key):
         """Time shift elite sequences and expand with new random ones """
-        # Time shift elite plans (shift by 3 steps as in config)
-        shift_steps = 2  # Why 2 ? 2 works best. Discuss
+        # Keep in sync with _update_adam_states_for_time_shift (warm-started Adam moments).
+        shift_steps = 3
         shifted_elite = jnp.roll(self.elite_plans, shift=-shift_steps, axis=1)
         # Fill the last shift_steps with the last control value + small noise
         key1, key2 = jax.random.split(key)
         noise = jax.random.normal(key1, (self.elite_size, shift_steps, 2)) * 0.1
         last_controls = jnp.tile(self.elite_plans[:, -1:, :], (1, shift_steps, 1))
-        shifted_elite = shifted_elite.at[:, -shift_steps:].set(
-            jnp.clip(last_controls + noise, jnp.array([-0.4, -10]), jnp.array([0.4, 10]))
-        )
+        lo = jnp.array([self._steer_lim_lo, -10.0], dtype=jnp.float32)
+        hi = jnp.array([self._steer_lim_hi, 10.0], dtype=jnp.float32)
+        shifted_elite = shifted_elite.at[:, -shift_steps:].set(jnp.clip(last_controls + noise, lo, hi))
         
         # Add new random sequences
         num_new = self.batch_size - self.elite_size
@@ -405,8 +420,9 @@ class RPGDPlanner(template_planner):
         # Add small noise to elite inducing points for exploration
         key1, key2 = jax.random.split(key)
         noise = jax.random.normal(key1, self.elite_plans.shape) * 0.1  # Small exploration noise
-        shifted_elite = jnp.clip(self.elite_plans + noise, 
-                               jnp.array([-0.4, -10]), jnp.array([0.4, 10]))  # Match config bounds
+        lo = jnp.array([self._steer_lim_lo, -10.0], dtype=jnp.float32)
+        hi = jnp.array([self._steer_lim_hi, 10.0], dtype=jnp.float32)
+        shifted_elite = jnp.clip(self.elite_plans + noise, lo, hi)
         
         # Add new random inducing points
         num_new = self.batch_size - self.elite_size
@@ -516,7 +532,8 @@ class RPGDPlanner(template_planner):
             dt = self.dt
             current_x += current_speed * np.cos(current_heading) * dt
             current_y += current_speed * np.sin(current_heading) * dt
-            current_heading += current_speed * np.tan(steering) / 2.5 * dt  # Approximate bicycle model
+            wb = max(self._wheelbase_m, 1.0e-3)
+            current_heading += current_speed * np.tan(steering) / wb * dt  # Bicycle model (same scale as sim)
             current_speed += acceleration * dt
             current_speed = np.clip(current_speed, 0.1, 15.0)  # Reasonable speed bounds
         
@@ -580,9 +597,9 @@ def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
     return Q_batch_sequence[best_idx], best_idx
 
 
-@partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index", "gradient_steps"])
+@partial(jax.jit, static_argnames=["batch_size", "horizon", "gradient_steps", "eval_intermediate_steps"])
 def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, car_params, waypoints, key, dt,
-                               execute_control_index=4,
+                               eval_intermediate_steps=4,
                                intra_horizon_smoothness_weight=2.0,
                                angular_smoothness_weight=1.0,
                                translational_smoothness_weight=0.1,
@@ -590,8 +607,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
                                adam_m=None, adam_v=None, adam_step=0,
                                state_history=None, control_history=None):
     """
-    RPGD Step 2: Gradient optimization - SIMPLIFIED to match original exactly
-    NO interpolation (period_interpolation_inducing_points: 1 means no interpolation)
+    RPGD inner loop: Adam on each candidate plan, same discrete dynamics for J and grad J (paper Eq. (1)).
     """
     
     # Initialize Adam states if not provided
@@ -601,9 +617,9 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         adam_v = jnp.zeros_like(Q_batch_sequence)
     
     # RPGD hyperparameters (match config_optimizers.yml exactly)
-    learning_rate = 0.01  # Match config: learning_rate: 0.01
+    learning_rate = 0.02  # Match config: learning_rate: 0.01
     beta1, beta2, eps = 0.9, 0.999, 1e-8  # Match config: adam_beta_1: 0.9, adam_beta_2: 0.999, adam_epsilon: 1.0e-08
-    gradmax_clip = 5.0  # Match config: gradmax_clip: 5
+    gradmax_clip = 10.0  # Match config: gradmax_clip: 5
     
     # Initialize histories if None
     if state_history is None:
@@ -613,18 +629,16 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
     
-    # Cost function for gradient computation (operates directly on full sequences)
+    # Same discrete f_hat for J and dJ/du (paper Eq. (1)); intermediate_steps subdivide each 40 ms ZOH step.
     def gradient_cost_fn(Q_full):
-        # Rollout with constant timestep (use literal value for static compilation)
         trajectory = car_steps_sequential_jax(
-            state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE,
-            intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+            state, Q_full, car_params, ROLLOUT_DT, horizon=horizon, model_type=MODEL_TYPE,
+            intermediate_steps=eval_intermediate_steps,
             state_history=state_history, control_history=control_history,
         )
-        # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
                                          intra_horizon_smoothness_weight,
-                                         angular_smoothness_weight, 
+                                         angular_smoothness_weight,
                                          translational_smoothness_weight)
         return jnp.sum(costs)
     
@@ -653,8 +667,10 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         # Parameter update
         Q_batch_new = Q_batch - learning_rate * m_hat / (jnp.sqrt(v_hat) + eps)
         
-        # Clip to bounds (match config uniform_dist_min/max)
-        Q_batch_new = jnp.clip(Q_batch_new, jnp.array([-0.4, -10]), jnp.array([0.4, 10]))
+        # Clip steering to same s_min/s_max as Pacejka dynamics (car_params indices 16, 17).
+        u_lo = jnp.stack([car_params[16], jnp.float32(-10.0)])
+        u_hi = jnp.stack([car_params[17], jnp.float32(10.0)])
+        Q_batch_new = jnp.clip(Q_batch_new, u_lo, u_hi)
         
         return (Q_batch_new, m_new, v_new, t), None
     
@@ -662,11 +678,11 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     (Q_final, adam_m_final, adam_v_final, final_step), _ = jax.lax.scan(
         gradient_step, (Q_batch_sequence, adam_m, adam_v, adam_step), jnp.arange(gradient_steps))
     
-    # Evaluate final costs
+    # Final ranking / selection: same 40 ms horizon, fine substeps (match sim integration).
     def evaluation_cost_fn(Q_plan):
         trajectory = car_steps_sequential_jax(
-            state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE,
-            intermediate_steps=ROLLOUT_INTERMEDIATE_STEPS,
+            state, Q_plan, car_params, ROLLOUT_DT, horizon=horizon, model_type=MODEL_TYPE,
+            intermediate_steps=eval_intermediate_steps,
             state_history=state_history, control_history=control_history,
         )
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,

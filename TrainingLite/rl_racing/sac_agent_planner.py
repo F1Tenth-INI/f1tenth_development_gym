@@ -132,7 +132,10 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
-        self.state_history = deque([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)], maxlen=self.STATE_HISTORY_LEN)
+        self.state_history = deque(
+            [np.zeros(NUMBER_OF_STATES, dtype=np.float32) for _ in range(self.STATE_HISTORY_LEN)],
+            maxlen=self.STATE_HISTORY_LEN,
+        )
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -169,7 +172,9 @@ class RLAgentPlanner(template_planner):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
         self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)])
+        self.state_history.extend(
+            [np.zeros(NUMBER_OF_STATES, dtype=np.float32) for _ in range(self.STATE_HISTORY_LEN)]
+        )
         
         self.transition_logger.clear()
         self.control_index = 0
@@ -241,7 +246,7 @@ class RLAgentPlanner(template_planner):
         self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
-        self.state_history.append(self.car_state)
+        self.state_history.append(np.asarray(self.car_state, dtype=np.float32).reshape(-1))
         
         self.control_index += 1
         return self.angular_control, self.translational_control

@@ -21,7 +21,7 @@ def car_dynamics_pacejka_jax_with_customization(state, control, car_params, dt, 
 
 
 # This function runs on RPGD JAX (Fast). Dont replace. Dont change.
-@partial(jax.jit, static_argnames=["dt", "horizon", "model_type", "intermediate_steps"])
+@partial(jax.jit, static_argnames=["horizon", "model_type", "intermediate_steps"])
 def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type='pacejka', intermediate_steps=1, state_history=None, control_history=None):
     """
     Run car dynamics for a single car sequentially.
@@ -30,7 +30,7 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
         s0: (11,) initial state
         Q_sequence: (H, 2) sequence of H controls applied to the car
         car_params: array of car parameters
-        dt: time step (float)
+        dt: control period per horizon step in seconds (e.g. 0.04 = TIMESTEP_CONTROL, not TIMESTEP_SIM)
         horizon: number of steps to run
         model_type: 'pacejka' or 'ks_pacejka' or 'residual'
         intermediate_steps: number of intermediate integration steps per evaluation (default: 1)
@@ -69,18 +69,15 @@ def car_steps_sequential_jax(s0, Q_sequence, car_params, dt, horizon, model_type
     
     elif model_type == 'pacejka':
         from utilities.Settings import Settings
-        sim_dt = dt / intermediate_steps
+        # dt = control period (e.g. 0.04 s); intermediate_steps subdivides it inside car_dynamics.
         dynamics_fn = lambda s, c: car_dynamics_pacejka_jax(
-            s, c, car_params, sim_dt, 1,
+            s, c, car_params, dt, intermediate_steps,
             ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
         )
 
         def rollout_fn(state, control):
-            def substep(carry, _):
-                next_state = dynamics_fn(carry, control)
-                return next_state, None
-            final_state, _ = jax.lax.scan(substep, state, None, length=intermediate_steps)
-            return final_state, final_state
+            next_state = dynamics_fn(state, control)
+            return next_state, next_state
 
         _, trajectory = jax.lax.scan(rollout_fn, s0, Q_sequence)
         return trajectory

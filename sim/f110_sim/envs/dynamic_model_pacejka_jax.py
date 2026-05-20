@@ -55,6 +55,13 @@ def _pacejka_tire_force(slip, B, C, D, E, mu, F_z):
         C * jnp.arctan(Bs - E * (Bs - jnp.arctan(Bs))))
 
 
+def _friction_circle_scale(Fx, Fy, mu, F_z):
+    """Scale Fx/Fy jointly so sqrt(Fx^2 + Fy^2) <= mu * F_z per axle."""
+    f_mag = jnp.sqrt(Fx * Fx + Fy * Fy)
+    f_max = mu * F_z
+    return jnp.where(f_mag > 1.0e-6, jnp.minimum(1.0, f_max / f_mag), 1.0)
+
+
 def _unpack_car_params(car_params):
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
         servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params[:25]
@@ -123,8 +130,12 @@ def _longitudinal_slip_falloff(kappa, p):
 
 def _wheelspin_active(v_x, v_wheel, p):
     """True when wheels outrun the chassis (not normal low-speed launch)."""
-    v_ground = jnp.maximum(jnp.abs(v_x), p['kappa_den_min'])
-    return jnp.abs(v_wheel) > 1.5 * v_ground + 0.1
+    # Below launch_speed, motor/chassis mismatch is expected (forward and reverse).
+    launch_speed = jnp.maximum(p['kappa_den_min'] * 3.0, 0.35)
+    launching = jnp.abs(v_x) < launch_speed
+    v_ground = jnp.maximum(jnp.abs(v_x), launch_speed)
+    spinning = jnp.abs(v_wheel) > 1.5 * v_ground + 0.1
+    return jnp.logical_and(spinning, jnp.logical_not(launching))
 
 
 def _drive_torque_spin_scale(kappa, tau_motor, p):
@@ -140,7 +151,8 @@ def _motor_torque_command(translational_control, v_x, p):
     accel_cmd = translational_control * 1.4
     throttle = jnp.clip(accel_cmd / jnp.maximum(p['a_max'], 1.0e-3), -1.0, 1.0)
 
-    speed_scale = 1.0 - p['motor_torque_drop'] * jnp.clip(v_x / jnp.maximum(p['v_max'], 1.0e-3), 0.0, 1.0)
+    speed_scale = 1.0 - p['motor_torque_drop'] * jnp.clip(
+        jnp.abs(v_x) / jnp.maximum(p['v_max'], 1.0e-3), 0.0, 1.0)
     speed_scale = jnp.maximum(speed_scale, 0.15)
 
     tau_from_torque = jnp.where(
@@ -167,10 +179,18 @@ def _filter_motor_torque(tau_cmd, tau_motor, dt_sub, motor_tau_s):
     return tau_motor + alpha * (tau_cmd - tau_motor)
 
 
-def _sync_motor_omega(omega_motor, v_x, spinning, dt_sub, p):
-    """Pull motor speed toward road speed when not in deep wheelspin."""
+def _sync_motor_omega(omega_motor, v_x, kappa, spinning, dt_sub, p):
+    """Pull motor speed toward road speed; only decouple during deep sustained spin."""
     omega_kin = v_x * p['gear_ratio'] / jnp.maximum(p['wheel_radius'], 1.0e-4)
-    alpha = jnp.where(spinning, 0.0, jnp.minimum(dt_sub / 0.04, 1.0))
+    control_dt = jnp.float32(Settings.TIMESTEP_CONTROL)
+    base_alpha = jnp.minimum(dt_sub / control_dt, 1.0)
+    deep_spin = jnp.logical_and(
+        spinning,
+        jnp.abs(kappa) > p['kappa_long_peak'] * 1.25,
+    )
+    # Low-speed driveline must stay tied to chassis or Fx oscillates (surging / boaty feel).
+    low_speed = jnp.abs(v_x) < 1.5
+    alpha = jnp.where(deep_spin, jnp.where(low_speed, 0.35 * base_alpha, 0.0), base_alpha)
     return omega_motor + alpha * (omega_kin - omega_motor)
 
 
@@ -218,15 +238,22 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     F_zf = jnp.maximum(m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf), 0.0)
     F_zr = jnp.maximum(m * (v_x_dot * h_cg + g_ * lf) / (lr + lf), 0.0)
 
-    F_yf = _pacejka_tire_force(alpha_f, p['B_f'], p['C_f'], p['D_f'], p['E_f'], mu, F_zf)
-    F_yr = _pacejka_tire_force(alpha_r, p['B_r'], p['C_r'], p['D_r'], p['E_r'], mu, F_zr)
+    F_yf_raw = _pacejka_tire_force(alpha_f, p['B_f'], p['C_f'], p['D_f'], p['E_f'], mu, F_zf)
+    F_yr_raw = _pacejka_tire_force(alpha_r, p['B_r'], p['C_r'], p['D_r'], p['E_r'], mu, F_zr)
 
     kappa, v_wheel = _longitudinal_slip_kappa(v_x, omega_motor, wheel_radius, gear_ratio, p['kappa_den_min'])
     spinning = _wheelspin_active(v_x, v_wheel, p)
-    Fx_f = _pacejka_tire_force(kappa, p['B_xf'], p['C_xf'], p['D_xf'], p['E_xf'], mu, F_zf)
-    Fx_r = _pacejka_tire_force(kappa, p['B_xr'], p['C_xr'], p['D_xr'], p['E_xr'], mu, F_zr)
+    Fx_f_raw = _pacejka_tire_force(kappa, p['B_xf'], p['C_xf'], p['D_xf'], p['E_xf'], mu, F_zf)
+    Fx_r_raw = _pacejka_tire_force(kappa, p['B_xr'], p['C_xr'], p['D_xr'], p['E_xr'], mu, F_zr)
     slip_falloff = jnp.where(spinning, _longitudinal_slip_falloff(kappa, p), 1.0)
-    Fx = (Fx_f + Fx_r) * slip_falloff
+
+    fc_f = _friction_circle_scale(Fx_f_raw, F_yf_raw, mu, F_zf)
+    fc_r = _friction_circle_scale(Fx_r_raw, F_yr_raw, mu, F_zr)
+    Fx_f = Fx_f_raw * fc_f * slip_falloff
+    Fx_r = Fx_r_raw * fc_r * slip_falloff
+    F_yf = F_yf_raw * fc_f
+    F_yr = F_yr_raw * fc_r
+    Fx = Fx_f + Fx_r
 
     smooth_sign = v_x / jnp.sqrt(v_x * v_x + v_dead * v_dead)
     lateral_force_magnitude = jnp.sqrt(F_yf * F_yf + F_yr * F_yr)
@@ -261,7 +288,7 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     psi = psi + dt_sub * d_psi
     psi_dot = psi_dot + dt_sub * d_psi_dot
     omega_motor = omega_motor + dt_sub * d_omega_m
-    omega_motor = _sync_motor_omega(omega_motor, v_x, spinning, dt_sub, p)
+    omega_motor = _sync_motor_omega(omega_motor, v_x, kappa, spinning, dt_sub, p)
     psi_dot, v_x, v_y, psi, s_x, s_y, delta, omega_motor = _clip_pacejka_state(
         psi_dot, v_x, v_y, psi, s_x, s_y, delta, omega_motor, p,
     )
@@ -435,13 +462,18 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
                 [state_in, jnp.array([omega_motor], dtype=jnp.float32)])
 
         if use_blend:
-            # Longitudinal slip drives v_x only through Pacejka Fx (v_x_dot=0 in slip branch).
-            # Blending with KS at low speed would zero out throttle — use Pacejka only.
             def _blend_ks_pacejka(_):
                 weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_x - 1.75)))
                 return (1.0 - weight) * s_ks + weight * s_pacejka
 
-            next_state = jax.lax.cond(p['use_slip'], lambda _: s_pacejka, _blend_ks_pacejka, None)
+            def _blend_slip_lateral_ks(_):
+                """Slip driveline for v_x; KS lateral dynamics below ~1 m/s (Pacejka singularity)."""
+                w = 1.0 / (1.0 + jnp.exp(-6.0 * (jnp.abs(v_x) - 1.0)))
+                blended = w * s_pacejka + (1.0 - w) * s_ks
+                return blended.at[1].set(s_pacejka[1]).at[10].set(s_pacejka[10])
+
+            next_state = jax.lax.cond(
+                p['use_slip'], _blend_slip_lateral_ks, _blend_ks_pacejka, None)
         elif use_pacejka:
             next_state = s_pacejka
         else:

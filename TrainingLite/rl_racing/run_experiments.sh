@@ -1,1 +1,5 @@
-python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 128 --SAC_TARGET_UTD 1.0 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 500000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-1
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 256 --SAC_TARGET_UTD 1.0 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 500000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-5a
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 256 --SAC_TARGET_UTD 1.0 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 500000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-5b
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 256 --SAC_TARGET_UTD 1.0 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 500000 --CONTROLLER sac_agent --SIMULATION_LENGTH 150000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-5c
+
+python TrainingLite/rl_racing/run_training.py --auto-start-client --batch-size 256 --SAC_TARGET_UTD 1.0 --SAVE_RECORDINGS False --SAC_CHECKPOINT_FREQUENCY 500000 --CONTROLLER sac_agent --SIMULATION_LENGTH 500000 --MAX_SIM_FREQUENCY 250 --save-model-name Example-5d

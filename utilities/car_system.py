@@ -254,8 +254,10 @@ class CarSystem:
         if self.planner is not None:
             self.angular_control, self.translational_control = self.planner.process_observation()
 
-            # Extract control from sequence if mpc
-            if hasattr(self.planner, 'optimal_control_sequence') or hasattr(self.planner, 'mpc'):
+            # Control_Toolkit MPC: step() returns the undelayed command; delay is applied here by indexing
+            # optimal_control_sequence. JAX RPGD/MPPI already apply CONTROL_DELAY (and smoothing) inside
+            # process_observation() — they must not be overwritten (would bypass EMA and mismatch rollouts).
+            if getattr(self.planner, 'mpc', None) is not None:
                 self.angular_control, self.translational_control = self.extract_control_from_control_sequence()
             
         else: # planner == None

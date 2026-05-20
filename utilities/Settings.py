@@ -19,6 +19,16 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
+    # RPGD (ICRA 2023): same discrete model f_hat for cost J and jax.grad dJ/du (Eq. (1)). Substeps per 40 ms ZOH step.
+    RPGD_EVAL_INTERMEDIATE_STEPS = 4       # round(TIMESTEP_CONTROL / TIMESTEP_SIM); match sim + car_steps_sequential_jax
+    # Speed tuning (40 ms wall time per MPC at 25 Hz). Do not lower RPGD_EVAL_* without matching sim integration.
+    RPGD_BATCH_SIZE = 8                   # population P_total (paper: 32)
+    RPGD_HORIZON = 30                     # MPC horizon N (paper: 40); shorter = faster
+    RPGD_GRADIENT_STEPS = 4               # G Adam iters per step (paper Table II: 4)
+    RPGD_ELITE_SIZE = 6                   # Pelite; must be < RPGD_BATCH_SIZE
+    RPGD_RESAMPLING_FREQ = 5              # Kre: resample non-elite every this many control steps
+    # False: only rollout best plan for HUD (saves batch_size-1 full rollouts per tick). Control uses full batch inside jit.
+    RPGD_FULL_ROLLOUT_BATCH_FOR_VIZ = False
     MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
@@ -139,7 +149,7 @@ class Settings():
 
     
     ## MPC Controller ##
-    CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
+    CONTROLLER_CAR_PARAMETER_FILE = "yokomo_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks_pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20
