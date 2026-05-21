@@ -23,7 +23,7 @@ class RewardCalculator:
 
 
         # Weights
-        self.w_crash = 15
+        self.w_crash = 10
         self.w_progress = 1.0   # per meter of along-track progress
         self.w_lateral_error = 0.05   # per meter cross-track error penalty
         self.w_d_steering = 1.5
@@ -70,7 +70,8 @@ class RewardCalculator:
         # Get variables
         crash = obs.get('collision', False)
         interruption = obs.get('interrupted', False)
-        
+
+        speed = math.sqrt(car_state[LINEAR_VEL_X_IDX]**2 + car_state[LINEAR_VEL_Y_IDX]**2)
         s, d, e, k = waypoint_utils.frenet_coordinates
 
 
@@ -82,6 +83,7 @@ class RewardCalculator:
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
         if leave_bounds or crash or interruption:
             crash_penalty = -self.w_crash
+            crash_penalty -= 1.5  * speed
             reward += crash_penalty
             if Settings.TRUNCATE_ON_LEAVE_TRACK:
                 self.truncated = True
@@ -117,7 +119,6 @@ class RewardCalculator:
         # Speed cap penalty
         speed_cap_penalty = 0.0
         
-        speed = car_state[LINEAR_VEL_X_IDX]
         suggested_speed = waypoint_utils.next_waypoints[0, WP_VX_IDX]
         if(speed > suggested_speed):
             speed_cap_penalty = - self.w_speed_cap * (speed - suggested_speed) ** 2
