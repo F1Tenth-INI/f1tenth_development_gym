@@ -7,23 +7,24 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11" # Keep CI aligned with local/project runtime
+          python-version: "3.11"
 
       - name: Cache Python Dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -53,9 +54,6 @@ jobs:
         run: |
           echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
-      - name: Skip pytest (CI uses ci_test.py)
-        run: |
-          echo "Skipping pytest in CI; running only run/ci_test.py"
       - name: Run simulation
         run: python run/ci_test.py
         env:
@@ -66,6 +64,4 @@ jobs:
         with:
           name: ExperimentRecordings
           path: ExperimentRecordings/
-
-      # Note: pytest results upload removed because pytest is skipped. If you
-      # later re-enable pytest, add a step to upload pytest-results.xml here.
+          if-no-files-found: ignore
