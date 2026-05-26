@@ -177,6 +177,17 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
 
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5555)
+    parser.add_argument(
+        "--metrics-http-port",
+        type=int,
+        default=None,
+        help="Port for live metrics dashboard (default: Settings.LEARNER_METRICS_HTTP_PORT).",
+    )
+    parser.add_argument(
+        "--no-metrics-http",
+        action="store_true",
+        help="Disable the HTTP metrics dashboard.",
+    )
     # Legacy model name (kept for backward compatibility).
     parser.add_argument("--model-name", default="SAC_RCA1_0", help="(legacy) model name used as default save name if --save-model-name not provided")
     parser.add_argument(
@@ -434,6 +445,11 @@ def main() -> None:
         train_batch_size = int(Settings.SAC_BATCH_SIZE)
 
     backup_existing_model_if_present(str(run_args.save_model_name))
+
+    if run_args.no_metrics_http:
+        Settings.LEARNER_METRICS_HTTP_ENABLED = False
+    if run_args.metrics_http_port is not None:
+        Settings.LEARNER_METRICS_HTTP_PORT = int(run_args.metrics_http_port)
 
     combined_status = CombinedTrainingStatus() if run_args.auto_start_client else None
     server = LearnerServer(

@@ -24,32 +24,138 @@
       white-space: nowrap;
     }
     #toggle-follow.active { background: #ac61b9; border-color: #d9b3e8; }
-    canvas {
-      width: 100%; height: 100%; display: block; background: #092057;
+    .topbar-toggle {
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    #toggle-plots.active { background: #5c4d7a; border-color: #b8a9d9; }
+    #toggle-sac-metrics {
+      display: none;
+    }
+    #toggle-sac-metrics.active { background: #2d6a4f; border-color: #95d5b2; }
+    .side-panel {
+      position: fixed;
+      top: 72px;
+      bottom: 0;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      background: rgba(4, 12, 38, 0.97);
+      box-shadow: 0 0 18px rgba(0, 0, 0, 0.4);
+      transition: transform 0.22s ease;
+      pointer-events: none;
+    }
+    .side-panel.open { pointer-events: auto; }
+    .side-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #0d2f7b;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .side-panel-header span { flex: 1; font-weight: 600; }
+    .side-panel-close {
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .side-panel-tab {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 39;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: rgba(13, 47, 123, 0.95);
+      color: #fff;
+      padding: 10px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .side-panel.left {
+      left: 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.35);
+      transform: translateX(-100%);
+      transition: transform 0.22s ease, left 0.22s ease;
+    }
+    .side-panel.left.open { transform: translateX(0); }
+    .side-panel-tab.left {
+      left: 0;
+      border-left: none;
+      border-radius: 0 8px 8px 0;
+    }
+    #plots-panel {
+      width: clamp(320px, 40vw, 520px);
+      z-index: 42;
+    }
+    #plots-panel-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+      background: #0f1115;
+    }
+    #plot-canvas {
+      width: 100%;
+      display: block;
+      height: auto;
+      min-height: 200px;
+    }
+    #plots-panel-tab { top: 38%; display: none; }
+    #metrics-panel {
+      width: clamp(360px, 44vw, 720px);
+      z-index: 41;
+    }
+    #metrics-panel-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #0f1115;
+    }
+    #metrics-frame {
+      flex: 1;
+      width: 100%;
+      min-height: 280px;
+      border: 0;
+      display: block;
+      background: #0f1115;
+    }
+    #metrics-panel-tab { top: 58%; display: none; }
+    #metrics-status {
+      padding: 4px 10px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+      flex-shrink: 0;
+    }
+    #view {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #092057;
       touch-action: none;
       -webkit-user-select: none;
       user-select: none;
     }
-    #plot-panel {
-      position: fixed;
-      right: 14px;
-      bottom: 14px;
-      width: 540px;
-      height: 360px;
-      min-width: 420px;
-      min-height: 280px;
-      max-width: 92vw;
-      max-height: 85vh;
-      resize: both;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.35);
-      border-radius: 8px;
-      background: rgba(4, 12, 38, 0.88);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-      pointer-events: auto;
-      display: none;
-    }
-    #plot-canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -63,18 +169,39 @@
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <label><input id="toggle-control-plots" type="checkbox" checked />Show control plots</label>
+        <button id="toggle-plots" type="button" class="topbar-toggle active" aria-pressed="true">Control &amp; state plots</button>
+        <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
-  <div id="plot-panel">
-    <canvas id="plot-canvas"></canvas>
-  </div>
+  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control and state plots">Plots</button>
+  <aside id="plots-panel" class="side-panel left open" aria-label="Control and state plots" aria-hidden="false">
+    <div class="side-panel-header">
+      <span>Control &amp; state plots</span>
+      <button id="plots-panel-close" class="side-panel-close" type="button" title="Collapse panel">Hide</button>
+    </div>
+    <div id="plots-panel-body">
+      <canvas id="plot-canvas"></canvas>
+    </div>
+  </aside>
+  <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
+  <aside id="metrics-panel" class="side-panel left" aria-label="SAC training metrics" aria-hidden="true">
+    <div class="side-panel-header">
+      <span>SAC training metrics</span>
+      <button id="metrics-panel-close" class="side-panel-close" type="button" title="Collapse panel">Hide</button>
+    </div>
+    <div id="metrics-panel-body">
+      <div id="metrics-status">Waiting for learner metrics server…</div>
+      <iframe id="metrics-frame" title="SAC training metrics" src="about:blank"></iframe>
+    </div>
+  </aside>
   <script>
     const canvas = document.getElementById("view");
     const ctx = canvas.getContext("2d");
-    const plotPanelEl = document.getElementById("plot-panel");
+    const plotsPanelEl = document.getElementById("plots-panel");
+    const plotsPanelTabEl = document.getElementById("plots-panel-tab");
+    const plotsPanelCloseEl = document.getElementById("plots-panel-close");
     const plotCanvas = document.getElementById("plot-canvas");
     const plotCtx = plotCanvas.getContext("2d");
     const statusEl = document.getElementById("status");
@@ -82,7 +209,18 @@
     const toggleHistoryEl = document.getElementById("toggle-history");
     const toggleTrackBordersEl = document.getElementById("toggle-track-borders");
     const toggleCarInfoEl = document.getElementById("toggle-car-info");
-    const toggleControlPlotsEl = document.getElementById("toggle-control-plots");
+    const togglePlotsEl = document.getElementById("toggle-plots");
+    const toggleSacMetricsEl = document.getElementById("toggle-sac-metrics");
+    const metricsPanelEl = document.getElementById("metrics-panel");
+    const metricsPanelTabEl = document.getElementById("metrics-panel-tab");
+    const metricsPanelCloseEl = document.getElementById("metrics-panel-close");
+    const metricsStatusEl = document.getElementById("metrics-status");
+    const metricsFrameEl = document.getElementById("metrics-frame");
+    let sacMetricsAvailable = false;
+    let metricsServerConnected = false;
+    let metricsUiConfig = null;
+    let plotsPanelOpen = true;
+    let metricsPanelOpen = false;
     let mapMeta = null;
     let mapImg = null;
     let latest = null;
@@ -130,20 +268,37 @@
     let showPositionHistory = false;
     let showTrackBorders = true;
     let showCarStateInfo = false;
-    let showControlPlots = true;
     let browserPositionHistory = [];
     let browserHistoryLastFrameId = 0;
     const MAX_BROWSER_HISTORY_POINTS = 20000;
-    const CONTROL_PLOT_WINDOW_S = 10.0;
-    const CONTROL_PLOT_MAX_SAMPLES = 900;
+    const TIME_SERIES_PLOT_WINDOW_S = 10.0;
+    const TIME_SERIES_PLOT_MAX_SAMPLES = 900;
     const CONTROL_ANGULAR_KEY = "0: angular_control";
     const CONTROL_TRANSLATIONAL_KEY = "1: translational_control";
-    const CONTROL_PLOT_COLORS = {
-      angular: "rgb(255, 179, 71)",
-      translational: "rgb(118, 215, 196)"
-    };
-    let controlPlotSeries = {};
+    const STATE_PLOT_COLOR_CYCLE = [
+      "rgb(255, 179, 71)",
+      "rgb(118, 215, 196)",
+      "rgb(186, 154, 255)",
+      "rgb(255, 138, 128)",
+      "rgb(129, 201, 149)",
+      "rgb(138, 180, 248)",
+    ];
+    const STATE_KEY_ORDER = [
+      "speed",
+      "yaw",
+      "reward",
+      "distance to raceline",
+      "wp_idx",
+      "surface friction",
+    ];
+    let timeSeriesData = {};
     let controlPlotKeys = [CONTROL_ANGULAR_KEY, CONTROL_TRANSLATIONAL_KEY];
+    let statePlotKeys = [];
+    let lastPlotLayoutKey = "";
+
+    function plotLayoutKey() {
+      return `${controlPlotKeys.join("|")}::${statePlotKeys.join("|")}`;
+    }
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -151,15 +306,73 @@
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      resizePlotCanvas();
+      maybeResizePlotCanvas(true);
     }
 
     function resizePlotCanvas() {
+      const subplotCount = Math.max(1, controlPlotKeys.length + statePlotKeys.length);
+      const layoutHeight = Math.max(280, subplotCount * 108 + 48);
+      plotCanvas.style.height = `${layoutHeight}px`;
       const dpr = window.devicePixelRatio || 1;
       const rect = plotCanvas.getBoundingClientRect();
       plotCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
       plotCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
       plotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function maybeResizePlotCanvas(force = false) {
+      if (!plotsPanelOpen) return;
+      const key = plotLayoutKey();
+      if (!force && key === lastPlotLayoutKey) return;
+      lastPlotLayoutKey = key;
+      resizePlotCanvas();
+    }
+
+    function updateSidePanelLayout() {
+      if (plotsPanelOpen && metricsPanelOpen) {
+        metricsPanelEl.style.left = `${plotsPanelEl.getBoundingClientRect().width}px`;
+      } else {
+        metricsPanelEl.style.left = "0";
+      }
+    }
+
+    function updatePlotsPanelChrome() {
+      plotsPanelEl.classList.toggle("open", plotsPanelOpen);
+      plotsPanelEl.setAttribute("aria-hidden", plotsPanelOpen ? "false" : "true");
+      plotsPanelTabEl.style.display = plotsPanelOpen ? "none" : "block";
+      togglePlotsEl.classList.toggle("active", plotsPanelOpen);
+      togglePlotsEl.setAttribute("aria-pressed", plotsPanelOpen ? "true" : "false");
+      togglePlotsEl.textContent = plotsPanelOpen
+        ? "Hide control & state plots"
+        : "Control & state plots";
+      updateSidePanelLayout();
+    }
+
+    function updateMetricsPanelChrome() {
+      metricsPanelEl.classList.toggle("open", metricsPanelOpen);
+      metricsPanelEl.setAttribute("aria-hidden", metricsPanelOpen ? "false" : "true");
+      metricsPanelTabEl.style.display =
+        sacMetricsAvailable && !metricsPanelOpen ? "block" : "none";
+      toggleSacMetricsEl.style.display = sacMetricsAvailable ? "inline-block" : "none";
+      toggleSacMetricsEl.classList.toggle("active", metricsPanelOpen);
+      toggleSacMetricsEl.setAttribute("aria-pressed", metricsPanelOpen ? "true" : "false");
+      toggleSacMetricsEl.textContent = metricsPanelOpen
+        ? "Hide training metrics"
+        : "Training metrics";
+      updateSidePanelLayout();
+    }
+
+    function setPlotsPanelOpen(open) {
+      plotsPanelOpen = !!open;
+      updatePlotsPanelChrome();
+      if (plotsPanelOpen) maybeResizePlotCanvas(true);
+    }
+
+    function setMetricsPanelOpen(open) {
+      if (!sacMetricsAvailable) return;
+      metricsPanelOpen = !!open;
+      updateMetricsPanelChrome();
+      if (metricsPanelOpen) ensureMetricsFrameLoaded(true);
     }
 
     function worldToScreen(x, y, cx, cy) {
@@ -256,8 +469,12 @@
 
     function normalizeLabelName(key) {
       const lowered = String(key || "").trim().toLowerCase();
-      const withoutPrefix = lowered.replace(/^\\d+\\s*:\\s*/, "");
-      return withoutPrefix;
+      return lowered.replace(/^\d+\s*:\s*/, "");
+    }
+
+    function isControlLabelKey(key) {
+      const norm = normalizeLabelName(key);
+      return norm.includes("angular_control") || norm.includes("translational_control");
     }
 
     function resolveControlKey(labels, preferredKey, containsText) {
@@ -271,29 +488,42 @@
       return null;
     }
 
-    function updateControlPlotSeries(frame) {
-      if (!frame) return;
-      const labels = frame.web_overlay?.label_dict || {};
-      const timeS = Number(frame.simulation_time || 0.0);
+    function sortStatePlotKeys(keys) {
+      const rank = (key) => {
+        const norm = normalizeLabelName(key);
+        const idx = STATE_KEY_ORDER.findIndex((hint) => norm.includes(hint));
+        return idx >= 0 ? idx : STATE_KEY_ORDER.length + 1;
+      };
+      return [...keys].sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        return normalizeLabelName(a).localeCompare(normalizeLabelName(b));
+      });
+    }
+
+    function discoverPlotKeys(labels) {
       const angularKey = resolveControlKey(labels, CONTROL_ANGULAR_KEY, "angular_control");
       const translationalKey = resolveControlKey(labels, CONTROL_TRANSLATIONAL_KEY, "translational_control");
-      const nextKeys = [angularKey, translationalKey].filter((k) => !!k);
-      if (nextKeys.length === 0) return;
-
-      if (controlPlotKeys.join("|") !== nextKeys.join("|")) controlPlotSeries = {};
-      controlPlotKeys = nextKeys;
-      for (const key of controlPlotKeys) {
-        const val = parseNumeric(labels[key]);
-        if (val === null) continue;
-        if (!Array.isArray(controlPlotSeries[key])) controlPlotSeries[key] = [];
-        controlPlotSeries[key].push([timeS, val]);
-        if (controlPlotSeries[key].length > CONTROL_PLOT_MAX_SAMPLES) {
-          controlPlotSeries[key].splice(0, controlPlotSeries[key].length - CONTROL_PLOT_MAX_SAMPLES);
-        }
+      const nextControlKeys = [angularKey, translationalKey].filter((k) => !!k);
+      const nextStateKeys = sortStatePlotKeys(
+        Object.keys(labels).filter((key) => !isControlLabelKey(key) && parseNumeric(labels[key]) !== null)
+      );
+      const controlChanged = controlPlotKeys.join("|") !== nextControlKeys.join("|");
+      const stateChanged = statePlotKeys.join("|") !== nextStateKeys.join("|");
+      if (controlChanged || stateChanged) {
+        timeSeriesData = {};
       }
-      const minTime = Math.max(0.0, timeS - CONTROL_PLOT_WINDOW_S);
-      for (const key of controlPlotKeys) {
-        const series = controlPlotSeries[key];
+      controlPlotKeys = nextControlKeys;
+      statePlotKeys = nextStateKeys;
+      if (controlChanged || stateChanged) {
+        lastPlotLayoutKey = "";
+      }
+    }
+
+    function trimTimeSeries(minTime) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys]) {
+        const series = timeSeriesData[key];
         if (!Array.isArray(series) || series.length === 0) continue;
         let cutIdx = 0;
         while (cutIdx < series.length - 1 && series[cutIdx][0] < minTime) {
@@ -303,36 +533,68 @@
       }
     }
 
-    function drawControlPlots(frame) {
+    function updateTimeSeriesPlots(frame) {
+      if (!frame) return;
+      const labels = frame.web_overlay?.label_dict || {};
+      const timeS = Number(frame.simulation_time || 0.0);
+      discoverPlotKeys(labels);
+
+      const allKeys = [...controlPlotKeys, ...statePlotKeys];
+      if (allKeys.length === 0) return;
+
+      for (const key of allKeys) {
+        const val = parseNumeric(labels[key]);
+        if (val === null) continue;
+        if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
+        timeSeriesData[key].push([timeS, val]);
+        if (timeSeriesData[key].length > TIME_SERIES_PLOT_MAX_SAMPLES) {
+          timeSeriesData[key].splice(0, timeSeriesData[key].length - TIME_SERIES_PLOT_MAX_SAMPLES);
+        }
+      }
+      trimTimeSeries(Math.max(0.0, timeS - TIME_SERIES_PLOT_WINDOW_S));
+    }
+
+    function plotColorForKey(key, index) {
+      if (isControlLabelKey(key)) {
+        const norm = normalizeLabelName(key);
+        if (norm.includes("angular_control")) return STATE_PLOT_COLOR_CYCLE[0];
+        if (norm.includes("translational_control")) return STATE_PLOT_COLOR_CYCLE[1];
+      }
+      return STATE_PLOT_COLOR_CYCLE[index % STATE_PLOT_COLOR_CYCLE.length];
+    }
+
+    function drawTimeSeriesPlots(frame) {
+      const allKeys = [...controlPlotKeys, ...statePlotKeys];
       const rect = plotCanvas.getBoundingClientRect();
       const w = rect.width;
       const h = rect.height;
       plotCtx.clearRect(0, 0, w, h);
       plotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
       plotCtx.fillRect(0, 0, w, h);
-      if (!frame || controlPlotKeys.length === 0) {
+      if (!frame || allKeys.length === 0) {
         plotCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
         plotCtx.font = "12px sans-serif";
-        plotCtx.fillText("Waiting for angular/translational control data...", 14, 22);
+        plotCtx.fillText("Waiting for control and state telemetry...", 14, 22);
         return;
       }
 
       const padLeft = 54;
       const padRight = 14;
-      const padTop = 14;
+      const padTop = 10;
       const padBottom = 26;
       const plotW = Math.max(1, w - padLeft - padRight);
       const plotH = Math.max(1, h - padTop - padBottom);
       const nowT = Number(frame.simulation_time || 0.0);
-      const minT = Math.max(0.0, nowT - CONTROL_PLOT_WINDOW_S);
-      const subplotGap = 12;
-      const subplotCount = Math.max(1, controlPlotKeys.length);
+      const minT = Math.max(0.0, nowT - TIME_SERIES_PLOT_WINDOW_S);
+      const subplotGap = 10;
+      const subplotCount = allKeys.length;
       const subplotH = (plotH - subplotGap * (subplotCount - 1)) / subplotCount;
 
-      function drawSubplot(key, index, color, title) {
+      function drawSubplot(key, index, color) {
+        const title = normalizeLabelName(key);
         const y0 = padTop + index * (subplotH + subplotGap);
         const y1 = y0 + subplotH;
-        const series = controlPlotSeries[key] || [];
+        const series = timeSeriesData[key] || [];
         let yMin = Infinity;
         let yMax = -Infinity;
         for (const [t, v] of series) {
@@ -371,7 +633,7 @@
         plotCtx.beginPath();
         for (const [t, v] of series) {
           if (t < minT) continue;
-          const tx = (t - minT) / CONTROL_PLOT_WINDOW_S;
+          const tx = (t - minT) / TIME_SERIES_PLOT_WINDOW_S;
           const ty = (v - plotMin) / plotSpan;
           const x = padLeft + tx * plotW;
           const y = y0 + (1.0 - ty) * subplotH;
@@ -385,32 +647,22 @@
         if (drew) plotCtx.stroke();
 
         plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
-        plotCtx.font = "11px sans-serif";
+        plotCtx.font = "10px sans-serif";
         plotCtx.fillText(plotMax.toFixed(3), 4, y0 + 10);
         plotCtx.fillText(plotMin.toFixed(3), 4, y1 - 2);
-        plotCtx.fillStyle = color;
-        plotCtx.fillText(title, padLeft + 6, y0 + 12);
+        plotCtx.fillStyle = "#e8eaed";
+        plotCtx.font = "bold 12px sans-serif";
+        plotCtx.fillText(title, padLeft + 6, y0 + 13);
       }
 
-      const angularKey = controlPlotKeys.find((k) => normalizeLabelName(k).includes("angular_control"));
-      const translationalKey = controlPlotKeys.find((k) => normalizeLabelName(k).includes("translational_control"));
-
-      if (angularKey) {
-        drawSubplot(angularKey, 0, CONTROL_PLOT_COLORS.angular, "angular_control");
-      }
-      if (translationalKey) {
-        drawSubplot(
-          translationalKey,
-          angularKey ? 1 : 0,
-          CONTROL_PLOT_COLORS.translational,
-          "translational_control"
-        );
-      }
+      allKeys.forEach((key, index) => {
+        drawSubplot(key, index, plotColorForKey(key, index));
+      });
 
       plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
       plotCtx.font = "11px sans-serif";
       plotCtx.fillText(`${minT.toFixed(1)}s`, padLeft, h - 8);
-      plotCtx.fillText(`${nowT.toFixed(1)}s`, padLeft + plotW - 30, h - 8);
+      plotCtx.fillText(`${nowT.toFixed(1)}s`, padLeft + plotW - 36, h - 8);
     }
 
     function lerp(a, b, t) {
@@ -600,6 +852,68 @@
       }
     }
 
+    function metricsDashboardUrl(port) {
+      const host = window.location.hostname || "127.0.0.1";
+      return `http://${host}:${port}/`;
+    }
+
+    function metricsBaseUrl(port) {
+      return metricsDashboardUrl(port).replace(/\/$/, "");
+    }
+
+    function ensureMetricsFrameLoaded(force = false) {
+      if (!sacMetricsAvailable || !metricsUiConfig) return;
+      const port = Number(metricsUiConfig.metrics_port) || 5556;
+      const base = metricsBaseUrl(port);
+      const currentSrc = metricsFrameEl.getAttribute("src") || "";
+      if (!force && metricsServerConnected && currentSrc.startsWith(base)) return;
+      if (!metricsServerConnected && !force) return;
+      metricsFrameEl.src = `${base}/?_=${Date.now()}`;
+    }
+
+    async function pollTelemetry() {
+      try {
+        const r = await fetch("/ui-config", { cache: "no-store" });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        metricsUiConfig = cfg;
+
+        if (cfg.show_sac_metrics && !sacMetricsAvailable) {
+          sacMetricsAvailable = true;
+          updateMetricsPanelChrome();
+          if (cfg.metrics_panel_open_default) {
+            setMetricsPanelOpen(true);
+          }
+        }
+
+        if (!cfg.show_sac_metrics) {
+          return;
+        }
+
+        const port = Number(cfg.metrics_port) || 5556;
+        const healthUrl = `${metricsBaseUrl(port)}/api/health`;
+        try {
+          const hr = await fetch(healthUrl, { cache: "no-store", mode: "cors" });
+          if (!hr.ok) {
+            metricsServerConnected = false;
+            metricsStatusEl.textContent = "Waiting for learner metrics server…";
+            return;
+          }
+          const wasConnected = metricsServerConnected;
+          metricsServerConnected = true;
+          metricsStatusEl.textContent = "Metrics live";
+          if (!wasConnected || metricsPanelOpen) {
+            ensureMetricsFrameLoaded(!wasConnected);
+          }
+        } catch (e) {
+          metricsServerConnected = false;
+          metricsStatusEl.textContent = "Waiting for learner metrics server…";
+        }
+      } catch (e) {
+        // Renderer ui-config unavailable; retry on next poll.
+      }
+    }
+
     async function fetchStateHistoryTick() {
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
         return;
@@ -723,7 +1037,7 @@
 
       const frame = stateForRender();
       if (frame) {
-        updateControlPlotSeries(frame);
+        updateTimeSeriesPlots(frame);
       }
       if (frame && frame.poses && frame.poses.length > 0) {
         const ego = frame.poses[frame.ego_idx || 0];
@@ -818,8 +1132,9 @@
           ctx.restore();
         });
       }
-      if (showControlPlots) {
-        drawControlPlots(frame);
+      if (plotsPanelOpen) {
+        maybeResizePlotCanvas();
+        drawTimeSeriesPlots(frame);
       }
       requestAnimationFrame(draw);
     }
@@ -992,17 +1307,38 @@
     toggleCarInfoEl.addEventListener("change", () => {
       showCarStateInfo = !!toggleCarInfoEl.checked;
     });
-    toggleControlPlotsEl.addEventListener("change", () => {
-      showControlPlots = !!toggleControlPlotsEl.checked;
-      plotPanelEl.style.display = showControlPlots ? "block" : "none";
-      if (showControlPlots) resizePlotCanvas();
+    togglePlotsEl.addEventListener("click", () => {
+      setPlotsPanelOpen(!plotsPanelOpen);
     });
+    plotsPanelTabEl.addEventListener("click", () => {
+      setPlotsPanelOpen(true);
+    });
+    plotsPanelCloseEl.addEventListener("click", () => {
+      setPlotsPanelOpen(false);
+    });
+    toggleSacMetricsEl.addEventListener("click", () => {
+      if (!sacMetricsAvailable) return;
+      setMetricsPanelOpen(!metricsPanelOpen);
+    });
+    metricsPanelTabEl.addEventListener("click", () => {
+      setMetricsPanelOpen(true);
+    });
+    metricsPanelCloseEl.addEventListener("click", () => {
+      setMetricsPanelOpen(false);
+    });
+    window.addEventListener("resize", updateSidePanelLayout);
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(() => {
-        if (showControlPlots) resizePlotCanvas();
+        updateSidePanelLayout();
+        if (plotsPanelOpen) maybeResizePlotCanvas(true);
       });
-      ro.observe(plotPanelEl);
+      ro.observe(plotsPanelEl);
+      ro.observe(metricsPanelEl);
     }
+    updatePlotsPanelChrome();
+    updateMetricsPanelChrome();
+    setInterval(pollTelemetry, 2000);
+    pollTelemetry();
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();

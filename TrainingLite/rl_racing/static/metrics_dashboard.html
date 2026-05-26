@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SAC training metrics</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1115;
+      --panel: #171a21;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #8ab4f8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 12px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid #2a2f3a;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: baseline;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    #meta { color: var(--muted); font-size: 0.9rem; }
+    #status { margin-left: auto; font-size: 0.85rem; color: var(--muted); }
+    #status.error { color: #f28b82; }
+    #chart {
+      width: 100%;
+      min-height: 400px;
+      touch-action: pan-y;
+    }
+    /* Let vertical swipes scroll the page / iframe instead of panning Plotly subplots. */
+    body.touch-scroll #chart,
+    body.touch-scroll #chart .plotly-graph-div {
+      touch-action: pan-y;
+    }
+    body.touch-scroll #chart .main-svg {
+      pointer-events: none;
+    }
+    .empty {
+      padding: 48px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Training metrics</h1>
+    <div id="meta">Waiting for data…</div>
+    <div id="status">connecting</div>
+  </header>
+  <div id="chart"></div>
+  <div id="empty" class="empty" hidden>No metrics yet — training logs will appear here.</div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const metaEl = document.getElementById("meta");
+    const titleEl = document.getElementById("title");
+    const chartEl = document.getElementById("chart");
+    const emptyEl = document.getElementById("empty");
+
+    let pollTimer = null;
+    let lastMtime = null;
+
+    function isTouchScrollMode() {
+      return (
+        window.matchMedia("(pointer: coarse)").matches ||
+        window.matchMedia("(hover: none)").matches ||
+        window.matchMedia("(max-width: 900px)").matches
+      );
+    }
+
+    function applyTouchScrollMode() {
+      document.body.classList.toggle("touch-scroll", isTouchScrollMode());
+    }
+
+    function plotlyConfig() {
+      const touchScroll = isTouchScrollMode();
+      return {
+        responsive: true,
+        displayModeBar: false,
+        scrollZoom: false,
+        doubleClick: false,
+        staticPlot: touchScroll,
+      };
+    }
+
+    applyTouchScrollMode();
+    window.addEventListener("resize", applyTouchScrollMode);
+    window.matchMedia("(pointer: coarse)").addEventListener?.("change", applyTouchScrollMode);
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    const TRACE_COLOR = "#8ab4f8";
+
+    function niceDtick(span, targetTicks) {
+      if (!Number.isFinite(span) || span <= 0) return 1;
+      const raw = span / Math.max(1, targetTicks);
+      const pow10 = Math.pow(10, Math.floor(Math.log10(raw)));
+      const norm = raw / pow10;
+      let nice = 1;
+      if (norm > 5) nice = 10;
+      else if (norm > 2) nice = 5;
+      else if (norm > 1) nice = 2;
+      return nice * pow10;
+    }
+
+    function globalXExtent(series) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const s of series) {
+        for (const x of s.x || []) {
+          const v = Number(x);
+          if (Number.isFinite(v)) {
+            min = Math.min(min, v);
+            max = Math.max(max, v);
+          }
+        }
+      }
+      if (!Number.isFinite(min)) return [0, 1];
+      if (min === max) return [min - 0.5, max + 0.5];
+      const pad = (max - min) * 0.02;
+      return [min - pad, max + pad];
+    }
+
+    function buildFigure(data) {
+      const series = data.series || [];
+      if (!series.length) {
+        return null;
+      }
+
+      const n = series.length;
+      const traces = [];
+      const xRange = globalXExtent(series);
+      const xDtick = niceDtick(xRange[1] - xRange[0], 8);
+      const annotations = [];
+
+      const layout = {
+        grid: { rows: n, columns: 1, pattern: "independent", roworder: "top to bottom" },
+        showlegend: false,
+        paper_bgcolor: "#0f1115",
+        plot_bgcolor: "#171a21",
+        font: { color: "#e8eaed", size: 11 },
+        margin: { l: 56, r: 16, t: 12, b: 44 },
+        height: Math.max(420, 200 * n),
+        annotations,
+      };
+
+      series.forEach((s, i) => {
+        const row = i + 1;
+        const xaxis = row === 1 ? "x" : "x" + row;
+        const yaxis = row === 1 ? "y" : "y" + row;
+        const xaxisLayoutKey = row === 1 ? "xaxis" : "xaxis" + row;
+        const yaxisLayoutKey = row === 1 ? "yaxis" : "yaxis" + row;
+        const isScatter = s.type === "scatter";
+
+        traces.push({
+          x: s.x,
+          y: s.y,
+          type: "scatter",
+          mode: isScatter ? "markers" : "lines",
+          marker: { size: 4, color: TRACE_COLOR },
+          line: { width: 1.5, color: TRACE_COLOR },
+          showlegend: false,
+          hovertemplate: `${s.name}<br>%{x}<br>%{y}<extra></extra>`,
+          xaxis,
+          yaxis,
+        });
+
+        layout[yaxisLayoutKey] = {
+          gridcolor: "#2a2f3a",
+          zerolinecolor: "#2a2f3a",
+        };
+
+        layout[xaxisLayoutKey] = {
+          gridcolor: "#2a2f3a",
+          zerolinecolor: "#2a2f3a",
+          showticklabels: i === n - 1,
+          ...(row === 1
+            ? {
+                range: xRange,
+                dtick: xDtick,
+                tickmode: "linear",
+              }
+            : { matches: "x" }),
+          ...(i === n - 1
+            ? { title: { text: data.x_label || "step", font: { size: 11 } } }
+            : {}),
+        };
+
+        annotations.push({
+          text: "<b>" + s.name + "</b>",
+          showarrow: false,
+          xref: xaxis + " domain",
+          yref: yaxis + " domain",
+          x: 0.01,
+          y: 1.03,
+          xanchor: "left",
+          yanchor: "bottom",
+          font: { size: 13, color: "#e8eaed", family: "system-ui, sans-serif" },
+        });
+      });
+
+      return { traces, layout };
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/metrics", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        titleEl.textContent = data.model_name ? `Training metrics — ${data.model_name}` : "Training metrics";
+        const mtime = data.csv_mtime;
+        const mtimeStr = mtime ? new Date(mtime * 1000).toLocaleTimeString() : "—";
+        metaEl.textContent = `${data.row_count || 0} rows · x: ${data.x_label || data.x_key} · updated ${mtimeStr}`;
+
+        const fig = buildFigure(data);
+        if (!fig) {
+          chartEl.hidden = true;
+          emptyEl.hidden = false;
+          setStatus("no data yet");
+          return;
+        }
+
+        chartEl.hidden = false;
+        emptyEl.hidden = true;
+        const changed = mtime !== lastMtime;
+        lastMtime = mtime;
+        applyTouchScrollMode();
+        await Plotly.react(chartEl, fig.traces, fig.layout, plotlyConfig());
+        setStatus(changed ? "updated" : "live");
+
+        const intervalMs = Math.max(1000, (data.poll_interval_s || 2) * 1000);
+        if (pollTimer) clearTimeout(pollTimer);
+        pollTimer = setTimeout(refresh, intervalMs);
+      } catch (err) {
+        setStatus(`error: ${err.message}`, true);
+        pollTimer = setTimeout(refresh, 3000);
+      }
+    }
+
+    refresh();
+  </script>
+</body>
+</html>

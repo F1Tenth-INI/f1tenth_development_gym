@@ -11,7 +11,7 @@ import os
 import sys
 import csv
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import matplotlib
 import matplotlib.pyplot as plt
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -396,10 +396,46 @@ class TrainingLogHelper():
         self.start_time = self.initialize_start_time() # Training time start
 
         self.training_index = 0
-        self.plot_every = int(getattr(Settings, "SAC_METRICS_PLOT_EVERY", 5))
+        self.plot_every: Union[int, str] = self._parse_plot_every_setting()
+        self._final_metrics_png_done = False
 
 
     
+    @staticmethod
+    def _parse_plot_every_setting() -> Union[int, str]:
+        raw = getattr(Settings, "SAC_METRICS_PLOT_EVERY", 5)
+        if isinstance(raw, str) and raw.strip().lower() == "end":
+            return "end"
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return 5
+
+    def maybe_plot_training_metrics_periodic(self) -> None:
+        if self.plot_every == "end":
+            return
+        if not getattr(Settings, "SAC_METRICS_PNG_ENABLED", False):
+            return
+        if self.training_index % int(self.plot_every) != 0:
+            return
+        self._plot_training_metrics_safe()
+
+    def maybe_plot_training_metrics_final(self) -> None:
+        if self.plot_every != "end":
+            return
+        if self._final_metrics_png_done:
+            return
+        if not getattr(Settings, "SAC_METRICS_PNG_ENABLED", False):
+            return
+        self._final_metrics_png_done = True
+        self._plot_training_metrics_safe()
+
+    def _plot_training_metrics_safe(self) -> None:
+        try:
+            self.plot_training_metrics()
+        except Exception as e:
+            print(f"[TrainingLogHelper] Failed to plot training metrics: {e}")
+
     def initialize_start_time(self):
         # Initialize start time, possibly resuming from existing CSV
 
@@ -537,11 +573,7 @@ class TrainingLogHelper():
 
         self.training_index += 1
 
-        if self.training_index % self.plot_every == 0:
-            try:
-                self.plot_training_metrics()
-            except Exception as e:
-                print(f"[TrainingLogHelper] Failed to plot training metrics: {e}")
+        self.maybe_plot_training_metrics_periodic()
 
     def plot_training_metrics(self):
         model_dir = self.model_dir

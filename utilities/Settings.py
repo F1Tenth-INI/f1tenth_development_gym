@@ -243,8 +243,16 @@ class Settings():
     SAC_BATCH_SIZE = 256
     # Stream transitions to the learner every N env steps (episode tail is flushed on done).
     SAC_STREAM_BATCH_SIZE = 32
-    # Metrics / I/O: avoid blocking the train loop every round.
-    SAC_METRICS_PLOT_EVERY = 5
+    # Metrics PNG (training_metrics.png): positive int = every N CSV rows; "end" = only when training stops.
+    SAC_METRICS_PLOT_EVERY = "end"
+    # Live metrics dashboard (GET /api/metrics on learner HTTP port).
+    LEARNER_METRICS_HTTP_ENABLED = True
+    LEARNER_METRICS_HTTP_PORT = 5556
+    LEARNER_METRICS_HTTP_POLL_S = 2.0
+    # Open SAC metrics side panel in the web renderer on load (sac_agent only).
+    SAC_METRICS_PANEL_OPEN_DEFAULT = False
+    # Matplotlib PNG (training_metrics.png); off by default when HTTP dashboard is on.
+    SAC_METRICS_PNG_ENABLED = False
     SAC_MODEL_AUTOSAVE_INTERVAL_S = 60.0
     # When UDT is below target, allow larger grad bursts (updates per train round).
     SAC_GRAD_BURST_MULTIPLIER = 4

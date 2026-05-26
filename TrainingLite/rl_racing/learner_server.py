@@ -20,6 +20,7 @@ import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker
+from metrics_http import MetricsHttpServer
 
 from utilities.Settings import Settings
 
@@ -442,6 +443,7 @@ class LearnerServer:
                 print(f"[server] Error saving model: {e}")
         self.save_replay_buffer()
         self.obs_tracker.flush(render_png=False)
+        self.trainingLogHelper.maybe_plot_training_metrics_final()
 
     def _buffer_obs_at(self, idx: int) -> np.ndarray:
         if self.replay_buffer is None:
@@ -1175,7 +1177,6 @@ class LearnerServer:
                 "UDT": self._current_udt(),
             }
             self.trainingLogHelper.log_to_csv(self.model, pending, log_dict)
-            self.trainingLogHelper.plot_training_metrics()
             print(
                 f"[server] Flushed {len(pending)} pending episode(s) to metrics before termination."
             )
@@ -1550,6 +1551,17 @@ class LearnerServer:
         # start trainer task and keep reference for cleanup
         train_task = asyncio.create_task(self._train_loop())
 
+        metrics_http: Optional[MetricsHttpServer] = None
+        if getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True):
+            metrics_http = MetricsHttpServer(
+                host=self.host,
+                port=int(getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 5556)),
+                csv_path=self.trainingLogHelper.csv_path,
+                model_name=self.save_model_name,
+                poll_hint_s=float(getattr(Settings, "LEARNER_METRICS_HTTP_POLL_S", 2.0)),
+            )
+            await metrics_http.start()
+
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
         addrs = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
         print(
@@ -1612,6 +1624,9 @@ class LearnerServer:
             # Close server
             server.close()
             await server.wait_closed()
+
+            if metrics_http is not None:
+                await metrics_http.close()
             
             print("[server] Saving model before exit...")
             await self._await_pending_checkpoint()

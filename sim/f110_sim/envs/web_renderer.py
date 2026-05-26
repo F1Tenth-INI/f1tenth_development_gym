@@ -1116,6 +1116,7 @@ class WebEnvRenderer:
         self._last_auto_open_attempt_s = 0.0
         self._auto_open_startup_grace_s = 5.0
         self._created_at_s = time.time()
+        self._ui_config = self._build_ui_config()
 
         renderer = self
 
@@ -1172,6 +1173,10 @@ class WebEnvRenderer:
                         payload = dict(renderer._static_overlay)
                         payload["session_id"] = renderer._session_id
                     self._send_json(payload)
+                    return
+
+                if path == "/ui-config":
+                    self._send_json(dict(renderer._ui_config))
                     return
 
                 if path == "/map":
@@ -1312,6 +1317,29 @@ class WebEnvRenderer:
         time.sleep(max(0.0, self._auto_open_startup_grace_s))
         self._maybe_autolaunch_browser()
         self._auto_open_done = True
+
+    @staticmethod
+    def _build_ui_config() -> Dict[str, Any]:
+        try:
+            from utilities.Settings import Settings
+
+            controller = str(getattr(Settings, "CONTROLLER", "") or "")
+            metrics_enabled = bool(getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True))
+            metrics_port = int(getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 5556))
+            open_default = bool(getattr(Settings, "SAC_METRICS_PANEL_OPEN_DEFAULT", False))
+        except Exception:
+            controller = ""
+            metrics_enabled = False
+            metrics_port = 5556
+            open_default = False
+
+        show_sac_metrics = controller == "sac_agent" and metrics_enabled
+        return {
+            "controller": controller,
+            "show_sac_metrics": show_sac_metrics,
+            "metrics_port": metrics_port,
+            "metrics_panel_open_default": open_default and show_sac_metrics,
+        }
 
     def _load_html_page(self) -> str:
         # Prefer external client file so frontend iteration does not require
