@@ -12,9 +12,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
+import shutil
 import signal
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -45,7 +48,112 @@ if PROJECT_ROOT.exists():
         sys.path.insert(0, root_str)
 
 from learner_server import LearnerServer  # noqa: E402
+from utilities.Settings import Settings  # noqa: E402
 from utilities.parser_utilities import parse_settings_args  # noqa: E402
+
+_TQDM_PROGRESS_RE = re.compile(
+    r"(?P<pct>\d+%)?\s*\|[^\n|]*\|\s*(?P<cur>\d+)\s*/\s*(?P<tot>\d+)\s*\[(?P<timing>[^\]]+)\]"
+)
+
+MODELS_ROOT = PROJECT_ROOT / "TrainingLite" / "rl_racing" / "models"
+
+
+def _model_dir_for_name(model_name: str) -> Path:
+    return MODELS_ROOT / model_name
+
+
+def backup_existing_model_if_present(save_model_name: str) -> Optional[Path]:
+    """
+    If models/{save_model_name} already exists with content, copy it to
+    models/{save_model_name}_backup_{timestamp} before training overwrites it.
+    """
+    model_dir = _model_dir_for_name(save_model_name)
+    if not model_dir.is_dir():
+        return None
+    try:
+        has_content = any(model_dir.iterdir())
+    except OSError as exc:
+        print(f"[run_training] Warning: could not inspect model dir {model_dir}: {exc}")
+        return None
+    if not has_content:
+        return None
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_dir = MODELS_ROOT / f"{save_model_name}_backup_{timestamp}"
+    suffix = 1
+    while backup_dir.exists():
+        backup_dir = MODELS_ROOT / f"{save_model_name}_backup_{timestamp}_{suffix}"
+        suffix += 1
+
+    try:
+        shutil.copytree(model_dir, backup_dir)
+    except Exception as exc:
+        print(f"[run_training] Failed to back up {model_dir} -> {backup_dir}: {exc}")
+        raise
+
+    print(f"[run_training] Backed up existing model: {model_dir} -> {backup_dir}")
+    return backup_dir
+
+
+class CombinedTrainingStatus:
+    """One terminal line: tqdm sim progress + learner train stats."""
+
+    def __init__(self) -> None:
+        self._sim = ""
+        self._train = ""
+        self._last_len = 0
+
+    def set_train(self, msg: str) -> None:
+        self._train = str(msg).strip()
+        self._redraw()
+
+    def handle_client_text(self, text: str) -> None:
+        """Handle one stdout segment (tqdm uses \\r without newlines when piped)."""
+        stripped = text.strip()
+        if not stripped or stripped.startswith("[server]"):
+            return
+        parsed = _parse_tqdm_progress(stripped)
+        if parsed is not None:
+            self._sim = parsed
+            self._redraw()
+            return
+        self._println(stripped)
+
+    def _redraw(self) -> None:
+        parts = [p for p in (self._sim, self._train) if p]
+        if not parts:
+            return
+        line = " | ".join(parts)
+        pad = max(0, self._last_len - len(line))
+        sys.stdout.write("\r" + line + " " * pad)
+        sys.stdout.flush()
+        self._last_len = len(line)
+
+    def _println(self, msg: str) -> None:
+        if self._last_len > 0:
+            sys.stdout.write("\r" + " " * self._last_len + "\r")
+            sys.stdout.flush()
+            self._last_len = 0
+        print(msg, flush=True)
+
+    def finish(self) -> None:
+        if self._last_len > 0:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._last_len = 0
+
+
+def _parse_tqdm_progress(line: str) -> Optional[str]:
+    """Extract compact progress from a tqdm trange line."""
+    m = _TQDM_PROGRESS_RE.search(line)
+    if m is None:
+        return None
+    pct = m.group("pct") or ""
+    cur, tot, timing = m.group("cur"), m.group("tot"), m.group("timing")
+    parts = [p.strip() for p in timing.split(",") if p.strip()]
+    timing_short = ", ".join(parts[:2]) if parts else timing.strip()
+    prefix = f"{pct} " if pct else ""
+    return f"{prefix}{cur}/{tot} [{timing_short}]"
 
 
 def _parse_bool_arg(value: str) -> bool:
@@ -86,11 +194,19 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         default="cuda" if torch.cuda.is_available() else "cpu",
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--train-every-seconds", type=float, default=0.1)
-    parser.add_argument("--gradient-steps", type=int, default=256)
+    parser.add_argument("--train-every-seconds", type=float, default=0.0)
+    parser.add_argument("--gradient-steps", type=int, default=32)
     parser.add_argument("--replay-capacity", type=int, default=100_000)
     parser.add_argument("--learning-starts", type=int, default=500)
-    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help=(
+            "Legacy alias for SAC training minibatch size. Prefer --SAC_BATCH_SIZE "
+            "(Settings); when set, overrides --SAC_BATCH_SIZE for this run."
+        ),
+    )
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--discount-factor", type=float, default=0.99)
     parser.add_argument("--train-frequency", type=int, default=1)
@@ -160,7 +276,8 @@ def resolve_run_script_path(run_script_path: str) -> Optional[Path]:
 
 def start_client_process(
     run_script_path: str,
-    forward_output: bool,
+    *,
+    attach_tty: bool,
     extra_args: Optional[list[str]] = None,
 ) -> Optional[subprocess.Popen]:
     script_path = resolve_run_script_path(run_script_path)
@@ -175,7 +292,7 @@ def start_client_process(
 
     preexec = _child_death_signal if os.name == "posix" else None
     try:
-        if forward_output:
+        if attach_tty:
             process = subprocess.Popen(
                 cmd,
                 stdout=None,
@@ -199,42 +316,83 @@ def start_client_process(
         return None
 
 
-async def forward_client_output(process: subprocess.Popen) -> None:
+def _read_stdout_chunk(stdout, timeout_s: float = 0.05) -> bytes:
+    """Non-blocking read so tqdm \\r updates are visible before a final newline."""
+    if stdout is None:
+        return b""
+    fd = stdout.fileno()
+    try:
+        import select
+
+        ready, _, _ = select.select([fd], [], [], timeout_s)
+        if not ready:
+            return b""
+        return os.read(fd, 4096)
+    except (ValueError, OSError):
+        return b""
+
+
+async def forward_client_output(
+    process: subprocess.Popen, status: Optional[CombinedTrainingStatus] = None
+) -> None:
     if process.stdout is None:
         return
 
+    pending = ""
     try:
-        while process.poll() is None:
-            line = await asyncio.to_thread(process.stdout.readline)
-            if not line:
+        while True:
+            chunk_b = await asyncio.to_thread(_read_stdout_chunk, process.stdout)
+            if chunk_b:
+                pending += chunk_b.decode("utf-8", errors="replace")
+            while True:
+                split_at = None
+                for i, ch in enumerate(pending):
+                    if ch in "\r\n":
+                        split_at = i
+                        break
+                if split_at is None:
+                    break
+                segment = pending[:split_at]
+                pending = pending[split_at + 1 :]
+                if not segment.strip():
+                    continue
+                if status is not None:
+                    status.handle_client_text(segment)
+                else:
+                    print(f"[client] {segment.strip()}")
+            if not chunk_b and process.poll() is not None:
                 break
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                print(f"[client] {decoded}")
+        if pending.strip():
+            if status is not None:
+                status.handle_client_text(pending)
+            else:
+                print(f"[client] {pending.strip()}")
     except Exception as exc:
         if process.poll() is None:
             print(f"[run_training] Error reading client output: {exc}")
+    finally:
+        if status is not None:
+            status.finish()
 
 
-async def _run_with_optional_client(server: LearnerServer, args: argparse.Namespace) -> None:
+async def _run_with_optional_client(
+    server: LearnerServer, args: argparse.Namespace, status: Optional[CombinedTrainingStatus]
+) -> None:
     forward_task: asyncio.Task | None = None
     client_process: Optional[subprocess.Popen] = None
 
     try:
         if args.auto_start_client:
             await asyncio.sleep(1.0)
+            use_combined = status is not None
             client_process = start_client_process(
                 "run.py",
-                forward_output=args.forward_client_output,
+                attach_tty=not use_combined and args.forward_client_output,
                 extra_args=getattr(args, "forwarded_settings_args", []),
             )
-            if (
-                not args.forward_client_output
-                and client_process is not None
-                and client_process.stdout is not None
-            ):
+            if client_process is not None and client_process.stdout is not None:
                 forward_task = asyncio.create_task(
-                    forward_client_output(client_process)
+                    forward_client_output(client_process, status)
                 )
 
         await server.run()
@@ -269,6 +427,15 @@ def main() -> None:
     if getattr(run_args, "save_model_name", None) is None:
         run_args.save_model_name = run_args.model_name
 
+    # SAC training minibatch (replay sample size per grad step), not SAC_STREAM_BATCH_SIZE.
+    if run_args.batch_size is not None:
+        train_batch_size = int(run_args.batch_size)
+    else:
+        train_batch_size = int(Settings.SAC_BATCH_SIZE)
+
+    backup_existing_model_if_present(str(run_args.save_model_name))
+
+    combined_status = CombinedTrainingStatus() if run_args.auto_start_client else None
     server = LearnerServer(
         host=run_args.host,
         port=run_args.port,
@@ -280,16 +447,19 @@ def main() -> None:
         grad_steps=run_args.gradient_steps,
         replay_capacity=run_args.replay_capacity,
         learning_starts=run_args.learning_starts,
-        batch_size=run_args.batch_size,
+        batch_size=train_batch_size,
         learning_rate=run_args.learning_rate,
         discount_factor=run_args.discount_factor,
         train_frequency=run_args.train_frequency,
         save_replay_buffer=run_args.save_replay_buffer,
         load_replay_buffer=run_args.load_replay_buffer,
+        status_line_callback=(
+            combined_status.set_train if combined_status is not None else None
+        ),
     )
 
     try:
-        asyncio.run(_run_with_optional_client(server, run_args))
+        asyncio.run(_run_with_optional_client(server, run_args, combined_status))
     except KeyboardInterrupt:
         print("\n[server] KeyboardInterrupt received in run_training, exiting...")
         run_completed = False
@@ -339,7 +509,9 @@ def main() -> None:
             print(f"[run_training] Launching evaluation client with model '{model_name}'")
             try:
                 eval_proc = start_client_process(
-                    "run.py", forward_output=run_args.forward_client_output, extra_args=eval_args
+                    "run.py",
+                    attach_tty=run_args.forward_client_output,
+                    extra_args=eval_args,
                 )
                 if eval_proc is not None:
                     # Wait for evaluation client to finish and report exit code

@@ -1048,11 +1048,19 @@ class WebEnvRenderer:
 
     The browser client source-of-truth is `sim/f110_sim/envs/WebRenderer/index.html`.
     """
-    _auto_open_done_once = False
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8765):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+        actor_id: int = 0,
+        auto_open_browser: bool = True,
+    ):
         self.host = host
         self.port = port
+        self.actor_id = int(actor_id)
+        self.auto_open_browser = bool(auto_open_browser)
+        self._auto_open_done = False
         self._lock = threading.Lock()
         self._state: Dict[str, Any] = {
             "ego_idx": 0,
@@ -1214,10 +1222,13 @@ class WebEnvRenderer:
         self.port = int(self._server.server_address[1])
         self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._server_thread.start()
-        print(f"Web renderer listening on http://{self.host}:{self.port}")
-        # Startup-only auto-open loop:
-        # try after grace and a few retries, but never during regular rendering.
-        threading.Thread(target=self._autolaunch_on_startup_once, daemon=True).start()
+        browser_url = self._browser_url()
+        print(
+            f"Web renderer (actor {self.actor_id}) listening on {browser_url} "
+            f"(bind {self.host}:{self.port})"
+        )
+        if self.auto_open_browser:
+            threading.Thread(target=self._autolaunch_on_startup_once, daemon=True).start()
 
     def _prune_inactive_viewers_locked(self, now_s: Optional[float] = None):
         now_s = time.time() if now_s is None else now_s
@@ -1264,8 +1275,15 @@ class WebEnvRenderer:
             self._prune_inactive_viewers_locked(now_s)
             return len(self._viewer_last_seen) > 0
 
+    def _browser_url(self) -> str:
+        """URL for local browser tabs (bind-all addresses map to localhost)."""
+        host = str(self.host).strip()
+        if host in ("0.0.0.0", "::", ""):
+            host = "127.0.0.1"
+        return f"http://{host}:{self.port}"
+
     def _maybe_autolaunch_browser(self):
-        if WebEnvRenderer._auto_open_done_once:
+        if self._auto_open_done or not self.auto_open_browser:
             return
         now_s = time.time()
         if (now_s - self._created_at_s) < self._auto_open_startup_grace_s:
@@ -1277,27 +1295,23 @@ class WebEnvRenderer:
                 return
             self._last_auto_open_attempt_s = now_s
         try:
-            webbrowser.open(f"http://{self.host}:{self.port}", new=0, autoraise=False)
-            WebEnvRenderer._auto_open_done_once = True
+            webbrowser.open(self._browser_url(), new=1, autoraise=False)
+            self._auto_open_done = True
         except Exception:
             # Auto-open is best-effort and should never break simulation.
             pass
 
     def _autolaunch_on_startup_once(self):
         """
-        Attempt browser auto-open exactly once around renderer startup.
+        Attempt browser auto-open once per renderer instance (per simulation process).
 
-        This preserves convenience at the beginning of `run.py`, while avoiding
-        repeated auto-open attempts on every episode or after manual tab close.
+        Each actor/sim gets its own tab on startup; no global lock across processes.
         """
-        if WebEnvRenderer._auto_open_done_once:
+        if self._auto_open_done or not self.auto_open_browser:
             return
-        # Wait for startup grace before first attempt.
         time.sleep(max(0.0, self._auto_open_startup_grace_s))
-        # Single-shot behavior by request: one startup attempt only.
         self._maybe_autolaunch_browser()
-        # Mark done regardless of success to prevent any further reopen attempts.
-        WebEnvRenderer._auto_open_done_once = True
+        self._auto_open_done = True
 
     def _load_html_page(self) -> str:
         # Prefer external client file so frontend iteration does not require

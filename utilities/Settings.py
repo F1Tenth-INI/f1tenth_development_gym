@@ -4,7 +4,7 @@ class Settings():
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
-    SIM_ODE_IMPLEMENTATION = "ODE_TF"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
+    SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
     MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
@@ -83,7 +83,7 @@ class Settings():
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
     SIMULATION_LENGTH = 2000 # In sim timesteps: Length until the simulation is terminated
-    MAX_EPISODE_LENGTH = 2000 
+    MAX_EPISODE_LENGTH = 2048 
 
 
     ## Noise ##
@@ -159,7 +159,8 @@ class Settings():
     # RENDER_MODE = None          # no rendering
     RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
-    WEB_RENDER_PORT = 8765               # web renderer TCP port
+    WEB_RENDER_PORT = 8765               # base TCP port for actor 0; actor N uses WEB_RENDER_PORT + N
+    WEB_RENDER_AUTO_OPEN = True          # open a browser tab per sim on startup (one tab per renderer)
     PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
@@ -187,12 +188,15 @@ class Settings():
     DISABLE_GPU = True # Disable GPU usage for TF
 
     ## SAC Agent planner
+    ACTOR_ID = 0                         # RL actor index (TCP learner + web renderer port offset)
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     # If set (seconds), training actor sends learner terminate once at least two completed laps
     # are strictly faster than this (so metrics can include the first sub-threshold lap).
     SAC_TERMINATE_BELOW_LAPTIME = None
     SAC_AGENT_DEBUG = False
     LEARNER_SERVER_DEBUG = False
+    # Min seconds between train status updates when not using run_training combined display.
+    LEARNER_SERVER_TRAIN_LOG_INTERVAL_S = 1.0
 
     SAC_SPEED_CURRICULUM_LEARNING = False
     SAC_CURRICULUM_DEBUG = False
@@ -226,12 +230,25 @@ class Settings():
 
     SAC_SAVE_MODEL_CHECKPOINTS = True
     SAC_CHECKPOINT_FREQUENCY = 5000 #in timesteps
+    # Replay CSV during background checkpoints (can be slow; main model save is always kept).
+    SAC_CHECKPOINT_SAVE_REPLAY = False
     # UDT = learner total_weight_updates / total_actor_timesteps. When set, SAC agent adjusts
     # MAX_SIM_FREQUENCY after each training_info update (see learner_server + sac_agent_planner).
     SAC_TARGET_UTD = None
     SAC_MAX_UTD = 4 
     SAC_UDT_FREQ_ADJUST_STEP_RATIO = 0.05
     SAC_MIN_SIM_FREQUENCY = 20.0
+    SAC_UDT_REF_SIM_FREQUENCY = 200.0
+    # SAC replay minibatch size (samples per gradient step on the learner).
+    SAC_BATCH_SIZE = 256
+    # Stream transitions to the learner every N env steps (episode tail is flushed on done).
+    SAC_STREAM_BATCH_SIZE = 32
+    # Metrics / I/O: avoid blocking the train loop every round.
+    SAC_METRICS_PLOT_EVERY = 5
+    SAC_MODEL_AUTOSAVE_INTERVAL_S = 60.0
+    # When UDT is below target, allow larger grad bursts (updates per train round).
+    SAC_GRAD_BURST_MULTIPLIER = 4
+    SAC_MAX_GRAD_BURST = 2048
 
     # Saves full obs and action for each transition, so that for analysis, models can be called on all transitions explored during training directly
     SAC_STAT_TRACKER = False

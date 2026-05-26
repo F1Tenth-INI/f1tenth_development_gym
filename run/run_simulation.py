@@ -134,8 +134,15 @@ class RacingSimulation:
             if self.renderer_backend == "web":
                 from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
                 web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
-                web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765))
-                self.renderer = WebEnvRenderer(host=web_host, port=web_port)
+                actor_id = int(getattr(Settings, "ACTOR_ID", 0))
+                web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765)) + actor_id
+                auto_open = bool(getattr(Settings, "WEB_RENDER_AUTO_OPEN", True))
+                self.renderer = WebEnvRenderer(
+                    host=web_host,
+                    port=web_port,
+                    actor_id=actor_id,
+                    auto_open_browser=auto_open,
+                )
             elif self.renderer_backend == "pygame":
                 from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
                 window_width, _ = ScreenUtils.get_scaled_window_size(0.7)

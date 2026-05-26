@@ -93,18 +93,14 @@ class RLAgentPlanner(template_planner):
         self.client: Optional[_TCPActorClient] = None
         self.latest_training_info: Optional[Dict[str, Any]] = None
         self._last_client_model_dir: Optional[str] = None
-        # Upper bound for UDT-driven MAX_SIM_FREQUENCY tweaks: never exceed initial Settings value.
-        self._udt_sim_frequency_ceiling: Optional[float] = (
-            float(Settings.MAX_SIM_FREQUENCY)
-            if self.training_mode and Settings.MAX_SIM_FREQUENCY is not None
-            else None
-        )
+        self._udt_filtered_sim_hz: Optional[float] = None
 
         # --- networking ---
 
         if self.training_mode:
-            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=2)
-            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=1)
+            actor_id = int(getattr(Settings, "ACTOR_ID", 0))
+            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=actor_id)
+            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=actor_id)
             self.client.start()
             
             # Send clear buffer message on initialization
@@ -153,9 +149,12 @@ class RLAgentPlanner(template_planner):
         self.save_transitions = False
         self.autonomous_driving = True
         self.control_index = 0
-        # For fast smoke tests: send the first couple transitions early so the learner can infer obs_dim
-        # and broadcast weights without waiting for an episode to end.
+        # Send the first couple transitions early once per simulation so the learner can infer
+        # obs_dim and broadcast weights without waiting for a full stream batch or episode end.
         self._bootstrap_sent = False
+        self._stream_send_idx = 0
+        self._stream_batch_size = int(getattr(Settings, "SAC_STREAM_BATCH_SIZE", 8))
+        self._episode_id = 0
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -173,6 +172,9 @@ class RLAgentPlanner(template_planner):
         
         self.transition_logger.clear()
         self.control_index = 0
+        # Do not reset _bootstrap_sent here: car_system.reset() runs on every env
+        # done (RESET_ON_DONE), not only at simulation start. Bootstrap is once per
+        # planner lifetime (__init__).
 
         self.prev_obs_raw = None
         self.prev_action = None
@@ -268,17 +270,19 @@ class RLAgentPlanner(template_planner):
         info_out = dict(info or {})
         if self.curriculum_supervisor is not None:
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
+        at_episode_end = bool(done) or self.control_index >= Settings.MAX_EPISODE_LENGTH
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),
             "next_obs": next_obs.astype(np.float32),
             "reward":   float(reward),
-            "done":     bool(done),
+            "done":     at_episode_end,
             "info":     info_out,
         }
         self._episode.append(transition)
 
         self._maybe_bootstrap_send()
+        self._maybe_stream_send()
         if self.save_transitions:
             self.transition_logger.log(transition)
 
@@ -291,15 +295,14 @@ class RLAgentPlanner(template_planner):
             #Save Transitions
             if self.save_transitions:
                 self.transition_logger.save_csv()
-            #Send Transitions to Learner Server
+            # Flush any transitions not yet streamed this episode
             if self.training_mode and self.autonomous_driving:
-                try:
-                    if len(self._episode) > 10:
-                        self.client.send_transition_batch(self._episode)
-                        if Settings.SAC_AGENT_DEBUG:
-                            print(f"[RLAgentPlanner] Sending episode with {len(self._episode)} transitions with total reward {total_reward}.")
-                except Exception as e:
-                    print(f"[RLAgentPlanner] Failed to send episode: {e}")
+                self._flush_stream_send(episode_end=True)
+                if Settings.SAC_AGENT_DEBUG and self._episode:
+                    print(
+                        f"[RLAgentPlanner] Episode done: {len(self._episode)} transitions, "
+                        f"total reward {total_reward:.2f}."
+                    )
             self._reset_episode_state()
 
     def on_simulation_end(self, collision=False):
@@ -501,56 +504,25 @@ class RLAgentPlanner(template_planner):
                 print("[RLAgentPlanner] ✅ Actor weights updated.")
 
     def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
-        """
-        If server sent udt_control (SAC_TARGET_UTD set on learner), tune MAX_SIM_FREQUENCY:
-        UDT too low -> decrease Hz; UDT too high -> increase Hz.
-        Uses a proportional correction to reduce overshoot.
-        """
-        metrics = training_info.get("metrics")
-        if not isinstance(metrics, dict):
+        udt = training_info.get("udt_control")
+        if not isinstance(udt, dict):
             return
-        current_udt = metrics.get("current_udt")
-        if not isinstance(current_udt, (int, float)):
+        suggested = udt.get("suggested_sim_frequency_hz")
+        if not isinstance(suggested, (int, float)):
             return
 
-        udt_control = training_info.get("udt_control")
-        if isinstance(udt_control, dict) and udt_control.get("target_udt") is not None:
-            target_udt = float(udt_control["target_udt"])
-            fmin = float(udt_control.get("min_sim_frequency_hz", Settings.SAC_MIN_SIM_FREQUENCY))
-        elif Settings.SAC_TARGET_UTD is not None:
-            target_udt = float(Settings.SAC_TARGET_UTD)
-            fmin = float(Settings.SAC_MIN_SIM_FREQUENCY)
-        else:
-            return
+        alpha = 0.05
+        fmin = float(udt.get("min_sim_frequency_hz", Settings.SAC_MIN_SIM_FREQUENCY))
+        target = max(float(suggested), fmin)
 
-        p_gain = 0.05
-        max_adjust_ratio = 0.15
-        if target_udt <= 0 or p_gain <= 0 or max_adjust_ratio <= 0:
-            return
-        if Settings.MAX_SIM_FREQUENCY is None:
-            return
-        fmax = self._udt_sim_frequency_ceiling
-        if fmax is None:
-            return
+        prev = self._udt_filtered_sim_hz
+        if prev is None:
+            cur = Settings.MAX_SIM_FREQUENCY
+            prev = float(cur) if cur is not None else target
 
-        prev = float(Settings.MAX_SIM_FREQUENCY)
-        updated = prev
-        normalized_error = (float(current_udt) - target_udt) / target_udt
-        delta_ratio = float(np.clip(p_gain * normalized_error, -max_adjust_ratio, max_adjust_ratio))
-        updated = prev * (1.0 + delta_ratio)
-
-        updated = float(np.clip(updated, fmin, fmax))
-        if abs(updated - prev) < 1e-9:
-            return
-
-        Settings.MAX_SIM_FREQUENCY = updated
-        if Settings.SAC_AGENT_DEBUG:
-            print(
-                "[RLAgentPlanner] UDT control: "
-                f"MAX_SIM_FREQUENCY {prev:.2f} -> {updated:.2f} Hz "
-                f"(UDT={float(current_udt):.4f}, target={target_udt:.4f}, "
-                f"p_gain={p_gain:.3f}, max_adjust_ratio={max_adjust_ratio:.3f}, reason=udt_p_controller)"
-            )
+        filtered = alpha * target + (1.0 - alpha) * prev
+        self._udt_filtered_sim_hz = filtered
+        Settings.MAX_SIM_FREQUENCY = filtered
 
     def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:
         """
@@ -579,10 +551,37 @@ class RLAgentPlanner(template_planner):
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
 
+    def _maybe_stream_send(self) -> None:
+        """Stream fixed-size transition batches while the episode is running."""
+        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+            return
+        pending = len(self._episode) - self._stream_send_idx
+        if pending < self._stream_batch_size:
+            return
+        batch = self._episode[self._stream_send_idx : self._stream_send_idx + self._stream_batch_size]
+        try:
+            self.client.send_transition_batch(batch, self._episode_id)
+            self._stream_send_idx += len(batch)
+        except Exception as e:
+            print(f"[RLAgentPlanner] Stream send failed: {e}")
+
+    def _flush_stream_send(self, episode_end: bool = False) -> None:
+        """Send any remaining transitions at episode end."""
+        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+            return
+        remaining = self._episode[self._stream_send_idx :]
+        if not remaining:
+            return
+        try:
+            self.client.send_transition_batch(remaining, self._episode_id, episode_end=episode_end)
+            self._stream_send_idx = len(self._episode)
+        except Exception as e:
+            print(f"[RLAgentPlanner] Flush send failed: {e}")
+
     def _maybe_bootstrap_send(self) -> None:
         """
         Send the first couple transitions early so the learner can infer obs_dim quickly.
-        Only runs once per planner start.
+        Only runs once per simulation (see reset()); not repeated every episode.
         """
         if not (self.training_mode and self.autonomous_driving and not self._bootstrap_sent):
             return
@@ -590,15 +589,17 @@ class RLAgentPlanner(template_planner):
             return
 
         try:
-            self.client.send_transition_batch(self._episode[:self.BOOTSTRAP_TRANSITIONS])
+            n = self.BOOTSTRAP_TRANSITIONS
+            self.client.send_transition_batch(self._episode[:n], self._episode_id)
             self._bootstrap_sent = True
-            # Keep remaining transitions so the end-of-episode batch is still mostly correct.
-            self._episode = self._episode[self.BOOTSTRAP_TRANSITIONS:]
+            self._episode = self._episode[n:]
         except Exception as e:
             print(f"[RLAgentPlanner] Bootstrap send failed: {e}")
 
     def _reset_episode_state(self) -> None:
+        self._episode_id += 1
         self._episode = []
+        self._stream_send_idx = 0
         self.control_index = 0
         self.prev_obs_raw = None
         self.prev_action = None

@@ -5,7 +5,8 @@ import ast
 import os
 import subprocess
 import shutil
-from typing import List, Optional
+import threading
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -36,13 +37,13 @@ class LearnerServer:
         grad_steps: int = 1024,
         replay_capacity: int = 100_000,
         learning_starts: int = 2000,
-        batch_size: int = 1024,
+        batch_size: Optional[int] = None,
         learning_rate: float = 3e-4,
         discount_factor: float = 0.99,
         train_frequency: int = 1,
         save_replay_buffer: bool = False,
         load_replay_buffer: bool = False,
-        checkpoint_interval: int = 10_000,
+        status_line_callback: Optional[Callable[[str], None]] = None,
     ):
         self.host = host
         self.port = port
@@ -51,14 +52,15 @@ class LearnerServer:
         self.device = device
         self.train_every_seconds = train_every_seconds
         self.replay_capacity = replay_capacity
-        self.batch_size = batch_size
+        self.batch_size = int(
+            batch_size if batch_size is not None else getattr(Settings, "SAC_BATCH_SIZE", 256)
+        )
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.train_frequency = train_frequency
         self.save_replay_buffer_enabled = bool(save_replay_buffer)
         self.load_replay_buffer_enabled = bool(load_replay_buffer)
         self._latest_training_info_payload: Optional[dict] = None
-        self.checkpoint_interval = checkpoint_interval
         self.max_utd = 4.0  # max updates per data point
 
         # Settings
@@ -74,11 +76,22 @@ class LearnerServer:
 
         # data
         self.episode_buffer = EpisodeReplayBuffer(capacity_episodes=2000)
+        # Reassemble streamed batches into full episodes: (actor_id, episode_id) -> transitions.
+        self._episode_accum: Dict[tuple, List[dict]] = {}
+        self._max_episode_id_per_actor: Dict[int, int] = {}
+        # TCP stream batch sizes per (actor_id, episode_id); finalized when episode completes.
+        self._stream_batches_by_episode: Dict[tuple, List[int]] = {}
+        self._finalized_stream_batches: Dict[tuple, List[int]] = {}
         self._weights_blob: Optional[bytes] = None
         lt = getattr(Settings, "SAC_TERMINATE_BELOW_LAPTIME", None)
         self._terminate_below_lap_s: Optional[float] = float(lt) if lt is not None else None
         self._lap_terminate_triggered = False
         self._best_lap_time_seen: Optional[float] = None
+        if self._terminate_below_lap_s is not None:
+            print(
+                f"[server] Lap-time stop enabled: terminate when >=2 laps are faster than "
+                f"{self._terminate_below_lap_s:.3f}s (Settings.SAC_TERMINATE_BELOW_LAPTIME)"
+            )
 
         # RL bits (lazy init fallback; but we’ll eager-init in run())
         self.model: Optional[SAC] = None
@@ -87,7 +100,18 @@ class LearnerServer:
         self.total_actor_timesteps = 0
         self.total_weight_updates = 0
         self._training_paused_for_udt = False
-        self.last_checkpoint_timesteps = 0
+        self._train_event = asyncio.Event()
+        self._pending_samples = 0
+        self._sample_lock = asyncio.Lock()
+        self._last_sec_per_grad_step: Optional[float] = None
+        # Replay + SAC updates can run in a worker thread; TCP ingest stays on the event loop.
+        self._replay_lock = threading.Lock()
+        self._train_job_lock = asyncio.Lock()
+        self._model_autosave_interval_s = float(getattr(Settings, "SAC_MODEL_AUTOSAVE_INTERVAL_S", 60.0))
+        self._last_model_autosave_time = 0.0
+        self._last_train_log_time = 0.0
+        self._status_line_callback = status_line_callback
+        self._checkpoint_thread: Optional[threading.Thread] = None
 
         self.last_episode_time = None
         self.episode_timeout = 100.0
@@ -99,9 +123,19 @@ class LearnerServer:
         # self.n_step_discount_factor = self.discount_factor ** self.n_step
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
 
-        self.save_model_checkpoints = Settings.SAC_SAVE_MODEL_CHECKPOINTS
-        self.checkpoint_frequency = Settings.SAC_CHECKPOINT_FREQUENCY
+        self.save_model_checkpoints = bool(Settings.SAC_SAVE_MODEL_CHECKPOINTS)
+        self.checkpoint_frequency = max(1, int(Settings.SAC_CHECKPOINT_FREQUENCY))
         self.last_checkpoint_timestep = 0
+        print(
+            f"[server] SAC training batch_size={self.batch_size} "
+            f"(not SAC_STREAM_BATCH_SIZE)"
+        )
+        if self.save_model_checkpoints:
+            print(
+                f"[server] Model checkpoints enabled: every "
+                f"{self.checkpoint_frequency} actor timesteps "
+                f"(Settings.SAC_CHECKPOINT_FREQUENCY)"
+            )
 
 
         # file paths: default save name fallback
@@ -281,6 +315,8 @@ class LearnerServer:
         info = {
             "grad_steps": self.grad_steps,
             "batch_size": self.batch_size,
+            "sac_checkpoint_frequency": self.checkpoint_frequency,
+            "sac_terminate_below_laptime": self._terminate_below_lap_s,
         }
         self.trainingLogHelper.save_meta_info(self.model, info)
         # Cache weights for initial broadcast (random if scratch)
@@ -312,6 +348,79 @@ class LearnerServer:
     def _current_udt(self) -> float:
         return float(self.total_weight_updates) / float(self._udt_denominator_timesteps())
 
+    def _compute_grad_steps(self, new_samples: int) -> int:
+        """Gradient steps for this round: UTD-targeted, capped, only when samples arrived."""
+        if new_samples <= 0 or self.model is None or self.replay_buffer is None:
+            return 0
+        if self.replay_buffer.size() < self.learning_starts:
+            return 0
+
+        current_udt = self._current_udt()
+        max_udt = getattr(Settings, "SAC_MAX_UTD", None)
+        if max_udt is not None and float(max_udt) > 0.0 and current_udt >= float(max_udt):
+            self._training_paused_for_udt = True
+            return 0
+        self._training_paused_for_udt = False
+
+        target_utd = getattr(Settings, "SAC_TARGET_UTD", None)
+        if target_utd is None:
+            return int(self.grad_steps)
+
+        target_utd = float(target_utd)
+        desired_updates = target_utd * float(self._udt_denominator_timesteps())
+        utd_debt = desired_updates - float(self.total_weight_updates)
+        if utd_debt < 1.0:
+            return 0
+
+        burst_cap = int(self.grad_steps)
+        if current_udt < target_utd * 0.98 and new_samples > 0:
+            pace = max(1, int(target_utd * new_samples))
+            mult = int(getattr(Settings, "SAC_GRAD_BURST_MULTIPLIER", 4))
+            burst_cap = max(burst_cap, pace, self.grad_steps * mult)
+        burst_cap = min(burst_cap, int(getattr(Settings, "SAC_MAX_GRAD_BURST", 2048)))
+        return int(min(burst_cap, utd_debt))
+
+    async def _take_pending_samples(self) -> int:
+        async with self._sample_lock:
+            n = self._pending_samples
+            self._pending_samples = 0
+        return n
+
+    def _maybe_log_train_round(
+        self,
+        *,
+        grad_steps: int,
+        training_steps_done: int,
+        new_samples: int,
+        current_udt: float,
+        train_duration: float,
+        post_duration: float,
+        round_wall_s: float,
+    ) -> None:
+        interval = float(getattr(Settings, "LEARNER_SERVER_TRAIN_LOG_INTERVAL_S", 1.0))
+        now = time.time()
+        if self._status_line_callback is None and not Settings.LEARNER_SERVER_DEBUG and interval > 0.0:
+            if (now - self._last_train_log_time) < interval:
+                return
+        self._last_train_log_time = now
+        buf = int(self.replay_buffer.size() if self.replay_buffer is not None else 0)
+        msg = (
+            f"grad={training_steps_done}/{grad_steps} "
+            f"new={new_samples} UDT={current_udt:.3f} buf={buf} "
+            f"train={train_duration:.2f}s"
+        )
+        if self._status_line_callback is not None:
+            self._status_line_callback(msg)
+        else:
+            print(f"[server] Train: {msg}")
+
+    async def _notify_new_samples(self, n: int) -> None:
+        if n <= 0:
+            return
+        async with self._sample_lock:
+            self._pending_samples += n
+        self._train_event.set()
+
     def _expected_obs_dim(self) -> Optional[int]:
         """Return the current model observation dimension, if initialized."""
         if self.model is None:
@@ -325,6 +434,7 @@ class LearnerServer:
         """Save the current model to disk (uses save_model_name)."""
         if self.model is not None:
             try:
+                self._sync_model_timestep_counter()
                 target = os.path.join(self.model_dir, self.save_model_name)
                 self.model.save(target)
                 print(f"[server] Model saved to {target}")
@@ -475,23 +585,72 @@ class LearnerServer:
                     f"total_weight_updates={self.total_weight_updates}, "
                     f"total_actor_timesteps={self.total_actor_timesteps}"
                 )
+                self._sync_checkpoint_cursor_from_timesteps()
         except Exception as e:
             print(f"[server] Failed to restore counters from {metrics_path}: {e}")
+
+    def _sync_checkpoint_cursor_from_timesteps(self) -> None:
+        """Align checkpoint cursor after resume so we do not re-save old milestones."""
+        if self.checkpoint_frequency <= 0:
+            return
+        self.last_checkpoint_timestep = (
+            self.total_actor_timesteps // self.checkpoint_frequency
+        ) * self.checkpoint_frequency
+
+    def _maybe_schedule_actor_timestep_checkpoints(self) -> None:
+        """Save checkpoints at Settings.SAC_CHECKPOINT_FREQUENCY actor timesteps."""
+        if not self.save_model_checkpoints or self.model is None:
+            return
+        if self.checkpoint_frequency <= 0:
+            return
+        while self.total_actor_timesteps - self.last_checkpoint_timestep >= self.checkpoint_frequency:
+            self.last_checkpoint_timestep += self.checkpoint_frequency
+            scheduled = self._schedule_checkpoint_async(
+                self._save_checkpoint_locked, self.last_checkpoint_timestep
+            )
+            if not scheduled:
+                self.last_checkpoint_timestep -= self.checkpoint_frequency
+                break
     
     def _save_checkpoint(self, timesteps: int):
         """Save a checkpoint with a unique name including timestep count."""
         if self.model is not None:
             try:
-                # Create checkpoints subdirectory if it doesn't exist
                 checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
                 os.makedirs(checkpoint_dir, exist_ok=True)
-                
                 checkpoint_name = f"{self.save_model_name}_checkpoint_{timesteps}"
                 target = os.path.join(checkpoint_dir, checkpoint_name)
+                self._sync_model_timestep_counter()
                 self.model.save(target)
+                if getattr(Settings, "SAC_CHECKPOINT_SAVE_REPLAY", False):
+                    self.save_replay_buffer()
+                self.obs_tracker.flush(render_png=True)
                 print(f"[server] Checkpoint saved to {target} (timesteps={timesteps})")
             except Exception as e:
                 print(f"[server] Error saving checkpoint: {e}")
+
+    def _schedule_checkpoint_async(self, save_fn, *args) -> bool:
+        """Run checkpoint I/O on a dedicated thread (does not block the asyncio train loop)."""
+        if self._checkpoint_thread is not None and self._checkpoint_thread.is_alive():
+            return False
+
+        def _run():
+            try:
+                save_fn(*args)
+            except Exception as e:
+                print(f"[server] Background checkpoint failed: {e}")
+
+        self._checkpoint_thread = threading.Thread(
+            target=_run, name="checkpoint-save", daemon=True
+        )
+        self._checkpoint_thread.start()
+        print("[server] Checkpoint save started (background thread).")
+        return True
+
+    async def _await_pending_checkpoint(self) -> None:
+        thread = self._checkpoint_thread
+        if thread is not None and thread.is_alive():
+            await asyncio.to_thread(thread.join)
 
     # ---------- ingestion + training ----------
     # No normalization for now: obs arrive normalized already
@@ -501,45 +660,115 @@ class LearnerServer:
     def _dummy_vec_from_spaces(self, obs_space: spaces.Box, act_space: spaces.Box):
         return DummyVecEnv([lambda: _SpacesOnlyEnv(obs_space, act_space)])
 
-    def _ingest_episodes_into_replay(self, episodes: List[List[dict]]) -> int:
+    def _ingest_transitions(self, transitions: List[dict]) -> int:
         if self.model is None or self.replay_buffer is None:
             return 0
+        with self._replay_lock:
+            n_added, flush_obs_tracker = self._ingest_transitions_locked(transitions)
+        if flush_obs_tracker:
+            self.obs_tracker.flush(render_png=False)
+        return n_added
+
+    def _ingest_transitions_locked(self, transitions: List[dict]) -> tuple[int, bool]:
         expected_obs_dim = self._expected_obs_dim()
         dropped_for_dim_mismatch = 0
         n_added = 0
-        for ep in episodes:
-            for t in ep:
-                obs = t["obs"].astype(np.float32)
-                next_obs = t["next_obs"].astype(np.float32)
-                if expected_obs_dim is not None:
-                    obs_dim = int(np.asarray(obs).reshape(-1).shape[0])
-                    next_obs_dim = int(np.asarray(next_obs).reshape(-1).shape[0])
-                    if obs_dim != expected_obs_dim or next_obs_dim != expected_obs_dim:
-                        dropped_for_dim_mismatch += 1
-                        continue
-                action = t["action"].astype(np.float32)
-                reward = float(t["reward"])
-                done = bool(t["done"])
-                # normalize obs like SB3 would during collection
-                obs = self._normalize_obs(obs)
-                next_obs = self._normalize_obs(next_obs)
-                self.obs_tracker.track(obs, reward)
-                self.replay_buffer.add(
-                    obs=obs,
-                    next_obs=next_obs,
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    infos={},  # could pass TimeLimit info here if you track it
-                )
-                n_added += 1
-                if self.obs_tracker.should_flush():
-                    self.obs_tracker.flush(render_png=False)
+        flush_obs_tracker = False
+        for t in transitions:
+            obs = t["obs"].astype(np.float32)
+            next_obs = t["next_obs"].astype(np.float32)
+            if expected_obs_dim is not None:
+                obs_dim = int(np.asarray(obs).reshape(-1).shape[0])
+                next_obs_dim = int(np.asarray(next_obs).reshape(-1).shape[0])
+                if obs_dim != expected_obs_dim or next_obs_dim != expected_obs_dim:
+                    dropped_for_dim_mismatch += 1
+                    continue
+            action = t["action"].astype(np.float32)
+            reward = float(t["reward"])
+            done = bool(t["done"])
+            obs = self._normalize_obs(obs)
+            next_obs = self._normalize_obs(next_obs)
+            self.obs_tracker.track(obs, reward)
+            self.replay_buffer.add(
+                obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                infos={},
+            )
+            n_added += 1
+            flush_obs_tracker = flush_obs_tracker or self.obs_tracker.should_flush()
         if dropped_for_dim_mismatch > 0:
             print(
                 f"[server] Dropped {dropped_for_dim_mismatch} transition(s) due to "
                 f"observation dim mismatch (expected {expected_obs_dim})."
             )
+        return n_added, flush_obs_tracker
+
+    def _record_stream_batch(self, actor_id: int, episode_id: int, batch_len: int) -> None:
+        if batch_len <= 0:
+            return
+        key = (int(actor_id), int(episode_id))
+        self._stream_batches_by_episode.setdefault(key, []).append(int(batch_len))
+
+    def _finalize_stream_batches_for_episode(self, actor_id: int, episode_id: int) -> None:
+        """Freeze TCP batch-size list when an episode completes (prevents late stray batches)."""
+        key = (int(actor_id), int(episode_id))
+        if key in self._finalized_stream_batches:
+            return
+        live = self._stream_batches_by_episode.pop(key, [])
+        self._finalized_stream_batches[key] = live
+
+    def _stream_batch_sizes_for_episodes(self, episodes: List[List[dict]]) -> List[int]:
+        """All stream TCP batch sizes for episodes completed in this log row."""
+        sizes: List[int] = []
+        for ep in episodes:
+            if not ep:
+                continue
+            key = (int(ep[0].get("actor_id", 0)), int(ep[0].get("episode_id", 0)))
+            sizes.extend(self._finalized_stream_batches.pop(key, []))
+        return sizes
+
+    def _accumulate_episode_batch(
+        self,
+        actor_id: int,
+        episode_id: int,
+        batch: List[dict],
+        episode_end: bool = False,
+    ) -> List[List[dict]]:
+        """
+        Append batch to (actor_id, episode_id). On done/episode_end, return the
+        full episode (all batches with this id). When episode_id advances, flush
+        any still-open older episodes.
+        """
+        completed: List[List[dict]] = []
+        prev_max = self._max_episode_id_per_actor.get(actor_id, -1)
+        if episode_id > prev_max:
+            stale_keys = sorted(
+                (k for k in self._episode_accum if k[0] == actor_id and k[1] < episode_id),
+                key=lambda k: k[1],
+            )
+            for key in stale_keys:
+                ep = self._episode_accum.pop(key, None)
+                if ep:
+                    completed.append(ep)
+            self._max_episode_id_per_actor[actor_id] = episode_id
+
+        key = (actor_id, episode_id)
+        buf = self._episode_accum.setdefault(key, [])
+        buf.extend(batch)
+
+        if episode_end or any(t.get("done") for t in buf):
+            ep = self._episode_accum.pop(key, None)
+            if ep:
+                completed.append(ep)
+        return completed
+
+    def _ingest_episodes_into_replay(self, episodes: List[List[dict]]) -> int:
+        n_added = 0
+        for ep in episodes:
+            n_added += self._ingest_transitions(ep)
         return n_added
     
     def _apply_crash_ramp(self, episode, ramp_steps: int = 50, max_ramp_value: float = 1000.0):
@@ -575,254 +804,309 @@ class LearnerServer:
             t["reward"] -= shaped_penalty
         return episode
 
-    def _save_model_checkpoint(self, checkpoint_name: str):
-        checkpoint_dir = os.path.join(self.model_dir, "checkpoints")
-        os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+    def _sync_model_timestep_counter(self) -> None:
+        """Keep SB3 model.num_timesteps aligned with server actor timesteps for saves/plots."""
+        if self.model is not None:
+            self.model.num_timesteps = int(self.total_actor_timesteps)
 
-        try:
-            self.model.save(checkpoint_path)
-            # Keep replay buffer in the model root and overwrite on each save.
-            self.save_replay_buffer()
-            # Render heavy tracker PNGs only at checkpoint cadence.
-            self.obs_tracker.flush(render_png=True)
-            print(f"[server] Checkpoint saved to {checkpoint_path} as {checkpoint_name}")
-            self.last_checkpoint_timestep = self.total_actor_timesteps
-        except Exception as e:
-            print(f"[server] Error saving checkpoint: {e}")
+    def _ent_coef_scalar(self, ent_coef, log_ent_coef) -> float:
+        """SB3 may keep ent_coef as the string 'auto' until the first successful grad step."""
+        if log_ent_coef is not None:
+            return float(torch.exp(log_ent_coef.detach()).item())
+        if isinstance(ent_coef, (int, float)):
+            return float(ent_coef)
+        if hasattr(ent_coef, "item"):
+            return float(ent_coef.item())
+        return 0.0
+
+    def _run_gradient_training(self, grad_steps: int) -> Dict[str, Any]:
+        """SAC gradient updates (runs in worker thread; do not call from the event loop)."""
+        if self.model is None or self.replay_buffer is None:
+            return {"training_steps_done": 0}
+
+        actor = self.model.policy.actor
+        critic = self.model.policy.critic
+        critic_target = self.model.policy.critic_target
+        actor_optimizer = self.model.policy.actor.optimizer
+        critic_optimizer = self.model.policy.critic.optimizer
+        replay_buffer = self.model.replay_buffer
+        gamma = self.model.gamma
+        tau = self.model.tau
+        ent_coef = self.model.ent_coef
+        target_entropy = self.model.target_entropy
+        log_ent_coef = getattr(self.model, "log_ent_coef", None)
+        ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
+
+        training_steps_done = 0
+        actor_loss = critic_loss = ent_coef_loss = 0.0
+
+        with self._replay_lock:
+            for step in range(grad_steps):
+                if step % 10 == 0 and self._should_terminate:
+                    break
+
+                try:
+                    data = replay_buffer.sample(int(self.model.batch_size))
+                    obs = data.observations
+                    actions = data.actions
+                    next_obs = data.next_observations
+                    rewards = data.rewards
+                    dones = data.dones
+
+                    with torch.no_grad():
+                        next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
+                        target_q1, target_q2 = critic_target(next_obs, next_actions)
+                        target_q = torch.min(target_q1, target_q2)
+                        if log_ent_coef is not None:
+                            ent_coef = torch.exp(log_ent_coef.detach())
+                        if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
+                            next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
+                        else:
+                            next_log_prob = next_log_prob.view(-1, 1)
+                        target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
+
+                    current_q1, current_q2 = critic(obs, actions)
+                    critic_loss_t = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(
+                        current_q2, target_q
+                    )
+                    critic_optimizer.zero_grad()
+                    critic_loss_t.backward()
+                    critic_optimizer.step()
+
+                    new_actions, log_prob = actor.action_log_prob(obs)
+                    q1_new, q2_new = critic(obs, new_actions)
+                    q_new = torch.min(q1_new, q2_new)
+                    actor_loss_t = (ent_coef * log_prob - q_new).mean()
+                    actor_optimizer.zero_grad()
+                    actor_loss_t.backward()
+                    actor_optimizer.step()
+
+                    if log_ent_coef is not None and ent_coef_optimizer is not None:
+                        ent_coef_loss_t = -(log_ent_coef * (log_prob + target_entropy).detach()).mean()
+                        ent_coef_optimizer.zero_grad()
+                        ent_coef_loss_t.backward()
+                        ent_coef_optimizer.step()
+                    else:
+                        ent_coef_loss_t = None
+
+                    for param, target_param in zip(critic.parameters(), critic_target.parameters()):
+                        target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+                    self.total_weight_updates += 1
+                    training_steps_done += 1
+                    actor_loss = float(actor_loss_t.detach().item())
+                    critic_loss = float(critic_loss_t.detach().item())
+                    ent_coef_loss = (
+                        float(ent_coef_loss_t.detach().item())
+                        if ent_coef_loss_t is not None
+                        else 0.0
+                    )
+                except torch.cuda.OutOfMemoryError as e:
+                    print(f"[server] CUDA OOM during training step {step}: {e}")
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
+                    continue
+
+        ent_coef_out = self._ent_coef_scalar(ent_coef, log_ent_coef)
+        return {
+            "training_steps_done": training_steps_done,
+            "actor_loss": actor_loss,
+            "critic_loss": critic_loss,
+            "ent_coef_loss": ent_coef_loss,
+            "ent_coef": ent_coef_out,
+        }
+
+    def _post_training_sync(
+        self,
+        episodes_for_log: List[List[dict]],
+        log_dict: Dict[str, Any],
+        training_duration: float,
+    ) -> Optional[bytes]:
+        """CSV/plot/model save (runs in worker thread alongside training)."""
+        if episodes_for_log:
+            log_dict = dict(log_dict)
+            log_dict["training_duration"] = training_duration
+            log_dict["post_process_duration"] = float(log_dict.get("post_process_duration", 0.0))
+            self.trainingLogHelper.log_to_csv(self.model, episodes_for_log, log_dict)
+
+        now = time.time()
+        if (
+            self._model_autosave_interval_s > 0
+            and (now - self._last_model_autosave_time) >= self._model_autosave_interval_s
+        ):
+            try:
+                self._sync_model_timestep_counter()
+                target = os.path.join(self.model_dir, str(self.save_model_name))
+                self.model.save(target)
+                self._last_model_autosave_time = now
+            except Exception as e:
+                print(f"[server] Error auto-saving model: {e}")
+
+        return SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
+
+    def _train_round_sync(
+        self,
+        grad_steps: int,
+        episodes_for_log: List[List[dict]],
+        log_dict: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Gradient updates + heavy I/O in one worker-thread call."""
+        t0 = time.time()
+        train_out = self._run_gradient_training(grad_steps)
+        train_duration = time.time() - t0
+        train_out["train_duration"] = train_duration
+        train_out["post_duration"] = 0.0
+        train_out["weights_blob"] = None
+        if int(train_out.get("training_steps_done", 0)) > 0:
+            log_dict.update(
+                {
+                    "actor_loss": train_out["actor_loss"],
+                    "critic_loss": train_out["critic_loss"],
+                    "ent_coef_loss": train_out["ent_coef_loss"],
+                    "ent_coef": train_out["ent_coef"],
+                    "total_weight_updates": self.total_weight_updates,
+                    "total_timesteps": self.total_actor_timesteps,
+                    "replay_buffer_size": int(
+                        self.replay_buffer.size() if self.replay_buffer is not None else 0
+                    ),
+                    "UDT": self._current_udt(),
+                }
+            )
+            t1 = time.time()
+            log_dict["post_process_duration"] = 0.0
+            train_out["weights_blob"] = self._post_training_sync(
+                episodes_for_log, log_dict, train_duration
+            )
+            train_out["post_duration"] = time.time() - t1
+            log_dict["post_process_duration"] = train_out["post_duration"]
+        return train_out
+
+    def _save_checkpoint_locked(self, timesteps: int):
+        with self._replay_lock:
+            self._sync_model_timestep_counter()
+        self._save_checkpoint(timesteps)
 
  
 
 
     async def _train_loop(self):
-        """Periodic training loop: drain new episodes -> add to replay -> train -> broadcast new weights."""
+        """Sample-driven training: wake on streamed transitions, train to target UTD."""
         while True:
-            # Check termination flag at the start of each iteration
             async with self._terminate_lock:
                 if self._should_terminate:
                     print("[server] Training loop detected termination flag, exiting...")
                     return
 
-            # Safety watchdog: if actors stop sending episodes, terminate cleanly.
             if self._has_received_episode and self.last_episode_time is not None:
                 idle_for = time.time() - self.last_episode_time
                 if idle_for >= self.episode_inactivity_timeout:
                     print(
-                        "[server] No episode received for "
+                        "[server] No samples received for "
                         f"{idle_for:.1f}s (timeout={self.episode_inactivity_timeout:.1f}s). "
                         "Terminating server."
                     )
+                    await self._await_pending_checkpoint()
                     self._save_model()
                     async with self._terminate_lock:
                         self._should_terminate = True
                     return
 
-            if self.save_model_checkpoints and self.model is not None:
-                if self.total_actor_timesteps  - self.last_checkpoint_timestep >= self.checkpoint_frequency:
-                    checkpoint_name = f"{self.save_model_name}_ckpt_{self.total_actor_timesteps}"
-                    self._save_model_checkpoint(checkpoint_name)
+            try:
+                await asyncio.wait_for(self._train_event.wait(), timeout=self.train_every_seconds)
+            except asyncio.TimeoutError:
+                pass
 
-            
-            
-            await asyncio.sleep(self.train_every_seconds)
-            # Wait for the first observation to initialize model/replay buffer.
             if self.model is None or self.replay_buffer is None:
                 continue
 
-            # Drain whatever the actor sent since last round
-            episodes = self.episode_buffer.drain_all()
-
-            n_added = self._ingest_episodes_into_replay(episodes)
-            if( n_added > 0 ):
-                if Settings.LEARNER_SERVER_DEBUG:
-                    print(f"[server] Ingested {len(episodes)} episodes / {n_added} transitions into replay "
-                    f"(size={self.replay_buffer.size() if self.replay_buffer else 0}).")
-
-            # Calculate trainign steps per sample
+            new_samples = await self._take_pending_samples()
+            self._train_event.clear()
+            if new_samples <= 0:
+                continue
+            episodes_for_log = self.episode_buffer.drain_all()
             current_udt = self._current_udt()
 
-
-            if( self.replay_buffer.size() < self.learning_starts ):
-                needed = self.learning_starts - self.replay_buffer.size()
-                print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
-                await asyncio.sleep(self.train_every_seconds)
+            if self.replay_buffer.size() < self.learning_starts:
+                if new_samples > 0 and Settings.LEARNER_SERVER_DEBUG:
+                    needed = self.learning_starts - self.replay_buffer.size()
+                    print(f"[server] Collecting... need {max(0, needed)} more samples before training.")
                 continue
 
-            max_udt = getattr(Settings, "SAC_MAX_UTD", None)
-            if max_udt is not None:
-                max_udt = float(max_udt)
-                if max_udt > 0.0 and current_udt > max_udt:
+            grad_steps = self._compute_grad_steps(new_samples)
+            if grad_steps <= 0:
+                if self._training_paused_for_udt and Settings.LEARNER_SERVER_DEBUG:
+                    max_udt = getattr(Settings, "SAC_MAX_UTD", None)
                     print(
-                        f"[server] UDT {current_udt:.4f} above max "
-                        f"{max_udt:.4f}; waiting."
+                        f"[server] UDT {current_udt:.4f} at/above cap {max_udt}; "
+                        "waiting for more samples."
                     )
-                    continue
-            # Train if we have enough samples
-            if self.model is not None and self.replay_buffer is not None and self.replay_buffer.size() >= self.learning_starts:
-                # gradient steps proportional to newly ingested data (UTD ≈ 4)
-                grad_steps = self.grad_steps
+                continue
 
+            if self.model is not None and self.replay_buffer is not None:
+                if Settings.LEARNER_SERVER_DEBUG:
+                    print(
+                        f"[server] Training SAC... steps={grad_steps} (new_samples={new_samples}) | "
+                        f"bs={self.model.batch_size} | buffer={self.replay_buffer.size()} | UDT={current_udt:.4f}"
+                    )
+                time_start_round = time.time()
+                stream_batch_sizes = self._stream_batch_sizes_for_episodes(episodes_for_log)
+                log_dict = {
+                    "actor_loss": 0.0,
+                    "critic_loss": 0.0,
+                    "ent_coef_loss": 0.0,
+                    "ent_coef": 0.0,
+                    "total_weight_updates": self.total_weight_updates,
+                    "total_timesteps": self.total_actor_timesteps,
+                    "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+                    "UDT": current_udt,
+                    "stream_batch_sizes": stream_batch_sizes,
+                }
 
-                print(f"[server] Training SAC... steps={grad_steps} | bs={self.model.batch_size} | buffer size={self.replay_buffer.size()} | UDT={current_udt:.4f}")
-                time_start_training = time.time()
+                async with self._train_job_lock:
+                    train_out = await asyncio.to_thread(
+                        self._train_round_sync, grad_steps, episodes_for_log, log_dict
+                    )
 
-
-                # Manual training loop for SAC using torch
-                actor = self.model.policy.actor
-                critic = self.model.policy.critic
-                critic_target = self.model.policy.critic_target
-                actor_optimizer = self.model.policy.actor.optimizer
-                critic_optimizer = self.model.policy.critic.optimizer
-                replay_buffer = self.model.replay_buffer
-                gamma = self.model.gamma
-                tau = self.model.tau
-                ent_coef = self.model.ent_coef
-                target_entropy = self.model.target_entropy
-                log_ent_coef = getattr(self.model, "log_ent_coef", None)
-                ent_coef_optimizer = getattr(self.model, "ent_coef_optimizer", None)
-
-                training_steps_done = 0
-                for step in range(grad_steps):
-                    # Check termination flag periodically during training (every 10 steps)
-                    if step % 10 == 0:
-                        async with self._terminate_lock:
-                            if self._should_terminate:
-                                print(f"[server] Training interrupted at step {step}/{grad_steps} due to termination request")
-                                break
-                    
-                    then = time.time()
-                    try:
-                        # Reduce batch size to avoid OOM (read from model so a bad merge can't leave `batch_size` undefined)
-                        safe_batch_size = min(int(self.model.batch_size), 4096)
-                        data = replay_buffer.sample(safe_batch_size)
-                        obs      = data.observations
-                        actions  = data.actions
-                        next_obs = data.next_observations
-                        rewards  = data.rewards  # shape handling below
-                        dones    = data.dones
-                   
-
-                        # print(f"[server] Sampled batch in {(time.time() - then):.5f} seconds.")
-
-                        # Critic update
-                        with torch.no_grad():
-                            next_actions, next_log_prob = self.model.policy.actor.action_log_prob(next_obs)
-                            target_q1, target_q2 = critic_target(next_obs, next_actions)
-                            target_q = torch.min(target_q1, target_q2)
-                            if log_ent_coef is not None:
-                                ent_coef = torch.exp(log_ent_coef.detach())
-                            # Ensure next_log_prob shape is [batch_size, 1]
-                            if next_log_prob.dim() == 2 and next_log_prob.shape[1] != 1:
-                                next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
-                            else:
-                                next_log_prob = next_log_prob.view(-1, 1)
-                            target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
-                        # print(f"[server] Critic lost time: {(time.time() - then):.5f} seconds.")
-
-                        current_q1, current_q2 = critic(obs, actions)
-                        critic_loss = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(current_q2, target_q)
-                        critic_optimizer.zero_grad()
-                        critic_loss.backward()
-                        critic_optimizer.step()
-
-                        # print(f"[server] Critic updated in {(time.time() - then):.5f} seconds.")
-
-                        # Actor update
-                        new_actions, log_prob = actor.action_log_prob(obs)
-                        q1_new, q2_new = critic(obs, new_actions)
-                        q_new = torch.min(q1_new, q2_new)
-                        actor_loss = (ent_coef * log_prob - q_new).mean()
-                        actor_optimizer.zero_grad()
-                        actor_loss.backward()
-                        actor_optimizer.step()
-
-                        # print(f"[server] Actor updated in {(time.time() - then):.5f} seconds.")
-
-                        # Entropy coefficient update
-                        if log_ent_coef is not None and ent_coef_optimizer is not None:
-                            ent_coef_loss = -(log_ent_coef * (log_prob + target_entropy).detach()).mean()
-                            ent_coef_optimizer.zero_grad()
-                            ent_coef_loss.backward()
-                            ent_coef_optimizer.step()
-
-                        # print(f"[server] Entropy coefficient updated in {(time.time() - then):.5f} seconds.")
-
-                        # Soft update of target network
-                        for param, target_param in zip(critic.parameters(), critic_target.parameters()):
-                            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-                        # print(f"[server] Step {step+1}/{grad_steps} completed in {(time.time() - then):.5f} seconds.")
-                        self.total_weight_updates += 1
-                        training_steps_done += 1
-
-                        # Free unused memory
-                        # if self.device == "cuda":
-                        #     torch.cuda.empty_cache()
-                    except torch.cuda.OutOfMemoryError as e:
-                        print(f"[server] CUDA OOM during training step {step}: {e}")
-                        if self.device == "cuda":
-                            torch.cuda.empty_cache()
-                        continue
-                
-                # Check if we should terminate before saving/broadcasting
                 async with self._terminate_lock:
                     if self._should_terminate:
                         print("[server] Termination requested, skipping post-training save/broadcast")
                         return
 
+                training_steps_done = int(train_out.get("training_steps_done", 0))
                 if training_steps_done == 0:
                     print("[server] No gradient steps completed (early exit or repeated OOM); skipping log/broadcast.")
                     continue
 
-                ent_coef_loss_val = (
-                    float(ent_coef_loss.detach().item())
-                    if log_ent_coef is not None and ent_coef_optimizer is not None
-                    else 0.0
-                )
-                log_dict = {
-                    "actor_loss": actor_loss.item(),
-                    "critic_loss": critic_loss.item(),
-                    "ent_coef_loss": ent_coef_loss_val,
-                    "ent_coef": ent_coef if isinstance(ent_coef, float) else ent_coef.item(),
-                    "total_weight_updates": self.total_weight_updates,
-                    "training_duration": time.time() - time_start_training,
-                    "total_timesteps": self.total_actor_timesteps,
-                    "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
-                    "UDT": self._current_udt(),
-                }
-                if Settings.LEARNER_SERVER_DEBUG:
-                    print(f"[server] Training completed in {(time.time() - time_start_training):.2f} seconds.")
-                if(len(episodes) > 0):
-                    self.trainingLogHelper.log_to_csv(self.model, episodes, log_dict)
+                train_duration = float(train_out.get("train_duration", 0.0))
+                post_duration = float(train_out.get("post_duration", 0.0))
+                if training_steps_done > 0:
+                    self._last_sec_per_grad_step = train_duration / float(training_steps_done)
 
-                new_blob = SacUtilities.state_dict_to_bytes(self.model.policy.actor.state_dict())
-                self._weights_blob = new_blob
-                await self._broadcast_weights(new_blob)
+                new_blob = train_out.get("weights_blob")
+                if new_blob is not None:
+                    self._weights_blob = new_blob
+                    await self._broadcast_weights(new_blob)
+
                 current_udt = self._current_udt()
+                round_s = time.time() - time_start_round
                 training_info_payload = self._build_training_info_payload(
                     current_udt=current_udt,
                     training_steps_done=training_steps_done,
+                    training_duration=train_duration,
                 )
                 await self._broadcast_training_info(training_info_payload)
-                print("[server] Trained SAC and broadcast updated actor weights.")
 
-                # Check if we should save checkpoint(s) based on timestep interval
-                # Handle case where multiple intervals may have passed since last checkpoint
-                while self.total_actor_timesteps - self.last_checkpoint_timesteps >= self.checkpoint_interval:
-                    next_checkpoint_timesteps = self.last_checkpoint_timesteps + self.checkpoint_interval
-                    self._save_checkpoint(next_checkpoint_timesteps)
-                    self.last_checkpoint_timesteps = next_checkpoint_timesteps
+                self._maybe_log_train_round(
+                    grad_steps=grad_steps,
+                    training_steps_done=training_steps_done,
+                    new_samples=new_samples,
+                    current_udt=current_udt,
+                    train_duration=train_duration,
+                    post_duration=post_duration,
+                    round_wall_s=round_s,
+                )
 
-                try:
-                    target = os.path.join(self.model_dir, str(self.save_model_name))
-                    self.model.save(target)
-                    # print(f"[server] Auto-saved model to {target}")
-                except Exception as e:
-                    print(f"[server] Error auto-saving model: {e}")
-            else:
-                needed = self.learning_starts - (self.replay_buffer.size() if self.replay_buffer else 0)
-                print(f"[server] Not training yet. Need {max(0, needed)} more samples.")
-
+                self._maybe_schedule_actor_timestep_checkpoints()
 
     # ---------- networking ----------
     async def _broadcast_weights(self, blob: bytes):
@@ -879,7 +1163,6 @@ class LearnerServer:
         if not pending:
             return
         try:
-            self._ingest_episodes_into_replay(pending)
             log_dict = {
                 "actor_loss": 0.0,
                 "critic_loss": 0.0,
@@ -900,30 +1183,39 @@ class LearnerServer:
             print(f"[server] Failed to flush pending episodes before termination: {e}")
 
     @staticmethod
+    def _parse_lap_times(laps_raw: Any) -> List[float]:
+        if laps_raw is None:
+            return []
+        if isinstance(laps_raw, np.ndarray):
+            laps_iter = laps_raw.reshape(-1).tolist()
+        elif isinstance(laps_raw, (list, tuple)):
+            laps_iter = laps_raw
+        else:
+            return []
+        parsed: List[float] = []
+        for lap in laps_iter:
+            try:
+                parsed.append(float(lap))
+            except (TypeError, ValueError):
+                continue
+        return parsed
+
+    @staticmethod
     def _extract_lap_times_from_episode(episode: List[dict]) -> List[float]:
         """Extract the most recent non-empty lap_times array from one episode."""
         for t in reversed(episode):
             info = t.get("info", {}) or {}
-            laps = info.get("lap_times", None)
-            if not isinstance(laps, (list, tuple)) or len(laps) == 0:
-                continue
-            parsed: List[float] = []
-            for lap in laps:
-                try:
-                    parsed.append(float(lap))
-                except (TypeError, ValueError):
-                    continue
+            parsed = LearnerServer._parse_lap_times(info.get("lap_times", None))
             if parsed:
                 return parsed
         return []
 
     def _episode_hits_lap_terminate_threshold(self, episode: List[dict]) -> bool:
         """
-        Decide terminate condition from server-side lap history.
-        The actor/env provides cumulative lap_times, so checking the minimum of the
-        latest non-empty array naturally works across planner resets/epochs.
+        True when at least two completed laps in this episode are strictly faster than
+        Settings.SAC_TERMINATE_BELOW_LAPTIME (seconds). Checked on streamed batches.
         """
-        if self._terminate_below_lap_s is None:
+        if self._terminate_below_lap_s is None or not episode:
             return False
         lap_times = self._extract_lap_times_from_episode(episode)
         if not lap_times:
@@ -931,20 +1223,81 @@ class LearnerServer:
         min_lap = min(lap_times)
         if self._best_lap_time_seen is None or min_lap < self._best_lap_time_seen:
             self._best_lap_time_seen = min_lap
-        return min_lap <= self._terminate_below_lap_s
+        threshold = self._terminate_below_lap_s
+        fast_laps = [t for t in lap_times if t < threshold]
+        return len(fast_laps) >= 2
 
-    def _build_training_info_payload(self, current_udt: float, training_steps_done: int) -> dict:
+    def _episodes_to_check_for_lap_threshold(
+        self,
+        actor_id: int,
+        episode_id: int,
+        completed_episodes: List[List[dict]],
+    ) -> List[List[dict]]:
+        """Completed episodes from this batch plus the in-progress episode buffer."""
+        candidates = list(completed_episodes)
+        open_ep = self._episode_accum.get((actor_id, episode_id))
+        if open_ep:
+            candidates.append(open_ep)
+        return candidates
+
+    async def _trigger_lap_terminate_shutdown(self, writer: asyncio.StreamWriter) -> None:
+        self._lap_terminate_triggered = True
+        threshold = self._terminate_below_lap_s
+        best = self._best_lap_time_seen
+        print(
+            "[server] Lap-time terminate condition reached: "
+            f"best_lap={best:.3f}s <= threshold={threshold:.3f}s. "
+            "Flushing pending episodes to metrics before shutdown."
+        )
+        self._flush_pending_episodes_to_metrics()
+        await self._await_pending_checkpoint()
+        self._save_model()
+        await self._broadcast_terminate(
+            reason=f"lap_time_threshold_reached(best={best:.3f},threshold={threshold:.3f})"
+        )
+        async with self._terminate_lock:
+            self._should_terminate = True
+        try:
+            writer.write(
+                pack_frame(
+                    {
+                        "type": "terminate_ack",
+                        "data": {"msg": "terminating (lap-time threshold reached)"},
+                    }
+                )
+            )
+            await writer.drain()
+        except Exception:
+            pass
+
+    def _build_training_info_payload(
+        self,
+        current_udt: float,
+        training_steps_done: int,
+        training_duration: float = 0.0,
+    ) -> dict:
         """Build an extensible training telemetry payload."""
         target_udt = getattr(Settings, "SAC_TARGET_UTD", None)
         udt_control = None
         if target_udt is not None:
             target_udt = float(target_udt)
+            fmin = float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0))
+            suggested_hz = None
+            if target_udt > 0 and current_udt < target_udt:
+                ref_hz = float(
+                    getattr(Settings, "MAX_SIM_FREQUENCY", None)
+                    or getattr(Settings, "SAC_UDT_REF_SIM_FREQUENCY", 200.0)
+                )
+                suggested_hz = float(
+                    np.clip(ref_hz * max(0.25, float(current_udt) / target_udt), fmin, ref_hz)
+                )
             udt_control = {
                 "target_udt": target_udt,
                 "resume_udt": target_udt,
                 "training_paused": bool(self._training_paused_for_udt),
-                "freq_adjust_step_ratio": float(getattr(Settings, "SAC_UDT_FREQ_ADJUST_STEP_RATIO", 0.05)),
-                "min_sim_frequency_hz": float(getattr(Settings, "SAC_MIN_SIM_FREQUENCY", 20.0)),
+                "min_sim_frequency_hz": fmin,
+                "suggested_sim_frequency_hz": suggested_hz,
+                "sec_per_grad_step": self._last_sec_per_grad_step,
             }
         payload = {
             "schema_version": 1,
@@ -1021,18 +1374,24 @@ class LearnerServer:
                     done_list     = d.get("done", [])
                     info_list     = d.get("info", [])
 
-                    # rebuild transitions for one episode
-                    episode = []
+                    actor_id = int(d.get("actor_id", -1))
+                    episode_id = int(d.get("episode_id", 0))
+                    episode_end = bool(d.get("episode_end", False))
+
+                    batch = []
                     for i in range(len(reward_list)):
-                        episode.append({
+                        batch.append({
                             "obs":      obs_list[i],
                             "action":   act_list[i],
                             "next_obs": next_obs_list[i],
                             "reward":   float(reward_list[i]),
                             "done":     bool(done_list[i]),
                             "info":     info_list[i] if i < len(info_list) else {},
-                            "actor_id": int(d.get("actor_id", -1)),
+                            "actor_id": actor_id,
+                            "episode_id": episode_id,
                         })
+
+                    self._record_stream_batch(actor_id, episode_id, len(batch))
 
                     # Lazily init model/replay once we see the first obs vector.
                     if self.model is None:
@@ -1047,49 +1406,58 @@ class LearnerServer:
                             print(f"[server] Failed to init model from first obs: {e}")
 
                     if Settings.RL_CRASH_REWQARD_RAMPING:
-                        episode = self._apply_crash_ramp(episode, ramp_steps=20, max_ramp_value=15.0)
+                        batch = self._apply_crash_ramp(batch, ramp_steps=20, max_ramp_value=15.0)
 
-                    self.episode_buffer.add_episode(episode)
-                    # print(f"[server] Stored episode: {len(episode)} transitions "
-                    #     f"(total episodes pending train: {len(self.episode_buffer.episodes)})")
-                    self.total_actor_timesteps += len(episode)
+                    if self.model is not None:
+                        n_ingested = self._ingest_transitions(batch)
+                        if n_ingested > 0:
+                            await self._notify_new_samples(n_ingested)
+                            if Settings.LEARNER_SERVER_DEBUG:
+                                print(
+                                    f"[server] Ingested {n_ingested} transition(s) "
+                                    f"(replay={self.replay_buffer.size()})."
+                                )
+
+                    self.total_actor_timesteps += len(batch)
                     self.last_episode_time = time.time()
                     self._has_received_episode = True
 
-                    if not self._lap_terminate_triggered and self._episode_hits_lap_terminate_threshold(episode):
-                        self._lap_terminate_triggered = True
-                        threshold = self._terminate_below_lap_s
-                        best = self._best_lap_time_seen
-                        print(
-                            "[server] Lap-time terminate condition reached: "
-                            f"best_lap={best:.3f}s <= threshold={threshold:.3f}s. "
-                            "Flushing pending episodes to metrics before shutdown."
-                        )
-                        self._flush_pending_episodes_to_metrics()
-                        self._save_model()
-                        await self._broadcast_terminate(
-                            reason=(
-                                f"lap_time_threshold_reached(best={best:.3f},threshold={threshold:.3f})"
-                            )
-                        )
-                        async with self._terminate_lock:
-                            self._should_terminate = True
-                        try:
-                            writer.write(
-                                pack_frame(
-                                    {
-                                        "type": "terminate_ack",
-                                        "data": {"msg": "terminating (lap-time threshold reached)"},
-                                    }
-                                )
-                            )
-                            await writer.drain()
-                        except Exception:
-                            pass
+                    completed_episodes = self._accumulate_episode_batch(
+                        actor_id, episode_id, batch, episode_end=episode_end
+                    )
+                    for completed_episode in completed_episodes:
+                        if completed_episode:
+                            ep_actor = int(completed_episode[0].get("actor_id", actor_id))
+                            ep_id = int(completed_episode[0].get("episode_id", episode_id))
+                            self._finalize_stream_batches_for_episode(ep_actor, ep_id)
+                        self.episode_buffer.add_episode(completed_episode)
+
+                    if not self._lap_terminate_triggered:
+                        for ep in self._episodes_to_check_for_lap_threshold(
+                            actor_id, episode_id, completed_episodes
+                        ):
+                            if self._episode_hits_lap_terminate_threshold(ep):
+                                await self._trigger_lap_terminate_shutdown(writer)
+                                break
+                    if self._lap_terminate_triggered:
                         break
                     # optional ack
                     try:
-                        writer.write(pack_frame({"type": "episode_ack", "data": {"n": len(episode)}}))
+                        writer.write(
+                            pack_frame(
+                                {
+                                    "type": "episode_ack",
+                                    "data": {
+                                        "n": len(batch),
+                                        "episode_id": episode_id,
+                                        "episode_done": bool(completed_episodes),
+                                        "episode_len": (
+                                            len(completed_episodes[-1]) if completed_episodes else None
+                                        ),
+                                    },
+                                }
+                            )
+                        )
                         await writer.drain()
                     except Exception:
                         pass
@@ -1097,9 +1465,13 @@ class LearnerServer:
                     d = msg.get("data", {})
                     actor_id = int(d.get("actor_id", -1))
 
-                    # Clear the episode buffer
+                    # Clear the episode buffer and in-flight episode assembly
                     episodes_cleared = len(self.episode_buffer.episodes)
                     self.episode_buffer.episodes.clear()
+                    self._episode_accum.clear()
+                    self._max_episode_id_per_actor.clear()
+                    self._stream_batches_by_episode.clear()
+                    self._finalized_stream_batches.clear()
 
                     # Clear the replay buffer if it exists
                     if self.replay_buffer is not None:
@@ -1124,8 +1496,7 @@ class LearnerServer:
                     # Ensure final lap times are persisted even if terminate arrives
                     # before the next train-loop tick.
                     self._flush_pending_episodes_to_metrics()
-                    
-                    # Save the model
+                    await self._await_pending_checkpoint()
                     self._save_model()
                     await self._broadcast_terminate(reason=f"terminate_requested_by_actor_{actor_id}")
                     
@@ -1242,8 +1613,8 @@ class LearnerServer:
             server.close()
             await server.wait_closed()
             
-            # Save model one last time
             print("[server] Saving model before exit...")
+            await self._await_pending_checkpoint()
             self._save_model()
             
             print("[server] Shutdown complete")

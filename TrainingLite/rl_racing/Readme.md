@@ -144,7 +144,7 @@ Server-specific arguments:
 - `--gradient-steps`: Number of gradient steps per training iteration
 - `--replay-capacity`: Replay buffer capacity
 - `--learning-starts`: Minimum samples before training starts
-- `--batch-size`: Batch size for training
+- `--SAC_BATCH_SIZE`: SAC training minibatch (replay samples per gradient step). Legacy: `--batch-size` overrides this for one run. Not `SAC_STREAM_BATCH_SIZE` (TCP streaming).
 - `--learning-rate`: Learning rate for SAC
 - `--discount-factor`: Discount factor (gamma)
 - `--train-frequency`: Training frequency
@@ -286,6 +286,16 @@ Removing/changing existing `super_obs` entries can break previously trained mode
 ## Multi-actor
 
 Run multiple sims/actors (different `actor_id`s) pointing to the same learner to speed up data collection. Diverse seeds and slightly different `accel_scale` improve exploration.
+
+Each actor uses `Settings.ACTOR_ID` for the TCP learner client and offsets the web renderer port: `WEB_RENDER_PORT + ACTOR_ID` (default base `8765` → actor 0 on 8765, actor 1 on 8766). A browser tab auto-opens per sim when `WEB_RENDER_AUTO_OPEN` is true.
+
+```bash
+# Terminal 1 — actor 0
+python run.py --ACTOR_ID 0 --RENDER_MODE human_fast ...
+
+# Terminal 2 — actor 1
+python run.py --ACTOR_ID 1 --RENDER_MODE human_fast ...
+```
 
 ---
 

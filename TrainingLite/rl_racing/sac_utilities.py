@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 from stable_baselines3.common.vec_env import DummyVecEnv
 import yaml
 
+from utilities.Settings import Settings
+
 
 # ------------------------------
 # Tiny env just to define spaces (no stepping)
@@ -394,7 +396,7 @@ class TrainingLogHelper():
         self.start_time = self.initialize_start_time() # Training time start
 
         self.training_index = 0
-        self.plot_every = 1  # Plot every log (was 5; 1 ensures metrics appear quickly)
+        self.plot_every = int(getattr(Settings, "SAC_METRICS_PLOT_EVERY", 5))
 
 
     
@@ -453,12 +455,7 @@ class TrainingLogHelper():
         # Gather all available metrics from logger
         metric_dict = {}
 
-        # Many actors send "bootstrap" transition batches before an episode ends
-        # by sending only the first couple transitions (length ~= 2). Those batches
-        # tend to have empty lap_times and near-zero accumulated rewards.
-        #
-        # For metrics we therefore ignore very short batches and only compute
-        # lap_times / episode stats from episodes with at least `min_transitions`.
+        # Ignore very short completed episodes (e.g. immediate crash) for lap-time stats.
         min_transitions = 3
         metric_episodes = [ep for ep in episodes if ep and len(ep) >= min_transitions]
         if not metric_episodes:
@@ -497,6 +494,7 @@ class TrainingLogHelper():
             np.mean([transition["reward"] for transition in episode]) if len(episode) > 0 else 0.0
             for episode in metric_episodes
         ]
+        stream_batch_sizes = log_dict.get("stream_batch_sizes", [])
 
         current_time = time.time()
         training_time = current_time - self.start_time
@@ -505,16 +503,13 @@ class TrainingLogHelper():
         metric_dict['episode_lengths'] = episode_lengths
         metric_dict['episode_rewards'] = episode_rewards
         metric_dict['episode_mean_step_rewards'] = episode_mean_step_rewards
+        metric_dict['stream_batch_sizes'] = stream_batch_sizes
         # Keep a consistent, parsable representation so `plot_training_metrics()`
         # can always detect `lap_times` as an array-like column.
         metric_dict['lap_times'] = str(lap_times) if lap_times is not None else "[]"
         metric_dict['reward_difficulty'] = last_info.get("reward_difficulty", None)
         metric_dict['difficulty'] = last_info.get("difficulty", None)  # curriculum difficulty
         
-        metric_dict['total_timesteps'] = getattr(model, '_total_timesteps', None)
-        metric_dict['training_duration'] = getattr(model, 'training_duration', None)
-        
-
         metric_dict['replay_buffer_size'] = model.replay_buffer.size() if hasattr(model, 'replay_buffer') else None
         metric_dict['batch_size'] = getattr(model, 'batch_size', None)
         metric_dict['gradient_steps'] = getattr(model, 'gradient_steps', None)
@@ -566,13 +561,28 @@ class TrainingLogHelper():
 
         # Downsample
         df_plot = df.iloc[::downsample_step].copy()
-        x_vals = df_plot['time'].values  # Use .values to get numpy array for proper indexing
+        if "time" in df_plot.columns:
+            x_vals = df_plot["time"].values
+            x_label = "time (s)"
+        elif "total_timesteps" in df_plot.columns:
+            x_vals = df_plot["total_timesteps"].values
+            x_label = "total_timesteps"
+        else:
+            x_vals = np.arange(len(df_plot))
+            x_label = "log_index"
 
-        # Remove non-timeseries metadata fields from plotting.
+        # Remove non-plotted metadata / timing fields (still kept in CSV).
+        _skip_plot_cols = {
+            "timestamp",
+            "time",
+            "training_duration",
+            "post_process_duration",
+            "batch_size",
+            "gradient_steps",
+            "learning_rate",
+        }
         columns_to_plot = [
-            col
-            for col in df_plot.columns
-            if col not in ['timestamp', 'training_duration', 'batch_size', 'gradient_steps', 'learning_rate']
+            col for col in df_plot.columns if col not in _skip_plot_cols
         ]
 
 
@@ -591,7 +601,12 @@ class TrainingLogHelper():
             arr_sample = None
             
             # Force certain columns to be treated as array-like
-            if col in ['episode_lengths', 'episode_rewards', 'episode_mean_step_rewards']:
+            if col in [
+                'episode_lengths',
+                'episode_rewards',
+                'episode_mean_step_rewards',
+                'stream_batch_sizes',
+            ]:
                 is_array_like = True
             elif isinstance(first_val, (list, tuple)):
                 is_array_like = True
@@ -633,7 +648,7 @@ class TrainingLogHelper():
             ax.xaxis.set_major_locator(ticker.MaxNLocator(max_xticks))
             ax.xaxis.set_tick_params(labelbottom=True)
             if idx == len(axs) - 1:
-                ax.set_xlabel('timestamp')
+                ax.set_xlabel(x_label)
 
         plt.tight_layout()
         png_path = os.path.join(model_dir, 'training_metrics.png')

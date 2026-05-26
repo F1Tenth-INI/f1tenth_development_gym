@@ -141,6 +141,7 @@ class RewardCalculator:
         stuck_reward = 0.0
         if speed < 1.0:
             self.stuck_counter += 1
+            stuck_reward = -0.05
             if self.stuck_counter >= 100:
                 stuck_reward = -self.w_crash 
                 self.truncated = True

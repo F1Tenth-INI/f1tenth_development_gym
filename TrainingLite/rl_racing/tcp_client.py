@@ -41,6 +41,7 @@ class _TCPActorClient:
         self._server_terminate_lock = threading.Lock()
         self._server_terminate_payload: Optional[dict] = None
         self._stop_evt = threading.Event()
+        self._send_drops = 0
 
     # --- public API ---
     def start(self) -> None:
@@ -61,12 +62,16 @@ class _TCPActorClient:
             self._thread.join(timeout=1.0)
             self._thread = None
 
-    def send_transition_batch(self, batch: list) -> None:
+    def send_transition_batch(
+        self, batch: list, episode_id: int = 0, episode_end: bool = False
+    ) -> None:
         # batch: list of dicts with keys obs, action, next_obs, reward, done, info
         data = {
             "type": "transition_batch",
             "data": {
                 "actor_id": int(self.actor_id),
+                "episode_id": int(episode_id),
+                "episode_end": bool(episode_end),
                 "obs": [np_to_blob(t["obs"].astype(np.float32)) for t in batch],
                 "action": [np_to_blob(t["action"].astype(np.float32)) for t in batch],
                 "next_obs": [np_to_blob(t["next_obs"].astype(np.float32)) for t in batch],
@@ -78,7 +83,13 @@ class _TCPActorClient:
         try:
             self._send_q.put_nowait(data)
         except queue.Full:
-            pass
+            self._send_drops += 1
+            n = len(batch)
+            if self._send_drops == 1 or self._send_drops % 50 == 0:
+                print(
+                    f"[TCPActorClient] Send queue full: dropped batch of {n} transition(s) "
+                    f"(total_drops={self._send_drops}). Slow down collection or increase send throughput."
+                )
 
     def send_clear_buffer(self) -> None:
         """Send a message to clear the server's replay buffer."""
