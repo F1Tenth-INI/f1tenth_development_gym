@@ -122,6 +122,7 @@ class CarSystem:
             self.obstacle_detector = ObstacleDetector()
             self.reward_calculator = RewardCalculator()
         self.reward = 0
+        self.reward_components = {}
 
         ### Planner
         self.controller_name = controller
@@ -311,7 +312,13 @@ class CarSystem:
             # "reward_difficulty": self.reward_calculator.difficulty
         }
 
-        self.reward = self.reward_calculator._calculate_reward(self, next_obs)
+        reward_result = self.reward_calculator._calculate_reward(self, next_obs)
+        if isinstance(reward_result, dict):
+            self.reward = float(reward_result.get("total_reward", 0.0))
+            self.reward_components = dict(reward_result.get("components") or {})
+        else:
+            self.reward = float(reward_result)
+            self.reward_components = dict(getattr(self.reward_calculator, "last_reward_components", {}) or {})
 
         next_obs.update({
             "reward": self.reward,
@@ -320,15 +327,16 @@ class CarSystem:
             "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'] or next_obs['interrupted'] or next_obs['done'],
         })
 
-
-
         self.obs = next_obs
+
+        if self.render_utils is not None and not self.lightweight_mode:
+            self.update_render_utils()
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
             self.planner.on_step_end(self.obs)
 
-        if next_obs['done']:
-            self.reward_calculator.reset()
+        # Do not reset the reward calculator here: render_env() runs after on_step_end
+        # and must still publish the terminal-step reward. driver.reset() clears it.
 
 
 
@@ -384,7 +392,9 @@ class CarSystem:
             'speed': car_state[LINEAR_VEL_X_IDX],
             'Wp_idx': self.waypoint_utils.nearest_waypoint_index,
         }
-
+        for name, value in (self.reward_components or {}).items():
+            label_dict[f'reward: {name}'] = float(value)
+        label_dict['reward: total'] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
         self.render_utils.update(
             lidar_points= self.lidar_utils.processed_points_map_coordinates,

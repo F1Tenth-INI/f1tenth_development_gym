@@ -251,8 +251,7 @@ class Settings():
     LEARNER_METRICS_HTTP_POLL_S = 2.0
     # Open SAC metrics side panel in the web renderer on load (sac_agent only).
     SAC_METRICS_PANEL_OPEN_DEFAULT = False
-    # Matplotlib PNG (training_metrics.png); off by default when HTTP dashboard is on.
-    SAC_METRICS_PNG_ENABLED = False
+    # Matplotlib PNG (training_metrics.png) written to the model directory.
     SAC_MODEL_AUTOSAVE_INTERVAL_S = 60.0
     # When UDT is below target, allow larger grad bursts (updates per train round).
     SAC_GRAD_BURST_MULTIPLIER = 4

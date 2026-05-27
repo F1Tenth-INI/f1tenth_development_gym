@@ -64,6 +64,31 @@
       flex-shrink: 0;
     }
     .side-panel-header span { flex: 1; font-weight: 600; }
+    .plot-window-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: normal;
+      color: rgba(255, 255, 255, 0.88);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .plot-window-control input {
+      width: 52px;
+      padding: 3px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 12px;
+      text-align: center;
+    }
+    .plot-window-control input:focus {
+      outline: none;
+      border-color: #b8a9d9;
+      background: rgba(255, 255, 255, 0.16);
+    }
     .side-panel-close {
       border: 1px solid rgba(255, 255, 255, 0.35);
       border-radius: 6px;
@@ -101,8 +126,22 @@
       border-radius: 0 8px 8px 0;
     }
     #plots-panel {
-      width: clamp(320px, 40vw, 520px);
+      width: clamp(380px, 44vw, 680px);
+      min-width: 320px;
+      max-width: min(92vw, 900px);
+      resize: horizontal;
+      overflow: hidden;
       z-index: 42;
+    }
+    #plots-panel-resize-handle {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 8px;
+      height: 100%;
+      cursor: ew-resize;
+      z-index: 3;
+      touch-action: none;
     }
     #plots-panel-body {
       flex: 1;
@@ -113,11 +152,67 @@
       touch-action: pan-y;
       background: #0f1115;
     }
-    #plot-canvas {
+    .plot-section {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .plot-section:last-child {
+      border-bottom: none;
+    }
+    .plot-section-title {
+      margin: 0;
+      padding: 10px 12px 6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+      background: rgba(13, 47, 123, 0.35);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .plot-section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 0;
+      padding: 10px 12px 6px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+      background: rgba(13, 47, 123, 0.35);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .plot-section-title-row span {
+      flex: 1;
+    }
+    .plot-section-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: none;
+      color: rgba(255, 255, 255, 0.85);
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+    }
+    .plot-section-option input {
+      margin: 0;
+      cursor: pointer;
+    }
+    .plot-section canvas {
       width: 100%;
       display: block;
       height: auto;
-      min-height: 200px;
+      min-height: 140px;
     }
     #plots-panel-tab { top: 38%; display: none; }
     #metrics-panel {
@@ -164,25 +259,47 @@
       <strong>F1TENTH Web Renderer</strong>
       <span id="status">Connecting...</span>
       <div id="controls">
-        <button id="toggle-follow" type="button" class="active" aria-pressed="true">Following car</button>
+        <button id="toggle-follow" type="button" aria-pressed="false">Free view</button>
         <label><input id="toggle-map" type="checkbox" checked />Show Map</label>
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <button id="toggle-plots" type="button" class="topbar-toggle active" aria-pressed="true">Control &amp; state plots</button>
+        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state &amp; reward plots</button>
         <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
-  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control and state plots">Plots</button>
-  <aside id="plots-panel" class="side-panel left open" aria-label="Control and state plots" aria-hidden="false">
+  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state and reward plots">Plots</button>
+  <aside id="plots-panel" class="side-panel left" aria-label="Control, state and reward plots" aria-hidden="true">
+    <div id="plots-panel-resize-handle" title="Drag to resize panel width"></div>
     <div class="side-panel-header">
-      <span>Control &amp; state plots</span>
+      <span>Control, State &amp; Reward plots</span>
+      <label class="plot-window-control" title="Seconds of history shown on each plot">
+        Window (s)
+        <input id="plot-window-s" type="text" inputmode="decimal" value="50" size="4" aria-label="Plot time window in seconds" />
+      </label>
       <button id="plots-panel-close" class="side-panel-close" type="button" title="Collapse panel">Hide</button>
     </div>
     <div id="plots-panel-body">
-      <canvas id="plot-canvas"></canvas>
+      <section class="plot-section" id="control-plots-section" aria-label="Control plots">
+        <h3 class="plot-section-title">Control</h3>
+        <canvas id="control-plot-canvas"></canvas>
+      </section>
+      <section class="plot-section" id="state-plots-section" aria-label="State plots">
+        <h3 class="plot-section-title">State</h3>
+        <canvas id="state-plot-canvas"></canvas>
+      </section>
+      <section class="plot-section" id="reward-plots-section" aria-label="Reward plots">
+        <div class="plot-section-title-row">
+          <span>Reward</span>
+          <label class="plot-section-option" title="Plot per-episode cumulative sums instead of per-step values">
+            <input id="toggle-integrated-rewards" type="checkbox" />
+            Integrate components
+          </label>
+        </div>
+        <canvas id="reward-plot-canvas"></canvas>
+      </section>
     </div>
   </aside>
   <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
@@ -202,8 +319,15 @@
     const plotsPanelEl = document.getElementById("plots-panel");
     const plotsPanelTabEl = document.getElementById("plots-panel-tab");
     const plotsPanelCloseEl = document.getElementById("plots-panel-close");
-    const plotCanvas = document.getElementById("plot-canvas");
-    const plotCtx = plotCanvas.getContext("2d");
+    const controlPlotCanvas = document.getElementById("control-plot-canvas");
+    const statePlotCanvas = document.getElementById("state-plot-canvas");
+    const rewardPlotCanvas = document.getElementById("reward-plot-canvas");
+    const controlPlotCtx = controlPlotCanvas.getContext("2d");
+    const statePlotCtx = statePlotCanvas.getContext("2d");
+    const rewardPlotCtx = rewardPlotCanvas.getContext("2d");
+    const plotsPanelResizeHandleEl = document.getElementById("plots-panel-resize-handle");
+    const plotWindowInputEl = document.getElementById("plot-window-s");
+    const toggleIntegratedRewardsEl = document.getElementById("toggle-integrated-rewards");
     const statusEl = document.getElementById("status");
     const toggleMapEl = document.getElementById("toggle-map");
     const toggleHistoryEl = document.getElementById("toggle-history");
@@ -219,7 +343,7 @@
     let sacMetricsAvailable = false;
     let metricsServerConnected = false;
     let metricsUiConfig = null;
-    let plotsPanelOpen = true;
+    let plotsPanelOpen = false;
     let metricsPanelOpen = false;
     let mapMeta = null;
     let mapImg = null;
@@ -233,11 +357,12 @@
     let observedFetchIntervalS = 0.1;
     let lastFetchCompleteWallS = null;
     let lastFrameId = 0;
+    let lastIngestedPlotFrameId = 0;
     let staticOverlay = {};
     let frameBuffer = [];
     let playbackSimTime = null;
     let lastDrawWallTimeS = null;
-    let cameraFollowEgo = true;
+    let cameraFollowEgo = false;
     let cameraCenter = null;
     const BUFFER_WINDOW_S = 2.5;
     const TARGET_BUFFER_DELAY_S = 1.8;
@@ -271,8 +396,11 @@
     let browserPositionHistory = [];
     let browserHistoryLastFrameId = 0;
     const MAX_BROWSER_HISTORY_POINTS = 20000;
-    const TIME_SERIES_PLOT_WINDOW_S = 10.0;
+    const PLOT_WINDOW_DEFAULT_S = 50.0;
+    const PLOT_WINDOW_MIN_S = 0.5;
+    const PLOT_WINDOW_MAX_S = 120.0;
     const TIME_SERIES_PLOT_MAX_SAMPLES = 900;
+    let plotWindowS = PLOT_WINDOW_DEFAULT_S;
     const CONTROL_ANGULAR_KEY = "0: angular_control";
     const CONTROL_TRANSLATIONAL_KEY = "1: translational_control";
     const STATE_PLOT_COLOR_CYCLE = [
@@ -283,10 +411,21 @@
       "rgb(129, 201, 149)",
       "rgb(138, 180, 248)",
     ];
+    const EPISODE_TOTAL_REWARD_KEY = "reward: episode_total";
+    const REWARD_PLOT_KEY_ORDER = [
+      EPISODE_TOTAL_REWARD_KEY,
+      "reward: total",
+      "reward: progress",
+      "reward: crash_reward",
+      "reward: wp_distance_penalty",
+      "reward: d_action_penality",
+      "reward: speed_cap_penalty",
+      "reward: spin_reward",
+      "reward: stuck_reward",
+    ];
     const STATE_KEY_ORDER = [
       "speed",
       "yaw",
-      "reward",
       "distance to raceline",
       "wp_idx",
       "surface friction",
@@ -294,10 +433,64 @@
     let timeSeriesData = {};
     let controlPlotKeys = [CONTROL_ANGULAR_KEY, CONTROL_TRANSLATIONAL_KEY];
     let statePlotKeys = [];
-    let lastPlotLayoutKey = "";
+    let rewardPlotKeys = [];
+    let episodeTotalPlotEnabled = false;
+    let showIntegratedRewardComponents = false;
+    let currentEpisodeAccumReward = 0.0;
+    let currentEpisodeAccumByKey = {};
+    const SUBPLOT_HEIGHT_PX = 128;
+    const SUBPLOT_SECTION_PAD_PX = 56;
+    let lastControlPlotLayoutKey = "";
+    let lastStatePlotLayoutKey = "";
+    let lastRewardPlotLayoutKey = "";
+    let controlPlotLayoutCache = null;
+    let statePlotLayoutCache = null;
+    let rewardPlotLayoutCache = null;
+    let plotHover = null;
+    let plotHoverCanvas = null;
 
-    function plotLayoutKey() {
-      return `${controlPlotKeys.join("|")}::${statePlotKeys.join("|")}`;
+    function isPlotHoverEnabled() {
+      return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    }
+
+    function getPlotWindowS() {
+      return plotWindowS;
+    }
+
+    function syncPlotWindowInput() {
+      if (!plotWindowInputEl) return;
+      plotWindowInputEl.value = plotWindowS.toFixed(1);
+    }
+
+    function applyPlotWindowFromInput() {
+      const parsed = parseNumeric(plotWindowInputEl?.value);
+      if (parsed === null) {
+        syncPlotWindowInput();
+        return;
+      }
+      plotWindowS = clamp(parsed, PLOT_WINDOW_MIN_S, PLOT_WINDOW_MAX_S);
+      syncPlotWindowInput();
+      const latestT = Number(latestSimulationTime || 0.0);
+      if (latestT > 0) {
+        trimTimeSeries(Math.max(0.0, latestT - plotWindowS));
+      }
+      lastControlPlotLayoutKey = "";
+      lastStatePlotLayoutKey = "";
+      lastRewardPlotLayoutKey = "";
+      plotHover = null;
+      plotHoverCanvas = null;
+    }
+
+    function controlPlotLayoutKey() {
+      return controlPlotKeys.join("|");
+    }
+
+    function statePlotLayoutKey() {
+      return statePlotKeys.join("|");
+    }
+
+    function rewardPlotLayoutKey() {
+      return rewardPlotKeys.join("|");
     }
 
     function resizeCanvas() {
@@ -306,12 +499,15 @@
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      maybeResizePlotCanvas(true);
+      maybeResizePlotCanvases(true);
     }
 
-    function resizePlotCanvas() {
-      const subplotCount = Math.max(1, controlPlotKeys.length + statePlotKeys.length);
-      const layoutHeight = Math.max(280, subplotCount * 108 + 48);
+    function resizeSectionPlotCanvas(plotCanvas, plotCtx, keys) {
+      const subplotCount = Math.max(1, keys.length);
+      const layoutHeight = Math.max(
+        160,
+        subplotCount * SUBPLOT_HEIGHT_PX + SUBPLOT_SECTION_PAD_PX
+      );
       plotCanvas.style.height = `${layoutHeight}px`;
       const dpr = window.devicePixelRatio || 1;
       const rect = plotCanvas.getBoundingClientRect();
@@ -320,12 +516,55 @@
       plotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function maybeResizePlotCanvas(force = false) {
+    function maybeResizePlotCanvases(force = false) {
       if (!plotsPanelOpen) return;
-      const key = plotLayoutKey();
-      if (!force && key === lastPlotLayoutKey) return;
-      lastPlotLayoutKey = key;
-      resizePlotCanvas();
+      const controlKey = controlPlotLayoutKey();
+      const stateKey = statePlotLayoutKey();
+      const rewardKey = rewardPlotLayoutKey();
+      const controlChanged = force || controlKey !== lastControlPlotLayoutKey;
+      const stateChanged = force || stateKey !== lastStatePlotLayoutKey;
+      const rewardChanged = force || rewardKey !== lastRewardPlotLayoutKey;
+      if (controlChanged) {
+        lastControlPlotLayoutKey = controlKey;
+        resizeSectionPlotCanvas(controlPlotCanvas, controlPlotCtx, controlPlotKeys);
+      }
+      if (stateChanged) {
+        lastStatePlotLayoutKey = stateKey;
+        resizeSectionPlotCanvas(statePlotCanvas, statePlotCtx, statePlotKeys);
+      }
+      if (rewardChanged) {
+        lastRewardPlotLayoutKey = rewardKey;
+        resizeSectionPlotCanvas(rewardPlotCanvas, rewardPlotCtx, rewardPlotKeys);
+      }
+    }
+
+    function startPlotsPanelResize(clientX) {
+      const startX = clientX;
+      const startWidth = plotsPanelEl.getBoundingClientRect().width;
+      const minW = 320;
+      const maxW = Math.min(window.innerWidth * 0.92, 900);
+
+      function onMove(ev) {
+        const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+        const nextW = clamp(startWidth + (x - startX), minW, maxW);
+        plotsPanelEl.style.width = `${nextW}px`;
+        updateSidePanelLayout();
+        maybeResizePlotCanvases(true);
+      }
+
+      function onEnd() {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onEnd);
+        window.removeEventListener("touchmove", onMove);
+        window.removeEventListener("touchend", onEnd);
+        window.removeEventListener("touchcancel", onEnd);
+      }
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onEnd);
+      window.addEventListener("touchmove", onMove, { passive: false });
+      window.addEventListener("touchend", onEnd);
+      window.addEventListener("touchcancel", onEnd);
     }
 
     function updateSidePanelLayout() {
@@ -343,8 +582,8 @@
       togglePlotsEl.classList.toggle("active", plotsPanelOpen);
       togglePlotsEl.setAttribute("aria-pressed", plotsPanelOpen ? "true" : "false");
       togglePlotsEl.textContent = plotsPanelOpen
-        ? "Hide control & state plots"
-        : "Control & state plots";
+        ? "Hide control, state & reward plots"
+        : "Control, state & reward plots";
       updateSidePanelLayout();
     }
 
@@ -365,7 +604,7 @@
     function setPlotsPanelOpen(open) {
       plotsPanelOpen = !!open;
       updatePlotsPanelChrome();
-      if (plotsPanelOpen) maybeResizePlotCanvas(true);
+      if (plotsPanelOpen) maybeResizePlotCanvases(true);
     }
 
     function setMetricsPanelOpen(open) {
@@ -488,9 +727,50 @@
       return null;
     }
 
+    function isRewardPlotKey(key) {
+      const norm = normalizeLabelName(key);
+      return norm.startsWith("reward:") || norm === "reward";
+    }
+
+    function isEpisodeIntegratedTotalKey(key) {
+      return normalizeLabelName(key) === normalizeLabelName(EPISODE_TOTAL_REWARD_KEY);
+    }
+
+    function isIntegratableRewardComponentKey(key) {
+      if (!isRewardPlotKey(key) || isEpisodeIntegratedTotalKey(key)) return false;
+      return true;
+    }
+
+    function resetEpisodeRewardAccumulators() {
+      currentEpisodeAccumReward = 0.0;
+      currentEpisodeAccumByKey = {};
+    }
+
+    function clearRewardTimeSeries() {
+      for (const key of rewardPlotKeys) {
+        delete timeSeriesData[key];
+      }
+      lastRewardPlotLayoutKey = "";
+      plotHover = null;
+      if (plotHoverCanvas === rewardPlotCanvas) plotHoverCanvas = null;
+    }
+
+    function rewardPlotTitle(key) {
+      const title = normalizeLabelName(key);
+      if (!showIntegratedRewardComponents || !isIntegratableRewardComponentKey(key)) {
+        return title;
+      }
+      return `${title} (∫ episode)`;
+    }
+
     function sortStatePlotKeys(keys) {
       const rank = (key) => {
         const norm = normalizeLabelName(key);
+        if (isRewardPlotKey(key)) {
+          const rewardIdx = REWARD_PLOT_KEY_ORDER.findIndex((hint) => norm.includes(normalizeLabelName(hint)));
+          const rewardRank = rewardIdx >= 0 ? rewardIdx : REWARD_PLOT_KEY_ORDER.length + 1;
+          return 1000 + rewardRank;
+        }
         const idx = STATE_KEY_ORDER.findIndex((hint) => norm.includes(hint));
         return idx >= 0 ? idx : STATE_KEY_ORDER.length + 1;
       };
@@ -506,23 +786,106 @@
       const angularKey = resolveControlKey(labels, CONTROL_ANGULAR_KEY, "angular_control");
       const translationalKey = resolveControlKey(labels, CONTROL_TRANSLATIONAL_KEY, "translational_control");
       const nextControlKeys = [angularKey, translationalKey].filter((k) => !!k);
+      let nextRewardKeys = sortStatePlotKeys(
+        Object.keys(labels).filter(
+          (key) => isRewardPlotKey(key) && parseNumeric(labels[key]) !== null
+        )
+      );
+      if (showIntegratedRewardComponents) {
+        nextRewardKeys = nextRewardKeys.filter((key) => !isEpisodeIntegratedTotalKey(key));
+      } else if (episodeTotalPlotEnabled && !nextRewardKeys.includes(EPISODE_TOTAL_REWARD_KEY)) {
+        // Keep episode-integrated total visible in per-step mode after first terminal sample.
+        nextRewardKeys.push(EPISODE_TOTAL_REWARD_KEY);
+      }
+
       const nextStateKeys = sortStatePlotKeys(
-        Object.keys(labels).filter((key) => !isControlLabelKey(key) && parseNumeric(labels[key]) !== null)
+        Object.keys(labels).filter(
+          (key) => !isControlLabelKey(key) && !isRewardPlotKey(key) && parseNumeric(labels[key]) !== null
+        )
       );
       const controlChanged = controlPlotKeys.join("|") !== nextControlKeys.join("|");
       const stateChanged = statePlotKeys.join("|") !== nextStateKeys.join("|");
-      if (controlChanged || stateChanged) {
-        timeSeriesData = {};
-      }
+      const rewardChanged = rewardPlotKeys.join("|") !== nextRewardKeys.join("|");
       controlPlotKeys = nextControlKeys;
       statePlotKeys = nextStateKeys;
-      if (controlChanged || stateChanged) {
-        lastPlotLayoutKey = "";
+      rewardPlotKeys = nextRewardKeys;
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
+        if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
+      }
+      if (controlChanged) lastControlPlotLayoutKey = "";
+      if (stateChanged) lastStatePlotLayoutKey = "";
+      if (rewardChanged) lastRewardPlotLayoutKey = "";
+    }
+
+    function ingestPlotFrame(frame) {
+      if (!frame) return;
+      const fid = Number(frame.frame_id || 0);
+      if (!Number.isFinite(fid) || fid <= lastIngestedPlotFrameId) return;
+
+      const labels = { ...(frame.web_overlay?.label_dict || {}) };
+      const timeS = Number(frame.simulation_time || 0.0);
+      if (!Number.isFinite(timeS)) return;
+
+      const terminalEpisodeStep =
+        !!frame.web_overlay?.force_plot_publish ||
+        (() => {
+          const stepTotalReward = parseNumeric(labels["reward: total"]);
+          return stepTotalReward !== null && stepTotalReward <= -3.0;
+        })();
+
+      for (const key of Object.keys(labels)) {
+        if (!isIntegratableRewardComponentKey(key)) continue;
+        const stepVal = parseNumeric(labels[key]);
+        if (stepVal === null) continue;
+        currentEpisodeAccumByKey[key] = (currentEpisodeAccumByKey[key] || 0.0) + stepVal;
+        if (key === "reward: total") currentEpisodeAccumReward = currentEpisodeAccumByKey[key];
+      }
+
+      if (showIntegratedRewardComponents) {
+        for (const [key, accum] of Object.entries(currentEpisodeAccumByKey)) {
+          labels[key] = accum;
+        }
+      } else {
+        labels[EPISODE_TOTAL_REWARD_KEY] = currentEpisodeAccumReward;
+      }
+
+      if (terminalEpisodeStep) {
+        episodeTotalPlotEnabled = true;
+        resetEpisodeRewardAccumulators();
+      }
+
+      discoverPlotKeys(labels);
+      const allKeys = [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys];
+      if (allKeys.length === 0) return;
+
+      for (const key of allKeys) {
+        const val = parseNumeric(labels[key]);
+        if (val === null) continue;
+        if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
+        const series = timeSeriesData[key];
+        const last = series.length > 0 ? series[series.length - 1] : null;
+        if (last && Math.abs(last[0] - timeS) < 1e-6 && Math.abs(last[1] - val) < 1e-6) {
+          continue;
+        }
+        series.push([timeS, val]);
+        if (series.length > TIME_SERIES_PLOT_MAX_SAMPLES) {
+          series.splice(0, series.length - TIME_SERIES_PLOT_MAX_SAMPLES);
+        }
+      }
+      trimTimeSeries(Math.max(0.0, timeS - getPlotWindowS()));
+      lastIngestedPlotFrameId = Math.max(lastIngestedPlotFrameId, fid);
+    }
+
+    function ingestPlotFrames(frames) {
+      if (!Array.isArray(frames) || frames.length === 0) return;
+      const sorted = [...frames].sort((a, b) => Number(a.frame_id) - Number(b.frame_id));
+      for (const frame of sorted) {
+        ingestPlotFrame(frame);
       }
     }
 
     function trimTimeSeries(minTime) {
-      for (const key of [...controlPlotKeys, ...statePlotKeys]) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
         const series = timeSeriesData[key];
         if (!Array.isArray(series) || series.length === 0) continue;
         let cutIdx = 0;
@@ -534,24 +897,9 @@
     }
 
     function updateTimeSeriesPlots(frame) {
-      if (!frame) return;
-      const labels = frame.web_overlay?.label_dict || {};
-      const timeS = Number(frame.simulation_time || 0.0);
-      discoverPlotKeys(labels);
-
-      const allKeys = [...controlPlotKeys, ...statePlotKeys];
-      if (allKeys.length === 0) return;
-
-      for (const key of allKeys) {
-        const val = parseNumeric(labels[key]);
-        if (val === null) continue;
-        if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
-        timeSeriesData[key].push([timeS, val]);
-        if (timeSeriesData[key].length > TIME_SERIES_PLOT_MAX_SAMPLES) {
-          timeSeriesData[key].splice(0, timeSeriesData[key].length - TIME_SERIES_PLOT_MAX_SAMPLES);
-        }
-      }
-      trimTimeSeries(Math.max(0.0, timeS - TIME_SERIES_PLOT_WINDOW_S));
+      // Plot samples are ingested from raw /state-history frames (by frame_id).
+      // Playback interpolation must not be used for reward telemetry.
+      if (frame) ingestPlotFrame(frame);
     }
 
     function plotColorForKey(key, index) {
@@ -563,37 +911,44 @@
       return STATE_PLOT_COLOR_CYCLE[index % STATE_PLOT_COLOR_CYCLE.length];
     }
 
-    function drawTimeSeriesPlots(frame) {
-      const allKeys = [...controlPlotKeys, ...statePlotKeys];
-      const rect = plotCanvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-      plotCtx.clearRect(0, 0, w, h);
-      plotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
-      plotCtx.fillRect(0, 0, w, h);
-      if (!frame || allKeys.length === 0) {
-        plotCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
-        plotCtx.font = "12px sans-serif";
-        plotCtx.fillText("Waiting for control and state telemetry...", 14, 22);
-        return;
-      }
+    function formatPlotValue(v) {
+      const av = Math.abs(v);
+      if (av >= 100) return v.toFixed(1);
+      if (av >= 10) return v.toFixed(2);
+      if (av >= 1) return v.toFixed(3);
+      return v.toFixed(4);
+    }
 
+    function nearestSampleByTime(series, targetT, minT) {
+      if (!Array.isArray(series) || series.length === 0) return null;
+      let best = null;
+      let bestDt = Infinity;
+      for (const [t, v] of series) {
+        if (t < minT) continue;
+        const dt = Math.abs(t - targetT);
+        if (dt < bestDt) {
+          bestDt = dt;
+          best = [t, v];
+        }
+      }
+      return best;
+    }
+
+    function computePlotLayout(w, h, allKeys, nowT, titleForKey = null) {
       const padLeft = 54;
       const padRight = 14;
       const padTop = 10;
       const padBottom = 26;
       const plotW = Math.max(1, w - padLeft - padRight);
       const plotH = Math.max(1, h - padTop - padBottom);
-      const nowT = Number(frame.simulation_time || 0.0);
-      const minT = Math.max(0.0, nowT - TIME_SERIES_PLOT_WINDOW_S);
+      const plotWindow = getPlotWindowS();
+      const minT = Math.max(0.0, nowT - plotWindow);
       const subplotGap = 10;
-      const subplotCount = allKeys.length;
+      const subplotCount = Math.max(1, allKeys.length);
       const subplotH = (plotH - subplotGap * (subplotCount - 1)) / subplotCount;
-
-      function drawSubplot(key, index, color) {
-        const title = normalizeLabelName(key);
-        const y0 = padTop + index * (subplotH + subplotGap);
-        const y1 = y0 + subplotH;
+      const subplots = [];
+      for (let index = 0; index < allKeys.length; index++) {
+        const key = allKeys[index];
         const series = timeSeriesData[key] || [];
         let yMin = Infinity;
         let yMax = -Infinity;
@@ -611,58 +966,256 @@
         const plotMin = yMin - yPad;
         const plotMax = yMax + yPad;
         const plotSpan = Math.max(1e-3, plotMax - plotMin);
+        const y0 = padTop + index * (subplotH + subplotGap);
+        subplots.push({
+          key,
+          index,
+          title: titleForKey ? titleForKey(key) : normalizeLabelName(key),
+          color: plotColorForKey(key, index),
+          y0,
+          y1: y0 + subplotH,
+          subplotH,
+          plotMin,
+          plotMax,
+          plotSpan,
+        });
+      }
+      return { w, h, padLeft, padRight, padTop, padBottom, plotW, plotH, minT, nowT, plotWindow, subplots };
+    }
 
-        plotCtx.strokeStyle = "rgba(255, 255, 255, 0.22)";
-        plotCtx.lineWidth = 1;
-        for (let j = 0; j <= 3; j++) {
-          const gy = y0 + (j / 3) * subplotH;
-          plotCtx.beginPath();
-          plotCtx.moveTo(padLeft, gy);
-          plotCtx.lineTo(padLeft + plotW, gy);
-          plotCtx.stroke();
-        }
+    function seriesPointToScreen(layout, subplot, t, v) {
+      const tx = (t - layout.minT) / layout.plotWindow;
+      const ty = (v - subplot.plotMin) / subplot.plotSpan;
+      const x = layout.padLeft + tx * layout.plotW;
+      const y = subplot.y0 + (1.0 - ty) * subplot.subplotH;
+      return [x, y];
+    }
+
+    function updatePlotHoverFromMouse(clientX, clientY, targetCanvas, layoutCache) {
+      if (!plotsPanelOpen || !isPlotHoverEnabled()) {
+        plotHover = null;
+        plotHoverCanvas = null;
+        return;
+      }
+      const layout = layoutCache;
+      if (!layout || layout.subplots.length === 0) {
+        plotHover = null;
+        plotHoverCanvas = null;
+        return;
+      }
+      const rect = targetCanvas.getBoundingClientRect();
+      const mx = clientX - rect.left;
+      const my = clientY - rect.top;
+      if (mx < layout.padLeft || mx > layout.padLeft + layout.plotW) {
+        plotHover = null;
+        plotHoverCanvas = null;
+        return;
+      }
+      const hoverT =
+        layout.minT + ((mx - layout.padLeft) / layout.plotW) * layout.plotWindow;
+      const points = [];
+      for (const subplot of layout.subplots) {
+        const series = timeSeriesData[subplot.key] || [];
+        const nearest = nearestSampleByTime(series, hoverT, layout.minT);
+        if (!nearest) continue;
+        const [px, py] = seriesPointToScreen(layout, subplot, nearest[0], nearest[1]);
+        points.push({
+          key: subplot.key,
+          title: subplot.title,
+          t: nearest[0],
+          value: nearest[1],
+          color: subplot.color,
+          px,
+          py,
+        });
+      }
+      if (points.length === 0) {
+        plotHover = null;
+        plotHoverCanvas = null;
+        return;
+      }
+      const hoverX =
+        layout.padLeft +
+        ((hoverT - layout.minT) / layout.plotWindow) * layout.plotW;
+      plotHover = { t: hoverT, mx, my, hoverX, points };
+      plotHoverCanvas = targetCanvas;
+    }
+
+    function drawPlotTooltip(lines, mx, my, layout, plotCtx) {
+      plotCtx.font = "11px sans-serif";
+      const lineH = 14;
+      const pad = 8;
+      let maxW = 0;
+      for (const line of lines) {
+        maxW = Math.max(maxW, plotCtx.measureText(line).width);
+      }
+      const boxW = maxW + pad * 2;
+      const boxH = lines.length * lineH + pad * 2;
+      let bx = mx + 14;
+      let by = my + 14;
+      if (bx + boxW > layout.w - 8) bx = mx - boxW - 14;
+      if (by + boxH > layout.h - 8) by = my - boxH - 14;
+      bx = clamp(bx, 8, layout.w - boxW - 8);
+      by = clamp(by, layout.padTop, layout.h - boxH - 8);
+      plotCtx.fillStyle = "rgba(8, 16, 42, 0.94)";
+      plotCtx.strokeStyle = "rgba(255, 255, 255, 0.38)";
+      plotCtx.lineWidth = 1;
+      plotCtx.fillRect(bx, by, boxW, boxH);
+      plotCtx.strokeRect(bx, by, boxW, boxH);
+      plotCtx.fillStyle = "rgba(255, 255, 255, 0.93)";
+      lines.forEach((line, i) => {
+        plotCtx.fillText(line, bx + pad, by + pad + (i + 1) * lineH - 3);
+      });
+    }
+
+    function drawPlotHoverOverlay(layout, plotCtx) {
+      if (!plotHover || !layout) return;
+      const { hoverX, points, t, mx, my } = plotHover;
+      plotCtx.save();
+      plotCtx.strokeStyle = "rgba(255, 255, 255, 0.42)";
+      plotCtx.lineWidth = 1;
+      plotCtx.setLineDash([4, 4]);
+      plotCtx.beginPath();
+      plotCtx.moveTo(hoverX, layout.padTop);
+      plotCtx.lineTo(hoverX, layout.h - layout.padBottom);
+      plotCtx.stroke();
+      plotCtx.setLineDash([]);
+
+      for (const p of points) {
+        plotCtx.fillStyle = p.color;
         plotCtx.beginPath();
-        plotCtx.moveTo(padLeft, y0);
-        plotCtx.lineTo(padLeft, y1);
-        plotCtx.lineTo(padLeft + plotW, y1);
+        plotCtx.arc(p.px, p.py, 5, 0, Math.PI * 2);
+        plotCtx.fill();
+        plotCtx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+        plotCtx.lineWidth = 1.5;
         plotCtx.stroke();
-
-        plotCtx.strokeStyle = color;
-        plotCtx.lineWidth = 1.7;
-        let drew = false;
-        plotCtx.beginPath();
-        for (const [t, v] of series) {
-          if (t < minT) continue;
-          const tx = (t - minT) / TIME_SERIES_PLOT_WINDOW_S;
-          const ty = (v - plotMin) / plotSpan;
-          const x = padLeft + tx * plotW;
-          const y = y0 + (1.0 - ty) * subplotH;
-          if (!drew) {
-            plotCtx.moveTo(x, y);
-            drew = true;
-          } else {
-            plotCtx.lineTo(x, y);
-          }
-        }
-        if (drew) plotCtx.stroke();
-
-        plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
-        plotCtx.font = "10px sans-serif";
-        plotCtx.fillText(plotMax.toFixed(3), 4, y0 + 10);
-        plotCtx.fillText(plotMin.toFixed(3), 4, y1 - 2);
-        plotCtx.fillStyle = "#e8eaed";
-        plotCtx.font = "bold 12px sans-serif";
-        plotCtx.fillText(title, padLeft + 6, y0 + 13);
       }
 
-      allKeys.forEach((key, index) => {
-        drawSubplot(key, index, plotColorForKey(key, index));
-      });
+      const lines = [`t = ${t.toFixed(3)} s`];
+      for (const p of points) {
+        lines.push(`${p.title}: ${formatPlotValue(p.value)}`);
+      }
+      drawPlotTooltip(lines, mx, my, layout, plotCtx);
+      plotCtx.restore();
+    }
+
+    function drawSubplotFromLayout(layout, subplot, plotCtx) {
+      const { key, title, color, y0, y1, subplotH, plotMin, plotMax, plotSpan } = subplot;
+      const series = timeSeriesData[key] || [];
+      const minT = layout.minT;
+      const { padLeft, plotW } = layout;
+
+      plotCtx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      plotCtx.lineWidth = 1;
+      for (let j = 0; j <= 3; j++) {
+        const gy = y0 + (j / 3) * subplotH;
+        plotCtx.beginPath();
+        plotCtx.moveTo(padLeft, gy);
+        plotCtx.lineTo(padLeft + plotW, gy);
+        plotCtx.stroke();
+      }
+      plotCtx.beginPath();
+      plotCtx.moveTo(padLeft, y0);
+      plotCtx.lineTo(padLeft, y1);
+      plotCtx.lineTo(padLeft + plotW, y1);
+      plotCtx.stroke();
+
+      plotCtx.strokeStyle = color;
+      plotCtx.lineWidth = 1.7;
+      let drew = false;
+      plotCtx.beginPath();
+      for (const [t, v] of series) {
+        if (t < minT) continue;
+        const [x, y] = seriesPointToScreen(layout, subplot, t, v);
+        if (!drew) {
+          plotCtx.moveTo(x, y);
+          drew = true;
+        } else {
+          plotCtx.lineTo(x, y);
+        }
+      }
+      if (drew) plotCtx.stroke();
+
+      plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
+      plotCtx.font = "10px sans-serif";
+      plotCtx.fillText(plotMax.toFixed(3), 4, y0 + 10);
+      plotCtx.fillText(plotMin.toFixed(3), 4, y1 - 2);
+      plotCtx.fillStyle = "#e8eaed";
+      plotCtx.font = "bold 12px sans-serif";
+      plotCtx.fillText(title, padLeft + 6, y0 + 13);
+    }
+
+    function drawSectionTimeSeriesPlots(frame, plotCanvas, plotCtx, keys, emptyMessage, section) {
+      const rect = plotCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      plotCtx.clearRect(0, 0, w, h);
+      plotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
+      plotCtx.fillRect(0, 0, w, h);
+      if (!frame || keys.length === 0) {
+        if (section === "control") controlPlotLayoutCache = null;
+        else if (section === "state") statePlotLayoutCache = null;
+        else if (section === "reward") rewardPlotLayoutCache = null;
+        if (plotHoverCanvas === plotCanvas) {
+          plotHover = null;
+          plotHoverCanvas = null;
+        }
+        plotCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        plotCtx.font = "12px sans-serif";
+        plotCtx.fillText(emptyMessage, 14, 22);
+        return;
+      }
+
+      const nowT = Number(frame.simulation_time || 0.0);
+      const titleForKey = section === "reward" ? rewardPlotTitle : null;
+      const layout = computePlotLayout(w, h, keys, nowT, titleForKey);
+      if (section === "control") controlPlotLayoutCache = layout;
+      else if (section === "state") statePlotLayoutCache = layout;
+      else if (section === "reward") rewardPlotLayoutCache = layout;
+
+      for (const subplot of layout.subplots) {
+        drawSubplotFromLayout(layout, subplot, plotCtx);
+      }
 
       plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
       plotCtx.font = "11px sans-serif";
-      plotCtx.fillText(`${minT.toFixed(1)}s`, padLeft, h - 8);
-      plotCtx.fillText(`${nowT.toFixed(1)}s`, padLeft + plotW - 36, h - 8);
+      plotCtx.fillText(`${layout.minT.toFixed(1)}s`, layout.padLeft, h - 8);
+      plotCtx.fillText(
+        `${layout.nowT.toFixed(1)}s`,
+        layout.padLeft + layout.plotW - 36,
+        h - 8
+      );
+
+      if (isPlotHoverEnabled() && plotHoverCanvas === plotCanvas) {
+        drawPlotHoverOverlay(layout, plotCtx);
+      }
+    }
+
+    function drawTimeSeriesPlots(frame) {
+      drawSectionTimeSeriesPlots(
+        frame,
+        controlPlotCanvas,
+        controlPlotCtx,
+        controlPlotKeys,
+        "Waiting for angular / translational control data...",
+        "control"
+      );
+      drawSectionTimeSeriesPlots(
+        frame,
+        statePlotCanvas,
+        statePlotCtx,
+        statePlotKeys,
+        "Waiting for state telemetry...",
+        "state"
+      );
+      drawSectionTimeSeriesPlots(
+        frame,
+        rewardPlotCanvas,
+        rewardPlotCtx,
+        rewardPlotKeys,
+        "Waiting for reward telemetry...",
+        "reward"
+      );
     }
 
     function lerp(a, b, t) {
@@ -939,6 +1492,8 @@
           observedFetchIntervalS = 0.1;
           lastFetchCompleteWallS = null;
           lastFrameId = 0;
+          lastIngestedPlotFrameId = 0;
+          timeSeriesData = {};
           playbackSimTime = null;
           lastDrawWallTimeS = null;
           browserPositionHistory = [];
@@ -1003,6 +1558,7 @@
         }
         frameBuffer = monotonic;
         latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+        ingestPlotFrames(monotonic);
 
         const labels = latest?.web_overlay?.label_dict || {};
         const labelText = showCarStateInfo && Object.keys(labels).length > 0
@@ -1036,9 +1592,6 @@
       ctx.fillRect(0, 0, w, h);
 
       const frame = stateForRender();
-      if (frame) {
-        updateTimeSeriesPlots(frame);
-      }
       if (frame && frame.poses && frame.poses.length > 0) {
         const ego = frame.poses[frame.ego_idx || 0];
         if (cameraFollowEgo || cameraCenter === null) {
@@ -1133,7 +1686,7 @@
         });
       }
       if (plotsPanelOpen) {
-        maybeResizePlotCanvas();
+        maybeResizePlotCanvases();
         drawTimeSeriesPlots(frame);
       }
       requestAnimationFrame(draw);
@@ -1316,6 +1869,53 @@
     plotsPanelCloseEl.addEventListener("click", () => {
       setPlotsPanelOpen(false);
     });
+    function bindPlotCanvasHover(plotCanvasEl, layoutGetter) {
+      plotCanvasEl.addEventListener("mousemove", (e) => {
+        if (!isPlotHoverEnabled()) return;
+        if (e.pointerType && e.pointerType !== "mouse") return;
+        updatePlotHoverFromMouse(e.clientX, e.clientY, plotCanvasEl, layoutGetter());
+      });
+      plotCanvasEl.addEventListener("mouseleave", () => {
+        if (plotHoverCanvas === plotCanvasEl) {
+          plotHover = null;
+          plotHoverCanvas = null;
+        }
+      });
+    }
+    bindPlotCanvasHover(controlPlotCanvas, () => controlPlotLayoutCache);
+    bindPlotCanvasHover(statePlotCanvas, () => statePlotLayoutCache);
+    bindPlotCanvasHover(rewardPlotCanvas, () => rewardPlotLayoutCache);
+    plotsPanelResizeHandleEl.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startPlotsPanelResize(e.clientX);
+    });
+    plotsPanelResizeHandleEl.addEventListener(
+      "touchstart",
+      (e) => {
+        if (e.touches.length !== 1) return;
+        e.preventDefault();
+        startPlotsPanelResize(e.touches[0].clientX);
+      },
+      { passive: false }
+    );
+    if (toggleIntegratedRewardsEl) {
+      toggleIntegratedRewardsEl.addEventListener("change", () => {
+        showIntegratedRewardComponents = !!toggleIntegratedRewardsEl.checked;
+        resetEpisodeRewardAccumulators();
+        clearRewardTimeSeries();
+        lastIngestedPlotFrameId = 0;
+      });
+    }
+    plotWindowInputEl.addEventListener("change", applyPlotWindowFromInput);
+    plotWindowInputEl.addEventListener("blur", applyPlotWindowFromInput);
+    plotWindowInputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applyPlotWindowFromInput();
+        plotWindowInputEl.blur();
+      }
+    });
     toggleSacMetricsEl.addEventListener("click", () => {
       if (!sacMetricsAvailable) return;
       setMetricsPanelOpen(!metricsPanelOpen);
@@ -1330,12 +1930,13 @@
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(() => {
         updateSidePanelLayout();
-        if (plotsPanelOpen) maybeResizePlotCanvas(true);
+        if (plotsPanelOpen) maybeResizePlotCanvases(true);
       });
       ro.observe(plotsPanelEl);
       ro.observe(metricsPanelEl);
     }
-    updatePlotsPanelChrome();
+    syncPlotWindowInput();
+    setPlotsPanelOpen(false);
     updateMetricsPanelChrome();
     setInterval(pollTelemetry, 2000);
     pollTelemetry();

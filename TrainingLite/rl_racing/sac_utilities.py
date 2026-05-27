@@ -13,6 +13,8 @@ import csv
 import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from stable_baselines3.common.vec_env import DummyVecEnv
 import yaml
@@ -414,25 +416,23 @@ class TrainingLogHelper():
     def maybe_plot_training_metrics_periodic(self) -> None:
         if self.plot_every == "end":
             return
-        if not getattr(Settings, "SAC_METRICS_PNG_ENABLED", False):
-            return
         if self.training_index % int(self.plot_every) != 0:
             return
-        self._plot_training_metrics_safe()
+        self._plot_training_metrics_safe(final=False)
 
     def maybe_plot_training_metrics_final(self) -> None:
-        if self.plot_every != "end":
-            return
+        """Always refresh training_metrics.png once when training stops."""
         if self._final_metrics_png_done:
             return
-        if not getattr(Settings, "SAC_METRICS_PNG_ENABLED", False):
-            return
         self._final_metrics_png_done = True
-        self._plot_training_metrics_safe()
+        self._plot_training_metrics_safe(final=True)
 
-    def _plot_training_metrics_safe(self) -> None:
+    def _plot_training_metrics_safe(self, *, final: bool = False) -> None:
         try:
-            self.plot_training_metrics()
+            png_path = self.plot_training_metrics()
+            if png_path:
+                tag = "final " if final else ""
+                print(f"[TrainingLogHelper] Wrote {tag}training metrics plot: {png_path}")
         except Exception as e:
             print(f"[TrainingLogHelper] Failed to plot training metrics: {e}")
 
@@ -575,13 +575,13 @@ class TrainingLogHelper():
 
         self.maybe_plot_training_metrics_periodic()
 
-    def plot_training_metrics(self):
+    def plot_training_metrics(self) -> Optional[str]:
         model_dir = self.model_dir
         csv_path=self.csv_path
 
         if not os.path.exists(csv_path):
             print(f"CSV file not found: {csv_path}")
-            return
+            return None
 
         # Load the CSV
         df = pd.read_csv(csv_path)
@@ -676,16 +676,16 @@ class TrainingLogHelper():
 
         import matplotlib.ticker as ticker
         max_xticks = 10
-        for idx, ax in enumerate(axs):
+        for ax in axs:
             ax.xaxis.set_major_locator(ticker.MaxNLocator(max_xticks))
             ax.xaxis.set_tick_params(labelbottom=True)
-            if idx == len(axs) - 1:
-                ax.set_xlabel(x_label)
+        axs[-1].set_xlabel(x_label)
 
         plt.tight_layout()
         png_path = os.path.join(model_dir, 'training_metrics.png')
         plt.savefig(png_path)
         plt.close(fig)
+        return png_path
 
 
 

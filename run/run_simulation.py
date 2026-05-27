@@ -293,7 +293,9 @@ class RacingSimulation:
         driver_obs['car_state'] = self.sim.agents[driver_index].state
         driver_obs['scans'] = self.obs['scans'][driver_index]
         driver_obs['imu'] = self.obs['imus'][driver_index]
-        driver_obs['collision'] = True if self.obs['collisions'][driver_index] else False
+        agent_collision = bool(self.sim.agents[driver_index].in_collision)
+        obs_collision = bool(self.obs['collisions'][driver_index])
+        driver_obs['collision'] = agent_collision or obs_collision
         driver_obs['terminated'] = self.obs['terminated']
         driver_obs['interrupted'] = False
         driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
@@ -322,9 +324,9 @@ class RacingSimulation:
             self.sim_time += Settings.TIMESTEP_SIM
             self.episode_index += 1
 
-        # On Step end
-        self.render_env()
+        # Reward/labels are computed in on_step_end; render after so plots include crash penalties.
         self.on_step_end()
+        self.render_env()
         self.check_done()
 
        

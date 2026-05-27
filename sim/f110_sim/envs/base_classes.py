@@ -58,6 +58,15 @@ def wrap_angle_rad(angle: float) -> float:
         angle = Modulo
     return angle
 
+
+def normalize_state_yaw(state: np.ndarray) -> np.ndarray:
+    """Wrap pose_theta to [-pi, pi] and keep cos/sin in sync."""
+    yaw = wrap_angle_rad(float(state[POSE_THETA_IDX]))
+    state[POSE_THETA_IDX] = yaw
+    state[POSE_THETA_COS_IDX] = np.cos(yaw)
+    state[POSE_THETA_SIN_IDX] = np.sin(yaw)
+    return state
+
 class RaceCar(object):
     """
     Base level race car class, handles the physics and laser scan of a single vehicle
@@ -139,7 +148,9 @@ class RaceCar(object):
             car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
             self.car_params_array = car_params.to_np_array()
             
-            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
+            self.state = normalize_state_yaw(
+                self.step_dynamics(self.state, u, self.car_params_array, 0.01)
+            )
 
         if self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
@@ -154,7 +165,7 @@ class RaceCar(object):
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = np.array(new_state)   
+            self.state = normalize_state_yaw(np.array(new_state))
             
         if self.ode_implementation == 'residual':
             from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
@@ -327,17 +338,24 @@ class RaceCar(object):
             None
         """
         
-        in_collision = check_ttc_jit(current_scan, self.state[StateIndices.v_x], self.scan_angles, self.cosines, self.side_distances, self.ttc_thresh)
+        in_collision_now = check_ttc_jit(
+            current_scan,
+            self.state[StateIndices.v_x],
+            self.scan_angles,
+            self.cosines,
+            self.side_distances,
+            self.ttc_thresh,
+        )
 
-        # if in collision stop vehicle
-        if in_collision:
+        # Latch collision until reset: with multiple physics substeps the TTC flag
+        # can be True on an early substep and False on the last one, which would
+        # skip the crash reward on the control step that actually ended the episode.
+        if in_collision_now:
+            self.in_collision = True
             self.accel = 0.0
             self.steer_angle_vel = 0.0
 
-        # update state
-        self.in_collision = in_collision
-
-        return in_collision
+        return self.in_collision
 
     def update_pose(self, desired_steering_angle, desired_speed, simulate_scan=True):
         """
@@ -379,16 +397,16 @@ class RaceCar(object):
             applied_control = self.u_pid_with_constrains[0]
 
             s = self.car_model.step_dynamics_core(s, self.u_pid_with_constrains)[0]
-            # wrap yaw angle
-            s[POSE_THETA_IDX] = wrap_angle_rad(s[POSE_THETA_IDX])
-            self.state = s
+            self.state = normalize_state_yaw(s)
             
 
         
         elif self.ode_implementation == 'jit_Pacejka':
             u = np.array([desired_steering_angle, desired_speed])
             applied_control = u
-            self.state = self.step_dynamics(self.state, u, self.car_params_array, 0.01)   
+            self.state = normalize_state_yaw(
+                self.step_dynamics(self.state, u, self.car_params_array, 0.01)
+            )
             
         elif self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
@@ -399,7 +417,7 @@ class RaceCar(object):
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
             new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = np.array(new_state)   
+            self.state = normalize_state_yaw(np.array(new_state))
             
         elif self.ode_implementation == 'residual':
             import jax.numpy as jnp
@@ -414,7 +432,7 @@ class RaceCar(object):
             state_history = self.state_history[::4]
 
             new_state_residual = self.dynamic_model.predict(jax_state, jax_u, dt=0.01, state_history=state_history, control_history=control_history)
-            self.state = np.array(new_state_residual)
+            self.state = normalize_state_yaw(np.array(new_state_residual))
             
             
         if self.ode_implementation == 'f1tenth_st':
@@ -666,9 +684,9 @@ class Simulator(object):
             # update each agent's current scan based on other agents
             agent.update_scan(agent_scans, i, simulate_scan=simulate_scan)
 
-            # update agent collision with environment
+            # Propagate latched environment collision into step observations.
             if agent.in_collision:
-                self.collisions[i] = 1.
+                self.collisions[i] = 1.0
        
 
         # fill in observations

@@ -80,7 +80,7 @@ HTML_PAGE = """<!doctype html>
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <label><input id="toggle-control-plots" type="checkbox" checked />Show control plots</label>
+        <label><input id="toggle-control-plots" type="checkbox" />Show control plots</label>
       </div>
     </div>
     <canvas id="view"></canvas>
@@ -147,7 +147,7 @@ HTML_PAGE = """<!doctype html>
     let showPositionHistory = false;
     let showTrackBorders = true;
     let showCarStateInfo = false;
-    let showControlPlots = true;
+    let showControlPlots = false;
     let browserPositionHistory = [];
     let browserHistoryLastFrameId = 0;
     const MAX_BROWSER_HISTORY_POINTS = 20000;
@@ -1415,11 +1415,20 @@ class WebEnvRenderer:
                 self._max_optimal_points_per_trajectory,
             )
 
-        # Label text can become large; keep first 24 keys.
+        # Label text can become large; keep reward/control telemetry when truncating.
         labels = overlay.get("label_dict")
-        if isinstance(labels, dict) and len(labels) > 24:
-            keys = list(labels.keys())[:24]
-            overlay["label_dict"] = {k: labels[k] for k in keys}
+        if isinstance(labels, dict) and len(labels) > 32:
+            priority = []
+            other = []
+            for key in labels.keys():
+                lowered = str(key).strip().lower()
+                if lowered.startswith("reward:") or "control" in lowered:
+                    priority.append(key)
+                else:
+                    other.append(key)
+            keep = priority + other
+            keep = keep[:32]
+            overlay["label_dict"] = {k: labels[k] for k in keep}
 
         return self._round_floats(overlay, self._float_precision_digits)
 
@@ -1453,12 +1462,22 @@ class WebEnvRenderer:
         overlay = self._compress_dynamic_overlay(overlay)
 
         simulation_time = float(render_obs.get("simulation_time", 0.0))
+        labels = overlay.get("label_dict") if isinstance(overlay.get("label_dict"), dict) else {}
+        force_publish = bool(overlay.get("force_plot_publish", False))
+        try:
+            step_total_reward = float(labels.get("reward: total", 0.0))
+        except (TypeError, ValueError):
+            step_total_reward = 0.0
+        terminal_step = force_publish or step_total_reward <= -3.0
 
         with self._lock:
             if static_overlay:
                 self._static_overlay = static_overlay
 
-            if self._last_published_sim_time is not None:
+            if (
+                not terminal_step
+                and self._last_published_sim_time is not None
+            ):
                 min_dt = 1.0 / self._publish_rate_hz
                 if (simulation_time - self._last_published_sim_time) < min_dt:
                     return

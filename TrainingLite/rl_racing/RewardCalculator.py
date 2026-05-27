@@ -1,11 +1,13 @@
 
 import os
 import sys
+import math
 
 from collections import deque
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
 
+import numpy as np
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
@@ -61,6 +63,7 @@ class RewardCalculator:
         self.reward = 0
         self.reward_history = []
         self.accumulated_reward = 0
+        self.last_reward_components = {}
 
     def _calculate_reward(self, driver: 'CarSystem', obs: dict) -> float:
         waypoint_utils: WaypointUtils = driver.waypoint_utils
@@ -142,7 +145,7 @@ class RewardCalculator:
         if speed < 1.0:
             self.stuck_counter += 1
             stuck_reward = -0.05
-            if self.stuck_counter >= 100:
+            if self.stuck_counter >= 50:
                 stuck_reward = -self.w_crash 
                 self.truncated = True
         else:
@@ -155,18 +158,23 @@ class RewardCalculator:
       
         self.reward = reward
 
+        components = {
+            "progress": float(progress_reward),
+            "crash_reward": float(crash_penalty),
+            "wp_distance_penalty": float(wp_distance_penalty),
+            "d_action_penality": float(d_action_penality),
+            "speed_cap_penalty": float(speed_cap_penalty),
+            "stuck_reward": float(stuck_reward),
+            "spin_reward": float(spin_reward),
+        }
+        self.last_reward_components = components
+
         if Settings.SAVE_REWARDS:
-            reward_components = {
-                "progress": progress_reward,
-                "crash_reward": crash_penalty,
-                "wp_distance_penalty": wp_distance_penalty,
-                "d_action_penality": d_action_penality,
-                "stuck_reward": stuck_reward,
-                "spin_reward": spin_reward,
-                "total_reward": reward,
-                "difficulty": self.difficulty
-            }
-            self.reward_components_history.append(reward_components)
+            self.reward_components_history.append({
+                **components,
+                "total_reward": float(reward),
+                "difficulty": self.difficulty,
+            })
 
         self.reward_history.append(reward)
         self.accumulated_reward += reward
@@ -174,7 +182,7 @@ class RewardCalculator:
         
         self.adjust_difficulty()
 
-        return reward
+        return {"total_reward": float(reward), "components": components}
     
     def adjust_difficulty(self):
         

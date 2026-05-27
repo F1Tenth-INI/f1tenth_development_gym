@@ -75,6 +75,9 @@ def build_web_overlay(drivers):
     if render_utils is None:
         return {}
 
+    driver = drivers[0]
+    force_plot_publish = bool((getattr(driver, "obs", None) or {}).get("done"))
+
     overlay = {
         "waypoints": _to_xy_points(render_utils.waypoints),
         "waypoints_alternative": _to_xy_points(render_utils.waypoints_alternative),
@@ -93,6 +96,7 @@ def build_web_overlay(drivers):
         "rollout_trajectory": _to_trajectory_list(render_utils.rollout_trajectory),
         "optimal_trajectory": _to_trajectory_list(render_utils.optimal_trajectory),
         "label_dict": dict(render_utils.label_dict),
+        "force_plot_publish": force_plot_publish,
         "colors": {
             "waypoints": list(render_utils.waypoint_visualization_color),
             "next_waypoints": list(render_utils.next_waypoint_visualization_color),
