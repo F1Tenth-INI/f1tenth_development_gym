@@ -193,14 +193,10 @@
         layout[xaxisLayoutKey] = {
           gridcolor: "#2a2f3a",
           zerolinecolor: "#2a2f3a",
-          showticklabels: i === n - 1,
-          ...(row === 1
-            ? {
-                range: xRange,
-                dtick: xDtick,
-                tickmode: "linear",
-              }
-            : { matches: "x" }),
+          showticklabels: true,
+          range: xRange,
+          dtick: xDtick,
+          tickmode: "linear",
           ...(i === n - 1
             ? { title: { text: data.x_label || "step", font: { size: 11 } } }
             : {}),

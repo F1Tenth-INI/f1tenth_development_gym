@@ -249,16 +249,21 @@ def parse_settings_args(description: Optional[str] = None, verbose: bool = True,
             original_value = getattr(Settings, attr_name)
             target_type = type(original_value)
             # Settings defaults of None (e.g. SAC_TERMINATE_BELOW_LAPTIME) have type(None);
-            # infer numeric/bool types from the CLI string instead of keeping NoneType.
+            # infer a useful type from the CLI string instead of keeping NoneType.
             if original_value is None:
                 lowered = arg_value.strip().lower()
                 if lowered in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
                     target_type = bool
                 else:
                     try:
-                        target_type = int if "." not in arg_value else float
-                    except Exception:
-                        target_type = float
+                        int(arg_value)
+                        target_type = int
+                    except ValueError:
+                        try:
+                            float(arg_value)
+                            target_type = float
+                        except ValueError:
+                            target_type = str
             
             # Convert and set the value
             try:

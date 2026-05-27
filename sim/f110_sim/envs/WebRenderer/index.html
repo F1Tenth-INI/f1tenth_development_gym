@@ -934,6 +934,20 @@
       return best;
     }
 
+    function plotTimeRangeEnd(keys, fallbackT) {
+      let endT = Number(fallbackT || 0.0);
+      if (!Number.isFinite(endT)) endT = 0.0;
+      const latest = Number(latestSimulationTime || 0.0);
+      if (Number.isFinite(latest) && latest > endT) endT = latest;
+      for (const key of keys) {
+        const series = timeSeriesData[key];
+        if (!Array.isArray(series) || series.length === 0) continue;
+        const lastT = Number(series[series.length - 1][0]);
+        if (Number.isFinite(lastT) && lastT > endT) endT = lastT;
+      }
+      return endT;
+    }
+
     function computePlotLayout(w, h, allKeys, nowT, titleForKey = null) {
       const padLeft = 54;
       const padRight = 14;
@@ -1125,7 +1139,7 @@
       let drew = false;
       plotCtx.beginPath();
       for (const [t, v] of series) {
-        if (t < minT) continue;
+        if (t < minT || t > layout.nowT + 1e-6) continue;
         const [x, y] = seriesPointToScreen(layout, subplot, t, v);
         if (!drew) {
           plotCtx.moveTo(x, y);
@@ -1152,7 +1166,7 @@
       plotCtx.clearRect(0, 0, w, h);
       plotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
       plotCtx.fillRect(0, 0, w, h);
-      if (!frame || keys.length === 0) {
+      if (keys.length === 0) {
         if (section === "control") controlPlotLayoutCache = null;
         else if (section === "state") statePlotLayoutCache = null;
         else if (section === "reward") rewardPlotLayoutCache = null;
@@ -1166,7 +1180,12 @@
         return;
       }
 
-      const nowT = Number(frame.simulation_time || 0.0);
+      // Plot samples are ingested from raw history; playback time lags behind.
+      // Anchor the x-axis to the newest ingested sample, not delayed playback time.
+      const nowT = plotTimeRangeEnd(
+        keys,
+        frame ? Number(frame.simulation_time || 0.0) : latestSimulationTime
+      );
       const titleForKey = section === "reward" ? rewardPlotTitle : null;
       const layout = computePlotLayout(w, h, keys, nowT, titleForKey);
       if (section === "control") controlPlotLayoutCache = layout;
