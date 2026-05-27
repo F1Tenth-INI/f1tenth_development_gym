@@ -144,7 +144,7 @@ def car_dynamics_pacejka_jit(s, Q, car_params, t_step):
         delta = max(min(delta + t_step * delta_dot, s_max), s_min)
         v_x += t_step * d_v_x
         v_y += t_step * d_v_y
-        psi += t_step * d_psi
+        psi = np.arctan2(np.sin(psi + t_step * d_psi), np.cos(psi + t_step * d_psi))
         psi_dot += t_step * d_psi_dot
 
 

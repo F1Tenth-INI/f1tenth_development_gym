@@ -9,6 +9,11 @@ from functools import partial
 from utilities.Settings import Settings
 
 
+def _wrap_angle_rad(angle):
+    """Wrap heading to [-pi, pi]."""
+    return jnp.arctan2(jnp.sin(angle), jnp.cos(angle))
+
+
 def _steering_constraints(delta, delta_dot, s_min, s_max, sv_min, sv_max):
     at_min = jnp.logical_and(delta <= s_min, delta_dot <= 0.0)
     at_max = jnp.logical_and(delta >= s_max, delta_dot >= 0.0)
@@ -66,7 +71,7 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
     v_x = v_x + dt_sub * d_v_x
     v_y = v_y + dt_sub * d_v_y
-    psi = psi + dt_sub * d_psi
+    psi = _wrap_angle_rad(psi + dt_sub * d_psi)
     psi_dot = psi_dot + dt_sub * d_psi_dot
     return s_x, s_y, delta, v_x, v_y, psi, psi_dot
 
@@ -82,7 +87,7 @@ def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
     s_y = s_y + dt_sub * s_y_dot
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
     v_x = v_x + dt_sub * v_x_dot
-    psi = psi + dt_sub * psi_dot
+    psi = _wrap_angle_rad(psi + dt_sub * psi_dot)
     angular_vel_z = angular_vel_z + dt_sub * psi_dot_dot
     return s_x, s_y, delta, v_x, psi, angular_vel_z
 
