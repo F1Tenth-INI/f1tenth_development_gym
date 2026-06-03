@@ -1,0 +1,818 @@
+#!/usr/bin/env python3
+"""
+Backend for the state comparison visualization webapp.
+Handles CSV loading, JAX model predictions, config, and plot data.
+"""
+
+import importlib
+import json
+import os
+import sys
+import threading
+import uuid
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
+
+import jax.numpy as jnp
+import numpy as np
+import pandas as pd
+
+VIS_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(VIS_DIR))
+CONFIG_PATH = os.path.join(VIS_DIR, "visualization_config.json")
+UPLOADS_DIR = os.path.join(VIS_DIR, "uploads")
+BROWSE_ROOTS = ["AnalyseData", "ExperimentRecordings"]
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+sys.path.append(REPO_ROOT)
+sys.path.append(os.path.join(REPO_ROOT, "sim/f110_sim/envs"))
+sys.path.append(os.path.join(REPO_ROOT, "utilities"))
+
+from sim.f110_sim.envs.car_model_jax import CarModelJAX
+from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.state_utilities import STATE_INDICES, STATE_VARIABLES
+
+STEERING_CONTROL_COLUMN = "angular_control_executed"
+ACCELERATION_CONTROL_COLUMN = "translational_control_executed"
+STEERING_CONTROL_ALIASES = (
+    STEERING_CONTROL_COLUMN,
+    "angular_control",
+    "angular_control_calculated",
+)
+ACCELERATION_CONTROL_ALIASES = (
+    ACCELERATION_CONTROL_COLUMN,
+    "translational_control",
+    "translational_control_calculated",
+)
+
+AVAILABLE_MODELS = {
+    "pacejka": "Pure Pacejka Model",
+    "ks_jax": "KS jax",
+    "direct": "Direct Dynamics Neural Network",
+    "residual": "Residual Dynamics Model",
+}
+
+
+@dataclass
+class VisualizationSettings:
+    csv_file_path: str = ""
+    start_index: int = 0
+    end_index: Optional[int] = None
+    horizon_steps: int = 50
+    steering_delay_steps: int = 0
+    acceleration_delay_steps: int = 0
+    enable_comparison: bool = True
+    show_controls: bool = False
+    show_delta_state: bool = False
+    show_all_comparisons: bool = False
+    sync_scales: bool = False
+    show_metrics: bool = True
+    state_name: str = ""
+    selected_other_data: List[str] = field(default_factory=list)
+    comparison_start_index: int = 0
+    default_car_model: str = "Pure Pacejka Model"
+    default_car_parameters: str = "gym_car_parameters.yml"
+    theme: str = "dark"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "VisualizationSettings":
+        known = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known}
+        if filtered.get("end_index") == "":
+            filtered["end_index"] = None
+        if filtered.get("theme") not in ("dark", "light"):
+            filtered["theme"] = "dark"
+        return cls(**filtered)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ComparisonJob:
+    job_id: str
+    status: str = "pending"
+    current: int = 0
+    total: int = 0
+    message: str = ""
+    error: Optional[str] = None
+
+
+class VisualizationService:
+    def __init__(self):
+        self.data: Optional[pd.DataFrame] = None
+        self.csv_file_path: Optional[str] = None
+        self.time_column = "time"
+        self.state_columns = list(STATE_VARIABLES)
+        self.control_columns = [STEERING_CONTROL_COLUMN, ACCELERATION_CONTROL_COLUMN]
+        self.state_indices = STATE_INDICES
+
+        self.car_models = None
+        self._current_start_index: Optional[int] = None
+
+        self.available_car_params: Dict[str, str] = {}
+        car_files_dir = os.path.join(REPO_ROOT, "utilities", "car_files")
+        if os.path.exists(car_files_dir):
+            for filename in os.listdir(car_files_dir):
+                if filename.endswith((".yml", ".yaml")):
+                    self.available_car_params[filename] = filename
+
+        self.reload_car_models()
+        self.settings = VisualizationSettings()
+        self.comparison_data_dict: Dict[int, Dict[str, np.ndarray]] = {}
+        self._jobs: Dict[str, ComparisonJob] = {}
+        self._jobs_lock = threading.Lock()
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        self.load_config()
+        self._try_load_config_csv()
+
+    # ------------------------------------------------------------------ models
+    def reload_car_models(self) -> None:
+        for module_name in [
+            "sim.f110_sim.envs.dynamic_model_pacejka_jax",
+            "sim.f110_sim.envs.dynamic_model_ks_jax",
+            "TrainingLite.dynamic_residual_jax.dynamics_model_residual",
+            "TrainingLite.dynamic_residual_jax.predictor",
+            "sim.f110_sim.envs.car_model_jax",
+        ]:
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
+
+        self.car_models = {
+            "pacejka": CarModelJAX(model_type="pacejka", dt=0.04, intermediate_steps=4),
+            "pacejka_custom": CarModelJAX(model_type="pacejka_custom", dt=0.04, intermediate_steps=4),
+            "ks_jax": CarModelJAX(model_type="ks", dt=0.04, intermediate_steps=4),
+            "residual": CarModelJAX(model_type="residual", dt=0.04, intermediate_steps=4),
+        }
+
+    def load_car_parameters(self, param_file: str) -> Optional[np.ndarray]:
+        try:
+            vehicle_params = VehicleParameters(param_file)
+            params_array = vehicle_params.to_np_array()
+            if len(params_array) >= 15:
+                mu = params_array[0]
+                c_pf_b = params_array[7]
+                i_z = params_array[5]
+                print(f"Loaded parameters from {param_file}: mu={mu:.3f}, C_Pf_B={c_pf_b:.3f}, I_z={i_z:.4f}")
+            return params_array
+        except Exception as exc:
+            print(f"Error loading car parameters from {param_file}: {exc}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def get_model_key(self, display_name: str) -> str:
+        for key, name in AVAILABLE_MODELS.items():
+            if name == display_name:
+                return key
+        return list(AVAILABLE_MODELS.keys())[0]
+
+    def get_car_parameters_filename(self, display_name: str) -> str:
+        for filename in self.available_car_params:
+            if self.available_car_params[filename] == display_name:
+                return filename
+        return list(self.available_car_params.keys())[0]
+
+    def _resolve_control_column(self, aliases: tuple) -> Optional[str]:
+        if self.data is None:
+            return None
+        for col in aliases:
+            if col in self.data.columns:
+                return col
+        return None
+
+    def get_resolved_control_columns(self) -> List[str]:
+        cols: List[str] = []
+        steering = self._resolve_control_column(STEERING_CONTROL_ALIASES)
+        if steering:
+            cols.append(steering)
+        acceleration = self._resolve_control_column(ACCELERATION_CONTROL_ALIASES)
+        if acceleration:
+            cols.append(acceleration)
+        return cols
+
+    def extract_initial_state_at_index(self, index: int) -> jnp.ndarray:
+        if self.data is None or index >= len(self.data):
+            return jnp.zeros(10, dtype=jnp.float32)
+
+        initial_state = np.zeros(10, dtype=np.float32)
+        for col_name, idx in self.state_indices.items():
+            if col_name in self.data.columns:
+                initial_state[idx] = self.data[col_name].iloc[index]
+        return jnp.array(initial_state)
+
+    def extract_control_sequence_at_index(
+        self,
+        start_index: int,
+        horizon: int,
+        steering_delay: int = 0,
+        acceleration_delay: int = 0,
+    ) -> jnp.ndarray:
+        if self.data is None:
+            return jnp.zeros((horizon, 2), dtype=jnp.float32)
+
+        control_sequence = np.zeros((horizon, 2), dtype=np.float32)
+        steering_col = self._resolve_control_column(STEERING_CONTROL_ALIASES)
+        accel_col = self._resolve_control_column(ACCELERATION_CONTROL_ALIASES)
+
+        steering_start = start_index - steering_delay
+        steering_end = min(steering_start + horizon, len(self.data))
+        if steering_start >= 0 and steering_start < len(self.data):
+            actual_horizon = max(0, steering_end - steering_start)
+            if actual_horizon > 0 and steering_col:
+                control_sequence[:actual_horizon, 0] = (
+                    self.data[steering_col].iloc[steering_start:steering_end].values
+                )
+        elif steering_col:
+            available_start = max(0, steering_start)
+            available_end = min(available_start + horizon, len(self.data))
+            if available_end > available_start:
+                first_control = self.data[steering_col].iloc[0]
+                offset = max(0, -steering_start)
+                actual_length = min(horizon - offset, available_end - available_start)
+                if actual_length > 0:
+                    control_sequence[offset : offset + actual_length, 0] = (
+                        self.data[steering_col]
+                        .iloc[available_start : available_start + actual_length]
+                        .values
+                    )
+                if offset > 0:
+                    control_sequence[:offset, 0] = first_control
+
+        accel_start = start_index - acceleration_delay
+        accel_end = min(accel_start + horizon, len(self.data))
+        if accel_start >= 0 and accel_start < len(self.data):
+            actual_horizon = max(0, accel_end - accel_start)
+            if actual_horizon > 0 and accel_col:
+                control_sequence[:actual_horizon, 1] = (
+                    self.data[accel_col].iloc[accel_start:accel_end].values
+                )
+        elif accel_col:
+            available_start = max(0, accel_start)
+            available_end = min(available_start + horizon, len(self.data))
+            if available_end > available_start:
+                first_control = self.data[accel_col].iloc[0]
+                offset = max(0, -accel_start)
+                actual_length = min(horizon - offset, available_end - available_start)
+                if actual_length > 0:
+                    control_sequence[offset : offset + actual_length, 1] = (
+                        self.data[accel_col]
+                        .iloc[available_start : available_start + actual_length]
+                        .values
+                    )
+                if offset > 0:
+                    control_sequence[:offset, 1] = first_control
+
+        return jnp.array(control_sequence)
+
+    def get_timestep(self) -> float:
+        if self.data is not None and self.time_column in self.data.columns and len(self.data) > 1:
+            return float(self.data[self.time_column].iloc[1] - self.data[self.time_column].iloc[0])
+        return 0.04
+
+    def run_model_prediction(
+        self,
+        model_name: str,
+        initial_state: jnp.ndarray,
+        control_sequence: jnp.ndarray,
+        car_params: np.ndarray,
+        dt: float,
+        horizon: int,
+    ) -> Optional[np.ndarray]:
+        if self.car_models is None:
+            self.reload_car_models()
+
+        try:
+            if model_name not in self.car_models:
+                print(f"Unknown model: {model_name}")
+                return None
+
+            car_model = self.car_models[model_name]
+            if car_params is not None:
+                car_model.car_params = jnp.array(car_params)
+
+            state_history = None
+            control_history = None
+            if model_name == "residual":
+                history_length = 10
+                if (
+                    self._current_start_index is not None
+                    and self.data is not None
+                    and self._current_start_index >= history_length
+                ):
+                    start_idx = self._current_start_index
+                    state_history = np.array(
+                        [
+                            self.extract_initial_state_at_index(start_idx - history_length + i)
+                            for i in range(history_length)
+                        ],
+                        dtype=np.float32,
+                    )
+                    control_history = np.array(
+                        [
+                            self.extract_control_sequence_at_index(
+                                start_idx - history_length + i, 1, 0, 0
+                            )[0]
+                            for i in range(history_length)
+                        ],
+                        dtype=np.float32,
+                    )
+                else:
+                    state_history = np.array(car_model.state_history)
+                    control_history = np.array(car_model.control_history)
+
+            control_seq = control_sequence[:horizon]
+            return np.array(
+                car_model.car_steps_sequential(
+                    initial_state,
+                    control_seq,
+                    state_history=state_history,
+                    control_history=control_history,
+                )
+            )
+        except Exception as exc:
+            print(f"Model prediction failed: {exc}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def convert_predictions_to_dict(self, predicted_states: np.ndarray) -> Dict[str, np.ndarray]:
+        comparison_data = {}
+        for col_name, idx in self.state_indices.items():
+            if col_name in self.state_columns:
+                comparison_data[col_name] = predicted_states[:, idx]
+        return comparison_data
+
+    def run_single_comparison_at_index(
+        self,
+        start_index: int,
+        model_name: str,
+        param_file: str,
+        horizon: int,
+        steering_delay: int = 0,
+        acceleration_delay: int = 0,
+    ) -> Optional[Dict[str, np.ndarray]]:
+        try:
+            car_params = self.load_car_parameters(param_file)
+            if car_params is None:
+                return None
+
+            initial_state = self.extract_initial_state_at_index(start_index)
+            control_sequence = self.extract_control_sequence_at_index(
+                start_index, horizon, steering_delay, acceleration_delay
+            )
+            self._current_start_index = start_index
+            dt = self.get_timestep()
+
+            predicted_states = self.run_model_prediction(
+                model_name, initial_state, control_sequence, car_params, dt, horizon
+            )
+            if predicted_states is None:
+                return None
+            return self.convert_predictions_to_dict(predicted_states)
+        except Exception as exc:
+            print(f"Single comparison failed for index {start_index}: {exc}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    # ------------------------------------------------------------------ config
+    def load_config(self) -> VisualizationSettings:
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r") as f:
+                    data = json.load(f)
+                self.settings = VisualizationSettings.from_dict(data)
+            except Exception as exc:
+                print(f"Could not load config: {exc}")
+        return self.settings
+
+    def save_config(self) -> None:
+        config_dir = os.path.dirname(CONFIG_PATH)
+        if config_dir and not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(self.settings.to_dict(), f, indent=2)
+
+    def update_settings(self, updates: Dict[str, Any]) -> VisualizationSettings:
+        current = self.settings.to_dict()
+        current.update({k: v for k, v in updates.items() if k in current})
+        self.settings = VisualizationSettings.from_dict(current)
+        self.save_config()
+        return self.settings
+
+    # ------------------------------------------------------------------ CSV I/O
+    def _resolve_safe_path(self, path: str) -> str:
+        if not path:
+            raise ValueError("Path is empty")
+        abs_path = os.path.abspath(path if os.path.isabs(path) else os.path.join(REPO_ROOT, path))
+        if not abs_path.startswith(REPO_ROOT):
+            raise ValueError("Path is outside repository root")
+        return abs_path
+
+    def browse_csv(self, rel_path: str = "") -> Dict[str, Any]:
+        rel_path = rel_path.strip().strip("/")
+        target = self._resolve_safe_path(rel_path) if rel_path else REPO_ROOT
+        if not os.path.isdir(target):
+            raise ValueError(f"Not a directory: {rel_path or '.'}")
+
+        entries = []
+        for name in sorted(os.listdir(target)):
+            full = os.path.join(target, name)
+            rel = os.path.relpath(full, REPO_ROOT)
+            if os.path.isdir(full):
+                entries.append({"name": name, "path": rel, "type": "dir"})
+            elif name.endswith(".csv"):
+                entries.append({"name": name, "path": rel, "type": "file"})
+
+        parent = os.path.relpath(os.path.dirname(target), REPO_ROOT)
+        if parent == ".":
+            parent = ""
+        return {
+            "current_path": os.path.relpath(target, REPO_ROOT) if target != REPO_ROOT else "",
+            "parent_path": parent,
+            "roots": BROWSE_ROOTS,
+            "entries": entries,
+        }
+
+    def load_csv_path(self, path: str) -> Dict[str, Any]:
+        abs_path = self._resolve_safe_path(path)
+        if not os.path.isfile(abs_path):
+            raise ValueError(f"File not found: {path}")
+        return self._load_csv_from_file(abs_path)
+
+    def load_csv_upload(self, filename: str, content: bytes) -> Dict[str, Any]:
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValueError(f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
+        safe_name = os.path.basename(filename)
+        if not safe_name.endswith(".csv"):
+            raise ValueError("Only CSV files are supported")
+        dest = os.path.join(UPLOADS_DIR, safe_name)
+        with open(dest, "wb") as f:
+            f.write(content)
+        return self._load_csv_from_file(dest)
+
+    def reload_csv(self) -> Dict[str, Any]:
+        if not self.settings.csv_file_path or not os.path.isfile(self.settings.csv_file_path):
+            raise ValueError("No CSV file loaded")
+        return self._load_csv_from_file(self.settings.csv_file_path)
+
+    def _load_csv_from_file(self, abs_path: str) -> Dict[str, Any]:
+        self.data = pd.read_csv(abs_path, comment="#")
+        self.csv_file_path = abs_path
+        self.settings.csv_file_path = abs_path
+        self.comparison_data_dict = {}
+
+        available_states = [col for col in self.state_columns if col in self.data.columns]
+        if available_states and (
+            not self.settings.state_name or self.settings.state_name not in available_states
+        ):
+            self.settings.state_name = available_states[0]
+
+        if self.settings.end_index is None:
+            self.settings.end_index = len(self.data)
+
+        self.save_config()
+        return self.get_session_info()
+
+    def get_session_info(self) -> Dict[str, Any]:
+        data = self.data
+        return {
+            "csv_file_path": self.settings.csv_file_path,
+            "filename": os.path.basename(self.settings.csv_file_path)
+            if self.settings.csv_file_path
+            else None,
+            "row_count": len(data) if data is not None else 0,
+            "columns": list(data.columns) if data is not None else [],
+            "available_states": [
+                col for col in self.state_columns if data is not None and col in data.columns
+            ],
+            "settings": self.settings.to_dict(),
+            "comparison_slider": self.get_comparison_slider_range(),
+            "comparison_indices": sorted(self.comparison_data_dict.keys()),
+        }
+
+    def _try_load_config_csv(self) -> None:
+        path = self.settings.csv_file_path
+        if path and os.path.isfile(path):
+            try:
+                self._load_csv_from_file(path)
+                print(f"Loaded CSV from config: {path}")
+            except Exception as exc:
+                print(f"Could not auto-load CSV from config: {exc}")
+
+    # ------------------------------------------------------------------ options
+    def get_options(self) -> Dict[str, Any]:
+        return {
+            "models": [{"key": k, "label": v} for k, v in AVAILABLE_MODELS.items()],
+            "car_parameters": list(self.available_car_params.values()),
+            "state_columns": list(self.state_columns),
+            "control_columns": list(self.control_columns),
+        }
+
+    def get_param_filename(self, display_name: str) -> str:
+        return self.get_car_parameters_filename(display_name)
+
+    # ------------------------------------------------------------------ comparison
+    def get_comparison_slider_range(self) -> Dict[str, int]:
+        if self.data is None:
+            return {"min": 0, "max": 0}
+        horizon = self.settings.horizon_steps
+        effective_end = (
+            self.settings.end_index if self.settings.end_index is not None else len(self.data)
+        )
+        max_start = max(self.settings.start_index, effective_end - horizon)
+        comp_idx = self.settings.comparison_start_index
+        comp_idx = max(self.settings.start_index, min(comp_idx, max_start))
+        self.settings.comparison_start_index = comp_idx
+        return {"min": self.settings.start_index, "max": max_start}
+
+    def _get_delays(self) -> tuple:
+        return (
+            max(0, int(self.settings.steering_delay_steps)),
+            max(0, int(self.settings.acceleration_delay_steps)),
+        )
+
+    def run_single_comparison(self, start_index: Optional[int] = None) -> Dict[str, Any]:
+        if self.data is None:
+            raise ValueError("No data loaded")
+        horizon = self.settings.horizon_steps
+        if horizon <= 0:
+            raise ValueError("Horizon must be positive")
+
+        idx = start_index if start_index is not None else self.settings.comparison_start_index
+        model_key = self.get_model_key(self.settings.default_car_model)
+        param_file = self.get_param_filename(self.settings.default_car_parameters)
+        steering_delay, acceleration_delay = self._get_delays()
+
+        result = self.run_single_comparison_at_index(
+            idx, model_key, param_file, horizon, steering_delay, acceleration_delay
+        )
+        if result is None:
+            raise RuntimeError(f"Comparison failed at index {idx}")
+
+        self.comparison_data_dict[idx] = result
+        return {"start_index": idx, "horizon": horizon, "states": list(result.keys())}
+
+    def start_full_comparison(self) -> str:
+        if self.data is None:
+            raise ValueError("No data loaded")
+        horizon = self.settings.horizon_steps
+        effective_start = self.settings.start_index
+        effective_end = (
+            self.settings.end_index if self.settings.end_index is not None else len(self.data)
+        )
+        max_start_idx = effective_end - horizon
+        if max_start_idx <= effective_start:
+            raise ValueError("Horizon is larger than available data in current range")
+
+        range_size = max_start_idx - effective_start
+        step_size = max(1, range_size // 100)
+        start_indices = list(range(effective_start, max_start_idx, step_size))
+
+        job_id = str(uuid.uuid4())
+        job = ComparisonJob(job_id=job_id, status="running", total=len(start_indices))
+        with self._jobs_lock:
+            self._jobs[job_id] = job
+
+        thread = threading.Thread(
+            target=self._run_full_comparison_job,
+            args=(job_id, start_indices),
+            daemon=True,
+        )
+        thread.start()
+        return job_id
+
+    def _run_full_comparison_job(self, job_id: str, start_indices: List[int]) -> None:
+        self.reload_car_models()
+        self.comparison_data_dict = {}
+        model_key = self.get_model_key(self.settings.default_car_model)
+        param_file = self.get_param_filename(self.settings.default_car_parameters)
+        horizon = self.settings.horizon_steps
+        steering_delay, acceleration_delay = self._get_delays()
+
+        successful = 0
+        for i, start_idx in enumerate(start_indices):
+            with self._jobs_lock:
+                job = self._jobs.get(job_id)
+                if job:
+                    job.current = i
+                    job.message = (
+                        f"Computing prediction {i + 1}/{len(start_indices)} (index {start_idx})"
+                    )
+
+            result = self.run_single_comparison_at_index(
+                start_idx, model_key, param_file, horizon, steering_delay, acceleration_delay
+            )
+            if result is not None:
+                self.comparison_data_dict[start_idx] = result
+                successful += 1
+
+        slider = self.get_comparison_slider_range()
+        if self.comparison_data_dict:
+            valid = [
+                idx for idx in self.comparison_data_dict if slider["min"] <= idx <= slider["max"]
+            ]
+            if valid:
+                self.settings.comparison_start_index = min(valid)
+            else:
+                self.settings.comparison_start_index = slider["min"]
+            self.settings.enable_comparison = True
+            self.save_config()
+
+        with self._jobs_lock:
+            job = self._jobs.get(job_id)
+            if job:
+                if successful == 0:
+                    job.status = "failed"
+                    job.error = "No successful comparisons computed"
+                else:
+                    job.status = "completed"
+                    job.current = job.total
+                    job.message = f"Completed {successful}/{len(start_indices)} comparisons"
+
+    def get_job_status(self, job_id: str) -> Dict[str, Any]:
+        with self._jobs_lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise ValueError("Job not found")
+            return {
+                "job_id": job.job_id,
+                "status": job.status,
+                "current": job.current,
+                "total": job.total,
+                "message": job.message,
+                "error": job.error,
+                "comparison_indices": sorted(self.comparison_data_dict.keys()),
+            }
+
+    def clear_comparisons(self) -> None:
+        self.comparison_data_dict = {}
+
+    # ------------------------------------------------------------------ plot data
+    def _get_time_slice(self, start_idx: int, end_idx: int) -> np.ndarray:
+        if self.time_column in self.data.columns:
+            return self.data[self.time_column].iloc[start_idx:end_idx].to_numpy()
+        return np.arange(start_idx, end_idx, dtype=float)
+
+    def _get_comp_time(self, comp_start_idx: int, horizon: int) -> np.ndarray:
+        if self.time_column in self.data.columns:
+            if comp_start_idx + horizon <= len(self.data):
+                return self.data[self.time_column].iloc[
+                    comp_start_idx : comp_start_idx + horizon
+                ].to_numpy()
+            available = self.data[self.time_column].iloc[comp_start_idx:].to_numpy()
+            dt = self.get_timestep()
+            missing = horizon - len(available)
+            if len(available) > 0 and missing > 0:
+                extra = np.arange(1, missing + 1) * dt + available[-1]
+                return np.concatenate([available, extra])
+            if len(available) == 0:
+                return np.arange(comp_start_idx, comp_start_idx + horizon) * dt
+            return available
+        dt = self.get_timestep()
+        return np.arange(comp_start_idx, comp_start_idx + horizon) * dt
+
+    def _compute_delta(self, values: np.ndarray, state_name: str) -> np.ndarray:
+        if len(values) <= 1:
+            return np.array([])
+        if state_name == "pose_theta":
+            delta_raw = np.diff(values)
+            return np.arctan2(np.sin(delta_raw), np.cos(delta_raw))
+        return np.diff(values)
+
+    def get_plot_data(self) -> Dict[str, Any]:
+        if self.data is None:
+            raise ValueError("No data loaded")
+
+        state_name = self.settings.state_name
+        if not state_name or state_name not in self.data.columns:
+            raise ValueError("Invalid state selection")
+
+        start_idx = self.settings.start_index
+        end_idx = (
+            self.settings.end_index if self.settings.end_index is not None else len(self.data)
+        )
+        time_data = self._get_time_slice(start_idx, end_idx)
+        state_data = self.data[state_name].iloc[start_idx:end_idx].to_numpy()
+
+        result: Dict[str, Any] = {
+            "state_name": state_name,
+            "time": time_data.tolist(),
+            "ground_truth": state_data.tolist(),
+            "predictions": [],
+            "other_data": {},
+            "controls": {},
+            "delta": {},
+        }
+
+        for col in self.settings.selected_other_data:
+            if col in self.data.columns:
+                result["other_data"][col] = (
+                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
+                )
+
+        if self.settings.show_controls:
+            for col in self.get_resolved_control_columns():
+                result["controls"][col] = (
+                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
+                )
+
+        if self.settings.show_delta_state:
+            delta_col = f"delta_state_{state_name}"
+            if delta_col in self.data.columns:
+                delta_gt = self.data[delta_col].iloc[start_idx : end_idx - 1].to_numpy()
+            else:
+                delta_gt = self._compute_delta(state_data, state_name)
+            delta_time = time_data[:-1] if len(time_data) > 1 else np.array([])
+            result["delta"]["ground_truth"] = {
+                "time": delta_time.tolist(),
+                "values": delta_gt.tolist(),
+            }
+
+        if self.settings.enable_comparison and self.comparison_data_dict:
+            if self.settings.show_all_comparisons:
+                comp_items = [
+                    (idx, data)
+                    for idx, data in self.comparison_data_dict.items()
+                    if start_idx <= idx < end_idx and state_name in data
+                ]
+            else:
+                comp_idx = self.settings.comparison_start_index
+                if comp_idx in self.comparison_data_dict and state_name in self.comparison_data_dict[comp_idx]:
+                    comp_items = [(comp_idx, self.comparison_data_dict[comp_idx])]
+                else:
+                    comp_items = []
+
+            for comp_idx, comp_data in comp_items:
+                pred = np.array(comp_data[state_name])
+                comp_time = self._get_comp_time(comp_idx, len(pred))
+                pred_entry = {
+                    "start_index": comp_idx,
+                    "time": comp_time.tolist(),
+                    "values": pred.tolist(),
+                }
+                if self.settings.show_delta_state and len(pred) > 1:
+                    delta_pred = self._compute_delta(pred, state_name)
+                    pred_entry["delta"] = {
+                        "time": comp_time[:-1].tolist(),
+                        "values": delta_pred.tolist(),
+                    }
+                result["predictions"].append(pred_entry)
+
+        return result
+
+    # ------------------------------------------------------------------ metrics
+    def get_metrics(self) -> Optional[Dict[str, float]]:
+        if not self.settings.show_metrics or self.data is None:
+            return None
+
+        state_name = self.settings.state_name
+        if not state_name or state_name not in self.data.columns:
+            return None
+        if not self.comparison_data_dict:
+            return None
+
+        start_idx = self.settings.start_index
+        end_idx = (
+            self.settings.end_index if self.settings.end_index is not None else len(self.data)
+        )
+
+        all_predictions: List[float] = []
+        all_ground_truth: List[float] = []
+
+        if self.settings.show_all_comparisons:
+            comp_items = self.comparison_data_dict.items()
+        else:
+            comp_idx = self.settings.comparison_start_index
+            if comp_idx in self.comparison_data_dict:
+                comp_items = [(comp_idx, self.comparison_data_dict[comp_idx])]
+            else:
+                return None
+
+        for comp_start_idx, comparison_data in comp_items:
+            if self.settings.show_all_comparisons and (
+                comp_start_idx < start_idx or comp_start_idx >= end_idx
+            ):
+                continue
+            if state_name not in comparison_data:
+                continue
+            prediction = np.array(comparison_data[state_name])
+            pred_end = min(comp_start_idx + len(prediction), len(self.data))
+            gt_slice = self.data[state_name].iloc[comp_start_idx:pred_end].values
+            min_len = min(len(prediction), len(gt_slice))
+            all_predictions.extend(prediction[:min_len].tolist())
+            all_ground_truth.extend(gt_slice[:min_len].tolist())
+
+        if not all_predictions:
+            return None
+
+        pred_data = np.array(all_predictions)
+        gt_data = np.array(all_ground_truth)
+        error = pred_data - gt_data
+        return {
+            "mean_error": float(np.mean(np.abs(error))),
+            "max_error": float(np.max(np.abs(error))),
+            "error_std": float(np.std(error)),
+            "rmse": float(np.sqrt(np.mean(error**2))),
+        }

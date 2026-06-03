@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State Comparison Visualizer</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>State Comparison Visualizer</h1>
+    <div id="global-loading" class="global-loading hidden" aria-live="polite">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <span id="global-loading-msg">Loading…</span>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Color theme">
+      <button type="button" id="theme-dark" class="theme-btn active" data-theme="dark">Dark</button>
+      <button type="button" id="theme-light" class="theme-btn" data-theme="light">Light</button>
+    </div>
+  </header>
+
+  <div class="layout" id="layout">
+    <div class="sidebar-shell" id="sidebar-shell">
+      <aside class="sidebar" id="sidebar" aria-label="Settings">
+        <div class="sidebar-toolbar">
+          <span class="sidebar-title">Settings</span>
+        </div>
+        <div class="sidebar-panels">
+      <section class="panel" data-panel-id="data">
+        <button type="button" class="panel-heading" aria-expanded="true" aria-controls="panel-body-data">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="panel-title">Data</span>
+        </button>
+        <div class="panel-body" id="panel-body-data">
+        <p id="loaded-file-name" class="loaded-file-name">No file loaded</p>
+        <p id="loaded-file-path" class="loaded-file-path"></p>
+        <button type="button" id="open-data-modal">Load / Change Data…</button>
+        </div>
+      </section>
+
+      <section class="panel" data-panel-id="state">
+        <button type="button" class="panel-heading" aria-expanded="true" aria-controls="panel-body-state">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="panel-title">State Selection</span>
+        </button>
+        <div class="panel-body" id="panel-body-state">
+        <label>State
+          <select id="state-select"></select>
+        </label>
+        <label>Other Data
+          <select id="other-data-select"></select>
+        </label>
+        <ul id="other-data-list" class="tag-list"></ul>
+        <button type="button" id="clear-other-data" class="small-btn">Clear All</button>
+        <label class="checkbox"><input type="checkbox" id="sync-scales"> Sync Scales</label>
+        <label class="checkbox"><input type="checkbox" id="show-controls"> Show Control Plots</label>
+        <label class="checkbox"><input type="checkbox" id="show-delta"> Show Delta State Plot</label>
+        </div>
+      </section>
+
+      <section class="panel" data-panel-id="model">
+        <button type="button" class="panel-heading" aria-expanded="true" aria-controls="panel-body-model">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="panel-title">Model Comparison</span>
+        </button>
+        <div class="panel-body" id="panel-body-model">
+        <label class="checkbox"><input type="checkbox" id="enable-comparison" checked> Enable Comparison</label>
+        <label>Car Model
+          <select id="model-select"></select>
+        </label>
+        <label>Car Parameters
+          <select id="params-select"></select>
+        </label>
+        <label>Horizon Steps
+          <input type="number" id="horizon-steps" min="1" value="50">
+        </label>
+        <label>Steering Delay Steps
+          <input type="number" id="steering-delay" min="0" value="0">
+        </label>
+        <label>Acceleration Delay Steps
+          <input type="number" id="accel-delay" min="0" value="0">
+        </label>
+        <p class="hint">0 = no delay, 4 = use control from 4 timesteps ago</p>
+        <button type="button" id="run-full-comparison">Run Full Comparison</button>
+        <label class="checkbox"><input type="checkbox" id="show-all-comparisons"> Show All Comparisons</label>
+        </div>
+      </section>
+
+      <section class="panel" data-panel-id="metrics">
+        <button type="button" class="panel-heading" aria-expanded="true" aria-controls="panel-body-metrics">
+          <span class="panel-chevron" aria-hidden="true"></span>
+          <span class="panel-title">Error Metrics</span>
+        </button>
+        <div class="panel-body" id="panel-body-metrics">
+        <label class="checkbox"><input type="checkbox" id="show-metrics" checked> Show Metrics</label>
+        <dl class="metrics">
+          <dt>Mean Error</dt><dd id="metric-mean">N/A</dd>
+          <dt>Max Error</dt><dd id="metric-max">N/A</dd>
+          <dt>Error Std</dt><dd id="metric-std">N/A</dd>
+          <dt>RMSE</dt><dd id="metric-rmse">N/A</dd>
+        </dl>
+        <button type="button" id="save-settings">Save Settings</button>
+        </div>
+      </section>
+      </div>
+    </aside>
+    </div>
+
+    <button type="button" id="toggle-sidebar" class="sidebar-edge-toggle" aria-expanded="true" aria-controls="sidebar-shell" title="Collapse settings panel">◀</button>
+
+    <main class="chart-area">
+      <div class="slider-bar" id="slider-bar">
+        <label for="comparison-slider">Comparison Start Index:</label>
+        <input type="range" id="comparison-slider" min="0" max="0" value="0">
+        <span id="comparison-index-label">Index: 0</span>
+        <span id="job-status" class="job-status"></span>
+      </div>
+      <div id="chart-container" class="chart-container"></div>
+    </main>
+  </div>
+
+  <!-- Data loading modal -->
+  <div id="data-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-dialog" role="dialog" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 id="modal-title">Load CSV Data</h2>
+        <button type="button" id="close-data-modal" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="browse-bar">
+          <button type="button" id="browse-up" title="Parent folder">↑</button>
+          <span id="browse-path" class="browse-path">AnalyseData</span>
+        </div>
+        <ul id="file-list" class="file-list"></ul>
+        <label class="upload-label">
+          Upload CSV
+          <input type="file" id="csv-upload" accept=".csv" hidden>
+        </label>
+        <div class="row">
+          <label>Start Index<input type="number" id="start-index" min="0" value="0"></label>
+          <label>End Index<input type="number" id="end-index" min="0" placeholder="all"></label>
+        </div>
+        <button type="button" id="update-range">Update Range</button>
+        <button type="button" id="reload-csv">Reload CSV</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
