@@ -33,8 +33,7 @@ Author: Hongrui Zheng
 
 import numpy as np
 
-from f110_sim.envs.dynamic_model_pacejka_jit import car_dynamics_pacejka_jit, StateIndices
-from sim.f110_sim.envs.car_model_jax import car_dynamics_pacejka_jax
+from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax_from_settings
 
 
 from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
@@ -120,10 +119,10 @@ class RaceCar(object):
 
         # Handle the case where it's none of the specified options
         # For example, raise an error or set a default implementation
-        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jit_Pacejka', 'jax_pacejka', 'residual']:
+        if self.ode_implementation not in ['std', 'std_tf', 'pacejka', 'ODE_TF', 'jax_pacejka', 'residual']:
             raise ValueError(f"Unsupported ODE implementation: {self.ode_implementation}")
 
-        self.state = np.zeros((StateIndices.number_of_states, ))
+        self.state = np.zeros((NUMBER_OF_STATES, ))
         if self.ode_implementation == 'ODE_TF':
             from SI_Toolkit_ASF.car_model import car_model
             self.car_model = car_model(
@@ -141,31 +140,19 @@ class RaceCar(object):
             self.step_dynamics = self.car_model.step_dynamics
             self.step_dynamics_core = self.car_model.step_dynamics_core # step dynamics without constratins an PID
 
-        if self.ode_implementation == 'jit_Pacejka':
-            self.step_dynamics = car_dynamics_pacejka_jit
-            u = np.array([0,0])
-            
-            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-            self.car_params_array = car_params.to_np_array()
-            
-            self.state = normalize_state_yaw(
-                self.step_dynamics(self.state, u, self.car_params_array, 0.01)
-            )
-
         if self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
-            self.step_dynamics = car_dynamics_pacejka_jax
-            u = np.array([0,0])
+            self.step_dynamics = car_dynamics_pacejka_jax_from_settings
+            u = np.array([0, 0])
 
             car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
             self.car_params_array = car_params.to_np_array()
-            
-            # Initialize with JAX conversion
+
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
-            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = normalize_state_yaw(np.array(new_state))
+            new_state = self.step_dynamics(jax_state, jax_u, jax_params, self.time_step, intermediate_steps=1)
+            self.state = normalize_state_yaw(np.array(new_state, dtype=np.float64))
             
         if self.ode_implementation == 'residual':
             from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
@@ -196,7 +183,7 @@ class RaceCar(object):
         self.scan_placeholder = np.full((num_beams,), 30.0, dtype=np.float32)
 
         # state and control history (circular buffers of length 40)
-        self.state_history = np.zeros((40, StateIndices.number_of_states))
+        self.state_history = np.zeros((40, NUMBER_OF_STATES))
         self.control_history = np.zeros((40, 2))
 
         # initialize scan sim
@@ -287,15 +274,15 @@ class RaceCar(object):
         self.in_collision = False
         # clear state
         self.state = initial_state
-        if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > StateIndices.v_x:
-            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
+        if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > LINEAR_VEL_X_IDX:
+            self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         self.steer_buffer = np.empty((0, ))
         # reset scan random generator
         self.scan_rng = np.random.default_rng(seed=self.seed)
         
         # reset state and control history
-        self.state_history = np.zeros((40, StateIndices.number_of_states))
+        self.state_history = np.zeros((40, NUMBER_OF_STATES))
         self.control_history = np.zeros((40, 2))
         # Initialize with current state
         self.state_history[-1] = self.state.copy()
@@ -319,7 +306,7 @@ class RaceCar(object):
             # get vertices of current oppoenent
             opp_vertices = get_vertices(opp_pose, self.params['length'], self.params['width'])
 
-            pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+            pose = np.array([self.state[POSE_X_IDX], self.state[POSE_Y_IDX], self.state[POSE_THETA_IDX]])
             new_scan = ray_cast(pose, new_scan, self.scan_angles, opp_vertices)
 
         return new_scan
@@ -340,7 +327,7 @@ class RaceCar(object):
         
         in_collision_now = check_ttc_jit(
             current_scan,
-            self.state[StateIndices.v_x],
+            self.state[LINEAR_VEL_X_IDX],
             self.scan_angles,
             self.cosines,
             self.side_distances,
@@ -373,7 +360,7 @@ class RaceCar(object):
 
         
         # Some models require PID control - but this is an old PID implementation!
-        # acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[StateIndices.v_x], self.state[StateIndices.yaw_angle], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
+        # acceleration, steering_angular_velocity = pid(desired_speed, desired_steering_angle, self.state[LINEAR_VEL_X_IDX], self.state[POSE_THETA_IDX], self.params['sv_max'], self.params['a_max'], self.params['v_max'], self.params['v_min'])
 
         # Track the applied control (will be set based on implementation)
         applied_control = np.array([desired_steering_angle, desired_speed])
@@ -401,23 +388,22 @@ class RaceCar(object):
             
 
         
-        elif self.ode_implementation == 'jit_Pacejka':
-            u = np.array([desired_steering_angle, desired_speed])
-            applied_control = u
-            self.state = normalize_state_yaw(
-                self.step_dynamics(self.state, u, self.car_params_array, 0.01)
-            )
-            
         elif self.ode_implementation == 'jax_pacejka':
             import jax.numpy as jnp
             u = np.array([desired_steering_angle, desired_speed])
             applied_control = u
-            # Convert to JAX arrays and back to numpy
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
             jax_params = jnp.array(self.car_params_array)
-            new_state = self.step_dynamics(jax_state, jax_u, jax_params, 0.01)
-            self.state = normalize_state_yaw(np.array(new_state))
+            new_state = self.step_dynamics(
+                jax_state, jax_u, jax_params, self.time_step, intermediate_steps=1)
+            new_state_np = np.array(new_state, dtype=np.float64)
+            if np.all(np.isfinite(new_state_np)):
+                self.state = normalize_state_yaw(new_state_np)
+            else:
+                self.state[LINEAR_VEL_X_IDX] = 0.0
+                self.state[LINEAR_VEL_Y_IDX] = 0.0
+                self.state[ANGULAR_VEL_Z_IDX] = 0.0
             
         elif self.ode_implementation == 'residual':
             import jax.numpy as jnp
@@ -440,7 +426,7 @@ class RaceCar(object):
 
         # clip linear_vel_x to SpeedCap when set
         if Settings.GLOBAL_SPEED_LIMIT is not None:
-            self.state[StateIndices.v_x] = np.clip(self.state[StateIndices.v_x], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
+            self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         if not simulate_scan:
             self.in_collision = False
@@ -455,7 +441,9 @@ class RaceCar(object):
         self.control_history[-1] = applied_control
         
         # update scan
-        pose = np.array([self.state[StateIndices.pose_x], self.state[StateIndices.pose_y], self.state[StateIndices.yaw_angle]])
+        pose = np.array([self.state[POSE_X_IDX], self.state[POSE_Y_IDX], self.state[POSE_THETA_IDX]], dtype=np.float64)
+        if not np.all(np.isfinite(pose)):
+            return self.scan_placeholder
         current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)
 
         return current_scan
@@ -609,9 +597,9 @@ class Simulator(object):
         # get vertices of all agents
         all_vertices = np.empty((self.num_agents, 4, 2))
         for i in range(self.num_agents):
-            pos_x = self.agents[i].state[StateIndices.pose_x]
-            pos_y = self.agents[i].state[StateIndices.pose_y]
-            yaw = self.agents[i].state[StateIndices.yaw_angle]
+            pos_x = self.agents[i].state[POSE_X_IDX]
+            pos_y = self.agents[i].state[POSE_Y_IDX]
+            yaw = self.agents[i].state[POSE_THETA_IDX]
             all_vertices[i, :, :] = get_vertices(np.append([pos_x, pos_y], yaw), self.params['length'], self.params['width'])
         self.collisions, self.collision_idx = collision_multiple(all_vertices)
 
@@ -660,9 +648,9 @@ class Simulator(object):
             agent_scans.append(current_scan)
 
             # update sim's information of agent poses
-            pos_x = agent.state[StateIndices.pose_x]
-            pos_y = agent.state[StateIndices.pose_y]
-            yaw = agent.state[StateIndices.yaw_angle]
+            pos_x = agent.state[POSE_X_IDX]
+            pos_y = agent.state[POSE_Y_IDX]
+            yaw = agent.state[POSE_THETA_IDX]
             self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
             
             # compute IMU data for this agent
@@ -726,7 +714,7 @@ class Simulator(object):
             agent.reset(initial_states[i, :])
             simulate_scan = self._simulate_lidar_for_agent(i)
             if simulate_scan:
-                pose = np.array([agent.state[StateIndices.pose_x], agent.state[StateIndices.pose_y], agent.state[StateIndices.yaw_angle]])
+                pose = np.array([agent.state[POSE_X_IDX], agent.state[POSE_Y_IDX], agent.state[POSE_THETA_IDX]])
                 current_scan = RaceCar.scan_simulator.scan(pose, agent.scan_rng)
             else:
                 current_scan = agent.scan_placeholder

@@ -705,9 +705,6 @@ def initialize_planner(controller: str):
     elif controller == 'mpc':
         from Control_Toolkit_ASF.Controllers.MPC.mpc_planner import mpc_planner
         planner = mpc_planner()
-    elif controller == 'mppi-lite':
-        from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_planner import MPPILitePlanner
-        planner = MPPILitePlanner() 
     elif controller == 'mppi-lite-jax':
         from Control_Toolkit_ASF.Controllers.MPPILite.mppi_lite_jax_planner import MPPILitePlanner
         planner = MPPILitePlanner()

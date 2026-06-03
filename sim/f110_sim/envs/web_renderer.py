@@ -1375,8 +1375,13 @@ class WebEnvRenderer:
 
     @staticmethod
     def _round_floats(obj: Any, digits: int):
-        if isinstance(obj, float):
-            return round(obj, digits)
+        if isinstance(obj, (float, np.floating)):
+            value = float(obj)
+            if not np.isfinite(value):
+                return 0.0
+            return round(value, digits)
+        if isinstance(obj, (np.integer, int)):
+            return int(obj)
         if isinstance(obj, list):
             return [WebEnvRenderer._round_floats(v, digits) for v in obj]
         if isinstance(obj, dict):
@@ -1437,13 +1442,12 @@ class WebEnvRenderer:
         poses = []
         if car_states is not None:
             for state in car_states:
-                poses.append(
-                    [
-                        float(state[POSE_X_IDX]),
-                        float(state[POSE_Y_IDX]),
-                        float(state[POSE_THETA_IDX]),
-                    ]
-                )
+                x = float(state[POSE_X_IDX])
+                y = float(state[POSE_Y_IDX])
+                theta = float(state[POSE_THETA_IDX])
+                if not (np.isfinite(x) and np.isfinite(y) and np.isfinite(theta)):
+                    continue
+                poses.append([x, y, theta])
         else:
             poses_x = render_obs.get("poses_x", [])
             poses_y = render_obs.get("poses_y", [])

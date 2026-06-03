@@ -94,7 +94,7 @@ def xy_2_rc(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution):
     return r, c
 
 @njit(cache=True)
-def distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt):
+def distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range):
     """
     Look up corresponding distance in the distance matrix
 
@@ -108,8 +108,9 @@ def distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, reso
             distance (float): corresponding shortest distance to obstacle in meters
     """
     r, c = xy_2_rc(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution)
-    distance = dt[r, c]
-    return distance
+    if r < 0 or c < 0 or r >= height or c >= width:
+        return max_range
+    return dt[r, c]
 
 @njit(cache=True)
 def trace_ray(x, y, theta_index, sines, cosines, eps, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range):
@@ -134,7 +135,7 @@ def trace_ray(x, y, theta_index, sines, cosines, eps, orig_x, orig_y, orig_c, or
     c = cosines[theta_index_]
 
     # distance to nearest initialization
-    dist_to_nearest = distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt)
+    dist_to_nearest = distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range)
     total_dist = dist_to_nearest
 
     # ray tracing iterations
@@ -145,7 +146,7 @@ def trace_ray(x, y, theta_index, sines, cosines, eps, orig_x, orig_y, orig_c, or
 
         # update dist_to_nearest for current point on ray
         # also keeps track of total ray length
-        dist_to_nearest = distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt)
+        dist_to_nearest = distance_transform(x, y, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range)
         total_dist += dist_to_nearest
 
     if total_dist > max_range:
@@ -466,6 +467,10 @@ class ScanSimulator2D(object):
                 return scan
             else:
                 raise ValueError('Map is not set for scan simulator.')
+
+        pose = np.asarray(pose, dtype=np.float64)
+        if pose.shape[0] < 3 or not np.all(np.isfinite(pose[:3])):
+            return np.full(self.num_beams, self.max_range, dtype=np.float64)
         
         scan = get_scan(pose, self.theta_dis, self.fov, self.num_beams, self.theta_index_increment, self.sines, self.cosines, self.eps, self.orig_x, self.orig_y, self.orig_c, self.orig_s, self.map_height, self.map_width, self.map_resolution, self.dt, self.max_range)
 
