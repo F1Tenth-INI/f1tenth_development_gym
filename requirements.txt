@@ -90,6 +90,8 @@ sympy==1.13.1
 tensorboard==2.14.0
 tensorboard-data-server==0.7.2
 tensorboardX==2.6.4
+tensorflow==2.14.0
+tensorflow_probability>=0.23.0,<0.24
 tifffile==2025.8.28
 toolz==1.0.0
 torch==2.5.1
