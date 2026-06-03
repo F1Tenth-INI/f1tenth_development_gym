@@ -44,9 +44,37 @@ def _servo_proportional(desired_steering_angle, delta, servo_p, steering_diff_lo
     return jnp.clip(delta_dot, sv_min, sv_max)
 
 
-def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
-                  lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                  mu, s_min, s_max, dt_sub):
+def _smooth_sign_vx(v_x, v_dead):
+    """Smooth sign for longitudinal resistance (avoids reversing at rest)."""
+    return v_x / jnp.sqrt(v_x * v_x + v_dead * v_dead)
+
+
+def _apply_longitudinal_multipliers(v_x_dot, brake_multiplier, accel_multiplier):
+    """Differentiable brake/accel scaling (tanh form; stable for large |v_x_dot|)."""
+    tanh_term = jnp.tanh(25.0 * v_x_dot)
+    sig_neg = 0.5 * (1.0 - tanh_term)
+    sig_pos = 0.5 * (1.0 + tanh_term)
+    neutral = jnp.maximum(0.0, 1.0 - sig_neg - sig_pos)
+    scale = sig_neg * brake_multiplier + sig_pos * accel_multiplier + neutral
+    return v_x_dot * scale
+
+
+def _apply_steering_multiplier(desired_steering_angle, steering_multiplier):
+    """Scale commanded steering angle (recorded control input)."""
+    return desired_steering_angle * steering_multiplier
+
+
+def _rolling_resistance_accel(v_x, c_rr, g_, v_dead):
+    return -c_rr * g_ * _smooth_sign_vx(v_x, v_dead)
+
+
+def _cornering_resistance_accel(v_x, F_yf, F_yr, m, curve_resistance_factor, v_dead):
+    lateral_force_magnitude = jnp.sqrt(F_yf * F_yf + F_yr * F_yr)
+    return -curve_resistance_factor * lateral_force_magnitude / m * _smooth_sign_vx(v_x, v_dead)
+
+
+def _pacejka_lateral_forces(v_x, v_y, psi_dot, delta, v_x_dot,
+                            lf, lr, h_cg, m, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, mu):
     v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
     alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
@@ -58,6 +86,18 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
         C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
     F_yr = mu * F_zr * D_r * jnp.sin(
         C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
+    return F_yf, F_yr
+
+
+def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
+                  lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
+                  mu, s_min, s_max, dt_sub, curve_resistance_factor=0.0, v_dead=0.05):
+    F_yf, F_yr = _pacejka_lateral_forces(
+        v_x, v_y, psi_dot, delta, v_x_dot, lf, lr, h_cg, m, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, mu)
+    v_x_dot = v_x_dot + jax.lax.stop_gradient(
+        _cornering_resistance_accel(v_x, F_yf, F_yr, m, curve_resistance_factor, v_dead))
+    max_a_friction = mu * g_
+    v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
@@ -117,7 +157,13 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
     """
     mu, lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, \
         servo_p, s_min, s_max, sv_min, sv_max, a_min, a_max, v_min, v_max, v_switch = car_params[:25]
-    steering_diff_low = car_params[29] if car_params.shape[0] > 29 else jnp.float32(0.0)
+    steering_diff_low = car_params[25] if car_params.shape[0] > 25 else jnp.float32(0.0)
+    c_rr = car_params[26] if car_params.shape[0] > 26 else jnp.float32(0.0)
+    v_dead = car_params[27] if car_params.shape[0] > 27 else jnp.float32(0.05)
+    curve_resistance_factor = car_params[28] if car_params.shape[0] > 28 else jnp.float32(0.0)
+    brake_multiplier = car_params[29] if car_params.shape[0] > 29 else jnp.float32(1.0)
+    accel_multiplier = car_params[30] if car_params.shape[0] > 30 else jnp.float32(1.0)
+    steering_multiplier = car_params[31] if car_params.shape[0] > 31 else jnp.float32(1.0)
     l_wb = lf + lr
     dt_sub = dt / intermediate_steps
     use_speed_pi = Settings.MOTOR_PID_IN_CAR_MODEL
@@ -129,6 +175,8 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
         state_in, speed_error_integral = carry
         psi_dot, v_x, v_y, psi, _, _, s_x, s_y, _, delta = state_in
         desired_steering_angle, translational_control = control
+        desired_steering_angle = _apply_steering_multiplier(
+            desired_steering_angle, steering_multiplier)
 
         delta_dot = _servo_proportional(
             desired_steering_angle, delta, servo_p, steering_diff_low, sv_min, sv_max)
@@ -145,13 +193,18 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             v_x_dot = translational_control
             speed_error_integral = speed_error_integral
 
+        v_x_dot = _apply_longitudinal_multipliers(v_x_dot, brake_multiplier, accel_multiplier)
         v_x_dot = _accl_constraints(v_x, v_x_dot, a_min, a_max, v_min, v_max, v_switch, mu, g_)
+        v_x_dot = v_x_dot + jax.lax.stop_gradient(
+            _rolling_resistance_accel(v_x, c_rr, g_, v_dead))
+        max_a_friction = mu * g_
+        v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
         if use_pacejka:
             p_s_x, p_s_y, p_delta, p_v_x, p_v_y, p_psi, p_psi_dot = _pacejka_step(
                 s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                 lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                mu, s_min, s_max, dt_sub)
+                mu, s_min, s_max, dt_sub, curve_resistance_factor, v_dead)
             s_pacejka = _next_step_output(p_psi_dot, p_v_x, p_v_y, p_psi, p_s_x, p_s_y, p_delta)
         else:
             s_pacejka = state_in

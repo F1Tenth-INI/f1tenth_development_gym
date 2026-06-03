@@ -102,10 +102,14 @@ class mpc_planner(template_planner):
 
     def process_observation(self):
 
-
         self.lidar_points = self.lidar_utils.processed_points_map_coordinates
 
-
+        # Startup ramp before MPC (ST/ODE unstable at v_x ≈ 0). Skip optimizer so warm-start is not wiped.
+        if self.simulation_index < Settings.ACCELERATION_TIME:
+            self.simulation_index += 1
+            self.angular_control = 0.0
+            self.translational_control = Settings.ACCELERATION_AMPLITUDE
+            return self.angular_control, self.translational_control
 
         angular_control, translational_control  = self.mpc.step(self.car_state,
                                                                self.time,
@@ -153,17 +157,6 @@ class mpc_planner(template_planner):
         self.angular_control = angular_control
         
         self.simulation_index += 1
-        
-        # Accelerate at the beginning (St model expoldes for small velocity)
-        # Give it a little "Schupf"
-        if self.simulation_index < Settings.ACCELERATION_TIME:
-            self.simulation_index += 1
-            self.translational_control = Settings.ACCELERATION_AMPLITUDE
-            self.angular_control = 0
-            self.optimal_control_sequence = np.zeros_like(self.optimal_control_sequence)
-            return self.angular_control, self.translational_control
-
-
 
         return angular_control, translational_control
 

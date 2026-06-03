@@ -65,7 +65,14 @@ if __name__ == "__main__":
         ),
         (
             "mpc",
-            [*base, "--CONTROLLER", "mpc", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
+            [
+                *base,
+                "--CONTROLLER", "mpc",
+                "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0",
+                "--CONTROL_DELAY", "0.08",
+                "--ENV_CAR_PARAMETER_FILE", "gym_car_parameters.yml",
+                "--CONTROLLER_CAR_PARAMETER_FILE", "gym_car_parameters.yml",
+            ],
         ),
         # Deprecated. Still running on this commit
         # (
@@ -78,7 +85,7 @@ if __name__ == "__main__":
         ),
         (
             "SAC agent",
-            [*base, "--MAP_NAME", "RCA1",  "--CONTROLLER", "sac_agent", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08", "--SAC_INFERENCE_MODEL_NAME", "Example-1", "--SURFACE_FRICTION", "0.9", "--START_FROM_RANDOM_POSITION", "True"],
+            [*base, "--MAP_NAME", "RCA1",  "--CONTROLLER", "sac_agent",  "--ENV_CAR_PARAMETER_FILE", "gym_car_parameters.yml", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08", "--SAC_INFERENCE_MODEL_NAME", "Example-1", "--SURFACE_FRICTION", "0.9", "--START_FROM_RANDOM_POSITION", "True"],
         ),
         
     ]

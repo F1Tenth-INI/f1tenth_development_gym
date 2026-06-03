@@ -1,0 +1,47 @@
+# Yokomo1 — parameters used by jax_pacejka / ODE_TF and simulation geometry
+
+mu: 0.5  # friction coefficient [-]
+
+lf: 0.13  # distance from CoG to front axle [m]
+lr: 0.12  # distance from CoG to rear axle [m]
+l_wb: 0.25  # wheel base [m]
+h: 0.06  # center of gravity height [m]
+m: 2.9  # total mass [kg]
+I_z: 0.07  # yaw moment of inertia [kg·m²]
+g: 9.81  # gravity [m/s²]
+
+width: 0.20  # car width [m]
+length: 0.35  # car length [m]
+
+s_min: -0.6
+s_max: 0.6
+sv_min: -3.2
+sv_max: 3.2
+
+a_max: 5.0
+a_min: -5.0
+v_min: -5.0
+v_max: 10.0
+v_switch: 7.319
+
+servo_p: 10
+steering_diff_low: 0.0  # steering deadband [rad]
+
+C_Pf:  # Pacejka front (B, C, D, E)
+  - 4.45
+  - 1.3
+  - 1.0
+  - 0.0
+
+C_Pr:  # Pacejka rear (B, C, D, E)
+  - 9.9
+  - 1.1
+  - 1.0
+  - 0.0
+
+c_rr: 0.06  # rolling resistance coefficient
+v_dead: 0.05  # velocity deadband for resistance sign at low speed [m/s]
+curve_resistance_factor: 0.14  # extra drag from lateral tire forces when cornering
+brake_multiplier: 3.0  # scales negative acceleration (< 1 = weaker braking)
+accel_multiplier: 1.0  # scales positive acceleration (< 1 = weaker acceleration)
+steering_multiplier: 1.6  # scales commanded steering (< 1 = less steering)

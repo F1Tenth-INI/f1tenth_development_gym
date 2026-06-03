@@ -1,146 +1,47 @@
-# MPC-Based Tuned Parameters
-# Starting from working MPC parameters and making minimal data-driven adjustments
-# This avoids the model mismatch problem by using known-good baseline
+# MPC planner car — parameters used by jax_pacejka / ODE_TF and simulation geometry
 
-mu: 0.9 # friction coefficient  [-]
-C_Sf: 4.718 # cornering stiffness front [1/rad]
-C_Sr: 5.4562 # cornering stiffness rear [1/rad]
+mu: 0.9
 
-lf: 0.162 # distance from center of gravity to front axle [m]
-lr: 0.145 # distance from center of gravity to rear axle [m]
-l_wb: 0.307 # wheel base [m]
-h: 0.074 # center of gravity height of total mass [m]
-h_cg: 0.014 # center of gravity height of sprung mass [m]
-m: 4.0 # Total Mass of car [kg]
-I_z: 0.1297 # Moment of inertia for entire mass about z axis [kgm^2] (calculated from recangle 20x50 cm)
-g: 9.81 # Gravitation Constant [m/s^2]
+lf: 0.162
+lr: 0.145
+l_wb: 0.307
+h: 0.074
+m: 4.0
+I_z: 0.1297
+g: 9.81
 
-width: 0.31 # Width of the car [m]
-length: 0.58 # Length of the car [m]
+width: 0.31
+length: 0.58
 
-# Steering Constraints
 s_min: -0.4189
 s_max: 0.4189
 sv_min: -3.2
 sv_max: 3.2
 
-# Acceleration Constraints - ADJUSTED based on observed data
-a_max: 5.0 # reduced from 5.0 - observed accelerations go higher
-a_min: -5.0 # increased from -10.0 - more realistic braking
+a_max: 5.0
+a_min: -5.0
 v_min: -5.0
-v_max: 10.0 # reduced from 15 - based on observed max ~6.6 m/s
+v_max: 10.0
 v_switch: 7.319
 
-# Servo
-servo_p: 10 # proportional factor of servo PID
-steering_diff_low: 0.00 # [rad] Steering angle difference below is considered as 0
+servo_p: 10
+steering_diff_low: 0.0
 
-# Other
-min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
-min_speed_pacejka: 0.7 # [m/s] Speed where Pacejka model switches to KS model
-
-# Wheel parameters
-C_0d: 0.41117415569890003
-
-# Pacejka Magic Formula Parameters front tire (B, C, D, E) - KEEP ORIGINAL
-C_Pf:
-  - 4.45
-  - 1.3 
-  - 1.0
-  - 0.0
-
-# Pacejka Magic Formula Parameters rear tire (B, C, D, E) - KEEP ORIGINAL
-C_Pr:
-  - 9.9
-  - 1.1
-  - 1.0
-  - 0.0
-
-C_R: 3.693303119695026
-
-# MINIMAL ADJUSTMENTS to MPC baseline
-C_acc: 5.0 # slightly reduced from 7.14 - more conservative
-C_d: 0.0 # neutral drag - remove negative drag
-C_dec: 6.0 # keep reasonable braking
-# MPC-Based Tuned Parameters
-# Starting from working MPC parameters and making minimal data-driven adjustments
-# This avoids the model mismatch problem by using known-good baseline
-
-mu: 0.9 # friction coefficient  [-]
-C_Sf: 4.718 # cornering stiffness front [1/rad]
-C_Sr: 5.4562 # cornering stiffness rear [1/rad]
-
-lf: 0.162 # distance from center of gravity to front axle [m]
-lr: 0.145 # distance from center of gravity to rear axle [m]
-l_wb: 0.307 # wheel base [m]
-h: 0.074 # center of gravity height of total mass [m]
-h_cg: 0.014 # center of gravity height of sprung mass [m]
-m: 4.0 # Total Mass of car [kg]
-I_z: 0.1297 # Moment of inertia for entire mass about z axis [kgm^2] (calculated from recangle 20x50 cm)
-g: 9.81 # Gravitation Constant [m/s^2]
-
-width: 0.31 # Width of the car [m]
-length: 0.58 # Length of the car [m]
-
-# Steering Constraints
-s_min: -0.4189
-s_max: 0.4189
-sv_min: -3.2
-sv_max: 3.2
-
-# Acceleration Constraints - ADJUSTED based on observed data
-a_max: 5.0 # reduced from 5.0 - observed accelerations go higher
-a_min: -5.0 # increased from -10.0 - more realistic braking
-v_min: -5.0
-v_max: 10.0 # reduced from 15 - based on observed max ~6.6 m/s
-v_switch: 7.319
-
-# Servo
-servo_p: 10 # proportional factor of servo PID
-steering_diff_low: 0.00 # [rad] Steering angle difference below is considered as 0
-
-# Other
-min_speed_st: 0.5 # [m/s] Speed where ST model switches to KS model
-min_speed_pacejka: 0.7 # [m/s] Speed where Pacejka model switches to KS model
-
-# Wheel parameters
-C_0d: 0.41117415569890003
-
-# Pacejka Magic Formula Parameters front tire (B, C, D, E) - KEEP ORIGINAL
 C_Pf:
   - 5.0
-  - 1.3 
+  - 1.3
   - 1.0
   - 0.0
 
-# Pacejka Magic Formula Parameters rear tire (B, C, D, E) - KEEP ORIGINAL
 C_Pr:
   - 7.0
   - 1.1
   - 1.0
   - 0.0
 
-C_R: 3.693303119695026
-
-# MINIMAL ADJUSTMENTS to MPC baseline
-C_acc: 5.0 # slightly reduced from 7.14 - more conservative
-C_d: 0.0 # neutral drag - remove negative drag
-C_dec: 6.0 # keep reasonable braking
-
-# Rolling resistance coefficient (dimensionless)
-c_rr: 0.025 # slightly increased from 0.02
-
-# Additional resistance parameters - SMALL INCREASE
-v_dead: 0.05 # [m/s] velocity deadband for smooth sign function
-curve_resistance_factor: 0.14 # increased from 0.12 - modest improvement for cornering
-
+c_rr: 0.025
+v_dead: 0.05
+curve_resistance_factor: 0.14
 brake_multiplier: 1.0
-
-# Rolling resistance coefficient (dimensionless)
-c_rr: 0.025 # slightly increased from 0.02
-
-# Additional resistance parameters - SMALL INCREASE
-v_dead: 0.05 # [m/s] velocity deadband for smooth sign function
-curve_resistance_factor: 0.14 # increased from 0.12 - modest improvement for cornering
-
-brake_multiplier: 1.0
+accel_multiplier: 1.0
+steering_multiplier: 1.0

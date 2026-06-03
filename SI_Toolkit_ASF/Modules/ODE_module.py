@@ -68,7 +68,7 @@ class ODEModel(tf.keras.Model):
 class STModel(ODEModel):
     def __init__(self, horizon, batch_size, net_info, name=None, **kwargs):
         super().__init__(horizon, batch_size, net_info, name=None, **kwargs)
-        self.setup_car_model(self.car_parameter_file, 'ODE:st', trainable_params=['mu', 'C_Sf', 'C_Sr', 'lf', 'lr', 'h', 'I'])
+        self.setup_car_model(self.car_parameter_file, 'ODE:st', trainable_params=['mu', 'lf', 'lr', 'h', 'I_z'])
 
 
 class STModelMu(ODEModel):
@@ -86,4 +86,4 @@ class STModelLowMu(ODEModel):
 class KSModel(ODEModel):
     def __init__(self, horizon, batch_size, net_info, name=None, **kwargs):
         super().__init__(horizon, batch_size, net_info, name=None, **kwargs)
-        self.setup_car_model(self.car_parameter_file, 'ODE:st', trainable_params=['mu', 'C_Sf', 'C_Sr', 'lf', 'lr', 'h', 'I'])
+        self.setup_car_model(self.car_parameter_file, 'ODE:st', trainable_params=['mu', 'lf', 'lr', 'h', 'I_z'])

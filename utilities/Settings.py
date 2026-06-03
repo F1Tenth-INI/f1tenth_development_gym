@@ -3,7 +3,7 @@ class Settings():
 
     ## Environment ##
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
-    ENV_CAR_PARAMETER_FILE = "gym_car_parameters.yml" # Car parameters for simulated car
+    ENV_CAR_PARAMETER_FILE = "yokomo1_car_parameters.yml" # Car parameters for simulated car
     SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
     
     ## Map ##
@@ -139,7 +139,7 @@ class Settings():
 
     
     ## MPC Controller ##
-    CONTROLLER_CAR_PARAMETER_FILE = "gym_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
+    CONTROLLER_CAR_PARAMETER_FILE = "yokomo1_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks_pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     
     NUM_TRAJECTORIES_TO_PLOT = 20

@@ -255,8 +255,8 @@ class CarSystem:
         if self.planner is not None:
             self.angular_control, self.translational_control = self.planner.process_observation()
 
-            # Extract control from sequence if mpc
-            if hasattr(self.planner, 'optimal_control_sequence') or hasattr(self.planner, 'mpc'):
+            # MPC delay compensation: only when a control sequence exists (not during startup ramp).
+            if getattr(self.planner, 'optimal_control_sequence', None) is not None:
                 self.angular_control, self.translational_control = self.extract_control_from_control_sequence()
             
         else: # planner == None

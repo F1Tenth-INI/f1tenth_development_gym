@@ -9,7 +9,9 @@ from utilities.render_utilities import RenderUtils
 from utilities.Settings import Settings
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.state_utilities import NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, LINEAR_VEL_X_IDX
+from utilities.state_utilities import (
+    NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX,
+)
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 
 # Configure JAX for optimal GPU usage
@@ -88,7 +90,7 @@ class RPGDPlanner(template_planner):
         self.horizon = 30  
         
         # RPGD specific parameters 
-        self.elite_size = 6  # opt_keep_k_ratio
+        self.elite_size = 4  # opt_keep_k_ratio
         self.gradient_steps = 10  # More: Better convergence, but slower
         self.resampling_freq = 5 
         
@@ -117,7 +119,7 @@ class RPGDPlanner(template_planner):
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.last_Q_sq[:, 0] = 0.0  # Straight steering (0 steering angle)
         self.last_Q_sq[:, 1] = 1.0  # Acceleration (1 m/s²)
-        self.car_params_array = VehicleParameters('mpc_car_parameters.yml').to_np_array().astype(np.float32)
+        self.car_params_array = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE).to_np_array().astype(np.float32)
 
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
@@ -203,7 +205,7 @@ class RPGDPlanner(template_planner):
             Q_batch_sequence, total_cost_batch, Q_final_unused, adam_m_new, adam_v_new, adam_step_new = rpgd_process_observation_jax(
                 s, Q_batch_sequence, self.batch_size, self.horizon,
                 self.car_params_jax, waypoints, subkey, self.dt,
-                execute_control_index=0,
+                execute_control_index=int(Settings.CONTROL_DELAY / self.dt),
                 intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
                 angular_smoothness_weight=self.angular_smoothness_weight,
                 translational_smoothness_weight=self.translational_smoothness_weight,
@@ -232,7 +234,8 @@ class RPGDPlanner(template_planner):
             self._update_trajectory_ages()
             
             # Compute optimal trajectory for visualization (using constant dt)
-            optimal_traj = car_steps_sequential_jax(s, Q_sequence, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE, state_history=self.state_history, control_history=self.control_history)
+            intermediate_steps = self.dt / 0.01
+            optimal_traj = car_steps_sequential_jax(s, Q_sequence, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE, state_history=self.state_history, control_history=self.control_history, intermediate_steps=intermediate_steps)
             
             # Batch rollout using vmap over car_steps_sequential_jax
             # Note: Each trajectory in the batch uses the same initial history
@@ -466,7 +469,7 @@ class RPGDPlanner(template_planner):
         # Extract current position and heading
         current_x = float(current_state[POSE_X_IDX])
         current_y = float(current_state[POSE_Y_IDX])
-        current_heading = float(current_state[2])  # Assuming heading is at index 2
+        current_heading = float(current_state[POSE_THETA_IDX])
         current_speed = float(current_state[LINEAR_VEL_X_IDX])
         
         # Convert waypoints to numpy for easier handling
@@ -531,12 +534,12 @@ def cost_function_jax(state, control, waypoints):
     translational_control_cost = jnp.abs(control[1]) * 0.0
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]
-    speed_cost = 5.0 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    
+    speed_cost = 0.5 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
+    slip_cost = 0.05 * (state[LINEAR_VEL_Y_IDX] ) ** 2
     # Add quadratic penalty for large angular controls to discourage extreme values
     angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
-    
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty
+    translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
+    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost
 
 @jax.jit
 def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, 
