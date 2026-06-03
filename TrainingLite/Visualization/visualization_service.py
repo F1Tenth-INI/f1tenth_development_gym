@@ -52,7 +52,6 @@ AVAILABLE_MODELS = {
     "residual": "Residual Dynamics Model",
 }
 
-
 @dataclass
 class VisualizationSettings:
     csv_file_path: str = ""
@@ -120,6 +119,7 @@ class VisualizationService:
         self.reload_car_models()
         self.settings = VisualizationSettings()
         self.comparison_data_dict: Dict[int, Dict[str, np.ndarray]] = {}
+        self._comparison_cache_key: Optional[tuple] = None
         self._jobs: Dict[str, ComparisonJob] = {}
         self._jobs_lock = threading.Lock()
         os.makedirs(UPLOADS_DIR, exist_ok=True)
@@ -395,11 +395,74 @@ class VisualizationService:
             json.dump(self.settings.to_dict(), f, indent=2)
 
     def update_settings(self, updates: Dict[str, Any]) -> VisualizationSettings:
+        old_params_key = self._comparison_params_key() if self.data is not None else None
         current = self.settings.to_dict()
-        current.update({k: v for k, v in updates.items() if k in current})
+        for key, value in updates.items():
+            if key in current:
+                current[key] = value
         self.settings = VisualizationSettings.from_dict(current)
+        if self.data is not None:
+            self._normalize_range_indices()
+            if old_params_key != self._comparison_params_key():
+                self.clear_comparisons()
         self.save_config()
         return self.settings
+
+    def _comparison_params_key(self) -> tuple:
+        end = self.settings.end_index
+        if self.data is not None and end is None:
+            end = len(self.data)
+        return (
+            self.get_model_key(self.settings.default_car_model),
+            self.get_param_filename(self.settings.default_car_parameters),
+            int(self.settings.horizon_steps),
+            int(self.settings.steering_delay_steps),
+            int(self.settings.acceleration_delay_steps),
+            int(self.settings.start_index),
+            int(end) if end is not None else -1,
+        )
+
+    def _cached_comparison_states(self) -> List[str]:
+        if not self.comparison_data_dict:
+            return []
+        sample = next(iter(self.comparison_data_dict.values()))
+        return sorted(sample.keys())
+
+    def is_comparison_cache_valid(self) -> bool:
+        if not self.comparison_data_dict or self._comparison_cache_key is None:
+            return False
+        if self._comparison_cache_key != self._comparison_params_key():
+            return False
+        if self.data is None:
+            return False
+        available = {
+            col for col in self.state_columns if col in self.data.columns
+        }
+        cached_states = set(self._cached_comparison_states())
+        return available.issubset(cached_states)
+
+    def get_comparison_cache_info(self) -> Dict[str, Any]:
+        valid = self.is_comparison_cache_valid()
+        return {
+            "valid": valid,
+            "states": self._cached_comparison_states() if self.comparison_data_dict else [],
+            "indices_count": len(self.comparison_data_dict),
+            "params_key": list(self._comparison_cache_key) if self._comparison_cache_key else None,
+        }
+
+    def _normalize_range_indices(self) -> None:
+        if self.data is None:
+            return
+        n = len(self.data)
+        start = max(0, min(int(self.settings.start_index), max(0, n - 1)))
+        end_raw = self.settings.end_index
+        if end_raw is None:
+            end = n
+        else:
+            end = max(start + 1, min(int(end_raw), n))
+        self.settings.start_index = start
+        self.settings.end_index = end
+        self.get_comparison_slider_range()
 
     # ------------------------------------------------------------------ CSV I/O
     def _resolve_safe_path(self, path: str) -> str:
@@ -461,7 +524,7 @@ class VisualizationService:
         self.data = pd.read_csv(abs_path, comment="#")
         self.csv_file_path = abs_path
         self.settings.csv_file_path = abs_path
-        self.comparison_data_dict = {}
+        self.clear_comparisons()
 
         available_states = [col for col in self.state_columns if col in self.data.columns]
         if available_states and (
@@ -490,6 +553,7 @@ class VisualizationService:
             "settings": self.settings.to_dict(),
             "comparison_slider": self.get_comparison_slider_range(),
             "comparison_indices": sorted(self.comparison_data_dict.keys()),
+            "comparison_cache": self.get_comparison_cache_info(),
         }
 
     def _try_load_config_csv(self) -> None:
@@ -554,9 +618,22 @@ class VisualizationService:
         self.comparison_data_dict[idx] = result
         return {"start_index": idx, "horizon": horizon, "states": list(result.keys())}
 
-    def start_full_comparison(self) -> str:
+    def start_full_comparison(self, force: bool = False) -> str:
         if self.data is None:
             raise ValueError("No data loaded")
+
+        if not force and self.is_comparison_cache_valid():
+            job_id = str(uuid.uuid4())
+            with self._jobs_lock:
+                self._jobs[job_id] = ComparisonJob(
+                    job_id=job_id,
+                    status="completed",
+                    total=1,
+                    current=1,
+                    message="Using cached comparisons (all states ready)",
+                )
+            return job_id
+
         horizon = self.settings.horizon_steps
         effective_start = self.settings.start_index
         effective_end = (
@@ -630,6 +707,7 @@ class VisualizationService:
                     job.status = "completed"
                     job.current = job.total
                     job.message = f"Completed {successful}/{len(start_indices)} comparisons"
+                    self._comparison_cache_key = self._comparison_params_key()
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
         with self._jobs_lock:
@@ -648,6 +726,7 @@ class VisualizationService:
 
     def clear_comparisons(self) -> None:
         self.comparison_data_dict = {}
+        self._comparison_cache_key = None
 
     # ------------------------------------------------------------------ plot data
     def _get_time_slice(self, start_idx: int, end_idx: int) -> np.ndarray:
@@ -681,42 +760,137 @@ class VisualizationService:
             return np.arctan2(np.sin(delta_raw), np.cos(delta_raw))
         return np.diff(values)
 
-    def get_plot_data(self) -> Dict[str, Any]:
+    def _plot_slice_context(self) -> tuple:
         if self.data is None:
             raise ValueError("No data loaded")
-
-        state_name = self.settings.state_name
-        if not state_name or state_name not in self.data.columns:
-            raise ValueError("Invalid state selection")
-
         start_idx = self.settings.start_index
         end_idx = (
             self.settings.end_index if self.settings.end_index is not None else len(self.data)
         )
         time_data = self._get_time_slice(start_idx, end_idx)
+        state_cols = [col for col in self.state_columns if col in self.data.columns]
+        return start_idx, end_idx, time_data, state_cols
+
+    def _plot_shared_columns(self, start_idx: int, end_idx: int) -> Dict[str, Any]:
+        other_data: Dict[str, List[float]] = {}
+        for col in self.settings.selected_other_data:
+            if col in self.data.columns:
+                other_data[col] = (
+                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
+                )
+
+        controls: Dict[str, List[float]] = {}
+        if self.settings.show_controls:
+            for col in self.get_resolved_control_columns():
+                controls[col] = (
+                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
+                )
+        return {"other_data": other_data, "controls": controls}
+
+    def _prediction_entries_for_state(
+        self,
+        state_name: str,
+        start_idx: int,
+        end_idx: int,
+        include_delta: bool,
+    ) -> List[Dict[str, Any]]:
+        if not self.settings.enable_comparison or not self.comparison_data_dict:
+            return []
+
+        if self.settings.show_all_comparisons:
+            comp_items = [
+                (idx, data)
+                for idx, data in self.comparison_data_dict.items()
+                if start_idx <= idx < end_idx and state_name in data
+            ]
+        else:
+            comp_idx = self.settings.comparison_start_index
+            if (
+                comp_idx in self.comparison_data_dict
+                and state_name in self.comparison_data_dict[comp_idx]
+            ):
+                comp_items = [(comp_idx, self.comparison_data_dict[comp_idx])]
+            else:
+                comp_items = []
+
+        entries: List[Dict[str, Any]] = []
+        for comp_idx, comp_data in comp_items:
+            pred = np.array(comp_data[state_name])
+            comp_time = self._get_comp_time(comp_idx, len(pred))
+            pred_entry: Dict[str, Any] = {
+                "start_index": comp_idx,
+                "time": comp_time.tolist(),
+                "values": pred.tolist(),
+            }
+            if include_delta and len(pred) > 1:
+                delta_pred = self._compute_delta(pred, state_name)
+                pred_entry["delta"] = {
+                    "time": comp_time[:-1].tolist(),
+                    "values": delta_pred.tolist(),
+                }
+            entries.append(pred_entry)
+        return entries
+
+    def get_plot_bundle(self) -> Dict[str, Any]:
+        """All states + cached predictions in one payload for client-side state switching."""
+        start_idx, end_idx, time_data, state_cols = self._plot_slice_context()
+        shared = self._plot_shared_columns(start_idx, end_idx)
+
+        ground_truth: Dict[str, List[float]] = {}
+        for col in state_cols:
+            ground_truth[col] = (
+                self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
+            )
+
+        predictions: List[Dict[str, Any]] = []
+        if self.comparison_data_dict:
+            for comp_idx, comp_data in self.comparison_data_dict.items():
+                if comp_idx < start_idx or comp_idx >= end_idx:
+                    continue
+                states_out: Dict[str, List[float]] = {}
+                for state_name in state_cols:
+                    if state_name in comp_data:
+                        states_out[state_name] = np.array(comp_data[state_name]).tolist()
+                if not states_out:
+                    continue
+                horizon = len(next(iter(states_out.values())))
+                comp_time = self._get_comp_time(comp_idx, horizon)
+                predictions.append({
+                    "start_index": comp_idx,
+                    "time": comp_time.tolist(),
+                    "states": states_out,
+                })
+
+        return {
+            "time": time_data.tolist(),
+            "start_index": start_idx,
+            "end_index": end_idx,
+            "state_names": state_cols,
+            "ground_truth": ground_truth,
+            "predictions": predictions,
+            **shared,
+        }
+
+    def get_plot_data(self) -> Dict[str, Any]:
+        state_name = self.settings.state_name
+        if not state_name or self.data is None or state_name not in self.data.columns:
+            raise ValueError("Invalid state selection")
+
+        start_idx, end_idx, time_data, _ = self._plot_slice_context()
+        shared = self._plot_shared_columns(start_idx, end_idx)
         state_data = self.data[state_name].iloc[start_idx:end_idx].to_numpy()
 
         result: Dict[str, Any] = {
             "state_name": state_name,
             "time": time_data.tolist(),
             "ground_truth": state_data.tolist(),
-            "predictions": [],
-            "other_data": {},
-            "controls": {},
+            "predictions": self._prediction_entries_for_state(
+                state_name, start_idx, end_idx, self.settings.show_delta_state
+            ),
+            "other_data": shared["other_data"],
+            "controls": shared["controls"],
             "delta": {},
         }
-
-        for col in self.settings.selected_other_data:
-            if col in self.data.columns:
-                result["other_data"][col] = (
-                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
-                )
-
-        if self.settings.show_controls:
-            for col in self.get_resolved_control_columns():
-                result["controls"][col] = (
-                    self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
-                )
 
         if self.settings.show_delta_state:
             delta_col = f"delta_state_{state_name}"
@@ -729,36 +903,6 @@ class VisualizationService:
                 "time": delta_time.tolist(),
                 "values": delta_gt.tolist(),
             }
-
-        if self.settings.enable_comparison and self.comparison_data_dict:
-            if self.settings.show_all_comparisons:
-                comp_items = [
-                    (idx, data)
-                    for idx, data in self.comparison_data_dict.items()
-                    if start_idx <= idx < end_idx and state_name in data
-                ]
-            else:
-                comp_idx = self.settings.comparison_start_index
-                if comp_idx in self.comparison_data_dict and state_name in self.comparison_data_dict[comp_idx]:
-                    comp_items = [(comp_idx, self.comparison_data_dict[comp_idx])]
-                else:
-                    comp_items = []
-
-            for comp_idx, comp_data in comp_items:
-                pred = np.array(comp_data[state_name])
-                comp_time = self._get_comp_time(comp_idx, len(pred))
-                pred_entry = {
-                    "start_index": comp_idx,
-                    "time": comp_time.tolist(),
-                    "values": pred.tolist(),
-                }
-                if self.settings.show_delta_state and len(pred) > 1:
-                    delta_pred = self._compute_delta(pred, state_name)
-                    pred_entry["delta"] = {
-                        "time": comp_time[:-1].tolist(),
-                        "values": delta_pred.tolist(),
-                    }
-                result["predictions"].append(pred_entry)
 
         return result
 

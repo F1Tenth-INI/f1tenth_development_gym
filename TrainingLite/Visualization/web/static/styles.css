@@ -138,6 +138,20 @@ header h1 { font-size: 1.15rem; font-weight: 600; flex: 1; }
   overflow: hidden;
 }
 
+.range-controls {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.range-controls .row {
+  margin-bottom: 0.35rem;
+}
+
+.range-controls button {
+  margin-top: 0.35rem;
+}
+
 .modal.hidden { display: none; }
 
 .modal {

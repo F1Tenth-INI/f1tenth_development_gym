@@ -36,6 +36,15 @@
         <p id="loaded-file-name" class="loaded-file-name">No file loaded</p>
         <p id="loaded-file-path" class="loaded-file-path"></p>
         <button type="button" id="open-data-modal">Load / Change Data…</button>
+        <div class="range-controls">
+          <div class="row">
+            <label>Start Index<input type="number" id="start-index" min="0" value="0"></label>
+            <label>End Index<input type="number" id="end-index" min="0" placeholder="all"></label>
+          </div>
+          <p id="range-hint" class="hint">Load a CSV to set the index range.</p>
+          <button type="button" id="update-range">Update Range</button>
+          <button type="button" id="reload-csv" class="small-btn">Reload CSV</button>
+        </div>
         </div>
       </section>
 
@@ -138,12 +147,6 @@
           Upload CSV
           <input type="file" id="csv-upload" accept=".csv" hidden>
         </label>
-        <div class="row">
-          <label>Start Index<input type="number" id="start-index" min="0" value="0"></label>
-          <label>End Index<input type="number" id="end-index" min="0" placeholder="all"></label>
-        </div>
-        <button type="button" id="update-range">Update Range</button>
-        <button type="button" id="reload-csv">Reload CSV</button>
       </div>
     </div>
   </div>

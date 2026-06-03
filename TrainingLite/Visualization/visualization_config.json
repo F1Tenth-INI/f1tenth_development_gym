@@ -1,9 +1,9 @@
 {
-  "csv_file_path": "/Users/Florian/Documents/INI/F1TENTH/f1tenth_development_gym/AnalyseData/mINITank/2026-05-11/2026-05-11_08-35-24_Hand_fast.csv",
+  "csv_file_path": "/Users/Florian/Documents/INI/F1TENTH/f1tenth_development_gym/AnalyseData/mINITank/2026-05-11/2026-05-11_09-32-27_MPC_quik.csv",
   "start_index": 500,
   "end_index": 1000,
   "horizon_steps": 30,
-  "steering_delay_steps": 4,
+  "steering_delay_steps": 0,
   "acceleration_delay_steps": 4,
   "enable_comparison": true,
   "show_controls": true,
@@ -11,10 +11,10 @@
   "show_all_comparisons": true,
   "sync_scales": false,
   "show_metrics": true,
-  "state_name": "linear_vel_x",
+  "state_name": "pose_x",
   "selected_other_data": [],
   "comparison_start_index": 500,
   "default_car_model": "Pure Pacejka Model",
-  "default_car_parameters": "gym_car_parameters_finetune.yml",
+  "default_car_parameters": "yokomo1_car_parameters.yml",
   "theme": "dark"
 }

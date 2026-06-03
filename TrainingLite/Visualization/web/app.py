@@ -83,8 +83,7 @@ def get_config() -> Dict[str, Any]:
 @app.put("/api/config")
 def put_config(update: SettingsUpdate) -> Dict[str, Any]:
     try:
-        data = {k: v for k, v in update.model_dump().items() if v is not None}
-        return service.update_settings(data).to_dict()
+        return service.update_settings(update.model_dump(exclude_unset=True)).to_dict()
     except Exception as exc:
         raise _handle(exc)
 
@@ -141,9 +140,9 @@ def run_single_comparison(req: SingleComparisonRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/comparison/full")
-def run_full_comparison() -> Dict[str, str]:
+def run_full_comparison(force: bool = False) -> Dict[str, str]:
     try:
-        job_id = service.start_full_comparison()
+        job_id = service.start_full_comparison(force=force)
         return {"job_id": job_id}
     except Exception as exc:
         raise _handle(exc)
@@ -167,6 +166,14 @@ def clear_comparisons() -> Dict[str, str]:
 def plot_data() -> Dict[str, Any]:
     try:
         return service.get_plot_data()
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.get("/api/plot/bundle")
+def plot_bundle() -> Dict[str, Any]:
+    try:
+        return service.get_plot_bundle()
     except Exception as exc:
         raise _handle(exc)
 

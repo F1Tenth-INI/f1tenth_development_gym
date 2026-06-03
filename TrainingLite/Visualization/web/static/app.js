@@ -2,11 +2,13 @@
  * State Comparison Visualizer — frontend
  */
 
+// Purple (step 0) → red (later autoregressive steps) per prediction rollout
 const GRADIENT_COLORS = [
   [82, 0, 245],
-  [255, 0, 191],
   [255, 0, 0],
 ];
+/** Cap segment traces per rollout when many comparisons are drawn at once */
+const GRADIENT_MAX_SEGMENTS_MULTI = 24;
 
 const OTHER_DATA_COLORS = [
   "#008000", "#FF00FF", "#0000FF", "#FFA500", "#00CED1",
@@ -47,6 +49,8 @@ const PLOT_UIREVISION = "state-viz-v1";
 const COMPARISON_CANCELLED = "ComparisonCancelled";
 let comparisonRunId = 0;
 let activeJobWait = null;
+let plotBundle = null;
+let plotBundleKey = null;
 
 function syncLoadingUi() {
   const bar = document.getElementById("global-loading");
@@ -202,28 +206,53 @@ function lerpColor(t) {
   return `rgb(${r},${g},${b})`;
 }
 
-function gradientLineTraces(time, values, label, alphaBase = 0.6, showInLegend = true) {
-  if (!time || time.length === 0) return [];
+/**
+ * Gradient along one rollout: purple at t=0 → red at horizon end.
+ * Uses short line segments (scattergl) because Plotly cannot color a single polyline per-point.
+ */
+function gradientLineTraces(
+  time,
+  values,
+  label,
+  alphaBase = 0.75,
+  showInLegend = true,
+  maxSegments = null
+) {
+  if (!time?.length || !values?.length) return [];
   const traces = [];
   const n = values.length;
   if (n === 1) {
     traces.push({
-      x: [time[0]], y: [values[0]], mode: "markers",
+      type: "scattergl",
+      x: [time[0]],
+      y: [values[0]],
+      mode: "markers",
       marker: { color: lerpColor(0), size: 4, opacity: alphaBase },
-      name: label, showlegend: showInLegend && !!label,
+      name: label,
+      showlegend: showInLegend && !!label,
+      legendgroup: "model-prediction",
     });
     return traces;
   }
-  for (let i = 0; i < n - 1; i++) {
-    const t = i / Math.max(1, n - 2);
+
+  const segCount = n - 1;
+  const step =
+    maxSegments && segCount > maxSegments ? Math.ceil(segCount / maxSegments) : 1;
+
+  for (let i = 0; i < segCount; i += step) {
+    const j = Math.min(i + step, segCount);
+    const t = i / Math.max(1, segCount - 1);
     traces.push({
-      x: [time[i], time[i + 1]], y: [values[i], values[i + 1]],
-      mode: "lines+markers",
+      type: "scattergl",
+      x: [time[i], time[j]],
+      y: [values[i], values[j]],
+      mode: "lines",
       line: { color: lerpColor(t), width: 2 },
-      marker: { color: lerpColor(t), size: 3, opacity: alphaBase * (1 - 0.3 * t) },
+      opacity: alphaBase,
       name: i === 0 ? label : undefined,
       showlegend: showInLegend && i === 0 && !!label,
-      legendgroup: label || "pred",
+      legendgroup: "model-prediction",
+      hoverinfo: i === 0 ? undefined : "skip",
     });
   }
   return traces;
@@ -309,49 +338,209 @@ function buildSubplotLayout(showDelta, showControls) {
   return { rowCount, weights };
 }
 
+function invalidatePlotBundle() {
+  plotBundle = null;
+  plotBundleKey = null;
+}
+
+function currentPlotBundleKey() {
+  const s = settings;
+  return [
+    s.start_index,
+    s.end_index ?? "all",
+    s.show_controls ? 1 : 0,
+    (s.selected_other_data || []).join("\0"),
+    session?.comparison_indices?.length ?? 0,
+  ].join("|");
+}
+
+async function ensurePlotBundle(force = false) {
+  if (!session?.row_count) return null;
+  const key = currentPlotBundleKey();
+  if (!force && plotBundle && plotBundleKey === key) return plotBundle;
+  plotBundle = await api("GET", "/api/plot/bundle", undefined, false);
+  plotBundleKey = key;
+  return plotBundle;
+}
+
+function computeDeltaValues(values, stateName) {
+  if (!values || values.length <= 1) return [];
+  if (stateName === "pose_theta") {
+    const out = [];
+    for (let i = 1; i < values.length; i++) {
+      const raw = values[i] - values[i - 1];
+      out.push(Math.atan2(Math.sin(raw), Math.cos(raw)));
+    }
+    return out;
+  }
+  const out = [];
+  for (let i = 1; i < values.length; i++) out.push(values[i] - values[i - 1]);
+  return out;
+}
+
+function plotDataFromBundle(bundle, stateName) {
+  const gt = bundle.ground_truth?.[stateName];
+  if (!gt) throw new Error(`No ground truth for state: ${stateName}`);
+
+  const plotData = {
+    state_name: stateName,
+    time: bundle.time,
+    ground_truth: gt,
+    predictions: [],
+    other_data: bundle.other_data || {},
+    controls: bundle.controls || {},
+    delta: {},
+  };
+
+  const start = bundle.start_index;
+  const end = bundle.end_index;
+
+  if (settings.show_delta_state) {
+    plotData.delta.ground_truth = {
+      time: bundle.time.slice(0, -1),
+      values: computeDeltaValues(gt, stateName),
+    };
+  }
+
+  if (settings.enable_comparison && bundle.predictions?.length) {
+    let items = bundle.predictions;
+    if (settings.show_all_comparisons) {
+      items = items.filter((p) => p.start_index >= start && p.start_index < end);
+    } else {
+      items = items.filter((p) => p.start_index === settings.comparison_start_index);
+    }
+    for (const p of items) {
+      const values = p.states?.[stateName];
+      if (!values?.length) continue;
+      const entry = { start_index: p.start_index, time: p.time, values };
+      if (settings.show_delta_state && values.length > 1) {
+        entry.delta = {
+          time: p.time.slice(0, -1),
+          values: computeDeltaValues(values, stateName),
+        };
+      }
+      plotData.predictions.push(entry);
+    }
+  }
+  return plotData;
+}
+
+function metricsFromBundle(bundle, stateName) {
+  if (!settings.show_metrics || !bundle?.predictions?.length) return null;
+  const gtSeries = bundle.ground_truth?.[stateName];
+  if (!gtSeries) return null;
+
+  const start = bundle.start_index;
+  const end = bundle.end_index;
+  let items = bundle.predictions;
+  if (settings.show_all_comparisons) {
+    items = items.filter((p) => p.start_index >= start && p.start_index < end);
+  } else {
+    items = items.filter((p) => p.start_index === settings.comparison_start_index);
+  }
+
+  const allPred = [];
+  const allGt = [];
+  for (const p of items) {
+    const pred = p.states?.[stateName];
+    if (!pred?.length) continue;
+    const gtOffset = p.start_index - start;
+    for (let j = 0; j < pred.length; j++) {
+      const gi = gtOffset + j;
+      if (gi < 0 || gi >= gtSeries.length) break;
+      allPred.push(pred[j]);
+      allGt.push(gtSeries[gi]);
+    }
+  }
+  if (!allPred.length) return null;
+
+  const errors = allPred.map((v, i) => v - allGt[i]);
+  const absErr = errors.map(Math.abs);
+  const sqErr = errors.map((e) => e * e);
+  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  return {
+    mean_error: mean(absErr),
+    max_error: Math.max(...absErr),
+    error_std: Math.sqrt(mean(errors.map((e) => e * e)) - mean(errors) ** 2),
+    rmse: Math.sqrt(mean(sqErr)),
+  };
+}
+
+async function renderPlotlyChart(plotData, { preserveZoom = true } = {}) {
+  const savedLayout = preserveZoom ? capturePlotLayoutState() : null;
+  const { traces, layout, structureKey } = buildPlotFromData(plotData);
+  applyPlotLayoutState(layout, savedLayout, preserveZoom ? null : plotData.state_name);
+  layout.uirevision = `${layout.uirevision || PLOT_UIREVISION}-${structureKey}`;
+
+  const container = document.getElementById("chart-container");
+  const chartHeight = Math.max(400, container.clientHeight || 500);
+
+  if (container.data && container.dataset.structureKey !== structureKey) {
+    Plotly.purge(container);
+  }
+  container.dataset.structureKey = structureKey;
+
+  await Plotly.react(
+    "chart-container",
+    traces,
+    { ...layout, height: chartHeight },
+    { responsive: true, displayModeBar: true }
+  );
+}
+
+async function renderPlotFromBundle(stateName, { preserveZoom = false } = {}) {
+  const plotData = plotDataFromBundle(plotBundle, stateName);
+  const metrics = settings.show_metrics ? metricsFromBundle(plotBundle, stateName) : null;
+  await renderPlotlyChart(plotData, { preserveZoom });
+  applyMetricsToDom(metrics);
+}
+
 async function refreshPlot({
   preserveZoom = true,
   showLoading = false,
   loadingMessage = "Updating plot…",
+  forceNetwork = false,
 } = {}) {
   const render = async () => {
     if (!session || session.row_count === 0) return;
 
-    const savedLayout = preserveZoom ? capturePlotLayoutState() : null;
+    if (plotBundle && plotBundleKey !== currentPlotBundleKey()) {
+      invalidatePlotBundle();
+    }
 
     let plotData;
     let metrics = null;
-    try {
-      [plotData, metrics] = await Promise.all([
-        api("GET", "/api/plot/data", undefined, false),
-        settings.show_metrics
-          ? api("GET", "/api/metrics", undefined, false).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-    } catch (e) {
-      console.warn("Plot data:", e.message);
-      return;
+
+    if (plotBundle && !forceNetwork) {
+      plotData = plotDataFromBundle(plotBundle, settings.state_name);
+      metrics = settings.show_metrics
+        ? metricsFromBundle(plotBundle, settings.state_name)
+        : null;
+    } else {
+      try {
+        [plotData, metrics] = await Promise.all([
+          api("GET", "/api/plot/data", undefined, false),
+          settings.show_metrics
+            ? api("GET", "/api/metrics", undefined, false).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+      } catch (e) {
+        console.warn("Plot data:", e.message);
+        const statusEl = document.getElementById("job-status");
+        if (statusEl) {
+          statusEl.className = "job-status error";
+          statusEl.textContent = `Plot update failed: ${e.message}`;
+        }
+        return;
+      }
+      try {
+        await ensurePlotBundle(true);
+      } catch (e) {
+        console.warn("Plot bundle prefetch:", e.message);
+      }
     }
 
-    const { traces, layout, structureKey } = buildPlotFromData(plotData);
-    applyPlotLayoutState(layout, savedLayout, preserveZoom ? null : plotData.state_name);
-    layout.uirevision = `${layout.uirevision || PLOT_UIREVISION}-${structureKey}`;
-
-    const container = document.getElementById("chart-container");
-    const chartHeight = Math.max(400, container.clientHeight || 500);
-
-    if (container.data && container.dataset.structureKey !== structureKey) {
-      Plotly.purge(container);
-    }
-    container.dataset.structureKey = structureKey;
-
-    await Plotly.react(
-      "chart-container",
-      traces,
-      { ...layout, height: chartHeight },
-      { responsive: true, displayModeBar: true }
-    );
-
+    await renderPlotlyChart(plotData, { preserveZoom });
     applyMetricsToDom(metrics);
   };
 
@@ -396,13 +585,20 @@ function buildPlotFromData(plotData) {
   });
 
   if (settings.enable_comparison && plotData.predictions.length > 0) {
-    plotData.predictions.forEach((pred) => {
+    const maxSeg = multiPred ? GRADIENT_MAX_SEGMENTS_MULTI : null;
+    plotData.predictions.forEach((pred, idx) => {
       const predTraces = gradientLineTraces(
-        pred.time, pred.values,
+        pred.time,
+        pred.values,
         showPredLegend ? "Model Prediction" : null,
-        0.6, showPredLegend
+        0.75,
+        showPredLegend && idx === 0,
+        maxSeg
       );
-      predTraces.forEach((t) => { t.xaxis = mainIds.x; t.yaxis = mainIds.y; });
+      predTraces.forEach((t) => {
+        t.xaxis = mainIds.x;
+        t.yaxis = mainIds.y;
+      });
       traces.push(...predTraces);
     });
   }
@@ -448,15 +644,21 @@ function buildPlotFromData(plotData) {
       });
     }
     if (settings.enable_comparison) {
+      const maxSeg = multiPred ? GRADIENT_MAX_SEGMENTS_MULTI : null;
       plotData.predictions.forEach((pred, idx) => {
         if (pred.delta) {
-          const showLegend = showPredLegend && idx === 0;
           const deltaTraces = gradientLineTraces(
-            pred.delta.time, pred.delta.values,
-            showLegend ? "Model Prediction Delta" : null,
-            0.6, showLegend
+            pred.delta.time,
+            pred.delta.values,
+            showPredLegend && idx === 0 ? "Model Prediction Delta" : null,
+            0.75,
+            showPredLegend && idx === 0,
+            maxSeg
           );
-          deltaTraces.forEach((t) => { t.xaxis = deltaIds.x; t.yaxis = deltaIds.y; });
+          deltaTraces.forEach((t) => {
+            t.xaxis = deltaIds.x;
+            t.yaxis = deltaIds.y;
+          });
           traces.push(...deltaTraces);
         }
       });
@@ -622,11 +824,16 @@ async function waitForComparisonJob(jobId, { timeoutMs = 600000 } = {}) {
   });
 }
 
+function hasValidComparisonCache(sess = session) {
+  return Boolean(sess?.comparison_cache?.valid && (sess.comparison_indices?.length ?? 0) > 0);
+}
+
 async function runFullComparisonAndRefresh({
   preserveZoom = true,
   message = "Running comparison…",
   pushFirst = true,
   wrapLoading = true,
+  force = false,
 } = {}) {
   if (!session?.row_count) return;
 
@@ -636,10 +843,24 @@ async function runFullComparisonAndRefresh({
     if (pushFirst) await pushSettings(undefined, false);
     if (runId !== comparisonRunId) return;
 
+    session = await api("GET", "/api/session", undefined, false);
+    settings = session.settings;
+
+    if (!force && hasValidComparisonCache(session)) {
+      applySettingsToForm(settings);
+      updateSliderRange(session.comparison_slider);
+      updateFileStatus();
+      await ensurePlotBundle(true);
+      await refreshPlot({ preserveZoom });
+      return;
+    }
+
+    invalidatePlotBundle();
     await api("POST", "/api/comparison/clear", undefined, false);
     if (runId !== comparisonRunId) return;
 
-    const { job_id } = await api("POST", "/api/comparison/full", undefined, false);
+    const fullPath = force ? "/api/comparison/full?force=true" : "/api/comparison/full";
+    const { job_id } = await api("POST", fullPath, undefined, false);
     if (runId !== comparisonRunId) return;
 
     try {
@@ -654,6 +875,8 @@ async function runFullComparisonAndRefresh({
     settings = session.settings;
     applySettingsToForm(settings);
     updateSliderRange(session.comparison_slider);
+    updateFileStatus();
+    await ensurePlotBundle(true);
     await refreshPlot({ preserveZoom });
   };
 
@@ -670,11 +893,17 @@ async function runFullComparisonAndRefresh({
 }
 
 // ------------------------------------------------------------------ settings sync
+function parseEndIndexInput() {
+  const endVal = document.getElementById("end-index").value.trim();
+  if (endVal === "") return null;
+  const n = parseInt(endVal, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function readFormSettings() {
-  const endVal = document.getElementById("end-index").value;
   return {
     start_index: parseInt(document.getElementById("start-index").value, 10) || 0,
-    end_index: endVal === "" ? null : parseInt(endVal, 10),
+    end_index: parseEndIndexInput(),
     horizon_steps: parseInt(document.getElementById("horizon-steps").value, 10) || 50,
     steering_delay_steps: parseInt(document.getElementById("steering-delay").value, 10) || 0,
     acceleration_delay_steps: parseInt(document.getElementById("accel-delay").value, 10) || 0,
@@ -709,10 +938,16 @@ function applySettingsToForm(s) {
   document.getElementById("show-metrics").checked = s.show_metrics ?? true;
   if (s.default_car_model) document.getElementById("model-select").value = s.default_car_model;
   if (s.default_car_parameters) document.getElementById("params-select").value = s.default_car_parameters;
+  if (s.state_name) {
+    const stateSel = document.getElementById("state-select");
+    if (stateSel && [...stateSel.options].some((o) => o.value === s.state_name)) {
+      stateSel.value = s.state_name;
+    }
+  }
 }
 
-async function pushSettings(extra = {}, trackLoading = false) {
-  const data = { ...readFormSettings(), ...extra };
+async function pushSettings(extra = {}, trackLoading = false, { partial = false } = {}) {
+  const data = partial ? extra : { ...readFormSettings(), ...extra };
   settings = await api("PUT", "/api/config", data, trackLoading);
   return settings;
 }
@@ -751,15 +986,46 @@ function updateSliderRange(sliderInfo) {
 function updateFileStatus() {
   const nameEl = document.getElementById("loaded-file-name");
   const pathEl = document.getElementById("loaded-file-path");
+  const hintEl = document.getElementById("range-hint");
   if (session && session.filename) {
     nameEl.textContent = `${session.filename} (${session.row_count} rows)`;
     pathEl.textContent = session.csv_file_path || "";
     pathEl.title = session.csv_file_path || "";
+    const maxIdx = Math.max(0, session.row_count - 1);
+    const start = settings.start_index ?? 0;
+    const end = settings.end_index ?? session.row_count;
+    hintEl.textContent = `Valid indices: 0–${maxIdx}. Active range: ${start}–${end} (${end - start} samples).`;
+    document.getElementById("start-index").max = maxIdx;
+    document.getElementById("end-index").max = session.row_count;
   } else {
     nameEl.textContent = "No file loaded";
     pathEl.textContent = "";
     pathEl.title = "";
+    hintEl.textContent = "Load a CSV to set the index range.";
   }
+}
+
+function validateRangeInputs() {
+  if (!session?.row_count) {
+    alert("Load a CSV file first.");
+    return false;
+  }
+  const start = parseInt(document.getElementById("start-index").value, 10) || 0;
+  const endRaw = document.getElementById("end-index").value.trim();
+  const end = endRaw === "" ? session.row_count : parseInt(endRaw, 10);
+  if (!Number.isFinite(end)) {
+    alert("End index must be a number or empty (for all rows).");
+    return false;
+  }
+  if (start < 0 || start >= session.row_count) {
+    alert(`Start index must be between 0 and ${session.row_count - 1}.`);
+    return false;
+  }
+  if (end <= start || end > session.row_count) {
+    alert(`End index must be greater than start and at most ${session.row_count}.`);
+    return false;
+  }
+  return true;
 }
 
 function openDataModal() {
@@ -1147,11 +1413,14 @@ function bindEventListeners() {
   });
 
   document.getElementById("update-range").addEventListener("click", async () => {
+    if (!validateRangeInputs()) return;
     try {
       await withLoading("Updating range…", async () => {
-        await pushSettings(undefined, false);
+        settings = await pushSettings(undefined, false);
+        applySettingsToForm(settings);
         session = await api("GET", "/api/session", undefined, false);
         updateSliderRange(session.comparison_slider);
+        updateFileStatus();
         updateLoadingMessage("Running comparison…");
         await runFullComparisonAndRefresh({
           preserveZoom: true,
@@ -1170,6 +1439,8 @@ function bindEventListeners() {
       await withLoading("Reloading CSV…", async () => {
         session = await api("POST", "/api/csv/reload", undefined, false);
         settings = session.settings;
+        applySettingsToForm(settings);
+        updateSliderRange(session.comparison_slider);
         updateFileStatus();
         updateLoadingMessage("Running comparison…");
         await runFullComparisonAndRefresh({
@@ -1185,8 +1456,26 @@ function bindEventListeners() {
   });
 
   document.getElementById("state-select").addEventListener("change", async () => {
-    await pushSettings(undefined, false);
-    await refreshPlot({ preserveZoom: false, showLoading: true, loadingMessage: "Updating plot…" });
+    const stateName = document.getElementById("state-select").value;
+    settings = { ...settings, state_name: stateName };
+    try {
+      if (plotBundle?.ground_truth?.[stateName]) {
+        await renderPlotFromBundle(stateName, { preserveZoom: false });
+        pushSettings({ state_name: stateName }, false, { partial: true })
+          .then((s) => {
+            settings = s;
+          })
+          .catch((e) => console.warn("State settings save:", e.message));
+        return;
+      }
+      await withLoading("Updating plot…", async () => {
+        settings = await pushSettings({ state_name: stateName }, false, { partial: true });
+        applySettingsToForm(settings);
+        await refreshPlot({ preserveZoom: false, forceNetwork: true });
+      });
+    } catch (e) {
+      alert(e.message);
+    }
   });
 
   document.getElementById("other-data-select").addEventListener("change", async (e) => {
@@ -1198,6 +1487,7 @@ function bindEventListeners() {
       await pushSettings({ selected_other_data: current }, false);
       renderOtherDataList(current);
       populateOtherDataSelect(session?.columns || [], current);
+      invalidatePlotBundle();
       await refreshPlot({ preserveZoom: true, showLoading: true, loadingMessage: "Updating plot…" });
     }
     e.target.value = "";
@@ -1207,6 +1497,7 @@ function bindEventListeners() {
     await pushSettings({ selected_other_data: [] }, false);
     renderOtherDataList([]);
     populateOtherDataSelect(session?.columns || [], []);
+    invalidatePlotBundle();
     await refreshPlot({ preserveZoom: true, showLoading: true, loadingMessage: "Updating plot…" });
   });
 
@@ -1220,6 +1511,7 @@ function bindEventListeners() {
   ["show-controls", "show-delta"].forEach((id) => {
     document.getElementById(id).addEventListener("change", async () => {
       await pushSettings(undefined, false);
+      if (id === "show-controls") invalidatePlotBundle();
       await refreshPlot({ preserveZoom: false, showLoading: true, loadingMessage: "Updating plot…" });
     });
   });
@@ -1249,7 +1541,7 @@ function bindEventListeners() {
 
   document.getElementById("run-full-comparison").addEventListener("click", async () => {
     try {
-      await runFullComparisonAndRefresh({ preserveZoom: true });
+      await runFullComparisonAndRefresh({ preserveZoom: true, force: true });
     } catch (e) {
       if (!isComparisonCancelled(e)) alert(e.message);
     }
@@ -1260,10 +1552,21 @@ function bindEventListeners() {
     document.getElementById("comparison-index-label").textContent = `Index: ${val}`;
     if (sliderTimer) clearTimeout(sliderTimer);
     sliderTimer = setTimeout(async () => {
+      settings = { ...settings, comparison_start_index: val };
+      if (plotBundle && !settings.show_all_comparisons) {
+        await renderPlotFromBundle(settings.state_name, { preserveZoom: true });
+        pushSettings({ comparison_start_index: val }, false, { partial: true })
+          .then((s) => {
+            settings = s;
+          })
+          .catch((e) => console.warn("Slider settings save:", e.message));
+        return;
+      }
       await withLoading("Updating comparison…", async () => {
         await pushSettings({ comparison_start_index: val }, false);
-        if (settings.enable_comparison) {
+        if (settings.enable_comparison && !plotBundle) {
           await api("POST", "/api/comparison/single", { start_index: val }, false);
+          await ensurePlotBundle(true);
         }
         await refreshPlot({ preserveZoom: true });
       });
