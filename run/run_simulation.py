@@ -288,21 +288,30 @@ class RacingSimulation:
         print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
 
-    def get_driver_obs(self, driver_index):
-        driver_obs = {}
-        driver_obs['car_state'] = self.sim.agents[driver_index].state
-        driver_obs['scans'] = self.obs['scans'][driver_index]
-        driver_obs['imu'] = self.obs['imus'][driver_index]
-        agent_collision = bool(self.sim.agents[driver_index].in_collision)
-        obs_collision = bool(self.obs['collisions'][driver_index])
-        driver_obs['collision'] = agent_collision or obs_collision
-        driver_obs['terminated'] = self.obs['terminated']
-        driver_obs['interrupted'] = False
-        driver_obs['done'] = driver_obs['collision'] or driver_obs['terminated']
-
-        if driver_obs['done']:
-            driver_obs['info'] = {}
-        return driver_obs
+    def build_driver_observation(self, driver_index, car_state=None):
+        """Car-specific observation: state, lidar, IMU, and step status."""
+        if car_state is None:
+            car_state = self.sim.agents[driver_index].state.copy()
+        scans = self.obs['scans'][driver_index]
+        imu = self.obs['imus'][driver_index]
+        collision = bool(self.sim.agents[driver_index].in_collision) or bool(
+            self.obs['collisions'][driver_index]
+        )
+        terminated = self.obs['terminated']
+        observation = {
+            'car_state': car_state,
+            'state': car_state,
+            'scans': scans,
+            'lidar': scans,
+            'imu': imu,
+            'collision': collision,
+            'terminated': terminated,
+            'interrupted': False,
+            'done': collision or terminated,
+        }
+        if observation['done']:
+            observation['info'] = {}
+        return observation
 
     def simulation_step(self):
 
@@ -467,10 +476,25 @@ class RacingSimulation:
         #Process observations and get control actions
         for index, driver in enumerate(self.drivers):
             driver : CarSystem = driver
-            self.update_driver_state(driver, index)
 
-            # Get control actions from driver.
-            angular_control, translational_control = driver.process_observation(env_state=self.env_state)
+            if Settings.REPLAY_RECORDING:
+                car_state = self.state_recording[self.episode_index]
+                self.sim.agents[index].state = car_state
+                driver.car_state_noiseless = car_state
+            else:
+                car_state_clean = self.sim.agents[index].state
+                if getattr(driver, "lightweight_mode", False):
+                    car_state = car_state_clean
+                else:
+                    car_state = self.add_state_noise(car_state_clean)
+                    driver.sim_obs = self.obs
+                driver.car_state_noiseless = car_state_clean
+
+            observation = self.build_driver_observation(index, car_state=car_state)
+            angular_control, translational_control = driver.process_observation(
+                observation,
+                self.env_state,
+            )
             self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
@@ -496,8 +520,7 @@ class RacingSimulation:
         # Driver on step end
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
-            driver_obs = self.get_driver_obs(i)
-            driver.on_step_end(next_obs=driver_obs)
+            driver.on_step_end(self.build_driver_observation(i))
         
 
     
@@ -683,34 +706,6 @@ class RacingSimulation:
                 initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
         return initial_states
 
-    '''
-    Update the driver state with the current car state
-    Either from gym env or recording
-    '''
-    def update_driver_state(self, driver, agent_index):
-        if Settings.REPLAY_RECORDING:
-            driver.set_car_state(self.state_recording[self.episode_index])
-            self.sim.agents[agent_index].state = driver.car_state  # was self.env.sim...
-            driver.car_state_noiseless = driver.car_state
-        else:
-            car_state_clean = self.sim.agents[agent_index].state
-            if getattr(driver, "lightweight_mode", False):
-                # Opponent fast-path: avoid per-step state noise + IMU bookkeeping.
-                driver.set_car_state(car_state_clean)
-            else:
-                car_state_with_noise = self.add_state_noise(car_state_clean)
-                driver.set_car_state(car_state_with_noise)
-            driver.set_scans(self.obs['scans'][agent_index])
-            # Keep controller-facing waypoints consistent with the state used
-            # for control (including optional state noise above).
-            driver.set_waypoints()
-            
-            # Pass simulation obsrvations to driver for IMU data access
-            if not getattr(driver, "lightweight_mode", False):
-                driver.sim_obs = self.obs
-
-            driver.car_state_noiseless = car_state_clean
-
     # Noise Level can now be set in Settings.py
     def add_state_noise(self, state):
 
@@ -726,7 +721,7 @@ class RacingSimulation:
 
  
     def check_done(self):
-        if self.drivers[0].obs['done']:
+        if self.drivers[0].driver_observation and self.drivers[0].driver_observation.get('done'):
             self.handle_done()
 
 

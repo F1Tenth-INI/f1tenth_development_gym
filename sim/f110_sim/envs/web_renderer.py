@@ -1427,7 +1427,11 @@ class WebEnvRenderer:
             other = []
             for key in labels.keys():
                 lowered = str(key).strip().lower()
-                if lowered.startswith("reward:") or "control" in lowered:
+                if (
+                    lowered.startswith("reward:")
+                    or lowered.startswith("imu:")
+                    or "control" in lowered
+                ):
                     priority.append(key)
                 else:
                     other.append(key)

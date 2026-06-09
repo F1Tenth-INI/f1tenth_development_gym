@@ -39,9 +39,13 @@ C_Pr:  # Pacejka rear (B, C, D, E)
   - 1.0
   - 0.0
 
-c_rr: 0.06  # rolling resistance coefficient
+c_rr: 0.04  # rolling resistance coefficient
 v_dead: 0.05  # velocity deadband for resistance sign at low speed [m/s]
-curve_resistance_factor: 0.14  # extra drag from lateral tire forces when cornering
+curve_resistance_factor: 0.4  # extra drag from lateral tire forces when cornering
 brake_multiplier: 3.0  # scales negative acceleration (< 1 = weaker braking)
 accel_multiplier: 1.0  # scales positive acceleration (< 1 = weaker acceleration)
 steering_multiplier: 1.6  # scales commanded steering (< 1 = less steering)
+
+# IMU mount in body frame relative to rear axle (x forward, y left)
+imu_x: 0.15
+imu_y: 0.0

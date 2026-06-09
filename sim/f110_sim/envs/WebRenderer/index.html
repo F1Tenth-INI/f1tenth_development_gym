@@ -264,17 +264,17 @@
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state &amp; reward plots</button>
+        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state, IMU &amp; reward plots</button>
         <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
-  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state and reward plots">Plots</button>
-  <aside id="plots-panel" class="side-panel left" aria-label="Control, state and reward plots" aria-hidden="true">
+  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state, IMU and reward plots">Plots</button>
+  <aside id="plots-panel" class="side-panel left" aria-label="Control, state, IMU and reward plots" aria-hidden="true">
     <div id="plots-panel-resize-handle" title="Drag to resize panel width"></div>
     <div class="side-panel-header">
-      <span>Control, State &amp; Reward plots</span>
+      <span>Control, State, IMU &amp; Reward plots</span>
       <label class="plot-window-control" title="Seconds of history shown on each plot">
         Window (s)
         <input id="plot-window-s" type="text" inputmode="decimal" value="50" size="4" aria-label="Plot time window in seconds" />
@@ -289,6 +289,10 @@
       <section class="plot-section" id="state-plots-section" aria-label="State plots">
         <h3 class="plot-section-title">State</h3>
         <canvas id="state-plot-canvas"></canvas>
+      </section>
+      <section class="plot-section" id="imu-plots-section" aria-label="IMU plots">
+        <h3 class="plot-section-title">IMU</h3>
+        <canvas id="imu-plot-canvas"></canvas>
       </section>
       <section class="plot-section" id="reward-plots-section" aria-label="Reward plots">
         <div class="plot-section-title-row">
@@ -321,9 +325,11 @@
     const plotsPanelCloseEl = document.getElementById("plots-panel-close");
     const controlPlotCanvas = document.getElementById("control-plot-canvas");
     const statePlotCanvas = document.getElementById("state-plot-canvas");
+    const imuPlotCanvas = document.getElementById("imu-plot-canvas");
     const rewardPlotCanvas = document.getElementById("reward-plot-canvas");
     const controlPlotCtx = controlPlotCanvas.getContext("2d");
     const statePlotCtx = statePlotCanvas.getContext("2d");
+    const imuPlotCtx = imuPlotCanvas.getContext("2d");
     const rewardPlotCtx = rewardPlotCanvas.getContext("2d");
     const plotsPanelResizeHandleEl = document.getElementById("plots-panel-resize-handle");
     const plotWindowInputEl = document.getElementById("plot-window-s");
@@ -430,9 +436,21 @@
       "wp_idx",
       "surface friction",
     ];
+    const IMU_PLOT_KEY_ORDER = [
+      "imu: a_x",
+      "imu: a_y",
+      "imu: av_z",
+      "imu_a_x",
+      "imu_a_y",
+      "imu_gyro_z",
+      "imu1_a_x",
+      "imu1_a_y",
+      "imu1_av_z",
+    ];
     let timeSeriesData = {};
     let controlPlotKeys = [CONTROL_ANGULAR_KEY, CONTROL_TRANSLATIONAL_KEY];
     let statePlotKeys = [];
+    let imuPlotKeys = [];
     let rewardPlotKeys = [];
     let episodeTotalPlotEnabled = false;
     let showIntegratedRewardComponents = false;
@@ -442,9 +460,11 @@
     const SUBPLOT_SECTION_PAD_PX = 56;
     let lastControlPlotLayoutKey = "";
     let lastStatePlotLayoutKey = "";
+    let lastImuPlotLayoutKey = "";
     let lastRewardPlotLayoutKey = "";
     let controlPlotLayoutCache = null;
     let statePlotLayoutCache = null;
+    let imuPlotLayoutCache = null;
     let rewardPlotLayoutCache = null;
     let plotHover = null;
     let plotHoverCanvas = null;
@@ -476,6 +496,7 @@
       }
       lastControlPlotLayoutKey = "";
       lastStatePlotLayoutKey = "";
+      lastImuPlotLayoutKey = "";
       lastRewardPlotLayoutKey = "";
       plotHover = null;
       plotHoverCanvas = null;
@@ -487,6 +508,10 @@
 
     function statePlotLayoutKey() {
       return statePlotKeys.join("|");
+    }
+
+    function imuPlotLayoutKey() {
+      return imuPlotKeys.join("|");
     }
 
     function rewardPlotLayoutKey() {
@@ -520,9 +545,11 @@
       if (!plotsPanelOpen) return;
       const controlKey = controlPlotLayoutKey();
       const stateKey = statePlotLayoutKey();
+      const imuKey = imuPlotLayoutKey();
       const rewardKey = rewardPlotLayoutKey();
       const controlChanged = force || controlKey !== lastControlPlotLayoutKey;
       const stateChanged = force || stateKey !== lastStatePlotLayoutKey;
+      const imuChanged = force || imuKey !== lastImuPlotLayoutKey;
       const rewardChanged = force || rewardKey !== lastRewardPlotLayoutKey;
       if (controlChanged) {
         lastControlPlotLayoutKey = controlKey;
@@ -531,6 +558,10 @@
       if (stateChanged) {
         lastStatePlotLayoutKey = stateKey;
         resizeSectionPlotCanvas(statePlotCanvas, statePlotCtx, statePlotKeys);
+      }
+      if (imuChanged) {
+        lastImuPlotLayoutKey = imuKey;
+        resizeSectionPlotCanvas(imuPlotCanvas, imuPlotCtx, imuPlotKeys);
       }
       if (rewardChanged) {
         lastRewardPlotLayoutKey = rewardKey;
@@ -582,8 +613,8 @@
       togglePlotsEl.classList.toggle("active", plotsPanelOpen);
       togglePlotsEl.setAttribute("aria-pressed", plotsPanelOpen ? "true" : "false");
       togglePlotsEl.textContent = plotsPanelOpen
-        ? "Hide control, state & reward plots"
-        : "Control, state & reward plots";
+        ? "Hide control, state, IMU & reward plots"
+        : "Control, state, IMU & reward plots";
       updateSidePanelLayout();
     }
 
@@ -732,6 +763,18 @@
       return norm.startsWith("reward:") || norm === "reward";
     }
 
+    function isImuPlotKey(key) {
+      const norm = normalizeLabelName(key);
+      if (norm.startsWith("imu:")) return true;
+      return (
+        norm.startsWith("imu_a_")
+        || norm.startsWith("imu_gyro_")
+        || norm.startsWith("imu1_a_")
+        || norm.startsWith("imu1_av_")
+        || norm.startsWith("imu_av_")
+      );
+    }
+
     function isEpisodeIntegratedTotalKey(key) {
       return normalizeLabelName(key) === normalizeLabelName(EPISODE_TOTAL_REWARD_KEY);
     }
@@ -782,6 +825,20 @@
       });
     }
 
+    function sortImuPlotKeys(keys) {
+      const rank = (key) => {
+        const norm = normalizeLabelName(key);
+        const idx = IMU_PLOT_KEY_ORDER.findIndex((hint) => norm === normalizeLabelName(hint));
+        return idx >= 0 ? idx : IMU_PLOT_KEY_ORDER.length + 1;
+      };
+      return [...keys].sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        return normalizeLabelName(a).localeCompare(normalizeLabelName(b));
+      });
+    }
+
     function discoverPlotKeys(labels) {
       const angularKey = resolveControlKey(labels, CONTROL_ANGULAR_KEY, "angular_control");
       const translationalKey = resolveControlKey(labels, CONTROL_TRANSLATIONAL_KEY, "translational_control");
@@ -800,20 +857,33 @@
 
       const nextStateKeys = sortStatePlotKeys(
         Object.keys(labels).filter(
-          (key) => !isControlLabelKey(key) && !isRewardPlotKey(key) && parseNumeric(labels[key]) !== null
+          (key) => (
+            !isControlLabelKey(key)
+            && !isRewardPlotKey(key)
+            && !isImuPlotKey(key)
+            && parseNumeric(labels[key]) !== null
+          )
+        )
+      );
+      const nextImuKeys = sortImuPlotKeys(
+        Object.keys(labels).filter(
+          (key) => isImuPlotKey(key) && parseNumeric(labels[key]) !== null
         )
       );
       const controlChanged = controlPlotKeys.join("|") !== nextControlKeys.join("|");
       const stateChanged = statePlotKeys.join("|") !== nextStateKeys.join("|");
+      const imuChanged = imuPlotKeys.join("|") !== nextImuKeys.join("|");
       const rewardChanged = rewardPlotKeys.join("|") !== nextRewardKeys.join("|");
       controlPlotKeys = nextControlKeys;
       statePlotKeys = nextStateKeys;
+      imuPlotKeys = nextImuKeys;
       rewardPlotKeys = nextRewardKeys;
-      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys]) {
         if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
       }
       if (controlChanged) lastControlPlotLayoutKey = "";
       if (stateChanged) lastStatePlotLayoutKey = "";
+      if (imuChanged) lastImuPlotLayoutKey = "";
       if (rewardChanged) lastRewardPlotLayoutKey = "";
     }
 
@@ -855,7 +925,7 @@
       }
 
       discoverPlotKeys(labels);
-      const allKeys = [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys];
+      const allKeys = [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys];
       if (allKeys.length === 0) return;
 
       for (const key of allKeys) {
@@ -885,7 +955,7 @@
     }
 
     function trimTimeSeries(minTime) {
-      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys]) {
         const series = timeSeriesData[key];
         if (!Array.isArray(series) || series.length === 0) continue;
         let cutIdx = 0;
@@ -1169,6 +1239,7 @@
       if (keys.length === 0) {
         if (section === "control") controlPlotLayoutCache = null;
         else if (section === "state") statePlotLayoutCache = null;
+        else if (section === "imu") imuPlotLayoutCache = null;
         else if (section === "reward") rewardPlotLayoutCache = null;
         if (plotHoverCanvas === plotCanvas) {
           plotHover = null;
@@ -1190,6 +1261,7 @@
       const layout = computePlotLayout(w, h, keys, nowT, titleForKey);
       if (section === "control") controlPlotLayoutCache = layout;
       else if (section === "state") statePlotLayoutCache = layout;
+      else if (section === "imu") imuPlotLayoutCache = layout;
       else if (section === "reward") rewardPlotLayoutCache = layout;
 
       for (const subplot of layout.subplots) {
@@ -1226,6 +1298,14 @@
         statePlotKeys,
         "Waiting for state telemetry...",
         "state"
+      );
+      drawSectionTimeSeriesPlots(
+        frame,
+        imuPlotCanvas,
+        imuPlotCtx,
+        imuPlotKeys,
+        "Waiting for IMU telemetry (a_x, a_y, av_z)...",
+        "imu"
       );
       drawSectionTimeSeriesPlots(
         frame,
@@ -1903,6 +1983,7 @@
     }
     bindPlotCanvasHover(controlPlotCanvas, () => controlPlotLayoutCache);
     bindPlotCanvasHover(statePlotCanvas, () => statePlotLayoutCache);
+    bindPlotCanvasHover(imuPlotCanvas, () => imuPlotLayoutCache);
     bindPlotCanvasHover(rewardPlotCanvas, () => rewardPlotLayoutCache);
     plotsPanelResizeHandleEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;

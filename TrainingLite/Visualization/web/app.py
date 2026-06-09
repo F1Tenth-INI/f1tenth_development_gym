@@ -48,6 +48,7 @@ class SettingsUpdate(BaseModel):
     enable_comparison: Optional[bool] = None
     show_controls: Optional[bool] = None
     show_delta_state: Optional[bool] = None
+    show_imu: Optional[bool] = None
     show_all_comparisons: Optional[bool] = None
     sync_scales: Optional[bool] = None
     show_metrics: Optional[bool] = None

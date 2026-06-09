@@ -18,6 +18,12 @@ const OTHER_DATA_COLORS = [
 const CTRL_STEERING_COLOR = "#e74c3c";
 const CTRL_ACCEL_COLOR = "#3498db";
 
+const IMU_CHANNELS = [
+  { key: "imu_a_x", label: "IMU a_x" },
+  { key: "imu_a_y", label: "IMU a_y" },
+  { key: "imu_gyro_z", label: "IMU ω_z" },
+];
+
 const CTRL_COLOR_BY_COLUMN = {
   angular_control_executed: CTRL_STEERING_COLOR,
   translational_control_executed: CTRL_ACCEL_COLOR,
@@ -332,10 +338,88 @@ function configureStackedAxes(layout, rowDefs, chartTheme) {
   });
 }
 
-function buildSubplotLayout(showDelta, showControls) {
-  const rowCount = 1 + (showDelta ? 1 : 0) + (showControls ? 1 : 0);
-  const weights = rowCount === 1 ? [1] : rowCount === 2 ? [0.62, 0.38] : [0.5, 0.25, 0.25];
-  return { rowCount, weights };
+function filterPredictionItems(bundle) {
+  const items = bundle.predictions || [];
+  const start = bundle.start_index;
+  const end = bundle.end_index;
+  if (settings.show_all_comparisons) {
+    return items.filter((p) => p.start_index >= start && p.start_index < end);
+  }
+  return items.filter((p) => p.start_index === settings.comparison_start_index);
+}
+
+function imuDataFromBundle(bundle) {
+  const channels = {};
+  const filtered = settings.enable_comparison ? filterPredictionItems(bundle) : [];
+  for (const { key, label } of IMU_CHANNELS) {
+    const gt = bundle.ground_truth?.[key];
+    if (!gt?.length) continue;
+    const predictions = [];
+    for (const p of filtered) {
+      const values = p.states?.[key];
+      if (values?.length) {
+        predictions.push({ start_index: p.start_index, time: p.time, values });
+      }
+    }
+    channels[key] = { label, ground_truth: gt, predictions };
+  }
+  return channels;
+}
+
+function addComparisonRowTraces({
+  traces,
+  time,
+  groundTruth,
+  predictions,
+  axisIds,
+  multiPred,
+  showPredLegend,
+  gtName = "Ground Truth",
+  predLegendName = "Model Prediction",
+}) {
+  if (groundTruth?.length) {
+    traces.push({
+      x: time,
+      y: groundTruth,
+      mode: "lines",
+      name: gtName,
+      line: { color: getChartTheme().gtLine, width: 2 },
+      xaxis: axisIds.x,
+      yaxis: axisIds.y,
+    });
+  }
+  if (!settings.enable_comparison || !predictions?.length) return;
+  const maxSeg = multiPred ? GRADIENT_MAX_SEGMENTS_MULTI : null;
+  predictions.forEach((pred, idx) => {
+    const predTraces = gradientLineTraces(
+      pred.time,
+      pred.values,
+      showPredLegend ? predLegendName : null,
+      0.75,
+      showPredLegend && idx === 0,
+      maxSeg
+    );
+    predTraces.forEach((t) => {
+      t.xaxis = axisIds.x;
+      t.yaxis = axisIds.y;
+    });
+    traces.push(...predTraces);
+  });
+}
+
+function buildSubplotLayout({ showDelta, showControls, showImu }) {
+  const rowSpecs = [{ kind: "main", weight: 0.38 }];
+  if (showDelta) rowSpecs.push({ kind: "delta", weight: 0.1 });
+  if (showControls) rowSpecs.push({ kind: "controls", weight: 0.12 });
+  if (showImu) {
+    IMU_CHANNELS.forEach((ch) => {
+      rowSpecs.push({ kind: "imu", channel: ch.key, label: ch.label, weight: 0.1 });
+    });
+  }
+  if (rowSpecs.length === 1) {
+    rowSpecs[0].weight = 1;
+  }
+  return { rowSpecs, rowCount: rowSpecs.length };
 }
 
 function invalidatePlotBundle() {
@@ -388,8 +472,11 @@ function plotDataFromBundle(bundle, stateName) {
     time: bundle.time,
     ground_truth: null,
     predictions: [],
+    imu: imuDataFromBundle(bundle),
     other_data: bundle.other_data || {},
     controls: bundle.controls || {},
+    start_index: bundle.start_index,
+    end_index: bundle.end_index,
     delta: {},
   };
 
@@ -410,13 +497,7 @@ function plotDataFromBundle(bundle, stateName) {
   }
 
   if (settings.enable_comparison && bundle.predictions?.length) {
-    let items = bundle.predictions;
-    if (settings.show_all_comparisons) {
-      items = items.filter((p) => p.start_index >= start && p.start_index < end);
-    } else {
-      items = items.filter((p) => p.start_index === settings.comparison_start_index);
-    }
-    for (const p of items) {
+    for (const p of filterPredictionItems(bundle)) {
       const values = p.states?.[stateName];
       if (!values?.length) continue;
       const entry = { start_index: p.start_index, time: p.time, values };
@@ -439,13 +520,7 @@ function metricsFromBundle(bundle, stateName) {
   if (!gtSeries) return null;
 
   const start = bundle.start_index;
-  const end = bundle.end_index;
-  let items = bundle.predictions;
-  if (settings.show_all_comparisons) {
-    items = items.filter((p) => p.start_index >= start && p.start_index < end);
-  } else {
-    items = items.filter((p) => p.start_index === settings.comparison_start_index);
-  }
+  const items = filterPredictionItems(bundle);
 
   const allPred = [];
   const allGt = [];
@@ -543,6 +618,12 @@ async function refreshPlot({
       }
       try {
         await ensurePlotBundle(true);
+        if (plotBundle) {
+          plotData = plotDataFromBundle(plotBundle, settings.state_name);
+          if (settings.show_metrics) {
+            metrics = metricsFromBundle(plotBundle, settings.state_name);
+          }
+        }
       } catch (e) {
         console.warn("Plot bundle prefetch:", e.message);
       }
@@ -560,20 +641,31 @@ function buildPlotFromData(plotData) {
   const noState = !plotData.state_name;
   const showDelta = !noState && settings.show_delta_state;
   const showControls = settings.show_controls && Object.keys(plotData.controls || {}).length > 0;
+  const showImu = settings.show_imu && Object.keys(plotData.imu || {}).length > 0;
   const multiPred = !noState && settings.show_all_comparisons && plotData.predictions.length > 1;
+  const imuMultiPred = showImu && settings.show_all_comparisons
+    && IMU_CHANNELS.some(({ key }) => (plotData.imu[key]?.predictions?.length ?? 0) > 1);
   const showPredLegend = !multiPred;
   const otherCols = Object.keys(plotData.other_data || {});
 
-  const { rowCount, weights } = buildSubplotLayout(showDelta, showControls);
+  const { rowSpecs, rowCount } = buildSubplotLayout({ showDelta, showControls, showImu });
   const traces = [];
   const chartTheme = getChartTheme();
 
   const mainYTitle = noState
     ? (otherCols.length ? "Other Data" : "")
     : plotData.state_name;
-  const rowDefs = [{ weight: weights[0], yTitle: mainYTitle }];
-  if (showDelta) rowDefs.push({ weight: weights[rowDefs.length], yTitle: `Δ ${plotData.state_name}` });
-  if (showControls) rowDefs.push({ weight: weights[rowDefs.length], yTitle: "" });
+  const rowDefs = rowSpecs.map((spec) => ({
+    weight: spec.weight,
+    yTitle:
+      spec.kind === "main"
+        ? mainYTitle
+        : spec.kind === "delta"
+          ? `Δ ${plotData.state_name}`
+          : spec.kind === "controls"
+            ? ""
+            : spec.label,
+  }));
 
   const layout = {
     paper_bgcolor: chartTheme.paper,
@@ -585,9 +677,17 @@ function buildPlotFromData(plotData) {
   };
 
   const axisIds = configureStackedAxes(layout, rowDefs, chartTheme);
-  const mainIds = axisIds[0];
-  let deltaIds = showDelta ? axisIds[1] : null;
-  let controlsIds = showControls ? axisIds[axisIds.length - 1] : null;
+  let mainIds = null;
+  let deltaIds = null;
+  let controlsIds = null;
+  const imuAxisByChannel = {};
+  rowSpecs.forEach((spec, i) => {
+    const ids = axisIds[i];
+    if (spec.kind === "main") mainIds = ids;
+    else if (spec.kind === "delta") deltaIds = ids;
+    else if (spec.kind === "controls") controlsIds = ids;
+    else if (spec.kind === "imu") imuAxisByChannel[spec.channel] = ids;
+  });
 
   // --- Main state row
   if (!noState) {
@@ -743,13 +843,32 @@ function buildPlotFromData(plotData) {
     }
   }
 
-  const structureKey = `rows-${rowCount}-ctrl-${showControls}-delta-${showDelta}-state-${noState ? "none" : plotData.state_name}`;
+  if (showImu) {
+    IMU_CHANNELS.forEach(({ key }) => {
+      const channel = plotData.imu[key];
+      const axisIdsForChannel = imuAxisByChannel[key];
+      if (!channel || !axisIdsForChannel) return;
+      addComparisonRowTraces({
+        traces,
+        time: plotData.time,
+        groundTruth: channel.ground_truth,
+        predictions: channel.predictions,
+        axisIds: axisIdsForChannel,
+        multiPred: imuMultiPred,
+        showPredLegend: !imuMultiPred,
+        gtName: `${channel.label} GT`,
+        predLegendName: `${channel.label} Model`,
+      });
+    });
+  }
+
+  const structureKey = `rows-${rowCount}-ctrl-${showControls}-delta-${showDelta}-imu-${showImu}-state-${noState ? "none" : plotData.state_name}`;
 
   const chartTitle = noState ? (otherCols.length ? "Other Data" : "No state selected") : plotData.state_name;
   layout.title = { text: chartTitle, font: { size: 14 } };
   if (rowCount > 1) {
     layout.title = { text: chartTitle, font: { size: 14 }, y: 0.98 };
-    if (showControls) layout.margin = { ...layout.margin, r: 70 };
+    if (showControls || showImu) layout.margin = { ...layout.margin, r: 70 };
   }
 
   return { traces, layout, structureKey };
@@ -840,7 +959,8 @@ async function waitForComparisonJob(jobId, { timeoutMs = 600000 } = {}) {
 }
 
 function hasValidComparisonCache(sess = session) {
-  return Boolean(sess?.comparison_cache?.valid && (sess.comparison_indices?.length ?? 0) > 0);
+  const cache = sess?.comparison_cache;
+  return Boolean(cache?.valid && cache?.indices_complete);
 }
 
 async function runFullComparisonAndRefresh({
@@ -925,6 +1045,7 @@ function readFormSettings() {
     enable_comparison: document.getElementById("enable-comparison").checked,
     show_controls: document.getElementById("show-controls").checked,
     show_delta_state: document.getElementById("show-delta").checked,
+    show_imu: document.getElementById("show-imu").checked,
     show_all_comparisons: document.getElementById("show-all-comparisons").checked,
     sync_scales: document.getElementById("sync-scales").checked,
     show_metrics: document.getElementById("show-metrics").checked,
@@ -948,9 +1069,10 @@ function applySettingsToForm(s) {
   document.getElementById("enable-comparison").checked = s.enable_comparison ?? true;
   document.getElementById("show-controls").checked = s.show_controls ?? false;
   document.getElementById("show-delta").checked = s.show_delta_state ?? false;
+  document.getElementById("show-imu").checked = s.show_imu ?? true;
   document.getElementById("show-all-comparisons").checked = s.show_all_comparisons ?? false;
   document.getElementById("sync-scales").checked = s.sync_scales ?? false;
-  document.getElementById("show-metrics").checked = s.show_metrics ?? true;
+    document.getElementById("show-metrics").checked = s.show_metrics ?? true;
   if (s.default_car_model) document.getElementById("model-select").value = s.default_car_model;
   if (s.default_car_parameters) document.getElementById("params-select").value = s.default_car_parameters;
   if (s.state_name !== undefined) {
@@ -1540,7 +1662,7 @@ function bindEventListeners() {
     });
   });
 
-  ["show-controls", "show-delta"].forEach((id) => {
+  ["show-controls", "show-delta", "show-imu"].forEach((id) => {
     document.getElementById(id).addEventListener("change", async () => {
       await pushSettings(undefined, false);
       if (id === "show-controls") invalidatePlotBundle();
@@ -1585,18 +1707,18 @@ function bindEventListeners() {
     if (sliderTimer) clearTimeout(sliderTimer);
     sliderTimer = setTimeout(async () => {
       settings = { ...settings, comparison_start_index: val };
-      if (plotBundle && !settings.show_all_comparisons) {
+      if (plotBundle) {
         await renderPlotFromBundle(settings.state_name, { preserveZoom: true });
         pushSettings({ comparison_start_index: val }, false, { partial: true })
           .then((s) => {
             settings = s;
           })
-          .catch((e) => console.warn("Slider settings save:", e.message));
+          .catch((err) => console.warn("Slider settings save:", err.message));
         return;
       }
       await withLoading("Updating comparison…", async () => {
         await pushSettings({ comparison_start_index: val }, false);
-        if (settings.enable_comparison && !plotBundle) {
+        if (settings.enable_comparison) {
           await api("POST", "/api/comparison/single", { start_index: val }, false);
           await ensurePlotBundle(true);
         }

@@ -162,8 +162,11 @@ def get_basic_data_dict(driver, sim_obs=None):
     next_waypoints_dict = get_next_waypoints_dict(driver)
     next_waypoints_relative_dict = get_next_waypoints_relative_dict(driver)
 
-    # IMU data should be provided by the driver (from driver_obs)
-    imu_dict = getattr(driver, 'imu_dict', {})
+    imu_data = getattr(driver, 'imu_data', None) or {}
+    imu_dict = {
+        key: (lambda k=key: float(driver.imu_data.get(k, 0.0)))
+        for key in imu_data
+    }
     
     
     if hasattr(driver, 'angular_control_dict'):

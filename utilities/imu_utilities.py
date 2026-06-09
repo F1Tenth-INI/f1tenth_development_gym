@@ -1,233 +1,254 @@
-#!/usr/bin/env python3
-"""
-IMU Utilities for data conversion and processing.
-This module provides utility functions for working with IMU data.
-"""
+"""IMU data format helpers and rollout utilities."""
 
 import numpy as np
 
 
 class IMUUtilities:
-    """Utility class for IMU data processing and conversion."""
-    
-    # Indices for 6-DOF IMU data (accelerometer + gyroscope + orientation)
     # Linear acceleration (3-axis)
     ACCEL_X_IDX = 0
     ACCEL_Y_IDX = 1
     ACCEL_Z_IDX = 2
-    
-    # Angular velocity (3-axis) - gyroscope
-    GYRO_X_IDX = 3  # Roll rate
-    GYRO_Y_IDX = 4  # Pitch rate
-    GYRO_Z_IDX = 5  # Yaw rate
-    
-    # Euler angles (3-axis) - orientation
-    EULER_ROLL_IDX = 6   # Roll angle
-    EULER_PITCH_IDX = 7  # Pitch angle
-    EULER_YAW_IDX = 8    # Yaw angle
-    
-    # Quaternion (4-axis) - precise orientation
+
+    # Angular velocity (3-axis)
+    GYRO_X_IDX = 3
+    GYRO_Y_IDX = 4
+    GYRO_Z_IDX = 5
+
+    # Euler angles (3-axis)
+    EULER_ROLL_IDX = 6
+    EULER_PITCH_IDX = 7
+    EULER_YAW_IDX = 8
+
+    # Quaternion (4-axis)
     QUAT_W_IDX = 9
     QUAT_X_IDX = 10
     QUAT_Y_IDX = 11
     QUAT_Z_IDX = 12
-    
-    # Total IMU data dimension
+
     IMU_DATA_DIM = 13
-    
+
+    IMU_DICT_KEYS = (
+        "imu_a_x",
+        "imu_a_y",
+        "imu_a_z",
+        "imu_gyro_x",
+        "imu_gyro_y",
+        "imu_gyro_z",
+        "imu_roll",
+        "imu_pitch",
+        "imu_yaw",
+        "imu_quat_w",
+        "imu_quat_x",
+        "imu_quat_y",
+        "imu_quat_z",
+    )
+
+    # Primary simulated / recorded channel names used for comparison plots
+    IMU_COMPARE_KEYS = ("imu_a_x", "imu_a_y", "imu_gyro_z")
+    IMU_OVERLAY_LABELS = {
+        "imu_a_x": "imu: a_x",
+        "imu_a_y": "imu: a_y",
+        "imu_gyro_z": "imu: av_z",
+    }
+    RECORDED_IMU_ALIASES = {
+        "imu_a_x": ("imu1_a_x", "imu_accel_x", "imu_a_x"),
+        "imu_a_y": ("imu1_a_y", "imu_accel_y", "imu_a_y"),
+        "imu_gyro_z": ("imu1_av_z", "imu_av_z", "imu_gyro_z"),
+    }
+
+    @staticmethod
+    def zeros_dict():
+        return {
+            "imu_a_x": 0.0,
+            "imu_a_y": 0.0,
+            "imu_a_z": 0.0,
+            "imu_gyro_x": 0.0,
+            "imu_gyro_y": 0.0,
+            "imu_gyro_z": 0.0,
+            "imu_roll": 0.0,
+            "imu_pitch": 0.0,
+            "imu_yaw": 0.0,
+            "imu_quat_w": 1.0,
+            "imu_quat_x": 0.0,
+            "imu_quat_y": 0.0,
+            "imu_quat_z": 0.0,
+        }
+
     @staticmethod
     def imu_array_to_dict(imu_array):
-        """
-        Convert IMU array to dictionary format for recording.
-        
-        Args:
-            imu_array: numpy array containing IMU data [accel_x, accel_y, accel_z, 
-                      gyro_x, gyro_y, gyro_z, roll, pitch, yaw, quat_w, quat_x, quat_y, quat_z]
-        
-        Returns:
-            dict: Dictionary with IMU data keys and values
-        """
-        if len(imu_array) < IMUUtilities.IMU_DATA_DIM:
-            # Handle old format or incomplete data
-            return IMUUtilities._handle_legacy_format(imu_array)
-        
-        imu_dict = {
-            # Accelerometer data
-            'imu_a_x': imu_array[IMUUtilities.ACCEL_X_IDX],
-            'imu_a_y': imu_array[IMUUtilities.ACCEL_Y_IDX],
-            'imu_a_z': imu_array[IMUUtilities.ACCEL_Z_IDX],
-            
-            # Gyroscope data
-            'imu_gyro_x': imu_array[IMUUtilities.GYRO_X_IDX],
-            'imu_gyro_y': imu_array[IMUUtilities.GYRO_Y_IDX],
-            'imu_gyro_z': imu_array[IMUUtilities.GYRO_Z_IDX],
-            
-            # Euler angles
-            'imu_roll': imu_array[IMUUtilities.EULER_ROLL_IDX],
-            'imu_pitch': imu_array[IMUUtilities.EULER_PITCH_IDX],
-            'imu_yaw': imu_array[IMUUtilities.EULER_YAW_IDX],
-            
-            # Quaternion
-            'imu_quat_w': imu_array[IMUUtilities.QUAT_W_IDX],
-            'imu_quat_x': imu_array[IMUUtilities.QUAT_X_IDX],
-            'imu_quat_y': imu_array[IMUUtilities.QUAT_Y_IDX],
-            'imu_quat_z': imu_array[IMUUtilities.QUAT_Z_IDX],
-        }
-        return imu_dict
-    
-    @staticmethod
-    def _handle_legacy_format(imu_array):
-        """
-        Handle legacy 3-DOF IMU format for backward compatibility.
-        
-        Args:
-            imu_array: numpy array with 3 elements [accel_x, accel_y, angular_vel_z]
-        
-        Returns:
-            dict: Dictionary with legacy format converted to new format
-        """
-        if len(imu_array) >= 3:
-            # Legacy format: [accel_x, accel_y, angular_vel_z]
-            imu_dict = {
-                'imu_a_x': imu_array[0],
-                'imu_a_y': imu_array[1], 
-                'imu_a_z': 0.0,
-                'imu_gyro_x': 0.0,
-                'imu_gyro_y': 0.0,
-                'imu_gyro_z': imu_array[2],  # Use angular_vel_z as gyro_z
-                'imu_roll': 0.0,
-                'imu_pitch': 0.0,
-                'imu_yaw': 0.0,
-                'imu_quat_w': 1.0,
-                'imu_quat_x': 0.0,
-                'imu_quat_y': 0.0,
-                'imu_quat_z': 0.0,
-            }
-        else:
-            # Fallback to zeros
-            imu_dict = {
-                'imu_a_x': 0.0,
-                'imu_a_y': 0.0,
-                'imu_a_z': 0.0,
-                'imu_gyro_x': 0.0,
-                'imu_gyro_y': 0.0,
-                'imu_gyro_z': 0.0,
-                'imu_roll': 0.0,
-                'imu_pitch': 0.0,
-                'imu_yaw': 0.0,
-                'imu_quat_w': 1.0,
-                'imu_quat_x': 0.0,
-                'imu_quat_y': 0.0,
-                'imu_quat_z': 0.0,
-            }
-        return imu_dict
-    
-    @staticmethod
-    def dict_to_imu_array(imu_dict):
-        """
-        Convert IMU dictionary to array format.
-        
-        Args:
-            imu_dict: Dictionary with IMU data keys
-        
-        Returns:
-            numpy array: IMU data array
-        """
-        return np.array([
-            imu_dict['imu_a_x'],
-            imu_dict['imu_a_y'],
-            imu_dict['imu_a_z'],
-            imu_dict['imu_gyro_x'],
-            imu_dict['imu_gyro_y'],
-            imu_dict['imu_gyro_z'],
-            imu_dict['imu_roll'],
-            imu_dict['imu_pitch'],
-            imu_dict['imu_yaw'],
-            imu_dict['imu_quat_w'],
-            imu_dict['imu_quat_x'],
-            imu_dict['imu_quat_y'],
-            imu_dict['imu_quat_z']
-        ])
-    
-    @staticmethod
-    def get_imu_data_summary(imu_array):
-        """
-        Get a summary of IMU data for debugging/logging.
-        
-        Args:
-            imu_array: numpy array containing IMU data
-        
-        Returns:
-            dict: Summary with key statistics
-        """
-        if len(imu_array) < IMUUtilities.IMU_DATA_DIM:
-            return {"error": "Incomplete IMU data", "length": len(imu_array)}
-        
+        imu_array = np.asarray(imu_array, dtype=np.float64)
         return {
-            "accel_magnitude": np.sqrt(imu_array[0]**2 + imu_array[1]**2 + imu_array[2]**2),
-            "gyro_magnitude": np.sqrt(imu_array[3]**2 + imu_array[4]**2 + imu_array[5]**2),
-            "yaw_rate": imu_array[IMUUtilities.GYRO_Z_IDX],
-            "yaw_angle": imu_array[IMUUtilities.EULER_YAW_IDX],
-            "quat_magnitude": np.sqrt(imu_array[9]**2 + imu_array[10]**2 + imu_array[11]**2 + imu_array[12]**2)
+            "imu_a_x": float(imu_array[IMUUtilities.ACCEL_X_IDX]),
+            "imu_a_y": float(imu_array[IMUUtilities.ACCEL_Y_IDX]),
+            "imu_a_z": float(imu_array[IMUUtilities.ACCEL_Z_IDX]),
+            "imu_gyro_x": float(imu_array[IMUUtilities.GYRO_X_IDX]),
+            "imu_gyro_y": float(imu_array[IMUUtilities.GYRO_Y_IDX]),
+            "imu_gyro_z": float(imu_array[IMUUtilities.GYRO_Z_IDX]),
+            "imu_roll": float(imu_array[IMUUtilities.EULER_ROLL_IDX]),
+            "imu_pitch": float(imu_array[IMUUtilities.EULER_PITCH_IDX]),
+            "imu_yaw": float(imu_array[IMUUtilities.EULER_YAW_IDX]),
+            "imu_quat_w": float(imu_array[IMUUtilities.QUAT_W_IDX]),
+            "imu_quat_x": float(imu_array[IMUUtilities.QUAT_X_IDX]),
+            "imu_quat_y": float(imu_array[IMUUtilities.QUAT_Y_IDX]),
+            "imu_quat_z": float(imu_array[IMUUtilities.QUAT_Z_IDX]),
         }
-    
+
+    array_to_dict = imu_array_to_dict
+
     @staticmethod
-    def validate_imu_data(imu_array):
+    def coerce_dict(imu):
+        if isinstance(imu, dict):
+            return imu
+        return IMUUtilities.imu_array_to_dict(np.asarray(imu))
+
+    @staticmethod
+    def overlay_label_dict(imu_data):
+        if not imu_data:
+            return {}
+        return {
+            IMUUtilities.IMU_OVERLAY_LABELS[key]: float(imu_data[key])
+            for key in IMUUtilities.IMU_COMPARE_KEYS
+            if key in imu_data
+        }
+
+    @staticmethod
+    def dict_to_array(imu_dict):
+        return np.array([float(imu_dict[key]) for key in IMUUtilities.IMU_DICT_KEYS])
+
+    @staticmethod
+    def is_imu_channel(name: str) -> bool:
+        return name in IMUUtilities.IMU_COMPARE_KEYS
+
+    @staticmethod
+    def resolve_recorded_column(data_columns, imu_key: str):
+        """Find the best recorded CSV column for a canonical IMU key."""
+        for alias in IMUUtilities.RECORDED_IMU_ALIASES.get(imu_key, ()):
+            if alias in data_columns:
+                return alias
+        return None
+
+    @staticmethod
+    def ground_truth_imu_series(data, imu_key: str, start_idx: int, end_idx: int, simulated=None):
         """
-        Validate IMU data for reasonable values.
-        
-        Args:
-            imu_array: numpy array containing IMU data
-        
+        Ground-truth IMU for plotting: prefer physical CSV columns over empty sim placeholders.
+        """
+        for alias in IMUUtilities.RECORDED_IMU_ALIASES.get(imu_key, ()):
+            if alias not in data.columns:
+                continue
+            series = data[alias].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)
+            if alias.startswith("imu1_") or np.max(np.abs(series)) > 1e-12:
+                return series
+        if simulated is not None and imu_key in simulated:
+            return np.asarray(simulated[imu_key], dtype=np.float64)
+        return np.zeros(max(0, end_idx - start_idx), dtype=np.float64)
+
+    @staticmethod
+    def rollout_dynamics_with_imu(
+        car_model,
+        initial_state,
+        control_sequence,
+        dt: float,
+        state_history=None,
+        control_history=None,
+        car_parameter_file=None,
+    ):
+        """
+        Roll out vehicle dynamics and IMU together (one IMU sample per dynamics step).
+
         Returns:
-            tuple: (is_valid, error_message)
+            states: (horizon, n_state)
+            imu_series: dict imu_a_x / imu_a_y / imu_gyro_z each (horizon,)
         """
-        if len(imu_array) != IMUUtilities.IMU_DATA_DIM:
-            return False, f"Expected {IMUUtilities.IMU_DATA_DIM} elements, got {len(imu_array)}"
-        
-        # Check for NaN or infinite values
-        if not np.all(np.isfinite(imu_array)):
-            return False, "IMU data contains NaN or infinite values"
-        
-        # Check for reasonable acceleration values (should be around 9.81 m/s² due to gravity)
-        accel_magnitude = np.sqrt(imu_array[0]**2 + imu_array[1]**2 + imu_array[2]**2)
-        if accel_magnitude < 5.0 or accel_magnitude > 50.0:
-            return False, f"Unreasonable acceleration magnitude: {accel_magnitude:.2f} m/s²"
-        
-        # Check quaternion normalization (should be close to 1.0)
-        quat_magnitude = np.sqrt(imu_array[9]**2 + imu_array[10]**2 + imu_array[11]**2 + imu_array[12]**2)
-        if abs(quat_magnitude - 1.0) > 0.1:
-            return False, f"Quaternion not normalized: magnitude = {quat_magnitude:.3f}"
-        
-        return True, "IMU data is valid"
+        from utilities.imu_simulator import IMUSimulator
 
+        controls = np.asarray(control_sequence, dtype=np.float64)
+        horizon = len(controls)
+        initial_state = np.asarray(initial_state, dtype=np.float64)
+        n_state = len(initial_state)
+        states_out = np.zeros((horizon, n_state), dtype=np.float64)
+        imu_out = {
+            key: np.zeros(horizon, dtype=np.float64)
+            for key in IMUUtilities.IMU_COMPARE_KEYS
+        }
+        imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
+        imu_sim.prime(initial_state)
 
-# Example usage
-if __name__ == "__main__":
-    # Test the IMU utilities
-    print("IMU Utilities Test")
-    print("=" * 30)
-    
-    # Create sample IMU data
-    sample_imu = np.array([
-        1.0, 2.0, 9.81,  # accel x, y, z
-        0.1, 0.2, 0.3,   # gyro x, y, z
-        0.05, 0.1, 0.2,  # roll, pitch, yaw
-        0.995, 0.05, 0.1, 0.0  # quat w, x, y, z
-    ])
-    
-    # Test conversion
-    imu_dict = IMUUtilities.imu_array_to_dict(sample_imu)
-    print("IMU Dictionary:")
-    for key, value in imu_dict.items():
-        print(f"  {key}: {value:.3f}")
-    
-    # Test validation
-    is_valid, message = IMUUtilities.validate_imu_data(sample_imu)
-    print(f"\nValidation: {is_valid} - {message}")
-    
-    # Test summary
-    summary = IMUUtilities.get_imu_data_summary(sample_imu)
-    print(f"\nSummary: {summary}")
-    
-    print("\n✅ IMU Utilities test completed!")
+        if getattr(car_model, "model_type", None) == "residual":
+            sh = np.array(
+                state_history
+                if state_history is not None
+                else car_model.state_history,
+                dtype=np.float32,
+            )
+            ch = np.array(
+                control_history
+                if control_history is not None
+                else car_model.control_history,
+                dtype=np.float32,
+            )
+            state = initial_state.astype(np.float32)
+            for i in range(horizon):
+                control = controls[i]
+                traj = car_model.car_steps_sequential(
+                    state,
+                    np.array([control], dtype=np.float32),
+                    state_history=sh,
+                    control_history=ch,
+                )
+                state = np.asarray(traj[0], dtype=np.float64)
+                states_out[i] = state
+                imu_dict = imu_sim.update_car_state(state, dt)
+                for key in IMUUtilities.IMU_COMPARE_KEYS:
+                    imu_out[key][i] = imu_dict[key]
+                sh = np.roll(sh, -1, axis=0)
+                sh[-1] = state.astype(np.float32)
+                ch = np.roll(ch, -1, axis=0)
+                ch[-1] = control.astype(np.float32)
+            return states_out, imu_out
+
+        states_out = np.asarray(
+            car_model.car_steps_sequential(
+                initial_state,
+                controls,
+                state_history=state_history,
+                control_history=control_history,
+            ),
+            dtype=np.float64,
+        )
+        for i, state in enumerate(states_out):
+            imu_dict = imu_sim.update_car_state(state, dt)
+            for key in IMUUtilities.IMU_COMPARE_KEYS:
+                imu_out[key][i] = imu_dict[key]
+        return states_out, imu_out
+
+    @staticmethod
+    def simulate_imu_series(states, dt: float, prime_state=None, car_parameter_file=None):
+        """
+        Run IMUSimulator over a sequence of car states.
+
+        Returns:
+            dict with imu_a_x, imu_a_y, imu_gyro_z lists
+        """
+        from utilities.imu_simulator import IMUSimulator
+
+        imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
+        if prime_state is not None:
+            imu_sim.prime(prime_state)
+        out = {key: [] for key in IMUUtilities.IMU_COMPARE_KEYS}
+        for state in states:
+            imu_dict = imu_sim.update_car_state(np.asarray(state, dtype=np.float64), dt)
+            for key in IMUUtilities.IMU_COMPARE_KEYS:
+                out[key].append(float(imu_dict[key]))
+        return out
+
+    @staticmethod
+    def states_matrix_from_dict(state_dict, horizon: int) -> np.ndarray:
+        """Build (horizon, NUMBER_OF_STATES) matrix from per-variable arrays."""
+        from utilities.state_utilities import NUMBER_OF_STATES, STATE_INDICES
+
+        states = np.zeros((horizon, NUMBER_OF_STATES), dtype=np.float64)
+        for col_name, idx in STATE_INDICES.items():
+            if col_name in state_dict:
+                values = np.asarray(state_dict[col_name], dtype=np.float64)
+                states[: len(values), idx] = values[:horizon]
+        return states

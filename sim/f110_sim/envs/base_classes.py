@@ -89,7 +89,6 @@ class RaceCar(object):
     cosines = None
     scan_angles = None
     side_distances = None
-    imu_simulator = None
 
     def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
         """
@@ -524,16 +523,13 @@ class Simulator(object):
         self.agents = []
         self.agent_scans = []
         self.agent_imus = []
+        self.agent_imu_simulators = [IMUSimulator() for _ in range(self.num_agents)]
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
         self.sim_index = 0
         
         car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
         # self.params = car_params.to_dict()
-
-        # Initialize IMU simulator
-        if RaceCar.imu_simulator is None:
-            RaceCar.imu_simulator = IMUSimulator()
 
         # initializing agents
         for i in range(self.num_agents):
@@ -546,6 +542,12 @@ class Simulator(object):
 
     def _simulate_lidar_for_agent(self, agent_index):
         return agent_index == self.ego_idx or Settings.OPPONENTS_SIMULATE_LIDAR
+
+    def _simulate_imu_for_agent(self, agent_index, car_state):
+        """Compute IMU reading from the current car state (one simulator per agent)."""
+        return self.agent_imu_simulators[agent_index].update_car_state(
+            car_state, self.time_step
+        )
 
     def set_map(self, map_path, map_ext):
         """
@@ -653,8 +655,7 @@ class Simulator(object):
             yaw = agent.state[POSE_THETA_IDX]
             self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
             
-            # compute IMU data for this agent
-            imu_data = RaceCar.imu_simulator.update_car_state(agent.state, self.time_step)
+            imu_data = self._simulate_imu_for_agent(i, agent.state)
             agent_imus.append(imu_data)
             
         self.agent_scans = agent_scans
@@ -706,9 +707,9 @@ class Simulator(object):
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
         
-        # Reset IMU simulator
-        RaceCar.imu_simulator.reset()
-        
+        for imu_sim in self.agent_imu_simulators:
+            imu_sim.reset()
+
         for i in range(self.num_agents):
             agent = self.agents[i]
             agent.reset(initial_states[i, :])
@@ -720,8 +721,7 @@ class Simulator(object):
                 current_scan = agent.scan_placeholder
             self.agent_scans.append(current_scan)
             
-            # Initialize IMU data for this agent
-            imu_data = RaceCar.imu_simulator.update_car_state(agent.state, self.time_step)
+            imu_data = self._simulate_imu_for_agent(i, agent.state)
             self.agent_imus.append(imu_data)
 
         obs = self.get_sim_observation()
