@@ -378,19 +378,26 @@ function computeDeltaValues(values, stateName) {
   return out;
 }
 
-function plotDataFromBundle(bundle, stateName) {
-  const gt = bundle.ground_truth?.[stateName];
-  if (!gt) throw new Error(`No ground truth for state: ${stateName}`);
+function isNoStateSelected(stateName = settings.state_name) {
+  return !stateName;
+}
 
+function plotDataFromBundle(bundle, stateName) {
   const plotData = {
-    state_name: stateName,
+    state_name: stateName || null,
     time: bundle.time,
-    ground_truth: gt,
+    ground_truth: null,
     predictions: [],
     other_data: bundle.other_data || {},
     controls: bundle.controls || {},
     delta: {},
   };
+
+  if (isNoStateSelected(stateName)) return plotData;
+
+  const gt = bundle.ground_truth?.[stateName];
+  if (!gt) throw new Error(`No ground truth for state: ${stateName}`);
+  plotData.ground_truth = gt;
 
   const start = bundle.start_index;
   const end = bundle.end_index;
@@ -426,6 +433,7 @@ function plotDataFromBundle(bundle, stateName) {
 }
 
 function metricsFromBundle(bundle, stateName) {
+  if (isNoStateSelected(stateName)) return null;
   if (!settings.show_metrics || !bundle?.predictions?.length) return null;
   const gtSeries = bundle.ground_truth?.[stateName];
   if (!gtSeries) return null;
@@ -549,16 +557,21 @@ async function refreshPlot({
 }
 
 function buildPlotFromData(plotData) {
-  const showDelta = settings.show_delta_state;
+  const noState = !plotData.state_name;
+  const showDelta = !noState && settings.show_delta_state;
   const showControls = settings.show_controls && Object.keys(plotData.controls || {}).length > 0;
-  const multiPred = settings.show_all_comparisons && plotData.predictions.length > 1;
+  const multiPred = !noState && settings.show_all_comparisons && plotData.predictions.length > 1;
   const showPredLegend = !multiPred;
+  const otherCols = Object.keys(plotData.other_data || {});
 
   const { rowCount, weights } = buildSubplotLayout(showDelta, showControls);
   const traces = [];
   const chartTheme = getChartTheme();
 
-  const rowDefs = [{ weight: weights[0], yTitle: plotData.state_name }];
+  const mainYTitle = noState
+    ? (otherCols.length ? "Other Data" : "")
+    : plotData.state_name;
+  const rowDefs = [{ weight: weights[0], yTitle: mainYTitle }];
   if (showDelta) rowDefs.push({ weight: weights[rowDefs.length], yTitle: `Δ ${plotData.state_name}` });
   if (showControls) rowDefs.push({ weight: weights[rowDefs.length], yTitle: "" });
 
@@ -577,14 +590,16 @@ function buildPlotFromData(plotData) {
   let controlsIds = showControls ? axisIds[axisIds.length - 1] : null;
 
   // --- Main state row
-  traces.push({
-    x: plotData.time, y: plotData.ground_truth,
-    mode: "lines", name: "Ground Truth",
-    line: { color: chartTheme.gtLine, width: 2 },
-    xaxis: mainIds.x, yaxis: mainIds.y,
-  });
+  if (!noState) {
+    traces.push({
+      x: plotData.time, y: plotData.ground_truth,
+      mode: "lines", name: "Ground Truth",
+      line: { color: chartTheme.gtLine, width: 2 },
+      xaxis: mainIds.x, yaxis: mainIds.y,
+    });
+  }
 
-  if (settings.enable_comparison && plotData.predictions.length > 0) {
+  if (!noState && settings.enable_comparison && plotData.predictions.length > 0) {
     const maxSeg = multiPred ? GRADIENT_MAX_SEGMENTS_MULTI : null;
     plotData.predictions.forEach((pred, idx) => {
       const predTraces = gradientLineTraces(
@@ -603,10 +618,9 @@ function buildPlotFromData(plotData) {
     });
   }
 
-  const otherCols = Object.keys(plotData.other_data || {});
   if (otherCols.length > 0) {
-    const useTwinAxis = !settings.sync_scales && rowCount === 1;
-    if (settings.sync_scales || rowCount > 1) {
+    const useTwinAxis = !noState && !settings.sync_scales && rowCount === 1;
+    if (noState || settings.sync_scales || rowCount > 1) {
       otherCols.forEach((col, i) => {
         traces.push({
           x: plotData.time, y: plotData.other_data[col],
@@ -729,11 +743,12 @@ function buildPlotFromData(plotData) {
     }
   }
 
-  const structureKey = `rows-${rowCount}-ctrl-${showControls}-delta-${showDelta}`;
+  const structureKey = `rows-${rowCount}-ctrl-${showControls}-delta-${showDelta}-state-${noState ? "none" : plotData.state_name}`;
 
-  layout.title = { text: plotData.state_name, font: { size: 14 } };
+  const chartTitle = noState ? (otherCols.length ? "Other Data" : "No state selected") : plotData.state_name;
+  layout.title = { text: chartTitle, font: { size: 14 } };
   if (rowCount > 1) {
-    layout.title = { text: plotData.state_name, font: { size: 14 }, y: 0.98 };
+    layout.title = { text: chartTitle, font: { size: 14 }, y: 0.98 };
     if (showControls) layout.margin = { ...layout.margin, r: 70 };
   }
 
@@ -938,9 +953,12 @@ function applySettingsToForm(s) {
   document.getElementById("show-metrics").checked = s.show_metrics ?? true;
   if (s.default_car_model) document.getElementById("model-select").value = s.default_car_model;
   if (s.default_car_parameters) document.getElementById("params-select").value = s.default_car_parameters;
-  if (s.state_name) {
+  if (s.state_name !== undefined) {
     const stateSel = document.getElementById("state-select");
-    if (stateSel && [...stateSel.options].some((o) => o.value === s.state_name)) {
+    if (
+      stateSel
+      && (s.state_name === "" || [...stateSel.options].some((o) => o.value === s.state_name))
+    ) {
       stateSel.value = s.state_name;
     }
   }
@@ -1044,6 +1062,11 @@ function closeDataModal() {
 function populateStateSelect(states, selected) {
   const sel = document.getElementById("state-select");
   sel.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "None";
+  noneOpt.selected = selected === "" || selected == null;
+  sel.appendChild(noneOpt);
   states.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s;
@@ -1459,6 +1482,15 @@ function bindEventListeners() {
     const stateName = document.getElementById("state-select").value;
     settings = { ...settings, state_name: stateName };
     try {
+      if (isNoStateSelected(stateName) && plotBundle) {
+        await renderPlotFromBundle(stateName, { preserveZoom: false });
+        pushSettings({ state_name: stateName }, false, { partial: true })
+          .then((s) => {
+            settings = s;
+          })
+          .catch((e) => console.warn("State settings save:", e.message));
+        return;
+      }
       if (plotBundle?.ground_truth?.[stateName]) {
         await renderPlotFromBundle(stateName, { preserveZoom: false });
         pushSettings({ state_name: stateName }, false, { partial: true })

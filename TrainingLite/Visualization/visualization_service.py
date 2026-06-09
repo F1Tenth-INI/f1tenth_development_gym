@@ -527,9 +527,7 @@ class VisualizationService:
         self.clear_comparisons()
 
         available_states = [col for col in self.state_columns if col in self.data.columns]
-        if available_states and (
-            not self.settings.state_name or self.settings.state_name not in available_states
-        ):
+        if available_states and self.settings.state_name not in ("", *available_states):
             self.settings.state_name = available_states[0]
 
         if self.settings.end_index is None:
@@ -872,12 +870,27 @@ class VisualizationService:
         }
 
     def get_plot_data(self) -> Dict[str, Any]:
-        state_name = self.settings.state_name
-        if not state_name or self.data is None or state_name not in self.data.columns:
-            raise ValueError("Invalid state selection")
+        if self.data is None:
+            raise ValueError("No data loaded")
 
         start_idx, end_idx, time_data, _ = self._plot_slice_context()
         shared = self._plot_shared_columns(start_idx, end_idx)
+        state_name = self.settings.state_name
+
+        if not state_name:
+            return {
+                "state_name": "",
+                "time": time_data.tolist(),
+                "ground_truth": [],
+                "predictions": [],
+                "other_data": shared["other_data"],
+                "controls": shared["controls"],
+                "delta": {},
+            }
+
+        if state_name not in self.data.columns:
+            raise ValueError("Invalid state selection")
+
         state_data = self.data[state_name].iloc[start_idx:end_idx].to_numpy()
 
         result: Dict[str, Any] = {
