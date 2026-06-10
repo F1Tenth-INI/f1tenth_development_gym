@@ -110,6 +110,10 @@ class VisualizationService:
 
         self.car_models = None
         self._current_start_index: Optional[int] = None
+        self._car_params_cache: Dict[str, np.ndarray] = {}
+        self._imu_sim_cache: Dict[str, Any] = {}
+        self._plot_bundle_cache: Optional[Dict[str, Any]] = None
+        self._plot_bundle_key: Optional[tuple] = None
 
         self.available_car_params: Dict[str, str] = {}
         car_files_dir = os.path.join(REPO_ROOT, "utilities", "car_files")
@@ -148,6 +152,8 @@ class VisualizationService:
         }
 
     def load_car_parameters(self, param_file: str) -> Optional[np.ndarray]:
+        if param_file in self._car_params_cache:
+            return self._car_params_cache[param_file]
         try:
             vehicle_params = VehicleParameters(param_file)
             params_array = vehicle_params.to_np_array()
@@ -156,12 +162,20 @@ class VisualizationService:
                 c_pf_b = params_array[7]
                 i_z = params_array[5]
                 print(f"Loaded parameters from {param_file}: mu={mu:.3f}, C_Pf_B={c_pf_b:.3f}, I_z={i_z:.4f}")
+            self._car_params_cache[param_file] = params_array
             return params_array
         except Exception as exc:
             print(f"Error loading car parameters from {param_file}: {exc}")
             import traceback
             traceback.print_exc()
             return None
+
+    def get_imu_simulator(self, param_file: str):
+        if param_file not in self._imu_sim_cache:
+            from utilities.imu_simulator import IMUSimulator
+
+            self._imu_sim_cache[param_file] = IMUSimulator(car_parameter_file=param_file)
+        return self._imu_sim_cache[param_file]
 
     def get_model_key(self, display_name: str) -> str:
         for key, name in AVAILABLE_MODELS.items():
@@ -307,6 +321,7 @@ class VisualizationService:
         horizon: int,
         start_index: Optional[int] = None,
         car_parameter_file: Optional[str] = None,
+        imu_sim=None,
     ) -> Optional[Dict[str, np.ndarray]]:
         """Dynamics + IMU rollout; returns all physics states and IMU channels."""
         if self.car_models is None:
@@ -337,6 +352,7 @@ class VisualizationService:
                 state_history=state_history,
                 control_history=control_history,
                 car_parameter_file=car_parameter_file,
+                imu_sim=imu_sim,
             )
             return self.convert_predictions_to_dict(predicted_states, imu_series)
         except Exception as exc:
@@ -368,11 +384,16 @@ class VisualizationService:
         horizon: int,
         steering_delay: int = 0,
         acceleration_delay: int = 0,
+        car_params: Optional[np.ndarray] = None,
+        imu_sim=None,
     ) -> Optional[Dict[str, np.ndarray]]:
         try:
-            car_params = self.load_car_parameters(param_file)
+            if car_params is None:
+                car_params = self.load_car_parameters(param_file)
             if car_params is None:
                 return None
+            if imu_sim is None and param_file is not None:
+                imu_sim = self.get_imu_simulator(param_file)
 
             initial_state = self.extract_initial_state_at_index(start_index)
             control_sequence = self.extract_control_sequence_at_index(
@@ -390,6 +411,7 @@ class VisualizationService:
                 horizon,
                 start_index=start_index,
                 car_parameter_file=param_file,
+                imu_sim=imu_sim,
             )
         except Exception as exc:
             print(f"Single comparison failed for index {start_index}: {exc}")
@@ -663,6 +685,7 @@ class VisualizationService:
             raise RuntimeError(f"Comparison failed at index {idx}")
 
         self.comparison_data_dict[idx] = result
+        self._invalidate_plot_bundle_cache()
         return {"start_index": idx, "horizon": horizon, "states": list(result.keys())}
 
     def start_full_comparison(self, force: bool = False) -> str:
@@ -706,6 +729,19 @@ class VisualizationService:
         horizon = self.settings.horizon_steps
         steering_delay, acceleration_delay = self._get_delays()
 
+        car_params = self.load_car_parameters(param_file)
+        if car_params is None:
+            with self._jobs_lock:
+                job = self._jobs.get(job_id)
+                if job:
+                    job.status = "failed"
+                    job.error = f"Failed to load car parameters from {param_file}"
+            return
+
+        imu_sim = self.get_imu_simulator(param_file)
+        if model_key in self.car_models:
+            self.car_models[model_key].car_params = jnp.array(car_params)
+
         successful = 0
         for i, start_idx in enumerate(start_indices):
             with self._jobs_lock:
@@ -717,7 +753,14 @@ class VisualizationService:
                     )
 
             result = self.run_single_comparison_at_index(
-                start_idx, model_key, param_file, horizon, steering_delay, acceleration_delay
+                start_idx,
+                model_key,
+                param_file,
+                horizon,
+                steering_delay,
+                acceleration_delay,
+                car_params=car_params,
+                imu_sim=imu_sim,
             )
             if result is not None:
                 self.comparison_data_dict[start_idx] = result
@@ -746,6 +789,7 @@ class VisualizationService:
                     job.current = job.total
                     job.message = f"Completed {successful}/{len(start_indices)} comparisons"
                     self._comparison_cache_key = self._comparison_params_key()
+                    self._invalidate_plot_bundle_cache()
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
         with self._jobs_lock:
@@ -765,6 +809,24 @@ class VisualizationService:
     def clear_comparisons(self) -> None:
         self.comparison_data_dict = {}
         self._comparison_cache_key = None
+        self._invalidate_plot_bundle_cache()
+
+    def _invalidate_plot_bundle_cache(self) -> None:
+        self._plot_bundle_cache = None
+        self._plot_bundle_key = None
+
+    def _plot_bundle_cache_key(self) -> tuple:
+        end = self.settings.end_index
+        if self.data is not None and end is None:
+            end = len(self.data)
+        return (
+            int(self.settings.start_index),
+            int(end) if end is not None else -1,
+            bool(self.settings.show_controls),
+            tuple(self.settings.selected_other_data),
+            len(self.comparison_data_dict),
+            self._comparison_cache_key,
+        )
 
     # ------------------------------------------------------------------ plot data
     def _get_time_slice(self, start_idx: int, end_idx: int) -> np.ndarray:
@@ -829,7 +891,11 @@ class VisualizationService:
             prime_state = self.extract_initial_state_at_index(start_idx - 1)
         param_file = self.get_param_filename(self.settings.default_car_parameters)
         return IMUUtilities.simulate_imu_series(
-            states, dt, prime_state=prime_state, car_parameter_file=param_file
+            states,
+            dt,
+            prime_state=prime_state,
+            car_parameter_file=param_file,
+            imu_sim=self.get_imu_simulator(param_file),
         )
 
     def _ground_truth_series(self, column_name: str, start_idx: int, end_idx: int) -> np.ndarray:
@@ -915,12 +981,25 @@ class VisualizationService:
 
     def get_plot_bundle(self) -> Dict[str, Any]:
         """All states + cached predictions in one payload for client-side state switching."""
+        cache_key = self._plot_bundle_cache_key()
+        if self._plot_bundle_cache is not None and self._plot_bundle_key == cache_key:
+            return self._plot_bundle_cache
+
         start_idx, end_idx, time_data, state_cols = self._plot_slice_context()
         shared = self._plot_shared_columns(start_idx, end_idx)
 
+        imu_simulated = self._imu_ground_truth_from_states(start_idx, end_idx)
         ground_truth: Dict[str, List[float]] = {}
         for col in state_cols:
-            ground_truth[col] = self._ground_truth_series(col, start_idx, end_idx).tolist()
+            if IMUUtilities.is_imu_channel(col):
+                series = IMUUtilities.ground_truth_imu_series(
+                    self.data, col, start_idx, end_idx, simulated=imu_simulated
+                )
+            elif col in self.data.columns:
+                series = self.data[col].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)
+            else:
+                continue
+            ground_truth[col] = series.tolist()
 
         predictions: List[Dict[str, Any]] = []
         if self.comparison_data_dict:
@@ -941,7 +1020,7 @@ class VisualizationService:
                     "states": states_out,
                 })
 
-        return {
+        bundle = {
             "time": time_data.tolist(),
             "start_index": start_idx,
             "end_index": end_idx,
@@ -950,6 +1029,9 @@ class VisualizationService:
             "predictions": predictions,
             **shared,
         }
+        self._plot_bundle_cache = bundle
+        self._plot_bundle_key = cache_key
+        return bundle
 
     def get_plot_data(self) -> Dict[str, Any]:
         if self.data is None:

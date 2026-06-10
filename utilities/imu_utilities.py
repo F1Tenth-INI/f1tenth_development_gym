@@ -151,6 +151,7 @@ class IMUUtilities:
         state_history=None,
         control_history=None,
         car_parameter_file=None,
+        imu_sim=None,
     ):
         """
         Roll out vehicle dynamics and IMU together (one IMU sample per dynamics step).
@@ -170,7 +171,8 @@ class IMUUtilities:
             key: np.zeros(horizon, dtype=np.float64)
             for key in IMUUtilities.IMU_COMPARE_KEYS
         }
-        imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
+        if imu_sim is None:
+            imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
         imu_sim.prime(initial_state)
 
         if getattr(car_model, "model_type", None) == "residual":
@@ -222,7 +224,9 @@ class IMUUtilities:
         return states_out, imu_out
 
     @staticmethod
-    def simulate_imu_series(states, dt: float, prime_state=None, car_parameter_file=None):
+    def simulate_imu_series(
+        states, dt: float, prime_state=None, car_parameter_file=None, imu_sim=None
+    ):
         """
         Run IMUSimulator over a sequence of car states.
 
@@ -231,7 +235,8 @@ class IMUUtilities:
         """
         from utilities.imu_simulator import IMUSimulator
 
-        imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
+        if imu_sim is None:
+            imu_sim = IMUSimulator(car_parameter_file=car_parameter_file)
         if prime_state is not None:
             imu_sim.prime(prime_state)
         out = {key: [] for key in IMUUtilities.IMU_COMPARE_KEYS}
