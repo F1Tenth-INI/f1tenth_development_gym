@@ -36,7 +36,6 @@ import numpy as np
 from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax_from_settings
 
 
-from f110_sim.envs.laser_models import ScanSimulator2D, check_ttc_jit, ray_cast
 from f110_sim.envs.collision_models import get_vertices, collision_multiple
 
 
@@ -84,10 +83,6 @@ class RaceCar(object):
     """
 
     # static objects that don't need to be stored in class instances
-    scan_simulator = None
-    cosines = None
-    scan_angles = None
-    side_distances = None
 
     def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
         """
@@ -155,10 +150,6 @@ class RaceCar(object):
         if self.ode_implementation == 'residual':
             from TrainingLite.dynamic_residual_jax.dynamics_model_residual import DynamicsModelResidual
             self.dynamic_model = DynamicsModelResidual(dt=0.01)
-            
-
-        # pose of opponents in the world
-        self.opp_poses = None
 
         # control inputs
         self.accel = 0.0
@@ -176,56 +167,9 @@ class RaceCar(object):
         # collision identifier
         self.in_collision = False
 
-        # collision threshold for iTTC to environment
-        self.ttc_thresh = 0.005
-        self.scan_placeholder = np.full((num_beams,), 30.0, dtype=np.float32)
-
         # state and control history (circular buffers of length 40)
         self.state_history = np.zeros((40, NUMBER_OF_STATES))
         self.control_history = np.zeros((40, 2))
-
-        # initialize scan sim
-        if RaceCar.scan_simulator is None:
-            self.scan_rng = np.random.default_rng(seed=self.seed)
-            RaceCar.scan_simulator = ScanSimulator2D(num_beams, fov)
-
-            scan_ang_incr = RaceCar.scan_simulator.get_increment()
-
-            # angles of each scan beam, distance from lidar to edge of car at each beam, and precomputed cosines of each angle
-            RaceCar.cosines = np.zeros((num_beams, ))
-            RaceCar.scan_angles = np.zeros((num_beams, ))
-            RaceCar.side_distances = np.zeros((num_beams, ))
-
-            dist_sides = self.params['width']/2.
-            dist_fr = (self.params['lf']+self.params['lr'])/2.
-
-            for i in range(num_beams):
-                angle = -fov/2. + i*scan_ang_incr
-                RaceCar.scan_angles[i] = angle
-                RaceCar.cosines[i] = np.cos(angle)
-
-                if angle > 0:
-                    if angle < np.pi/2:
-                        # between 0 and pi/2
-                        to_side = dist_sides / np.sin(angle)
-                        to_fr = dist_fr / np.cos(angle)
-                        RaceCar.side_distances[i] = min(to_side, to_fr)
-                    else:
-                        # between pi/2 and pi
-                        to_side = dist_sides / np.cos(angle - np.pi/2.)
-                        to_fr = dist_fr / np.sin(angle - np.pi/2.)
-                        RaceCar.side_distances[i] = min(to_side, to_fr)
-                else:
-                    if angle > -np.pi/2:
-                        # between 0 and -pi/2
-                        to_side = dist_sides / np.sin(-angle)
-                        to_fr = dist_fr / np.cos(-angle)
-                        RaceCar.side_distances[i] = min(to_side, to_fr)
-                    else:
-                        # between -pi/2 and -pi
-                        to_side = dist_sides / np.cos(-angle - np.pi/2)
-                        to_fr = dist_fr / np.sin(-angle - np.pi/2)
-                        RaceCar.side_distances[i] = min(to_side, to_fr)
 
     def update_params(self, params):
         """
@@ -242,19 +186,6 @@ class RaceCar(object):
         car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
         self.params = car_params.to_dict()
     
-    def set_map(self, map_path, map_ext):
-        """
-        Sets the map for scan simulator
-        
-        Args:
-            map_path (str): absolute path to the map yaml file
-            map_ext (str): extension of the map image file
-        """
-        if Settings.BLANK_MAP:
-            # Skip setting map - car will drive on completely blank map with no borders, no scans, no crashes
-            return
-        RaceCar.scan_simulator.set_map(map_path, map_ext)
-
     def reset(self, initial_state):
         """
         Resets the vehicle to a pose
@@ -276,8 +207,6 @@ class RaceCar(object):
             self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         
         self.steer_buffer = np.empty((0, ))
-        # reset scan random generator
-        self.scan_rng = np.random.default_rng(seed=self.seed)
         
         # reset state and control history
         self.state_history = np.zeros((40, NUMBER_OF_STATES))
@@ -285,73 +214,13 @@ class RaceCar(object):
         # Initialize with current state
         self.state_history[-1] = self.state.copy()
 
-    def ray_cast_agents(self, scan):
-        """
-        Ray cast onto other agents in the env, modify original scan
-
-        Args:
-            scan (np.ndarray, (n, )): original scan range array
-
-        Returns:
-            new_scan (np.ndarray, (n, )): modified scan
-        """
-
-        # starting from original scan
-        new_scan = scan
-        
-        # loop over all opponent vehicle poses
-        for opp_pose in self.opp_poses:
-            # get vertices of current oppoenent
-            opp_vertices = get_vertices(opp_pose, self.params['length'], self.params['width'])
-
-            pose = np.array([self.state[POSE_X_IDX], self.state[POSE_Y_IDX], self.state[POSE_THETA_IDX]])
-            new_scan = ray_cast(pose, new_scan, self.scan_angles, opp_vertices)
-
-        return new_scan
-
-    def check_ttc(self, current_scan):
-        """
-        Check iTTC against the environment, sets vehicle states accordingly if collision occurs.
-        Note that this does NOT check collision with other agents.
-
-        state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
-
-        Args:
-            current_scan
-
-        Returns:
-            None
-        """
-        
-        in_collision_now = check_ttc_jit(
-            current_scan,
-            self.state[LINEAR_VEL_X_IDX],
-            self.scan_angles,
-            self.cosines,
-            self.side_distances,
-            self.ttc_thresh,
-        )
-
-        # Latch collision until reset: with multiple physics substeps the TTC flag
-        # can be True on an early substep and False on the last one, which would
-        # skip the crash reward on the control step that actually ended the episode.
-        if in_collision_now:
-            self.in_collision = True
-            self.accel = 0.0
-            self.steer_angle_vel = 0.0
-
-        return self.in_collision
-
-    def update_pose(self, desired_steering_angle, desired_speed, simulate_scan=True):
+    def update_pose(self, desired_steering_angle, desired_speed):
         """
         Steps the vehicle's physical simulation
 
         Args:
             steer (float): desired steering angle
             vel (float): desired longitudinal velocity
-
-        Returns:
-            current_scan
         """
 
         # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
@@ -425,65 +294,13 @@ class RaceCar(object):
         # clip linear_vel_x to SpeedCap when set
         if Settings.GLOBAL_SPEED_LIMIT is not None:
             self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
-        
-        if not simulate_scan:
-            self.in_collision = False
-            return self.scan_placeholder
 
         # Update state and control history (circular buffer)
-        # Shift history arrays and add new state/control at the end
         self.state_history = np.roll(self.state_history, -1, axis=0)
         self.state_history[-1] = self.state.copy()
-        
+
         self.control_history = np.roll(self.control_history, -1, axis=0)
         self.control_history[-1] = applied_control
-        
-        # update scan
-        pose = np.array([self.state[POSE_X_IDX], self.state[POSE_Y_IDX], self.state[POSE_THETA_IDX]], dtype=np.float64)
-        if not np.all(np.isfinite(pose)):
-            return self.scan_placeholder
-        current_scan = RaceCar.scan_simulator.scan(pose, self.scan_rng)
-
-        return current_scan
-
-    def update_opp_poses(self, opp_poses):
-        """
-        Updates the vehicle's information on other vehicles
-
-        Args:
-            opp_poses (np.ndarray(num_other_agents, 3)): updated poses of other agents
-
-        Returns:
-            None
-        """
-        self.opp_poses = opp_poses
-
-    def update_scan(self, agent_scans, agent_index, simulate_scan=True):
-        """
-        Steps the vehicle's laser scan simulation
-        Separated from update_pose because needs to update scan based on NEW poses of agents in the environment
-
-        Args:
-            agent scans list (modified in-place),
-            agent index (int)
-
-        Returns:
-            None
-        """
-
-        if not simulate_scan:
-            self.in_collision = False
-            return
-
-        current_scan = agent_scans[agent_index]
-
-        # check ttc
-        self.check_ttc(current_scan)
-
-        # ray cast other agents to modify scan
-        new_scan = self.ray_cast_agents(current_scan)
-
-        agent_scans[agent_index] = new_scan
 
 class Simulator(object):
     """
@@ -520,10 +337,11 @@ class Simulator(object):
         self.params = params
         self.agent_poses = np.empty((self.num_agents, 3))
         self.agents = []
-        self.agent_scans = []
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
         self.sim_index = 0
+        self._map_scan_simulator = None
+        self.map_collision_margin = 0.005
         
         car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
         # self.params = car_params.to_dict()
@@ -536,24 +354,6 @@ class Simulator(object):
             else:
                 agent = RaceCar(params, self.seed)
                 self.agents.append(agent)
-
-    def _simulate_lidar_for_agent(self, agent_index):
-        return agent_index == self.ego_idx or Settings.OPPONENTS_SIMULATE_LIDAR
-
-    def set_map(self, map_path, map_ext):
-        """
-        Sets the map of the environment and sets the map for scan simulator of each agent
-
-        Args:
-            map_path (str): path to the map yaml file
-            map_ext (str): extension for the map image file
-
-        Returns:
-            None
-        """
-        for agent in self.agents:
-            agent.set_map(map_path, map_ext)
-
 
     def update_params(self, params, agent_idx=-1):
         """
@@ -576,6 +376,36 @@ class Simulator(object):
         else:
             # index out of bounds, throw error
             raise IndexError('Index given is out of bounds for list of agents.')
+
+    def set_map_collision_checker(self, scan_simulator, margin=0.005):
+        """Attach the shared map distance-transform source used for wall collision."""
+        self._map_scan_simulator = scan_simulator
+        self.map_collision_margin = margin
+
+    def check_map_collision(self):
+        """Latch wall contact using body vertices vs the map distance transform."""
+        if Settings.BLANK_MAP or self._map_scan_simulator is None:
+            return
+
+        scan_sim = self._map_scan_simulator
+        if scan_sim.dt is None:
+            return
+
+        length = self.params['length']
+        width = self.params['width']
+        margin = self.map_collision_margin
+
+        for agent in self.agents:
+            pose = np.array(
+                [
+                    agent.state[POSE_X_IDX],
+                    agent.state[POSE_Y_IDX],
+                    agent.state[POSE_THETA_IDX],
+                ],
+                dtype=np.float64,
+            )
+            if scan_sim.check_body_collision(pose, length, width, margin=margin):
+                agent.in_collision = True
 
     def check_collision(self):
         """
@@ -600,14 +430,13 @@ class Simulator(object):
         """
         Returns world-sim outputs that are not already on agent objects.
 
-        Car poses live on ``self.agents[i].state``; this dict carries lidar,
-        collision flags, and episode termination only.
+        Car poses live on ``self.agents[i].state``; this dict carries
+        collision flags and episode termination only.
 
         Returns:
-            sim_obs (dict): keys ``scans``, ``collisions``, ``terminated``, ``ego_idx``
+            sim_obs (dict): keys ``collisions``, ``terminated``, ``ego_idx``
         """
         return {
-            'scans': self.agent_scans,
             'collisions': self.collisions.copy(),
             'terminated': self.sim_index >= Settings.EXPERIMENT_MAX_LENGTH,
             'ego_idx': self.ego_idx,
@@ -621,43 +450,23 @@ class Simulator(object):
             control_inputs (np.ndarray (num_agents, 2)): control inputs of all agents, first column is desired steering angle, second column is desired velocity
         
         Returns:
-            sim_obs (dict): lidar scans, collision flags, and termination state.
+            sim_obs (dict): collision flags and termination state.
         """
 
-
-        agent_scans = []
-
-        # looping over agents
         for i, agent in enumerate(self.agents):
-            simulate_scan = self._simulate_lidar_for_agent(i)
-            # update each agent's pose
-            current_scan = agent.update_pose(control_inputs[i, 0], control_inputs[i, 1], simulate_scan=simulate_scan)
-            agent_scans.append(current_scan)
+            agent.update_pose(control_inputs[i, 0], control_inputs[i, 1])
 
-            # update sim's information of agent poses
             pos_x = agent.state[POSE_X_IDX]
             pos_y = agent.state[POSE_Y_IDX]
             yaw = agent.state[POSE_THETA_IDX]
             self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
 
-        self.agent_scans = agent_scans
-
-        # check collisions between all agents
+        self.check_map_collision()
         self.check_collision()
 
         for i, agent in enumerate(self.agents):
-            simulate_scan = self._simulate_lidar_for_agent(i)
-            # update agent's information on other agents
-            opp_poses = np.concatenate((self.agent_poses[0:i, :], self.agent_poses[i+1:, :]), axis=0)
-            agent.update_opp_poses(opp_poses)
-
-            # update each agent's current scan based on other agents
-            agent.update_scan(agent_scans, i, simulate_scan=simulate_scan)
-
-            # Propagate latched environment collision into step observations.
             if agent.in_collision:
                 self.collisions[i] = 1.0
-       
 
         sim_obs = self.get_sim_observation()
         self.sim_index += 1
@@ -679,21 +488,10 @@ class Simulator(object):
             raise ValueError('Number of initial_states for reset does not match number of agents.')
 
         # Reset all agents
-        self.agent_scans = []
-
-        # Clear collision flags
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
 
         for i in range(self.num_agents):
-            agent = self.agents[i]
-            agent.reset(initial_states[i, :])
-            simulate_scan = self._simulate_lidar_for_agent(i)
-            if simulate_scan:
-                pose = np.array([agent.state[POSE_X_IDX], agent.state[POSE_Y_IDX], agent.state[POSE_THETA_IDX]])
-                current_scan = RaceCar.scan_simulator.scan(pose, agent.scan_rng)
-            else:
-                current_scan = agent.scan_placeholder
-            self.agent_scans.append(current_scan)
+            self.agents[i].reset(initial_states[i, :])
 
         return self.get_sim_observation()

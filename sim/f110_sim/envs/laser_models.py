@@ -232,6 +232,31 @@ def check_ttc_jit(scan, vel, scan_angles, cosines, side_distances, ttc_thresh):
     return in_collision
 
 @njit(cache=True)
+def check_body_map_collision(vertices, orig_x, orig_y, orig_c, orig_s, height, width, resolution, dt, max_range, margin):
+    """
+    Return True if any vehicle body corner is within margin of a map obstacle.
+
+    Uses the precomputed distance transform (same grid as lidar).
+    """
+    for i in range(vertices.shape[0]):
+        dist = distance_transform(
+            vertices[i, 0],
+            vertices[i, 1],
+            orig_x,
+            orig_y,
+            orig_c,
+            orig_s,
+            height,
+            width,
+            resolution,
+            dt,
+            max_range,
+        )
+        if dist < margin:
+            return True
+    return False
+
+@njit(cache=True)
 def cross(v1, v2):
     """
     Cross product of two 2-vectors
@@ -479,6 +504,38 @@ class ScanSimulator2D(object):
             scan += noise
             
         return scan
+
+    def check_body_collision(self, pose, length, width, margin=0.005):
+        """
+        Check whether the vehicle body overlaps the map obstacle field.
+
+        Samples the distance transform at each body corner (fast vs full lidar).
+        """
+        if Settings.BLANK_MAP or self.dt is None:
+            return False
+
+        from f110_sim.envs.collision_models import get_vertices
+
+        pose = np.asarray(pose, dtype=np.float64)
+        if pose.shape[0] < 3 or not np.all(np.isfinite(pose[:3])):
+            return False
+
+        vertices = get_vertices(pose, length, width)
+        return bool(
+            check_body_map_collision(
+                vertices,
+                self.orig_x,
+                self.orig_y,
+                self.orig_c,
+                self.orig_s,
+                self.map_height,
+                self.map_width,
+                self.map_resolution,
+                self.dt,
+                self.max_range,
+                margin,
+            )
+        )
 
     def get_increment(self):
         return self.angle_increment

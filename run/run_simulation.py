@@ -23,6 +23,7 @@ from utilities.state_utilities import (
 from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
 from utilities.imu_simulator import IMUSimulator
+from utilities.lidar_simulator import LidarSimulator
 from utilities.motor_sensor_simulator import MotorSensorSimulator
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
@@ -61,6 +62,7 @@ class RacingSimulation:
 
         self.env = None
         self.world_sim: Optional[Simulator] = None
+        self.lidar_simulator: Optional[LidarSimulator] = None
         self.laptime = 0.0
         self.initial_states = None
 
@@ -190,11 +192,13 @@ class RacingSimulation:
         num_agents = 1 + Settings.NUMBER_OF_OPPONENTS
         seed = 12345
 
+        # Initialize lidar simulator
+        self.lidar_simulator = LidarSimulator(seed=seed)
+        self.lidar_simulator.set_map(Settings.MAP_CONFIG_FILE, ".png")
+
         # Initialize physics world simulator
         self.world_sim = Simulator(env_car_parameters, num_agents, seed)
-
-        # Set the map
-        self.world_sim.set_map(Settings.MAP_CONFIG_FILE, ".png")
+        self.world_sim.set_map_collision_checker(self.lidar_simulator.scan_simulator)
         
     '''
     Initialize the drivers (car_systems) for the simulation:
@@ -262,6 +266,7 @@ class RacingSimulation:
         initial_states = self.get_initial_states()
 
         self.sim_obs = self.world_sim.reset(initial_states=initial_states)
+        self.lidar_simulator.reset_rng(seed=12345)
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
             driver.reset()
@@ -291,7 +296,7 @@ class RacingSimulation:
         print('laptimes:', str(self.drivers[0].laptimes), 's')
         # End of similation
 
-    def build_driver_observation(self, driver_index, car_state=None):
+    def build_driver_observation(self, driver_index, car_state=None, env_state=None):
         """
         Build the observation dict passed to CarSystem.process_observation().
 
@@ -299,6 +304,9 @@ class RacingSimulation:
         scalar sensors (imu, drivetrain, ...), and env parameters.
         """
         agent = self.world_sim.agents[driver_index]
+        env_state = env_state or self.env_state
+        if not env_state.get("car_states"):
+            env_state = {**env_state, "car_states": self._get_car_states()}
 
         if car_state is None:
             car_state = agent.state.copy()
@@ -312,11 +320,16 @@ class RacingSimulation:
         motor_sensors = MotorSensorSimulator.from_states(
             state, prev_state, control, self.env_car_parameters, dt=Settings.TIMESTEP_SIM
         )
+        simulate_lidar = (
+            driver_index == self.world_sim.ego_idx or Settings.OPPONENTS_SIMULATE_LIDAR
+        )
+        scans = self.lidar_simulator.from_env_state(driver_index, env_state, simulate=simulate_lidar)
 
-        scans = self.sim_obs['scans'][driver_index]
         collision = bool(agent.in_collision) or bool(self.sim_obs['collisions'][driver_index])
         terminated = self.sim_obs['terminated']
-       
+        interrupted = False # Only happens on manual driving
+
+        done = collision or terminated or interrupted
         # Build observation dict
         observation = {
             'car_state': car_state,
@@ -333,7 +346,7 @@ class RacingSimulation:
             'collision': collision,
             'terminated': terminated,
             'interrupted': False,
-            'done': collision or terminated,
+            'done': done,
             'info': {},
         }
         return observation
@@ -448,7 +461,6 @@ class RacingSimulation:
         # Get state from N timesteps ago (first entry in history)
         respawn_states = self.state_history[0]
         respawn_controls = self.control_history[0]
-        respawn_sim_obs = self.sim_obs_history[0]
         respawn_sim_time = self.sim_time_history[0]
         respawn_sim_index = self.sim_index_history[0]
         
@@ -465,8 +477,6 @@ class RacingSimulation:
             driver.reset()
             # Set car state to respawn state
             driver.set_car_state(respawn_states[i])
-            if 'scans' in respawn_sim_obs and i < len(respawn_sim_obs['scans']):
-                driver.set_scans(respawn_sim_obs['scans'][i])
         
         # Clear control delay buffer and repopulate
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
@@ -545,10 +555,10 @@ class RacingSimulation:
 
     
     def on_step_end(self):
-        # Driver on step end
+        post_step_env = self._build_env_state_snapshot()
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
-            driver.on_step_end(self.build_driver_observation(i))
+            driver.on_step_end(self.build_driver_observation(i, env_state=post_step_env))
         
 
     
