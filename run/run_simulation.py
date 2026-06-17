@@ -22,6 +22,8 @@ from utilities.state_utilities import (
     )
 from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
+from utilities.imu_simulator import IMUSimulator
+from utilities.motor_sensor_simulator import MotorSensorSimulator
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -69,6 +71,7 @@ class RacingSimulation:
         self.renderer_backend = None
 
         self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
+        self.env_car_parameters = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
 
         self.state_recording = None
         if Settings.REPLAY_RECORDING:
@@ -289,28 +292,50 @@ class RacingSimulation:
         # End of similation
 
     def build_driver_observation(self, driver_index, car_state=None):
-        """Car-specific observation: state, lidar, IMU, and step status."""
+        """
+        Build the observation dict passed to CarSystem.process_observation().
+
+        Same structure as the external ROS bridge: car_state, scans,
+        scalar sensors (imu, drivetrain, ...), and env parameters.
+        """
+        agent = self.sim.agents[driver_index]
+
         if car_state is None:
-            car_state = self.sim.agents[driver_index].state.copy()
-        scans = self.obs['scans'][driver_index]
-        imu = self.obs['imus'][driver_index]
-        collision = bool(self.sim.agents[driver_index].in_collision) or bool(
-            self.obs['collisions'][driver_index]
+            car_state = agent.state.copy()
+
+        state = agent.state_history[-1]
+        prev_state = agent.state_history[-2]
+        control = agent.control_history[-1]
+
+        # Simulate sensors from physics state history (not noisy car_state).
+        imu = IMUSimulator.from_states(state, prev_state, Settings.TIMESTEP_SIM, self.env_car_parameters)
+        motor_sensors = MotorSensorSimulator.from_states(
+            state, prev_state, control, self.env_car_parameters, dt=Settings.TIMESTEP_SIM
         )
+
+        scans = self.obs['scans'][driver_index]
+        collision = bool(agent.in_collision) or bool(self.obs['collisions'][driver_index])
         terminated = self.obs['terminated']
+       
+        # Build observation dict
         observation = {
             'car_state': car_state,
-            'state': car_state,
             'scans': scans,
-            'lidar': scans,
-            'imu': imu,
+            'sensors': {
+                'imu': imu,
+                'motor_sensors': motor_sensors,
+            },
+            'env': {
+                'time': float(self.sim_time),
+                'sim_index': int(self.episode_index),
+                'surface_friction': float(self.vehicle_parameters_instance.mu),
+            },
             'collision': collision,
             'terminated': terminated,
             'interrupted': False,
             'done': collision or terminated,
+            'info': {},
         }
-        if observation['done']:
-            observation['info'] = {}
         return observation
 
     def simulation_step(self):

@@ -82,6 +82,48 @@ class IMUSimulator:
         a_y_imu = a_y_cog + alpha_z * dx_cog - av_z**2 * dy_cog
         return float(a_x_imu), float(a_y_imu)
 
+    @staticmethod
+    def from_states(state, prev_state, dt, car_params):
+        """Compute IMU dict from current and previous vehicle states (no internal history)."""
+        state = np.asarray(state, dtype=np.float64)
+        prev_state = np.asarray(prev_state, dtype=np.float64)
+        if dt <= 0.0 or np.array_equal(state, prev_state):
+            return IMUUtilities.zeros_dict()
+
+        yaw = float(state[POSE_THETA_IDX])
+        v_x = float(state[LINEAR_VEL_X_IDX])
+        v_y = float(state[LINEAR_VEL_Y_IDX])
+        av_z = float(state[ANGULAR_VEL_Z_IDX])
+        dx_cog = float(car_params.imu_x - car_params.lr)
+        dy_cog = float(car_params.imu_y)
+        a_x, a_y = IMUSimulator.body_acceleration_at_imu(
+            v_x,
+            v_y,
+            av_z,
+            float(prev_state[LINEAR_VEL_X_IDX]),
+            float(prev_state[LINEAR_VEL_Y_IDX]),
+            float(prev_state[ANGULAR_VEL_Z_IDX]),
+            dx_cog,
+            dy_cog,
+            dt,
+        )
+        quat_w, quat_x, quat_y, quat_z = IMUSimulator._yaw_to_quaternion(yaw)
+        return {
+            "imu_a_x": a_x,
+            "imu_a_y": a_y,
+            "imu_a_z": float(car_params.g),
+            "imu_gyro_x": 0.0,
+            "imu_gyro_y": 0.0,
+            "imu_gyro_z": av_z,
+            "imu_roll": 0.0,
+            "imu_pitch": 0.0,
+            "imu_yaw": yaw,
+            "imu_quat_w": quat_w,
+            "imu_quat_x": quat_x,
+            "imu_quat_y": quat_y,
+            "imu_quat_z": quat_z,
+        }
+
     def _set_last_kinematics(self, car_state):
         car_state = np.asarray(car_state)
         v_x = (

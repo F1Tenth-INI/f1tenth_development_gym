@@ -1,7 +1,7 @@
 import yaml
 import numpy as np
 from tqdm import trange
-from typing import Optional
+from typing import Any, Optional
 import importlib
                 
 import os
@@ -79,7 +79,9 @@ class CarSystem:
 
 
         self.driver_observation = None
-        self.imu_data = IMUUtilities.zeros_dict()
+        self.controller_observation = None
+        self.imu = IMUUtilities.zeros_dict()
+        self.motor_sensors = {}
         
         
         ### Utilities 
@@ -191,6 +193,8 @@ class CarSystem:
     def reset(self):
         self.car_state = None
         self.driver_observation = None
+        self.imu = IMUUtilities.zeros_dict()
+        self.motor_sensors = {}
         self.laptimes = []
 
         self.control_index = 0
@@ -236,10 +240,12 @@ class CarSystem:
         ranges = np.array(ranges)
         self.lidar_utils.update_ranges(ranges, self.car_state)
 
-    def set_imu(self, imu):
-        self.imu_data = IMUUtilities.coerce_dict(imu)
+    def set_sensors(self, sensors):
+        """Store raw sensor readings from driver_obs['sensors']."""
+        self.imu = sensors["imu"]
+        self.motor_sensors = sensors["motor_sensors"]
         if self.planner is not None:
-            self.planner.imu_data = self.imu_data
+            self.planner.imu_data = self.imu
 
     def render(self, e):
         if Settings.RENDER_MODE is not None:
@@ -247,27 +253,42 @@ class CarSystem:
 
     def _apply_observation(self, observation):
         self.driver_observation = observation
-        imu = observation.get("imu")
-        car_state = observation.get("car_state")
-        ranges = observation.get("scans")
-
-        self.set_car_state(car_state)
-        self.set_scans(ranges)
-        self.set_imu(imu)
+        # `driver_obs` is expected to always contain these fields.
+        scans = observation["scans"]
+        sensors = observation["sensors"]
+        self.set_car_state(observation["car_state"])
+        self.set_scans(scans)
+        self.set_sensors(sensors)
         self.set_waypoints()
+
+    def _build_controller_observation(self):
+        """Build planner-facing observation from current driver context."""
+        state_history = np.asarray(self.car_state_history, dtype=np.float32)
+        control_history = np.asarray(self.control_history, dtype=np.float32)
+        frenet_coordinates = np.asarray(
+            self.waypoint_utils.frenet_coordinates, dtype=np.float32
+        )
+        return {
+            "car_obs": self.driver_observation,
+            "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "state_history": state_history,
+            "control_history": control_history,
+            "frenet_coordinates": frenet_coordinates,
+        }
 
     def process_observation(self, observation=None, env_state=None):
                 
         # Control step
-        # observation bundles car-specific state, lidar (scans), and imu.
-        # env_state is an optional full-environment snapshot (all cars + world).
-        # Most planners ignore env_state; some custom controllers may read it.
+        # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
+        # env_state is an optional full-environment snapshot (sim multi-agent only).
         self.env_state = env_state
         self._apply_observation(observation)
         
         if self.planner is not None:
             setattr(self.planner, "env_state", env_state)
             setattr(self.planner, "observation", self.driver_observation)
+            self.controller_observation = self._build_controller_observation()
+            setattr(self.planner, "controller_observation", self.controller_observation)
      
 
         if self.planner is not None:
@@ -287,6 +308,9 @@ class CarSystem:
         
         # Add noise to control
         self.angular_control, self.translational_control = self.add_control_noise(np.array([self.angular_control, self.translational_control]))
+        self.control_history.append(
+            np.array([self.angular_control, self.translational_control], dtype=np.float32)
+        )
         
         self.process_data_post_control()
         
@@ -401,10 +425,7 @@ class CarSystem:
             'speed': car_state[LINEAR_VEL_X_IDX],
             'Wp_idx': self.waypoint_utils.nearest_waypoint_index,
         }
-        imu = (self.driver_observation or {}).get("imu")
-        label_dict.update(IMUUtilities.overlay_label_dict(
-            IMUUtilities.coerce_dict(imu) if imu is not None else self.imu_data
-        ))
+        label_dict.update(IMUUtilities.overlay_label_dict(self.imu))
         for name, value in (self.reward_components or {}).items():
             label_dict[f'reward: {name}'] = float(value)
         label_dict['reward: total'] = float(self.reward)

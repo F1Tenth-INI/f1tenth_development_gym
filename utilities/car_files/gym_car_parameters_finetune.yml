@@ -49,3 +49,7 @@ steering_multiplier: 1.0
 # IMU mount in body frame relative to rear axle (x forward, y left)
 imu_x: 0.15
 imu_y: 0.0
+
+wheel_radius: 0.05  # drive wheel radius [m]
+motor_current_gain: 1.5  # motor current model gain [A/(m/s)]
+motor_current_max_a: 15.0  # motor current saturation [A]

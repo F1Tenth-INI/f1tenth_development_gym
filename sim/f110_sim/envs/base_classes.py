@@ -43,7 +43,6 @@ from f110_sim.envs.collision_models import get_vertices, collision_multiple
 from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.imu_simulator import IMUSimulator
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -522,8 +521,6 @@ class Simulator(object):
         self.agent_poses = np.empty((self.num_agents, 3))
         self.agents = []
         self.agent_scans = []
-        self.agent_imus = []
-        self.agent_imu_simulators = [IMUSimulator() for _ in range(self.num_agents)]
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
         self.sim_index = 0
@@ -542,12 +539,6 @@ class Simulator(object):
 
     def _simulate_lidar_for_agent(self, agent_index):
         return agent_index == self.ego_idx or Settings.OPPONENTS_SIMULATE_LIDAR
-
-    def _simulate_imu_for_agent(self, agent_index, car_state):
-        """Compute IMU reading from the current car state (one simulator per agent)."""
-        return self.agent_imu_simulators[agent_index].update_car_state(
-            car_state, self.time_step
-        )
 
     def set_map(self, map_path, map_ext):
         """
@@ -607,20 +598,18 @@ class Simulator(object):
 
     def get_sim_observation(self):
         """
-        Returns a dictionary containing car states, scans, IMU data, and collisions for all agents.
+        Returns a dictionary containing car states, scans, and collisions.
 
         Returns:
             obs (dict): observation dictionary with keys:
                 'car_states': np.ndarray of shape (num_agents, state_dim)
                 'scans': list of np.ndarray, each scan for an agent
-                'imus': list of np.ndarray, each IMU data for an agent [accel_x, accel_y, angular_vel_z]
                 'collisions': np.ndarray of shape (num_agents, )
         """
         car_states = np.array([agent.state for agent in self.agents])
         obs = {
             'car_states': car_states,
             'scans': self.agent_scans,
-            'imus': self.agent_imus,
             'collisions': self.collisions.copy(),
             'terminated': self.sim_index >= Settings.EXPERIMENT_MAX_LENGTH,
             'ego_idx': self.ego_idx,
@@ -640,7 +629,6 @@ class Simulator(object):
 
 
         agent_scans = []
-        agent_imus = []
 
         # looping over agents
         for i, agent in enumerate(self.agents):
@@ -654,12 +642,8 @@ class Simulator(object):
             pos_y = agent.state[POSE_Y_IDX]
             yaw = agent.state[POSE_THETA_IDX]
             self.agent_poses[i, :] = np.append([pos_x, pos_y], yaw)
-            
-            imu_data = self._simulate_imu_for_agent(i, agent.state)
-            agent_imus.append(imu_data)
-            
+
         self.agent_scans = agent_scans
-        self.agent_imus = agent_imus
 
         # check collisions between all agents
         self.check_collision()
@@ -678,8 +662,6 @@ class Simulator(object):
                 self.collisions[i] = 1.0
        
 
-        # fill in observations
-        # state is [x, y, steer_angle, vel, yaw_angle, yaw_rate, slip_angle]
         observations = self.get_sim_observation()
         self.sim_index += 1
         return observations
@@ -701,14 +683,10 @@ class Simulator(object):
 
         # Reset all agents
         self.agent_scans = []
-        self.agent_imus = []
-        
+
         # Clear collision flags
         self.collisions = np.zeros((self.num_agents, ))
         self.collision_idx = -1 * np.ones((self.num_agents, ))
-        
-        for imu_sim in self.agent_imu_simulators:
-            imu_sim.reset()
 
         for i in range(self.num_agents):
             agent = self.agents[i]
@@ -720,9 +698,6 @@ class Simulator(object):
             else:
                 current_scan = agent.scan_placeholder
             self.agent_scans.append(current_scan)
-            
-            imu_data = self._simulate_imu_for_agent(i, agent.state)
-            self.agent_imus.append(imu_data)
 
         obs = self.get_sim_observation()
         return obs

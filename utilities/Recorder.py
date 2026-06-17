@@ -4,6 +4,8 @@ from SI_Toolkit.General.data_manager import DataManager
 from SI_Toolkit.Functions.FunctionalDict import FunctionalDict
 import json as JSON
 from utilities.Settings import Settings
+from utilities.imu_utilities import IMUUtilities
+from utilities.motor_sensor_simulator import MotorSensorSimulator
 from utilities.state_utilities import STATE_VARIABLES
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
 from utilities.csv_logger import create_csv_file_name, create_csv_header, create_csv_file
@@ -162,10 +164,13 @@ def get_basic_data_dict(driver, sim_obs=None):
     next_waypoints_dict = get_next_waypoints_dict(driver)
     next_waypoints_relative_dict = get_next_waypoints_relative_dict(driver)
 
-    imu_data = getattr(driver, 'imu_data', None) or {}
     imu_dict = {
-        key: (lambda k=key: float(driver.imu_data.get(k, 0.0)))
-        for key in imu_data
+        key: (lambda k=key: float(driver.imu.get(k, 0.0)))
+        for key in IMUUtilities.IMU_DICT_KEYS
+    }
+    sensor_dict = {
+        key: (lambda k=key: float(driver.motor_sensors.get(k, 0.0)))
+        for key in MotorSensorSimulator.MOTOR_SENSOR_KEYS
     }
     
     
@@ -192,6 +197,7 @@ def get_basic_data_dict(driver, sim_obs=None):
         **next_waypoints_dict,
         **next_waypoints_relative_dict,
         **imu_dict,
+        **sensor_dict,
         **angular_control_dict,
         **translational_control_dict
     }

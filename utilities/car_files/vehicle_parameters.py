@@ -37,6 +37,9 @@ class VehicleParameters:
     steering_multiplier: float  # Scales commanded steering angle (values < 1 reduce steering)
     imu_x: float  # IMU offset from rear axle, body x forward [m]
     imu_y: float  # IMU offset from rear axle, body y left [m]
+    wheel_radius: float  # Drive wheel radius [m]
+    motor_current_gain: float  # Motor current model gain [A/(m/s)]
+    motor_current_max_a: float  # Motor current saturation [A]
 
     def __init__(self, param_file_name='gym_car_parameters.yml'):
         class_variable_names = list(VehicleParameters.__annotations__.keys())
