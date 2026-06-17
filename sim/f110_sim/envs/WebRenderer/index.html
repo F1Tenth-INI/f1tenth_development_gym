@@ -379,6 +379,8 @@
     let inflightFetches = 0;
     let clientSessionId = null;
     let zoom = 60.0; // pixels per meter
+    let carLengthM = 0.58;
+    let carWidthM = 0.31;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -1484,6 +1486,18 @@
       }
     }
 
+    async function loadUiConfig() {
+      try {
+        const r = await fetch("/ui-config", { cache: "no-store" });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
+        if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+      } catch (e) {
+        // Keep defaults when ui-config is unavailable.
+      }
+    }
+
     async function loadMap() {
       try {
         const r = await fetch("/map");
@@ -1774,8 +1788,8 @@
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = 0.58 * zoom;
-          const carWid = 0.31 * zoom;
+          const carLen = carLengthM * zoom;
+          const carWid = carWidthM * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
@@ -2044,6 +2058,7 @@
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
     resizeCanvas();
+    loadUiConfig();
     loadMap();
     loadStaticOverlay();
     startHistoryPolling();

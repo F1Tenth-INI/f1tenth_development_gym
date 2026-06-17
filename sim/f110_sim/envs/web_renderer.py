@@ -127,6 +127,8 @@ HTML_PAGE = """<!doctype html>
     let inflightFetches = 0;
     let clientSessionId = null;
     let zoom = 60.0; // pixels per meter
+    let carLengthM = 0.58;
+    let carWidthM = 0.31;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -597,6 +599,18 @@ HTML_PAGE = """<!doctype html>
       }
     }
 
+    async function loadUiConfig() {
+      try {
+        const r = await fetch("/ui-config", { cache: "no-store" });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
+        if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+      } catch (e) {
+        // Keep defaults when ui-config is unavailable.
+      }
+    }
+
     async function loadMap() {
       try {
         const r = await fetch("/map");
@@ -825,8 +839,8 @@ HTML_PAGE = """<!doctype html>
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = 0.58 * zoom;
-          const carWid = 0.31 * zoom;
+          const carLen = carLengthM * zoom;
+          const carWid = carWidthM * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
@@ -1024,6 +1038,7 @@ HTML_PAGE = """<!doctype html>
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
     resizeCanvas();
+    loadUiConfig();
     loadMap();
     loadStaticOverlay();
     startHistoryPolling();
@@ -1320,13 +1335,19 @@ class WebEnvRenderer:
 
     @staticmethod
     def _build_ui_config() -> Dict[str, Any]:
+        car_length = 0.58
+        car_width = 0.31
         try:
             from utilities.Settings import Settings
+            from utilities.car_files.vehicle_parameters import VehicleParameters
 
             controller = str(getattr(Settings, "CONTROLLER", "") or "")
             metrics_enabled = bool(getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True))
             metrics_port = int(getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 5556))
             open_default = bool(getattr(Settings, "SAC_METRICS_PANEL_OPEN_DEFAULT", False))
+            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            car_length = float(car_params.length)
+            car_width = float(car_params.width)
         except Exception:
             controller = ""
             metrics_enabled = False
@@ -1339,6 +1360,8 @@ class WebEnvRenderer:
             "show_sac_metrics": show_sac_metrics,
             "metrics_port": metrics_port,
             "metrics_panel_open_default": open_default and show_sac_metrics,
+            "car_length": car_length,
+            "car_width": car_width,
         }
 
     def _load_html_page(self) -> str:
