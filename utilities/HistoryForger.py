@@ -427,7 +427,20 @@ class HistoryForger:
                 next_wps_interp = waypoint_utils.get_interpolated_waypoints(
                     past_next_waypoints, interpolate_local_wp
                 )
-                planner.process_observation(ranges_, past_car_state)
+                if planner.lidar_utils is not None:
+                    planner.lidar_utils.update_ranges(np.asarray(ranges_, dtype=np.float64), past_car_state)
+                    processed_ranges = np.asarray(planner.lidar_utils.processed_ranges, dtype=np.float32)
+                    lidar_points = planner.lidar_utils.processed_points_map_coordinates
+                else:
+                    processed_ranges = np.asarray(ranges_, dtype=np.float32)
+                    lidar_points = None
+                controller_observation = {
+                    "car_state": past_car_state,
+                    "next_waypoints": next_wps_interp,
+                    "processed_ranges": processed_ranges,
+                    "lidar_points": lidar_points,
+                }
+                planner.process_observation(controller_observation)
 
             # Optionally update rendering or debugging
             render_utils.update(

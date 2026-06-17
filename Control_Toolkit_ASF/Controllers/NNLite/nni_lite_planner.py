@@ -41,18 +41,20 @@ class NNLitePlanner(template_planner):
         self.mu_predicted = 0
         self.predicted_frictions = []
 
-    def process_observation(self):
+    def process_observation(self, controller_observation):
+        car_state = self.get_car_state(controller_observation)
+        next_waypoints = controller_observation["next_waypoints"]
+        processed_ranges = controller_observation["processed_ranges"]
         
-        
-        self.car_state_history.append(self.car_state)
+        self.car_state_history.append(car_state)
         if len(self.predicted_frictions) > 100:
             self.car_state_history.pop(0)
         
         # Waypoint dict
-        waypoints_relative = WaypointUtils.get_relative_positions(self.waypoints, self.car_state)
+        waypoints_relative = WaypointUtils.get_relative_positions(next_waypoints, car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
         waypoints_relative_y = waypoints_relative[:, 1]
-        next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
+        next_waypoint_vx = next_waypoints[:, WP_VX_IDX]
         
         # print("waypoints_relative", waypoints_relative)
         # print("next_waypoint_vx", next_waypoint_vx)
@@ -67,7 +69,9 @@ class NNLitePlanner(template_planner):
         
         # print(self.car_state[ANGULAR_VEL_Z_IDX], self.car_state[LINEAR_VEL_X_IDX], self.car_state[STEERING_ANGLE_IDX])
         
-        controls = self.control_predictor.predict_next_control(self.car_state, waypoints_relative, self.waypoints, self.LIDAR.processed_ranges)
+        controls = self.control_predictor.predict_next_control(
+            car_state, waypoints_relative, next_waypoints, processed_ranges
+        )
         
         # control = controls[0]
         control = controls

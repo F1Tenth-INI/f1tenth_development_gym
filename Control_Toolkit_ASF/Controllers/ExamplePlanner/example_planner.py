@@ -33,13 +33,11 @@ class ExamplePlanner(template_planner):
 
     # This function is called every control step
     # State and sensor data is already updated in the car system
-    def process_observation(self):
-        
-        
-        waypoints = self.waypoint_utils.next_waypoints
-        scans = self.lidar_utils.processed_ranges
-        print(f'Example planners first waypoint: {waypoints[0]} ')
-        print(f'Example planners first scan: {scans[0]} ')
+    def process_observation(self, controller_observation):
+        next_waypoints = controller_observation["next_waypoints"]
+        processed_ranges = controller_observation["processed_ranges"]
+        print(f'Example planners first waypoint: {next_waypoints[0]} ')
+        print(f'Example planners first scan: {processed_ranges[0]} ')
         
         self.angular_control = 0
         self.translational_control = 1

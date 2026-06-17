@@ -181,11 +181,11 @@ class RPGDPlanner(template_planner):
         )
         print(f"JAX functions compiled and ready for execution on {self.default_device}!")
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self, controller_observation):
         # Ensure all data is on the default device
         with jax.default_device(self.default_device):
-            s = jnp.array(self.car_state, dtype=jnp.float32)
-            waypoints = jnp.array(self.waypoint_utils.next_waypoints, dtype=jnp.float32)
+            s = jnp.array(self.get_car_state(controller_observation), dtype=jnp.float32)
+            waypoints = jnp.array(controller_observation["next_waypoints"], dtype=jnp.float32)
 
             self.key, subkey = jax.random.split(self.key)
             

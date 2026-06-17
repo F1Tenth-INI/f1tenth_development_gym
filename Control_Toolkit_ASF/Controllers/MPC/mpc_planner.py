@@ -100,9 +100,10 @@ class mpc_planner(template_planner):
         self.obstacles =  ObstacleDetector.get_fixed_length_obstacle_array(obstacles)
 
 
-    def process_observation(self):
-
-        self.lidar_points = self.lidar_utils.processed_points_map_coordinates
+    def process_observation(self, controller_observation):
+        car_state = self.get_car_state(controller_observation)
+        next_waypoints = controller_observation["next_waypoints"]
+        lidar_points = controller_observation["lidar_points"]
 
         # Startup ramp before MPC (ST/ODE unstable at v_x ≈ 0). Skip optimizer so warm-start is not wiped.
         if self.simulation_index < Settings.ACCELERATION_TIME:
@@ -111,12 +112,12 @@ class mpc_planner(template_planner):
             self.translational_control = Settings.ACCELERATION_AMPLITUDE
             return self.angular_control, self.translational_control
 
-        angular_control, translational_control  = self.mpc.step(self.car_state,
+        angular_control, translational_control  = self.mpc.step(car_state,
                                                                self.time,
                                                                {
                                                                    "obstacles": self.obstacles,
-                                                                   "lidar_points": self.lidar_points,
-                                                                   "next_waypoints": self.waypoint_utils.next_waypoints,
+                                                                   "lidar_points": lidar_points,
+                                                                   "next_waypoints": next_waypoints,
                                                                    "target_point": self.target_point,
                                                                    "mu": self.mu,
                                                                })

@@ -230,8 +230,6 @@ class CarSystem:
     def set_car_state(self, car_state):
         self.car_state = car_state
         self.car_state_history.append(car_state)
-        if self.planner is not None:
-            self.planner.car_state = self.car_state
 
 
     def set_scans(self, ranges):
@@ -244,8 +242,6 @@ class CarSystem:
         """Store raw sensor readings from driver_obs['sensors']."""
         self.imu = sensors["imu"]
         self.motor_sensors = sensors["motor_sensors"]
-        if self.planner is not None:
-            self.planner.imu_data = self.imu
 
     def render(self, e):
         if Settings.RENDER_MODE is not None:
@@ -261,38 +257,43 @@ class CarSystem:
         self.set_sensors(sensors)
         self.set_waypoints()
 
-    def _build_controller_observation(self):
+    def _build_controller_observation(
+        self, driver_observation: dict[str, Any], env_state: Optional[dict[str, Any]] = None
+    ):
         """Build planner-facing observation from current driver context."""
         state_history = np.asarray(self.car_state_history, dtype=np.float32)
         control_history = np.asarray(self.control_history, dtype=np.float32)
         frenet_coordinates = np.asarray(
             self.waypoint_utils.frenet_coordinates, dtype=np.float32
         )
-        return {
-            "car_obs": self.driver_observation,
+        controller_observation = {
+            **(driver_observation),
+            "env_state": env_state,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
             "state_history": state_history,
             "control_history": control_history,
             "frenet_coordinates": frenet_coordinates,
         }
+        if not self.lightweight_mode:
+            controller_observation["processed_ranges"] = np.asarray(
+                self.lidar_utils.processed_ranges, dtype=np.float32
+            )
+            controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
+        return controller_observation
 
-    def process_observation(self, observation=None, env_state=None):
+    def process_observation(self, driver_observation, env_state=None):
                 
         # Control step
         # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
         # env_state is an optional full-environment snapshot (sim multi-agent only).
         self.env_state = env_state
-        self._apply_observation(observation)
-        
-        if self.planner is not None:
-            setattr(self.planner, "env_state", env_state)
-            setattr(self.planner, "observation", self.driver_observation)
-            self.controller_observation = self._build_controller_observation()
-            setattr(self.planner, "controller_observation", self.controller_observation)
-     
+        self._apply_observation(driver_observation)
 
         if self.planner is not None:
-            self.angular_control, self.translational_control = self.planner.process_observation()
+            controller_observation = self._build_controller_observation(driver_observation, env_state)
+            self.angular_control, self.translational_control = self.planner.process_observation(
+                controller_observation
+            )
 
             # MPC delay compensation: only when a control sequence exists (not during startup ramp).
             if getattr(self.planner, 'optimal_control_sequence', None) is not None:
@@ -492,7 +493,15 @@ class CarSystem:
         
         if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
             next_interpolated_waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoint_utils.next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-            self.waypoints_planner.process_observation()
+            self.waypoints_planner.lidar_utils = self.lidar_utils
+            driver_obs = self.driver_observation if self.driver_observation is not None else {"car_state": self.car_state}
+            controller_observation = {
+                **driver_obs,
+                "next_waypoints": next_interpolated_waypoints,
+                "processed_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+                "lidar_points": self.lidar_utils.processed_points_map_coordinates,
+            }
+            self.waypoints_planner.process_observation(controller_observation)
             optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
             if optimal_trajectory is not None:
                 self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]

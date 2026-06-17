@@ -66,28 +66,17 @@ class PurePursuitPlanner(template_planner):
  
         
         
-    def process_observation(self):
-        """
-        gives actuation given observation
-        @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-        @ ego_odom: A dict with following indices:
-        {
-            'pose_x': float,
-            'pose_y': float,
-            'pose_theta': float,
-            'linear_vel_x': float,
-            'linear_vel_y': float,
-            'angular_vel_z': float,
-        }
-        """
+    def process_observation(self, controller_observation):
+        car_state = self.get_car_state(controller_observation)
+        next_waypoints = controller_observation["next_waypoints"]
 
-        pose_x = self.car_state[POSE_X_IDX]
-        pose_y = self.car_state[POSE_Y_IDX]
-        pose_theta = self.car_state[POSE_THETA_IDX]
-        v_x = self.car_state[LINEAR_VEL_X_IDX]
+        pose_x = car_state[POSE_X_IDX]
+        pose_y = car_state[POSE_Y_IDX]
+        pose_theta = car_state[POSE_THETA_IDX]
+        v_x = car_state[LINEAR_VEL_X_IDX]
 
         position = np.array([pose_x, pose_y], dtype=np.float32).copy()
-        waypoints = self.waypoint_utils.next_waypoints
+        waypoints = next_waypoints
         
         if(Settings.PP_VEL2LOOKAHEAD):
             self.lookahead_distance = v_x * Settings.PP_VEL2LOOKAHEAD
@@ -95,7 +84,7 @@ class PurePursuitPlanner(template_planner):
         self.lookahead_distance = np.clip(self.lookahead_distance, a_min=(0.7), a_max=None)
 
         # Needs too much time
-        lookahead_point, i, i2 = get_current_waypoint(self.waypoint_utils.next_waypoints, self.lookahead_distance, position, pose_theta)
+        lookahead_point, i, i2 = get_current_waypoint(next_waypoints, self.lookahead_distance, position, pose_theta)
         if waypoints[i, WP_VX_IDX] < 0:
             index_switch = 1
             for idx in range(1, len(waypoints[i:])):

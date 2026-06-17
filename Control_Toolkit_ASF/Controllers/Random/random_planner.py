@@ -23,7 +23,7 @@ class random_planner:
             self.end_translational_control = 6.0
             self.ramp = (self.end_translational_control - self.start_translational_control) / Settings.EXPERIMENT_LENGTH
 
-    def process_observation(self, ranges, ego_odom):
+    def process_observation(self, controller_observation):
         if self.strategy == 'constant':
             angular_control = self.angular_control
             translational_control = self.translational_control

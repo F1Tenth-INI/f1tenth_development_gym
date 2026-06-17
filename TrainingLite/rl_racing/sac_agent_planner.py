@@ -184,11 +184,12 @@ class RLAgentPlanner(template_planner):
         self.prev_translational_control = 0.0
         # do not clear self._episode here; do it on episode end
 
-    def process_observation(self, ranges=None, ego_odom=None, observation=None):
+    def process_observation(self, controller_observation):
+        self._controller_observation = controller_observation
         self._maybe_handle_server_terminate()
 
         if not self.autonomous_driving:
-            return self._fallback_action()
+            return self._fallback_action(controller_observation)
         
         sd_to_load = self._sync_from_server()
         if self.observation_builder_fn is None:
@@ -204,11 +205,11 @@ class RLAgentPlanner(template_planner):
             self.prev_translational_control = 0.0
             return 0.0, 0.0
 
-        self.fallback_action = self._fallback_action()
+        self.fallback_action = self._fallback_action(controller_observation)
 
 
         # --- build raw obs (manual normalization happens inside) ---
-        raw_obs = self._build_observation()
+        raw_obs = self._build_observation(controller_observation)
         self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
         action = self._select_action(raw_obs)
@@ -243,7 +244,7 @@ class RLAgentPlanner(template_planner):
         self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
-        self.state_history.append(self.car_state)
+        self.state_history.append(self.get_car_state(controller_observation))
         
         self.control_index += 1
         return self.angular_control, self.translational_control
@@ -264,7 +265,7 @@ class RLAgentPlanner(template_planner):
             return  # first step guard
 
 
-        next_obs = self._build_observation()
+        next_obs = self._build_observation(getattr(self, "_controller_observation", None))
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
@@ -343,55 +344,61 @@ class RLAgentPlanner(template_planner):
         finally:
             self.close()
     
-    def _fallback_action(self) -> np.ndarray:
+    def _fallback_action(self, controller_observation=None) -> np.ndarray:
 
         self.fallback_planner.lidar_utils = self.lidar_utils
-        self.fallback_planner.car_state = self.car_state
         self.fallback_planner.waypoint_utils = self.waypoint_utils
 
-        fallback_control = self.fallback_planner.process_observation()
+        if controller_observation is None:
+            controller_observation = getattr(self, "_controller_observation", None)
+        fallback_control = self.fallback_planner.process_observation(controller_observation)
         fallback_action = fallback_control / self.action_denormalization_array
         # return [0., 0.]
         return fallback_action
 
   
     
-    def _build_super_observation(self) -> Dict[str, np.ndarray]:
+    def _build_super_observation(self, controller_observation=None) -> Dict[str, np.ndarray]:
         """ 
         Builds the super observation dictionary.
         This dict should contain all the information that the observation available in the environment.
         This dict is then used to build the observation array for the policy.
         """
-        car_state = self.car_state
+        if controller_observation is None:
+            controller_observation = getattr(self, "_controller_observation", None)
+        car_state = self.get_car_state(controller_observation)
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
-        state_history = np.asarray(list(self.state_history), dtype=np.float32)
-
-        # Get border points relative to the car's position
-        border_points = self.waypoint_utils.get_track_border_positions_relative(
-            self.waypoint_utils.next_waypoints, car_state
+        state_history = np.asarray(
+            controller_observation["state_history"] if controller_observation is not None else list(self.state_history),
+            dtype=np.float32,
         )
 
-        fallback_action = self._fallback_action()
+        next_waypoints = np.asarray(controller_observation["next_waypoints"], dtype=np.float32)
+        border_points = self.waypoint_utils.get_track_border_positions_relative(
+            next_waypoints, car_state
+        )
+
+        fallback_action = self._fallback_action(controller_observation)
         return {
-            "car_state": self.car_state,
+            "car_state": car_state,
             "state_history": state_history,
-            "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "next_waypoints": next_waypoints,
             "border_points": np.asarray(border_points, dtype=np.float32),
-            "lidar_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+            "lidar_ranges": np.asarray(controller_observation["processed_ranges"], dtype=np.float32),
             "last_actions": np.asarray(last_actions, dtype=np.float32),
-            "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
+            "frenet_coordinates": np.asarray(controller_observation["frenet_coordinates"], dtype=np.float32),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
             "pp_action": np.asarray(fallback_action, dtype=np.float32),
             "fallback_action": np.asarray(fallback_action, dtype=np.float32),
         }
 
-    def _build_observation(self) -> np.ndarray:
+    def _build_observation(self, controller_observation=None) -> np.ndarray:
         if self.observation_builder_fn is None:
             raise RuntimeError(
                 "No observation builder loaded from model folder. "
                 "Expected '<model_dir>/client/observation_builder.py'."
             )
-        super_obs = self._build_super_observation()
+        super_obs = self._build_super_observation(controller_observation)
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
 
