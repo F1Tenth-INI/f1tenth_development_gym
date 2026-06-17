@@ -47,9 +47,9 @@ class RacingSimulation:
 
         self.sim_index = 0
 
-        self.obs = {}
-        # Single snapshot object representing the "whole environment" at the
-        # current timestep: all car states + simulation/observation data.
+        self.sim_obs = {}
+        # Full-environment snapshot at the current control timestep: car states
+        # (from world_sim), controls, and world-sim outputs (scans, collisions).
         # Updated in `_update_state_history()`.
         self.env_state = {}
         self.step_reward = 0
@@ -60,7 +60,7 @@ class RacingSimulation:
         self.control_delay_buffer = []
 
         self.env = None
-        self.sim : Optional[Simulator] = None
+        self.world_sim: Optional[Simulator] = None
         self.laptime = 0.0
         self.initial_states = None
 
@@ -84,7 +84,7 @@ class RacingSimulation:
         # State history for respawn functionality
         self.state_history = []  # Store last N timesteps of simulation state
         self.control_history = []  # Store last N timesteps of control inputs
-        self.obs_history = []  # Store last N timesteps of observations
+        self.sim_obs_history = []  # Store last N timesteps of world-sim outputs
         self.sim_time_history = []  # Store last N timesteps of simulation time
         self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
@@ -190,11 +190,11 @@ class RacingSimulation:
         num_agents = 1 + Settings.NUMBER_OF_OPPONENTS
         seed = 12345
 
-        # Initialize Simulator
-        self.sim = Simulator(env_car_parameters, num_agents, seed)
+        # Initialize physics world simulator
+        self.world_sim = Simulator(env_car_parameters, num_agents, seed)
 
         # Set the map
-        self.sim.set_map(Settings.MAP_CONFIG_FILE, ".png")
+        self.world_sim.set_map(Settings.MAP_CONFIG_FILE, ".png")
         
     '''
     Initialize the drivers (car_systems) for the simulation:
@@ -261,7 +261,7 @@ class RacingSimulation:
 
         initial_states = self.get_initial_states()
 
-        self.obs = self.sim.reset(initial_states=initial_states)
+        self.sim_obs = self.world_sim.reset(initial_states=initial_states)
         for i in range(self.number_of_drivers):
             driver : CarSystem = self.drivers[i]
             driver.reset()
@@ -269,7 +269,7 @@ class RacingSimulation:
         # Clear state history on full reset
         self.state_history.clear()
         self.control_history.clear()
-        self.obs_history.clear()
+        self.sim_obs_history.clear()
         self.sim_time_history.clear()
         self.sim_index_history.clear()
 
@@ -298,7 +298,7 @@ class RacingSimulation:
         Same structure as the external ROS bridge: car_state, scans,
         scalar sensors (imu, drivetrain, ...), and env parameters.
         """
-        agent = self.sim.agents[driver_index]
+        agent = self.world_sim.agents[driver_index]
 
         if car_state is None:
             car_state = agent.state.copy()
@@ -313,9 +313,9 @@ class RacingSimulation:
             state, prev_state, control, self.env_car_parameters, dt=Settings.TIMESTEP_SIM
         )
 
-        scans = self.obs['scans'][driver_index]
-        collision = bool(agent.in_collision) or bool(self.obs['collisions'][driver_index])
-        terminated = self.obs['terminated']
+        scans = self.sim_obs['scans'][driver_index]
+        collision = bool(agent.in_collision) or bool(self.sim_obs['collisions'][driver_index])
+        terminated = self.sim_obs['terminated']
        
         # Build observation dict
         observation = {
@@ -354,7 +354,7 @@ class RacingSimulation:
             self.control_delay_buffer.append(agent_controls)        
             agent_controls_execute  = self.control_delay_buffer.pop(0)
 
-            self.obs = self.sim.step(np.array(agent_controls_execute))
+            self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
             self.sim_time += Settings.TIMESTEP_SIM
             self.episode_index += 1
 
@@ -395,22 +395,25 @@ class RacingSimulation:
 
         # End of controller time step
 
+    def _get_car_states(self):
+        """Car poses from the physics world (single source of truth)."""
+        return [self.world_sim.agents[i].state.copy() for i in range(self.number_of_drivers)]
+
     def _build_env_state_snapshot(self):
-        """Collect a single intuitive snapshot of the full environment."""
-        car_states = [self.sim.agents[i].state.copy() for i in range(self.number_of_drivers)]
+        """Collect a single snapshot of the full race environment."""
+        sim_obs_copy = self.sim_obs.copy() if self.sim_obs is not None else {}
         controls = []
         for i in range(self.number_of_drivers):
             if hasattr(self.drivers[i], 'angular_control') and hasattr(self.drivers[i], 'translational_control'):
                 controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
             else:
                 controls.append([0.0, 0.0])
-        obs_copy = self.obs.copy() if self.obs is not None else {}
         return {
             "time": float(self.sim_time),
             "sim_index": int(self.episode_index),
-            "car_states": car_states,
+            "car_states": self._get_car_states(),
             "controls": controls,
-            "obs": obs_copy,
+            "sim_obs": sim_obs_copy,
         }
 
     def _update_state_history(self):
@@ -418,12 +421,12 @@ class RacingSimulation:
         self.env_state = self._build_env_state_snapshot()
         current_states = self.env_state["car_states"]
         current_controls = self.env_state["controls"]
-        current_obs = self.env_state["obs"]
+        current_sim_obs = self.env_state["sim_obs"]
         
         # Add to history
         self.state_history.append(current_states)
         self.control_history.append(current_controls)
-        self.obs_history.append(current_obs)
+        self.sim_obs_history.append(current_sim_obs)
         self.sim_time_history.append(self.sim_time)
         self.sim_index_history.append(self.episode_index)
         
@@ -431,7 +434,7 @@ class RacingSimulation:
         if len(self.state_history) > self.RESPAWN_HISTORY_LENGTH:
             self.state_history.pop(0)
             self.control_history.pop(0)
-            self.obs_history.pop(0)
+            self.sim_obs_history.pop(0)
             self.sim_time_history.pop(0)
             self.sim_index_history.pop(0)
 
@@ -445,7 +448,7 @@ class RacingSimulation:
         # Get state from N timesteps ago (first entry in history)
         respawn_states = self.state_history[0]
         respawn_controls = self.control_history[0]
-        respawn_obs = self.obs_history[0]
+        respawn_sim_obs = self.sim_obs_history[0]
         respawn_sim_time = self.sim_time_history[0]
         respawn_sim_index = self.sim_index_history[0]
         
@@ -454,7 +457,7 @@ class RacingSimulation:
         self.sim_time = respawn_sim_time
         
         # Reset simulator to respawn state
-        self.obs = self.sim.reset(initial_states=np.array(respawn_states))
+        self.sim_obs = self.world_sim.reset(initial_states=np.array(respawn_states))
         
         # Reset drivers
         for i in range(self.number_of_drivers):
@@ -462,8 +465,8 @@ class RacingSimulation:
             driver.reset()
             # Set car state to respawn state
             driver.set_car_state(respawn_states[i])
-            if 'scans' in respawn_obs and i < len(respawn_obs['scans']):
-                driver.set_scans(respawn_obs['scans'][i])
+            if 'scans' in respawn_sim_obs and i < len(respawn_sim_obs['scans']):
+                driver.set_scans(respawn_sim_obs['scans'][i])
         
         # Clear control delay buffer and repopulate
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
@@ -473,7 +476,7 @@ class RacingSimulation:
         # Clear state history to prevent respawn loops
         self.state_history.clear()
         self.control_history.clear()
-        self.obs_history.clear()
+        self.sim_obs_history.clear()
         self.sim_time_history.clear()
         self.sim_index_history.clear()
         
@@ -504,15 +507,15 @@ class RacingSimulation:
 
             if Settings.REPLAY_RECORDING:
                 car_state = self.state_recording[self.episode_index]
-                self.sim.agents[index].state = car_state
+                self.world_sim.agents[index].state = car_state
                 driver.car_state_noiseless = car_state
             else:
-                car_state_clean = self.sim.agents[index].state
+                car_state_clean = self.world_sim.agents[index].state
                 if getattr(driver, "lightweight_mode", False):
                     car_state = car_state_clean
                 else:
                     car_state = self.add_state_noise(car_state_clean)
-                    driver.sim_obs = self.obs
+                    driver.sim_obs = self.sim_obs
                 driver.car_state_noiseless = car_state_clean
 
             observation = self.build_driver_observation(index, car_state=car_state)
@@ -532,13 +535,13 @@ class RacingSimulation:
         if self.episode_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
-                    driver.history_forger.update_control_history(self.sim.agents[index].u_pid_with_constrains)
+                    driver.history_forger.update_control_history(self.world_sim.agents[index].u_pid_with_constrains)
 
     def get_state_for_history_forger(self):
         if not Settings.FORGE_HISTORY: return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
-                driver.history_forger.update_state_history(self.sim.agents[index].state)
+                driver.history_forger.update_state_history(self.world_sim.agents[index].state)
 
     
     def on_step_end(self):
@@ -549,15 +552,19 @@ class RacingSimulation:
         
 
     
+    def _build_renderer_obs(self):
+        """Merge world-sim car states with latest sim_obs for render backends."""
+        render_obs = self.sim_obs.copy() if self.sim_obs else {}
+        render_obs['car_states'] = np.array(self._get_car_states())
+        render_obs['simulation_time'] = self.sim_time
+        return render_obs
+
     def render_env(self):
         if Settings.RENDER_MODE == "human":
             time.sleep(0.001)
             
         if self.renderer is not None:
-            render_obs = self.obs.copy()
-            render_obs.update({
-                'simulation_time': self.sim_time,
-            })
+            render_obs = self._build_renderer_obs()
             if self.renderer_backend in ("web", "pygame"):
                 render_obs["web_overlay"] = build_web_overlay(self.drivers)
 

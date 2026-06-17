@@ -285,7 +285,8 @@ class CarSystem:
                 
         # Control step
         # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
-        # env_state is an optional full-environment snapshot (sim multi-agent only).
+        # env_state is an optional full-environment snapshot (sim multi-agent only):
+        # car_states, controls, and world-sim outputs (sim_obs).
         self.env_state = env_state
         self._apply_observation(driver_observation)
 

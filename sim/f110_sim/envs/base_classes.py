@@ -598,23 +598,20 @@ class Simulator(object):
 
     def get_sim_observation(self):
         """
-        Returns a dictionary containing car states, scans, and collisions.
+        Returns world-sim outputs that are not already on agent objects.
+
+        Car poses live on ``self.agents[i].state``; this dict carries lidar,
+        collision flags, and episode termination only.
 
         Returns:
-            obs (dict): observation dictionary with keys:
-                'car_states': np.ndarray of shape (num_agents, state_dim)
-                'scans': list of np.ndarray, each scan for an agent
-                'collisions': np.ndarray of shape (num_agents, )
+            sim_obs (dict): keys ``scans``, ``collisions``, ``terminated``, ``ego_idx``
         """
-        car_states = np.array([agent.state for agent in self.agents])
-        obs = {
-            'car_states': car_states,
+        return {
             'scans': self.agent_scans,
             'collisions': self.collisions.copy(),
             'terminated': self.sim_index >= Settings.EXPERIMENT_MAX_LENGTH,
             'ego_idx': self.ego_idx,
         }
-        return obs
     
     def step(self, control_inputs):
         """
@@ -624,7 +621,7 @@ class Simulator(object):
             control_inputs (np.ndarray (num_agents, 2)): control inputs of all agents, first column is desired steering angle, second column is desired velocity
         
         Returns:
-            observations (dict): dictionary for observations: poses of agents, current laser scan of each agent, collision indicators, etc.
+            sim_obs (dict): lidar scans, collision flags, and termination state.
         """
 
 
@@ -662,9 +659,9 @@ class Simulator(object):
                 self.collisions[i] = 1.0
        
 
-        observations = self.get_sim_observation()
+        sim_obs = self.get_sim_observation()
         self.sim_index += 1
-        return observations
+        return sim_obs
 
     def reset(self, initial_states):
         """
@@ -674,7 +671,7 @@ class Simulator(object):
             initial_states (np.ndarray (num_agents, 3)): initial_states to reset agents to
 
         Returns:
-            obs (dict): initial observation dictionary
+            sim_obs (dict): initial world-sim observation dictionary
         """
 
         self.sim_index = 0
@@ -699,5 +696,4 @@ class Simulator(object):
                 current_scan = agent.scan_placeholder
             self.agent_scans.append(current_scan)
 
-        obs = self.get_sim_observation()
-        return obs
+        return self.get_sim_observation()
