@@ -252,4 +252,6 @@ class RewardCalculator:
         
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-        plt.savefig(os.path.join(save_path, "cumulative_reward_components.png"))
+        output_path = os.path.join(save_path, "cumulative_reward_components.png")
+        plt.savefig(output_path)
+        plt.close(fig)

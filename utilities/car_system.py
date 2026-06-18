@@ -20,7 +20,7 @@ from utilities.waypoint_utils import WaypointUtils
 
 from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
-from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
+from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder, experiment_analysis_path # 25MB
 from utilities.imu_utilities import IMUUtilities
 
 try:
@@ -696,10 +696,6 @@ class CarSystem:
 
         self._simulation_ended = True
 
-        if Settings.SAVE_REWARDS and self.reward_calculator is not None:
-            if self.reward_calculator is not None:
-                self.reward_calculator.plot_history(save_path="./")
-
         if self.recorder is not None:    
 
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
@@ -709,6 +705,15 @@ class CarSystem:
             path_to_plots = None
             if Settings.SAVE_PLOTS:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
+
+                if (
+                    Settings.SAVE_REWARDS
+                    and self.reward_calculator is not None
+                    and len(self.reward_calculator.reward_components_history) > 0
+                ):
+                    self.reward_calculator.plot_history(
+                        save_path=experiment_analysis_path(self.recorder.csv_filepath)
+                    )
 
             if collision:
                 index = min(len(self.car_state_history), 200)
