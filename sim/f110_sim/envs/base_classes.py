@@ -202,7 +202,7 @@ class RaceCar(object):
         # clear collision indicator
         self.in_collision = False
         # clear state
-        self.state = initial_state
+        self.state = normalize_state_yaw(np.asarray(initial_state, dtype=np.float64).copy())
         if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > LINEAR_VEL_X_IDX:
             self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
         

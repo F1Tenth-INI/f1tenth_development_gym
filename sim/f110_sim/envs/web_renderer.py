@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import threading
 import time
@@ -1086,8 +1087,8 @@ class WebEnvRenderer:
         self._state_history = []
         # Keep a larger server-side history so client buffer length
         # is independent from per-request chunk size.
-        self._state_history_max = 600
-        self._history_chunk_size = 50
+        self._state_history_max = 24000
+        self._history_chunk_size = 200
         self._publish_rate_hz = 50.0
         self._last_published_sim_time: Optional[float] = None
         self._frame_id = 0
@@ -1464,6 +1465,10 @@ class WebEnvRenderer:
 
         return self._round_floats(overlay, self._float_precision_digits)
 
+    @staticmethod
+    def _wrap_angle_rad(angle: float) -> float:
+        return float(math.atan2(math.sin(angle), math.cos(angle)))
+
     def render(self, render_obs: Dict[str, Any]):
         car_states = render_obs.get("car_states")
         poses = []
@@ -1471,7 +1476,7 @@ class WebEnvRenderer:
             for state in car_states:
                 x = float(state[POSE_X_IDX])
                 y = float(state[POSE_Y_IDX])
-                theta = float(state[POSE_THETA_IDX])
+                theta = self._wrap_angle_rad(float(state[POSE_THETA_IDX]))
                 if not (np.isfinite(x) and np.isfinite(y) and np.isfinite(theta)):
                     continue
                 poses.append([x, y, theta])
@@ -1480,7 +1485,7 @@ class WebEnvRenderer:
             poses_y = render_obs.get("poses_y", [])
             poses_theta = render_obs.get("poses_theta", [])
             for x, y, theta in zip(poses_x, poses_y, poses_theta):
-                poses.append([float(x), float(y), float(theta)])
+                poses.append([float(x), float(y), self._wrap_angle_rad(float(theta))])
 
         overlay = dict(render_obs.get("web_overlay", {}) or {})
         static_overlay = {}

@@ -43,7 +43,7 @@
     .side-panel {
       position: fixed;
       top: 72px;
-      bottom: 0;
+      bottom: 48px;
       z-index: 40;
       display: flex;
       flex-direction: column;
@@ -251,6 +251,79 @@
       -webkit-user-select: none;
       user-select: none;
     }
+    #replay-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: rgba(4, 12, 38, 0.94);
+      border-top: 1px solid rgba(255, 255, 255, 0.25);
+      font-size: 13px;
+      pointer-events: auto;
+    }
+    #replay-bar button {
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    #replay-bar button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    #replay-play { min-width: 72px; }
+    #replay-live.active { background: #2d6a4f; border-color: #95d5b2; }
+    #replay-slider {
+      flex: 1;
+      min-width: 80px;
+      cursor: pointer;
+      accent-color: #ac61b9;
+    }
+    #replay-time {
+      min-width: 118px;
+      font-variant-numeric: tabular-nums;
+      opacity: 0.9;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .replay-speed-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.88);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .replay-speed-control input {
+      width: 52px;
+      padding: 4px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 12px;
+      text-align: center;
+    }
+    .replay-speed-control input:focus {
+      outline: none;
+      border-color: #ac61b9;
+      background: rgba(255, 255, 255, 0.16);
+    }
+    .replay-speed-control input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -306,6 +379,17 @@
       </section>
     </div>
   </aside>
+  <div id="replay-bar" aria-label="Buffer replay controls">
+    <button id="replay-play" type="button" title="Pause live view or play/pause buffer replay">Pause</button>
+    <button id="replay-live" type="button" class="active" title="Resume delayed live stream">Live</button>
+    <label class="replay-speed-control" title="Replay speed multiplier (1.0 = real-time sim)">
+      Speed
+      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4" aria-label="Replay speed multiplier" />
+      <span>×</span>
+    </label>
+    <input id="replay-slider" type="range" min="0" max="1000" value="1000" step="1" aria-label="Scrub buffered simulation time" />
+    <span id="replay-time">—</span>
+  </div>
   <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
   <aside id="metrics-panel" class="side-panel left" aria-label="SAC training metrics" aria-hidden="true">
     <div class="side-panel-header">
@@ -366,11 +450,20 @@
     let lastIngestedPlotFrameId = 0;
     let staticOverlay = {};
     let frameBuffer = [];
+    let experimentArchive = [];
+    let experimentArchiveByFrameId = new Map();
     let playbackSimTime = null;
+    let bufferPlaybackMode = "live"; // "live" | "manual"
+    let manualPlaybackPlaying = false;
+    let replayScrubbing = false;
+    let replaySpeed = 1.0;
+    const REPLAY_SPEED_MIN = 0.1;
+    const REPLAY_SPEED_MAX = 20.0;
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const BUFFER_WINDOW_S = 2.5;
+    const LIVE_BUFFER_WINDOW_S = 3.0;
+    const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
     const TARGET_BUFFER_DELAY_S = 1.8;
     const MIN_BUFFER_DELAY_S = 1.2;
     const HISTORY_POLL_MS = 100;
@@ -1319,22 +1412,43 @@
       );
     }
 
+    function normalizeAngle(a) {
+      return Math.atan2(Math.sin(a), Math.cos(a));
+    }
+
+    function unwrapAngleToRef(angle, ref) {
+      let a = Number(angle);
+      const r = Number(ref);
+      while (a - r > Math.PI) a -= 2 * Math.PI;
+      while (a - r < -Math.PI) a += 2 * Math.PI;
+      return a;
+    }
+
+    function sanitizeFramePoses(frame) {
+      if (!frame || !Array.isArray(frame.poses)) return frame;
+      return {
+        ...frame,
+        poses: frame.poses.map((p) => {
+          if (!Array.isArray(p) || p.length < 3) return p;
+          return [Number(p[0]), Number(p[1]), normalizeAngle(p[2])];
+        }),
+      };
+    }
+
     function lerp(a, b, t) {
       return a + (b - a) * t;
     }
 
     function angleLerp(a, b, t) {
-      let d = b - a;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
-      return a + d * t;
+      const a0 = normalizeAngle(a);
+      const b0 = unwrapAngleToRef(b, a0);
+      return normalizeAngle(lerp(a0, b0, t));
     }
 
     function angleDelta(a, b) {
-      let d = b - a;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
-      return d;
+      const a0 = normalizeAngle(a);
+      const b0 = unwrapAngleToRef(b, a0);
+      return b0 - a0;
     }
 
     function interpolateState(a, b, t) {
@@ -1376,7 +1490,7 @@
         poses.push([
           p1[0] + vx * extraClamped,
           p1[1] + vy * extraClamped,
-          p1[2] + w * extraClamped,
+          normalizeAngle(p1[2] + w * extraClamped),
         ]);
       }
       return {
@@ -1387,51 +1501,248 @@
       };
     }
 
-    function stateForRender() {
-      if (frameBuffer.length === 0) return null;
-      if (frameBuffer.length === 1) return frameBuffer[0];
+    function getExperimentTimeRange() {
+      const archiveEnd = experimentArchive.length > 0
+        ? Number(experimentArchive[experimentArchive.length - 1].simulation_time)
+        : 0.0;
+      const end = Math.max(archiveEnd, Number(latestSimulationTime || 0.0));
+      if (end <= 0.0 && experimentArchive.length === 0) return null;
+      const start = experimentArchive.length > 0
+        ? Number(experimentArchive[0].simulation_time)
+        : 0.0;
+      return { start, end };
+    }
 
-      const nowS = performance.now() / 1000.0;
-      const oldestT = frameBuffer[0].simulation_time;
-      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
-
-      if (playbackSimTime === null) {
-        playbackSimTime = newestT - TARGET_BUFFER_DELAY_S;
-        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
-        lastDrawWallTimeS = nowS;
-      } else {
-        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
-        lastDrawWallTimeS = nowS;
-
-        // Keep horizon near target; gentle PLL-like correction.
-        const currentHorizon = newestT - playbackSimTime;
-        const horizonError = currentHorizon - TARGET_BUFFER_DELAY_S;
-        const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
-        const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
-
-        if (currentHorizon > MIN_BUFFER_DELAY_S) {
-          playbackSimTime += dtWall * playbackRate;
+    function mergeIntoExperimentArchive(samples) {
+      if (!Array.isArray(samples) || samples.length === 0) return;
+      for (const s of samples) {
+        if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+        const fid = Number(s.frame_id);
+        const existing = experimentArchiveByFrameId.get(fid);
+        if (!existing || Number(s.simulation_time) >= Number(existing.simulation_time)) {
+          experimentArchiveByFrameId.set(fid, sanitizeFramePoses(s));
         }
-
-        // Never run playback backward; keep inside available buffer.
-        playbackSimTime = Math.max(playbackSimTime, oldestT);
-        playbackSimTime = Math.min(playbackSimTime, newestT + 0.1);
       }
-      const target = playbackSimTime;
-      if (target <= frameBuffer[0].simulation_time) return frameBuffer[0];
+      if (experimentArchiveByFrameId.size > MAX_EXPERIMENT_FRAMES) {
+        const sortedIds = Array.from(experimentArchiveByFrameId.keys()).sort((a, b) => a - b);
+        const dropCount = sortedIds.length - MAX_EXPERIMENT_FRAMES;
+        for (let i = 0; i < dropCount; i++) {
+          experimentArchiveByFrameId.delete(sortedIds[i]);
+        }
+      }
+      experimentArchive = Array.from(experimentArchiveByFrameId.values()).sort((a, b) => {
+        const ta = Number(a.simulation_time);
+        const tb = Number(b.simulation_time);
+        if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+        return Number(a.frame_id) - Number(b.frame_id);
+      });
+    }
 
-      for (let i = 1; i < frameBuffer.length; i++) {
-        const a = frameBuffer[i - 1];
-        const b = frameBuffer[i];
+    function stateAtExperimentTime(target) {
+      if (experimentArchive.length === 0) return null;
+      if (experimentArchive.length === 1) return experimentArchive[0];
+      if (target <= experimentArchive[0].simulation_time) return experimentArchive[0];
+
+      for (let i = 1; i < experimentArchive.length; i++) {
+        const a = experimentArchive[i - 1];
+        const b = experimentArchive[i];
         if (target <= b.simulation_time) {
           const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
           const t = Math.max(0.0, Math.min(1.0, (target - a.simulation_time) / dt));
           return interpolateState(a, b, t);
         }
       }
-      const last = frameBuffer[frameBuffer.length - 1];
-      const prev = frameBuffer.length > 1 ? frameBuffer[frameBuffer.length - 2] : null;
-      return extrapolateState(prev, last, target);
+      const last = experimentArchive[experimentArchive.length - 1];
+      return sanitizeFramePoses(last);
+    }
+
+    function syncLivePlaybackTime(nowS) {
+      if (frameBuffer.length === 0) return;
+      const oldestT = frameBuffer[0].simulation_time;
+      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      if (playbackSimTime === null) {
+        playbackSimTime = newestT - TARGET_BUFFER_DELAY_S;
+        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
+        lastDrawWallTimeS = nowS;
+        return;
+      }
+      const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+      lastDrawWallTimeS = nowS;
+      const currentHorizon = newestT - playbackSimTime;
+      const horizonError = currentHorizon - TARGET_BUFFER_DELAY_S;
+      const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
+      const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
+      if (currentHorizon > MIN_BUFFER_DELAY_S) {
+        playbackSimTime += dtWall * playbackRate;
+      }
+      playbackSimTime = Math.max(playbackSimTime, oldestT);
+      playbackSimTime = Math.min(playbackSimTime, newestT);
+    }
+
+    function stateFromLiveBuffer(target) {
+      if (frameBuffer.length === 0) return null;
+      if (frameBuffer.length === 1) return sanitizeFramePoses(frameBuffer[0]);
+      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      const clampedTarget = Math.max(
+        frameBuffer[0].simulation_time,
+        Math.min(target, newestT)
+      );
+      if (clampedTarget <= frameBuffer[0].simulation_time) {
+        return sanitizeFramePoses(frameBuffer[0]);
+      }
+      for (let i = 1; i < frameBuffer.length; i++) {
+        const a = frameBuffer[i - 1];
+        const b = frameBuffer[i];
+        if (clampedTarget <= b.simulation_time) {
+          const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
+          const t = Math.max(0.0, Math.min(1.0, (clampedTarget - a.simulation_time) / dt));
+          return interpolateState(a, b, t);
+        }
+      }
+      return sanitizeFramePoses(frameBuffer[frameBuffer.length - 1]);
+    }
+
+    function simTimeFromSliderValue(sliderValue) {
+      const range = getExperimentTimeRange();
+      if (!range) return 0.0;
+      const span = Math.max(1e-6, range.end - range.start);
+      const frac = clamp(Number(sliderValue) / 1000.0, 0.0, 1.0);
+      return range.start + frac * span;
+    }
+
+    function sliderValueFromSimTime(simTime) {
+      const range = getExperimentTimeRange();
+      if (!range) return 1000;
+      const span = Math.max(1e-6, range.end - range.start);
+      const frac = clamp((Number(simTime) - range.start) / span, 0.0, 1.0);
+      return Math.round(frac * 1000);
+    }
+
+    function syncReplaySpeedInput() {
+      const el = document.getElementById("replay-speed");
+      if (!el) return;
+      el.value = replaySpeed.toFixed(1);
+      el.disabled = bufferPlaybackMode === "live";
+    }
+
+    function applyReplaySpeedFromInput() {
+      const el = document.getElementById("replay-speed");
+      const parsed = parseNumeric(el?.value);
+      if (parsed === null) {
+        syncReplaySpeedInput();
+        return;
+      }
+      replaySpeed = clamp(parsed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+      syncReplaySpeedInput();
+    }
+
+    function getReplaySpeed() {
+      return clamp(replaySpeed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+    }
+
+    function updateReplayPlayButton() {
+      const btn = document.getElementById("replay-play");
+      if (!btn) return;
+      if (bufferPlaybackMode === "live") {
+        btn.textContent = "Pause";
+        btn.title = "Pause live view and scrub the buffer";
+      } else if (manualPlaybackPlaying) {
+        btn.textContent = "Pause";
+        btn.title = "Pause buffer replay";
+      } else {
+        btn.textContent = "Play";
+        btn.title = "Play buffer replay";
+      }
+    }
+
+    function updateReplayBarUI() {
+      const sliderEl = document.getElementById("replay-slider");
+      const timeEl = document.getElementById("replay-time");
+      const liveBtn = document.getElementById("replay-live");
+      const range = getExperimentTimeRange();
+      if (!sliderEl || !timeEl || !range) {
+        if (timeEl) timeEl.textContent = "—";
+        if (sliderEl) sliderEl.disabled = true;
+        return;
+      }
+      sliderEl.disabled = range.end <= range.start;
+      if (!replayScrubbing) {
+        if (bufferPlaybackMode === "live") {
+          sliderEl.value = "1000";
+        } else {
+          const t = playbackSimTime ?? range.end;
+          sliderEl.value = String(sliderValueFromSimTime(t));
+        }
+      }
+      const shownT = bufferPlaybackMode === "live"
+        ? range.end
+        : (playbackSimTime ?? range.end);
+      const modeLabel = bufferPlaybackMode === "live" ? "live" : (manualPlaybackPlaying ? "replay" : "paused");
+      timeEl.textContent = `${shownT.toFixed(2)}s / ${range.end.toFixed(2)}s (${modeLabel})`;
+      if (liveBtn) liveBtn.classList.toggle("active", bufferPlaybackMode === "live");
+      syncReplaySpeedInput();
+      updateReplayPlayButton();
+    }
+
+    function enterManualPlayback() {
+      bufferPlaybackMode = "manual";
+      manualPlaybackPlaying = false;
+      if (playbackSimTime === null) {
+        const range = getExperimentTimeRange();
+        playbackSimTime = range ? range.end : 0.0;
+      }
+      lastDrawWallTimeS = performance.now() / 1000.0;
+      updateReplayBarUI();
+    }
+
+    function goLivePlayback() {
+      bufferPlaybackMode = "live";
+      manualPlaybackPlaying = false;
+      replayScrubbing = false;
+      playbackSimTime = null;
+      lastDrawWallTimeS = null;
+      updateReplayBarUI();
+    }
+
+    function toggleReplayPlayPause() {
+      const range = getExperimentTimeRange();
+      if (!range || range.end <= range.start) return;
+      if (bufferPlaybackMode === "live") {
+        syncLivePlaybackTime(performance.now() / 1000.0);
+        enterManualPlayback();
+        return;
+      }
+      manualPlaybackPlaying = !manualPlaybackPlaying;
+      lastDrawWallTimeS = performance.now() / 1000.0;
+      updateReplayBarUI();
+    }
+
+    function stateForRender() {
+      const nowS = performance.now() / 1000.0;
+
+      if (bufferPlaybackMode === "manual") {
+        const range = getExperimentTimeRange();
+        if (!range) return null;
+        if (playbackSimTime === null) playbackSimTime = range.end;
+        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+        lastDrawWallTimeS = nowS;
+        if (manualPlaybackPlaying) {
+          playbackSimTime += dtWall * getReplaySpeed();
+          if (playbackSimTime >= range.end) {
+            playbackSimTime = range.end;
+            manualPlaybackPlaying = false;
+          }
+        }
+        playbackSimTime = Math.max(playbackSimTime, range.start);
+        playbackSimTime = Math.min(playbackSimTime, range.end);
+        const archived = stateAtExperimentTime(playbackSimTime);
+        if (archived) return archived;
+        return stateFromLiveBuffer(playbackSimTime);
+      }
+
+      if (frameBuffer.length === 0) return null;
+      syncLivePlaybackTime(nowS);
+      return stateFromLiveBuffer(playbackSimTime);
     }
 
     function drawPoints(points, color, radius, cx, cy) {
@@ -1580,6 +1891,37 @@
       }
     }
 
+    async function fetchArchiveBackfillTick() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) return;
+      if (experimentArchive.length === 0) return;
+      const oldestFrameId = Number(experimentArchive[0].frame_id);
+      if (oldestFrameId <= 1) return;
+
+      inflightFetches += 1;
+      try {
+        const since = Math.max(0, oldestFrameId - 201);
+        const r = await fetch(`/state-history?since=${since}`);
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        mergeIntoExperimentArchive(history);
+      } catch (e) {
+        // Best-effort backfill; regular polling continues.
+      } finally {
+        inflightFetches = Math.max(0, inflightFetches - 1);
+        const nextOldest = experimentArchive.length > 0 ? Number(experimentArchive[0].frame_id) : 1;
+        if (nextOldest > 1 && inflightFetches < MAX_INFLIGHT_FETCHES) {
+          fetchArchiveBackfillTick();
+        }
+      }
+    }
+
+    function scheduleArchiveBackfill() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) return;
+      if (experimentArchive.length === 0) return;
+      if (Number(experimentArchive[0].frame_id) <= 1) return;
+      fetchArchiveBackfillTick();
+    }
+
     async function fetchStateHistoryTick() {
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
         return;
@@ -1595,6 +1937,8 @@
         if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
           // New backend instance detected: reset client-side state and continue seamlessly.
           frameBuffer = [];
+          experimentArchive = [];
+          experimentArchiveByFrameId = new Map();
           latest = null;
           latestSimulationTime = 0.0;
           latestSimAtPoll = 0.0;
@@ -1608,6 +1952,9 @@
           lastIngestedPlotFrameId = 0;
           timeSeriesData = {};
           playbackSimTime = null;
+          bufferPlaybackMode = "live";
+          manualPlaybackPlaying = false;
+          replayScrubbing = false;
           lastDrawWallTimeS = null;
           browserPositionHistory = [];
           browserHistoryLastFrameId = 0;
@@ -1640,7 +1987,10 @@
         latestSimAtPoll = latestSimulationTime;
         latestPollWallTimeS = nowWall;
 
-        const cutoff = latestSimulationTime - BUFFER_WINDOW_S;
+        mergeIntoExperimentArchive(history);
+        scheduleArchiveBackfill();
+
+        const cutoff = latestSimulationTime - LIVE_BUFFER_WINDOW_S;
         const mergedByFrameId = new Map();
         for (const s of [...frameBuffer, ...history]) {
           if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
@@ -1671,7 +2021,7 @@
         }
         frameBuffer = monotonic;
         latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
-        ingestPlotFrames(monotonic);
+        ingestPlotFrames(history);
 
         const labels = latest?.web_overlay?.label_dict || {};
         const labelText = showCarStateInfo && Object.keys(labels).length > 0
@@ -1679,6 +2029,7 @@
           : "";
         const camMode = cameraFollowEgo ? "follow-car" : "free";
         statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+        updateReplayBarUI();
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {
@@ -1801,6 +2152,9 @@
       if (plotsPanelOpen) {
         maybeResizePlotCanvases();
         drawTimeSeriesPlots(frame);
+      }
+      if (bufferPlaybackMode === "manual") {
+        updateReplayBarUI();
       }
       requestAnimationFrame(draw);
     }
@@ -1961,6 +2315,44 @@
     document.getElementById("toggle-follow").addEventListener("click", () => {
       toggleCameraFollow();
     });
+    const replayPlayEl = document.getElementById("replay-play");
+    const replayLiveEl = document.getElementById("replay-live");
+    const replaySliderEl = document.getElementById("replay-slider");
+    const replaySpeedEl = document.getElementById("replay-speed");
+    replayPlayEl.addEventListener("click", () => {
+      toggleReplayPlayPause();
+    });
+    replayLiveEl.addEventListener("click", () => {
+      goLivePlayback();
+    });
+    replaySliderEl.addEventListener("pointerdown", () => {
+      replayScrubbing = true;
+      enterManualPlayback();
+      manualPlaybackPlaying = false;
+    });
+    replaySliderEl.addEventListener("pointerup", () => {
+      replayScrubbing = false;
+      updateReplayBarUI();
+    });
+    replaySliderEl.addEventListener("pointercancel", () => {
+      replayScrubbing = false;
+      updateReplayBarUI();
+    });
+    replaySliderEl.addEventListener("input", () => {
+      playbackSimTime = simTimeFromSliderValue(replaySliderEl.value);
+      enterManualPlayback();
+      manualPlaybackPlaying = false;
+      updateReplayBarUI();
+    });
+    replaySpeedEl.addEventListener("change", applyReplaySpeedFromInput);
+    replaySpeedEl.addEventListener("blur", applyReplaySpeedFromInput);
+    replaySpeedEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applyReplaySpeedFromInput();
+        replaySpeedEl.blur();
+      }
+    });
     toggleMapEl.addEventListener("change", () => {
       showMap = !!toggleMapEl.checked;
     });
@@ -2057,6 +2449,8 @@
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
+    syncReplaySpeedInput();
+    updateReplayBarUI();
     resizeCanvas();
     loadUiConfig();
     loadMap();
