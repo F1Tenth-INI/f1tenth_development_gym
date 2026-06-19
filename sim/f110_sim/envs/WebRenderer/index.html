@@ -435,6 +435,7 @@
     let metricsUiConfig = null;
     let plotsPanelOpen = false;
     let metricsPanelOpen = false;
+    let replayRecordingEnabled = false;
     let mapMeta = null;
     let mapImg = null;
     let latest = null;
@@ -462,10 +463,10 @@
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const LIVE_BUFFER_WINDOW_S = 3.0;
+    const LIVE_BUFFER_WINDOW_S = 2.0;
     const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
-    const TARGET_BUFFER_DELAY_S = 1.8;
-    const MIN_BUFFER_DELAY_S = 1.2;
+    const TARGET_BUFFER_DELAY_S = 1.5;
+    const MIN_BUFFER_DELAY_S = 1.0;
     const HISTORY_POLL_MS = 100;
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
@@ -1720,7 +1721,7 @@
     function stateForRender() {
       const nowS = performance.now() / 1000.0;
 
-      if (bufferPlaybackMode === "manual") {
+      if (replayRecordingEnabled && bufferPlaybackMode === "manual") {
         const range = getExperimentTimeRange();
         if (!range) return null;
         if (playbackSimTime === null) playbackSimTime = range.end;
@@ -1797,6 +1798,13 @@
       }
     }
 
+    function applyReplayRecordingUi() {
+      const replayBarEl = document.getElementById("replay-bar");
+      if (replayBarEl) {
+        replayBarEl.style.display = replayRecordingEnabled ? "" : "none";
+      }
+    }
+
     async function loadUiConfig() {
       try {
         const r = await fetch("/ui-config", { cache: "no-store" });
@@ -1804,6 +1812,10 @@
         const cfg = await r.json();
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+        if (typeof cfg.replay_recording_enabled === "boolean") {
+          replayRecordingEnabled = cfg.replay_recording_enabled;
+          applyReplayRecordingUi();
+        }
       } catch (e) {
         // Keep defaults when ui-config is unavailable.
       }
@@ -1892,6 +1904,7 @@
     }
 
     async function fetchArchiveBackfillTick() {
+      if (!replayRecordingEnabled) return;
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) return;
       if (experimentArchive.length === 0) return;
       const oldestFrameId = Number(experimentArchive[0].frame_id);
@@ -1933,6 +1946,10 @@
         const payload = await r.json();
         const history = Array.isArray(payload.history) ? payload.history : [];
         const serverSessionId = payload.session_id || null;
+        if (typeof payload.replay_recording_enabled === "boolean") {
+          replayRecordingEnabled = payload.replay_recording_enabled;
+          applyReplayRecordingUi();
+        }
         const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
         if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
           // New backend instance detected: reset client-side state and continue seamlessly.
@@ -1987,8 +2004,10 @@
         latestSimAtPoll = latestSimulationTime;
         latestPollWallTimeS = nowWall;
 
-        mergeIntoExperimentArchive(history);
-        scheduleArchiveBackfill();
+        if (replayRecordingEnabled) {
+          mergeIntoExperimentArchive(history);
+          scheduleArchiveBackfill();
+        }
 
         const cutoff = latestSimulationTime - LIVE_BUFFER_WINDOW_S;
         const mergedByFrameId = new Map();
@@ -2029,7 +2048,9 @@
           : "";
         const camMode = cameraFollowEgo ? "follow-car" : "free";
         statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
-        updateReplayBarUI();
+        if (replayRecordingEnabled) {
+          updateReplayBarUI();
+        }
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {

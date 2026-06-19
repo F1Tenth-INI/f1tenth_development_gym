@@ -39,7 +39,7 @@ class Settings():
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
-    REPLAY_RECORDING = False
+    REPLAY_RECORDING = True
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
@@ -47,7 +47,7 @@ class Settings():
     SAVE_VIDEOS = False
     
     RECORDING_INDEX = 0
-    RECORDING_NAME = 'F1TENTH_ETF1_NNI__2023-11-23_15-54-27.csv'
+    RECORDING_NAME = '2026-06-19_08-49-32_.csv'
     RECORDING_FOLDER = './ExperimentRecordings/'
     RECORDING_PATH = os.path.join(RECORDING_FOLDER, RECORDING_NAME)
     DATASET_NAME = ""

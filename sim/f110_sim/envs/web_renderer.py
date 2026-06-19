@@ -1084,9 +1084,13 @@ class WebEnvRenderer:
             "poses": [],
         }
         self._session_id = f"{int(time.time() * 1000)}-{os.getpid()}"
+        # Full frame archive for browser replay/scrubbing. Disabled by default;
+        # enable via Settings.REPLAY_RECORDING = True.
+        self._replay_recording_enabled = self._read_replay_recording_setting()
         self._state_history = []
-        # Keep a larger server-side history so client buffer length
-        # is independent from per-request chunk size.
+        # Rolling live buffer (~2s at 50 Hz) for smooth browser playback.
+        self._live_buffer_max = 120
+        # Full experiment archive for scrub/replay when Settings.REPLAY_RECORDING = True.
         self._state_history_max = 24000
         self._history_chunk_size = 200
         self._publish_rate_hz = 50.0
@@ -1172,7 +1176,11 @@ class WebEnvRenderer:
                     except ValueError:
                         since_id = 0
                     with renderer._lock:
-                        history = [s for s in renderer._state_history if int(s.get("frame_id", 0)) > since_id]
+                        history = [
+                            s
+                            for s in renderer._state_history
+                            if int(s.get("frame_id", 0)) > since_id
+                        ]
                         if len(history) > renderer._history_chunk_size:
                             history = history[-renderer._history_chunk_size :]
                         payload = {
@@ -1180,6 +1188,7 @@ class WebEnvRenderer:
                             "latest_simulation_time": float(renderer._state.get("simulation_time", 0.0)),
                             "latest_frame_id": int(renderer._state.get("frame_id", 0)),
                             "session_id": renderer._session_id,
+                            "replay_recording_enabled": renderer._replay_recording_enabled,
                         }
                     self._send_json(payload)
                     return
@@ -1335,9 +1344,19 @@ class WebEnvRenderer:
         self._auto_open_done = True
 
     @staticmethod
+    def _read_replay_recording_setting() -> bool:
+        try:
+            from utilities.Settings import Settings
+
+            return bool(getattr(Settings, "REPLAY_RECORDING", False))
+        except Exception:
+            return False
+
+    @staticmethod
     def _build_ui_config() -> Dict[str, Any]:
         car_length = 0.58
         car_width = 0.31
+        replay_recording_enabled = WebEnvRenderer._read_replay_recording_setting()
         try:
             from utilities.Settings import Settings
             from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -1363,6 +1382,7 @@ class WebEnvRenderer:
             "metrics_panel_open_default": open_default and show_sac_metrics,
             "car_length": car_length,
             "car_width": car_width,
+            "replay_recording_enabled": replay_recording_enabled,
         }
 
     def _load_html_page(self) -> str:
@@ -1526,9 +1546,15 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
+            # Always keep a short rolling buffer for smooth live view; full archive only with replay enabled.
             self._state_history.append(self._state)
-            if len(self._state_history) > self._state_history_max:
-                self._state_history = self._state_history[-self._state_history_max :]
+            history_max = (
+                self._state_history_max
+                if self._replay_recording_enabled
+                else self._live_buffer_max
+            )
+            if len(self._state_history) > history_max:
+                self._state_history = self._state_history[-history_max:]
 
     def close(self):
         self._server.shutdown()
