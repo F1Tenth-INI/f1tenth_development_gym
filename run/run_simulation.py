@@ -343,6 +343,7 @@ class RacingSimulation:
                 'sim_index': int(self.episode_index),
                 'surface_friction': float(self.vehicle_parameters_instance.mu),
             },
+            'env_state': env_state,
             'collision': collision,
             'terminated': terminated,
             'interrupted': False,
@@ -529,10 +530,7 @@ class RacingSimulation:
                 driver.car_state_noiseless = car_state_clean
 
             observation = self.build_driver_observation(index, car_state=car_state)
-            angular_control, translational_control = driver.process_observation(
-                observation,
-                self.env_state,
-            )
+            angular_control, translational_control = driver.process_observation(observation)
             self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()

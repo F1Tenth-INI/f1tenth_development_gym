@@ -42,6 +42,8 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
 
     pp_action = super_obs["pp_action"].astype(np.float32)
 
+    lidar_ranges = super_obs["lidar_ranges"].astype(np.float32)
+
     obs = np.concatenate(
         [
             np.tile(np.array([0.1, 1.0, 0.3, 2.5], dtype=np.float32), state_history_len) * state_features,
@@ -51,8 +53,8 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
             [1.0, 0.1] * pp_action,
+            # 0.1 * lidar_ranges,
         ]
     ).astype(np.float32)
 
     return obs
-

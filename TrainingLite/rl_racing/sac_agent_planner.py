@@ -68,7 +68,6 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
-    STATE_HISTORY_LEN = 25
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -128,7 +127,6 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
-        self.state_history = deque([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)], maxlen=self.STATE_HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -167,9 +165,7 @@ class RLAgentPlanner(template_planner):
     def reset(self):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
-        self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)])
-        
+
         self.transition_logger.clear()
         self.control_index = 0
         # Do not reset _bootstrap_sent here: car_system.reset() runs on every env
@@ -244,7 +240,6 @@ class RLAgentPlanner(template_planner):
         self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
-        self.state_history.append(self.get_car_state(controller_observation))
         
         self.control_index += 1
         return self.angular_control, self.translational_control
@@ -260,12 +255,11 @@ class RLAgentPlanner(template_planner):
         # if(done and self.autonomous_driving):
         #     print(f"DONE CALLED.")
 
-        """Called by env AFTER stepping. Pass the obs returned by env.step"""
+        """Called by env AFTER stepping with post-step controller observation."""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
-
-        next_obs = self._build_observation(getattr(self, "_controller_observation", None))
+        next_obs = self._build_observation(driver_obs)
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
@@ -356,22 +350,17 @@ class RLAgentPlanner(template_planner):
         # return [0., 0.]
         return fallback_action
 
-  
-    
-    def _build_super_observation(self, controller_observation=None) -> Dict[str, np.ndarray]:
+
+    def _build_super_observation(self, controller_observation: Dict[str, Any]) -> Dict[str, np.ndarray]:
         """ 
         Builds the super observation dictionary.
         This dict should contain all the information that the observation available in the environment.
         This dict is then used to build the observation array for the policy.
         """
-        if controller_observation is None:
-            controller_observation = getattr(self, "_controller_observation", None)
+      
         car_state = self.get_car_state(controller_observation)
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
-        state_history = np.asarray(
-            controller_observation["state_history"] if controller_observation is not None else list(self.state_history),
-            dtype=np.float32,
-        )
+        state_history = np.asarray(controller_observation["state_history"], dtype=np.float32)
 
         next_waypoints = np.asarray(controller_observation["next_waypoints"], dtype=np.float32)
         border_points = self.waypoint_utils.get_track_border_positions_relative(
@@ -392,7 +381,7 @@ class RLAgentPlanner(template_planner):
             "fallback_action": np.asarray(fallback_action, dtype=np.float32),
         }
 
-    def _build_observation(self, controller_observation=None) -> np.ndarray:
+    def _build_observation(self, controller_observation: Dict[str, Any]) -> np.ndarray:
         if self.observation_builder_fn is None:
             raise RuntimeError(
                 "No observation builder loaded from model folder. "
@@ -481,7 +470,6 @@ class RLAgentPlanner(template_planner):
                 raise
             print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
         return False
-
 
     def _init_model_for_obs_dim(self, obs_dim: int) -> None:
         """

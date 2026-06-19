@@ -233,9 +233,13 @@ class CarSystem:
             print("Tunner connection not possible.")
     
     def set_car_state(self, car_state):
-        self.car_state = car_state
-        self.car_state_history.append(car_state)
+        self.car_state = np.asarray(car_state, dtype=np.float32)
 
+    def _append_car_state_history(self, car_state=None):
+        """Append one car state snapshot to history (post-step in on_step_end)."""
+        if car_state is None:
+            car_state = self.car_state
+        self.car_state_history.append(np.asarray(car_state, dtype=np.float32).copy())
 
     def set_scans(self, ranges):
         if self.lightweight_mode:
@@ -262,22 +266,27 @@ class CarSystem:
         self.set_sensors(sensors)
         self.set_waypoints()
 
-    def _build_controller_observation(
-        self, driver_observation: dict[str, Any], env_state: Optional[dict[str, Any]] = None
-    ):
-        """Build planner-facing observation from current driver context."""
-        state_history = np.asarray(self.car_state_history, dtype=np.float32)
-        control_history = np.asarray(self.control_history, dtype=np.float32)
-        frenet_coordinates = np.asarray(
-            self.waypoint_utils.frenet_coordinates, dtype=np.float32
-        )
+    def _build_planner_step_end_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
+        """Build post-step controller observation for planner transition logging."""
+        controller_observation = self._build_controller_observation(observation)
+        controller_observation.update({
+            "reward": observation["reward"],
+            "done": observation["done"],
+            "info": observation.get("info", {}),
+            "truncated": observation.get("truncated"),
+        })
+        return controller_observation
+
+    def _build_controller_observation(self, driver_observation: dict[str, Any]) -> dict[str, Any]:
+        """Enrich raw driver observation with CarSystem-computed planner fields."""
         controller_observation = {
-            **(driver_observation),
-            "env_state": env_state,
+            **driver_observation,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
-            "state_history": state_history,
-            "control_history": control_history,
-            "frenet_coordinates": frenet_coordinates,
+            "state_history": np.asarray(self.car_state_history, dtype=np.float32),
+            "control_history": np.asarray(self.control_history, dtype=np.float32),
+            "frenet_coordinates": np.asarray(
+                self.waypoint_utils.frenet_coordinates, dtype=np.float32
+            ),
         }
         if not self.lightweight_mode:
             controller_observation["processed_ranges"] = np.asarray(
@@ -286,17 +295,18 @@ class CarSystem:
             controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
         return controller_observation
 
-    def process_observation(self, driver_observation, env_state=None):
+    def process_observation(self, driver_observation):
                 
         # Control step
         # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
-        # env_state is an optional full-environment snapshot (sim multi-agent only):
-        # car_states, controls, and world-sim outputs (sim_obs).
-        self.env_state = env_state
+        # env_state (optional): full-environment snapshot in driver_observation for multi-agent sim.
+        self.env_state = driver_observation.get("env_state")
         self._apply_observation(driver_observation)
+        if not self.car_state_history:
+            self._append_car_state_history()
 
         if self.planner is not None:
-            controller_observation = self._build_controller_observation(driver_observation, env_state)
+            controller_observation = self._build_controller_observation(driver_observation)
             self.angular_control, self.translational_control = self.planner.process_observation(
                 controller_observation
             )
@@ -331,6 +341,7 @@ class CarSystem:
             return
 
         self._apply_observation(observation)
+        self._append_car_state_history()
         
         if self.lightweight_mode:
             observation.update({
@@ -340,7 +351,8 @@ class CarSystem:
                 "done": observation['terminated'] or observation['collision'] or observation['interrupted'] or observation['done'],
             })
             if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-                self.planner.on_step_end(observation)
+                step_end_observation = self._build_planner_step_end_observation(observation)
+                self.planner.on_step_end(step_end_observation)
             return
 
         # TODO: Recording
@@ -373,7 +385,9 @@ class CarSystem:
             self.update_render_utils()
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-            self.planner.on_step_end(observation)
+            self.planner.on_step_end(
+                self._build_planner_step_end_observation(observation)
+            )
 
         # Do not reset the reward calculator here: render_env() runs after on_step_end
         # and must still publish the terminal-step reward. driver.reset() clears it.
