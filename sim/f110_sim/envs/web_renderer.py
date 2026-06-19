@@ -1088,8 +1088,6 @@ class WebEnvRenderer:
         # enable via Settings.REPLAY_RECORDING = True.
         self._replay_recording_enabled = self._read_replay_recording_setting()
         self._state_history = []
-        # Rolling live buffer (~2s at 50 Hz) for smooth browser playback.
-        self._live_buffer_max = 120
         # Full experiment archive for scrub/replay when Settings.REPLAY_RECORDING = True.
         self._state_history_max = 24000
         self._history_chunk_size = 200
@@ -1131,6 +1129,7 @@ class WebEnvRenderer:
         }
         self._map_image_path: Optional[str] = None
         self._viewer_last_seen: Dict[str, float] = {}
+        self._last_client_poll_s = 0.0
         self._viewer_timeout_s = 6.0
         self._auto_open_cooldown_s = 12.0
         self._last_auto_open_attempt_s = 0.0
@@ -1155,6 +1154,7 @@ class WebEnvRenderer:
                 query = parse_qs(parsed.query)
 
                 if path == "/" or path == "/index.html":
+                    renderer._note_client_activity()
                     body = renderer._load_html_page().encode("utf-8")
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1164,25 +1164,35 @@ class WebEnvRenderer:
                     return
 
                 if path == "/state":
+                    renderer._note_client_activity()
                     with renderer._lock:
                         payload = dict(renderer._state)
+                        payload["session_id"] = renderer._session_id
+                        payload["replay_recording_enabled"] = renderer._replay_recording_enabled
                     self._send_json(payload)
                     return
 
                 if path == "/state-history":
+                    renderer._note_client_activity()
                     since_raw = query.get("since", ["0"])[0]
                     try:
                         since_id = int(since_raw)
                     except ValueError:
                         since_id = 0
                     with renderer._lock:
-                        history = [
-                            s
-                            for s in renderer._state_history
-                            if int(s.get("frame_id", 0)) > since_id
-                        ]
-                        if len(history) > renderer._history_chunk_size:
-                            history = history[-renderer._history_chunk_size :]
+                        if renderer._replay_recording_enabled:
+                            history = [
+                                s
+                                for s in renderer._state_history
+                                if int(s.get("frame_id", 0)) > since_id
+                            ]
+                            if len(history) > renderer._history_chunk_size:
+                                history = history[-renderer._history_chunk_size :]
+                        else:
+                            # Live view only: no server archive; expose at most the latest frame.
+                            state = dict(renderer._state)
+                            frame_id = int(state.get("frame_id", 0))
+                            history = [state] if frame_id > since_id else []
                         payload = {
                             "history": history,
                             "latest_simulation_time": float(renderer._state.get("simulation_time", 0.0)),
@@ -1300,10 +1310,22 @@ class WebEnvRenderer:
         # Defensive fallback: loop always returns or raises above.
         raise RuntimeError("Unexpected server bind loop termination.")
 
+    def _note_client_activity(self, now_s: Optional[float] = None) -> None:
+        now_s = time.time() if now_s is None else now_s
+        with self._lock:
+            self._last_client_poll_s = now_s
+
+    def has_active_viewer(self, now_s: Optional[float] = None) -> bool:
+        """True when a browser client recently polled or sent a heartbeat."""
+        return self._has_active_viewer(now_s)
+
     def _has_active_viewer(self, now_s: Optional[float] = None) -> bool:
+        now_s = time.time() if now_s is None else now_s
         with self._lock:
             self._prune_inactive_viewers_locked(now_s)
-            return len(self._viewer_last_seen) > 0
+            if len(self._viewer_last_seen) > 0:
+                return True
+            return (now_s - float(self._last_client_poll_s)) <= self._viewer_timeout_s
 
     def _browser_url(self) -> str:
         """URL for local browser tabs (bind-all addresses map to localhost)."""
@@ -1490,6 +1512,9 @@ class WebEnvRenderer:
         return float(math.atan2(math.sin(angle), math.cos(angle)))
 
     def render(self, render_obs: Dict[str, Any]):
+        if not self._has_active_viewer():
+            return
+
         car_states = render_obs.get("car_states")
         poses = []
         if car_states is not None:
@@ -1546,15 +1571,12 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
-            # Always keep a short rolling buffer for smooth live view; full archive only with replay enabled.
-            self._state_history.append(self._state)
-            history_max = (
-                self._state_history_max
-                if self._replay_recording_enabled
-                else self._live_buffer_max
-            )
-            if len(self._state_history) > history_max:
-                self._state_history = self._state_history[-history_max:]
+            # Full frame archive only when Settings.REPLAY_RECORDING = True.
+            # Live view uses latest _state; the browser keeps a short local buffer for smooth playback.
+            if self._replay_recording_enabled:
+                self._state_history.append(self._state)
+                if len(self._state_history) > self._state_history_max:
+                    self._state_history = self._state_history[-self._state_history_max :]
 
     def close(self):
         self._server.shutdown()

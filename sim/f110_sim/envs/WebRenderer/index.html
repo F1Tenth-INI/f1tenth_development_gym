@@ -1815,6 +1815,7 @@
         if (typeof cfg.replay_recording_enabled === "boolean") {
           replayRecordingEnabled = cfg.replay_recording_enabled;
           applyReplayRecordingUi();
+          startStatePolling();
         }
       } catch (e) {
         // Keep defaults when ui-config is unavailable.
@@ -1935,122 +1936,35 @@
       fetchArchiveBackfillTick();
     }
 
-    async function fetchStateHistoryTick() {
+    async function fetchStateTick() {
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
         return;
       }
       inflightFetches += 1;
       try {
-        const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
-        const r = await fetch(`/state-history?since=${since}`);
-        const payload = await r.json();
-        const history = Array.isArray(payload.history) ? payload.history : [];
-        const serverSessionId = payload.session_id || null;
-        if (typeof payload.replay_recording_enabled === "boolean") {
-          replayRecordingEnabled = payload.replay_recording_enabled;
-          applyReplayRecordingUi();
+        const r = await fetch("/state", { cache: "no-store" });
+        const state = await r.json();
+        if (typeof state.replay_recording_enabled === "boolean") {
+          if (state.replay_recording_enabled !== replayRecordingEnabled) {
+            replayRecordingEnabled = state.replay_recording_enabled;
+            applyReplayRecordingUi();
+            startStatePolling();
+            return;
+          }
         }
-        const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
-        if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
-          // New backend instance detected: reset client-side state and continue seamlessly.
-          frameBuffer = [];
-          experimentArchive = [];
-          experimentArchiveByFrameId = new Map();
-          latest = null;
-          latestSimulationTime = 0.0;
-          latestSimAtPoll = 0.0;
-          latestPollWallTimeS = 0.0;
-          prevPollSimTime = null;
-          prevPollWallTimeS = null;
-          simTimeRate = 1.0;
-          observedFetchIntervalS = 0.1;
-          lastFetchCompleteWallS = null;
-          lastFrameId = 0;
-          lastIngestedPlotFrameId = 0;
-          timeSeriesData = {};
-          playbackSimTime = null;
-          bufferPlaybackMode = "live";
-          manualPlaybackPlaying = false;
-          replayScrubbing = false;
-          lastDrawWallTimeS = null;
-          browserPositionHistory = [];
-          browserHistoryLastFrameId = 0;
-          clientSessionId = serverSessionId;
-          loadMap();
-          loadStaticOverlay();
-          statusEl.textContent = "Detected new experiment backend. Reconnected.";
-        }
-        if (clientSessionId === null && serverSessionId !== null) {
-          clientSessionId = serverSessionId;
-        }
-        appendHistorySamples(history);
-        // Ignore stale response snapshots that are older than what we already processed.
-        if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+        const frameId = Number(state.frame_id || 0);
+        if (!Number.isFinite(frameId) || frameId <= lastFrameId) {
           return;
         }
-        const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
-        const nowWall = performance.now() / 1000.0;
-        if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
-          const dSim = newLatestSimulationTime - prevPollSimTime;
-          const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
-          const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
-          // Smooth estimate to avoid jitter in playback speed.
-          simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
-        }
-        prevPollSimTime = newLatestSimulationTime;
-        prevPollWallTimeS = nowWall;
-        latestSimulationTime = newLatestSimulationTime;
-        lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
-        latestSimAtPoll = latestSimulationTime;
-        latestPollWallTimeS = nowWall;
-
-        if (replayRecordingEnabled) {
-          mergeIntoExperimentArchive(history);
-          scheduleArchiveBackfill();
-        }
-
-        const cutoff = latestSimulationTime - LIVE_BUFFER_WINDOW_S;
-        const mergedByFrameId = new Map();
-        for (const s of [...frameBuffer, ...history]) {
-          if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
-          if (s.simulation_time < cutoff) continue;
-          const fid = Number(s.frame_id);
-          const existing = mergedByFrameId.get(fid);
-          if (!existing || s.simulation_time >= existing.simulation_time) {
-            mergedByFrameId.set(fid, s);
-          }
-        }
-
-        const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
-          const ta = Number(a.simulation_time);
-          const tb = Number(b.simulation_time);
-          if (Math.abs(ta - tb) > 1e-9) return ta - tb;
-          return Number(a.frame_id) - Number(b.frame_id);
-        });
-
-        // Ensure monotonic simulation_time in buffer (drop regressions).
-        const monotonic = [];
-        let lastT = -Infinity;
-        for (const s of merged) {
-          const t = Number(s.simulation_time);
-          if (t + 1e-9 >= lastT) {
-            monotonic.push(s);
-            lastT = t;
-          }
-        }
-        frameBuffer = monotonic;
-        latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
-        ingestPlotFrames(history);
-
-        const labels = latest?.web_overlay?.label_dict || {};
-        const labelText = showCarStateInfo && Object.keys(labels).length > 0
-          ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
-          : "";
-        const camMode = cameraFollowEgo ? "follow-car" : "free";
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
-        if (replayRecordingEnabled) {
-          updateReplayBarUI();
-        }
+        const history = [state];
+        const payload = {
+          history,
+          latest_simulation_time: Number(state.simulation_time || 0.0),
+          latest_frame_id: frameId,
+          session_id: state.session_id || null,
+          replay_recording_enabled: replayRecordingEnabled,
+        };
+        await processStatePollPayload(payload, history);
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {
@@ -2064,9 +1978,156 @@
       }
     }
 
+    async function processStatePollPayload(payload, history) {
+      const serverSessionId = payload.session_id || null;
+      if (typeof payload.replay_recording_enabled === "boolean") {
+        replayRecordingEnabled = payload.replay_recording_enabled;
+        applyReplayRecordingUi();
+      }
+      const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
+      if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
+        frameBuffer = [];
+        experimentArchive = [];
+        experimentArchiveByFrameId = new Map();
+        latest = null;
+        latestSimulationTime = 0.0;
+        latestSimAtPoll = 0.0;
+        latestPollWallTimeS = 0.0;
+        prevPollSimTime = null;
+        prevPollWallTimeS = null;
+        simTimeRate = 1.0;
+        observedFetchIntervalS = 0.1;
+        lastFetchCompleteWallS = null;
+        lastFrameId = 0;
+        lastIngestedPlotFrameId = 0;
+        timeSeriesData = {};
+        playbackSimTime = null;
+        bufferPlaybackMode = "live";
+        manualPlaybackPlaying = false;
+        replayScrubbing = false;
+        lastDrawWallTimeS = null;
+        browserPositionHistory = [];
+        browserHistoryLastFrameId = 0;
+        clientSessionId = serverSessionId;
+        loadMap();
+        loadStaticOverlay();
+        statusEl.textContent = "Detected new experiment backend. Reconnected.";
+      }
+      if (clientSessionId === null && serverSessionId !== null) {
+        clientSessionId = serverSessionId;
+      }
+      appendHistorySamples(history);
+      if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+        return;
+      }
+      const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
+      const nowWall = performance.now() / 1000.0;
+      if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
+        const dSim = newLatestSimulationTime - prevPollSimTime;
+        const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
+        const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
+        simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
+      }
+      prevPollSimTime = newLatestSimulationTime;
+      prevPollWallTimeS = nowWall;
+      latestSimulationTime = newLatestSimulationTime;
+      lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
+      latestSimAtPoll = latestSimulationTime;
+      latestPollWallTimeS = nowWall;
+
+      if (replayRecordingEnabled) {
+        mergeIntoExperimentArchive(history);
+        scheduleArchiveBackfill();
+      }
+
+      const cutoff = latestSimulationTime - LIVE_BUFFER_WINDOW_S;
+      const mergedByFrameId = new Map();
+      for (const s of [...frameBuffer, ...history]) {
+        if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+        if (s.simulation_time < cutoff) continue;
+        const fid = Number(s.frame_id);
+        const existing = mergedByFrameId.get(fid);
+        if (!existing || s.simulation_time >= existing.simulation_time) {
+          mergedByFrameId.set(fid, s);
+        }
+      }
+
+      const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
+        const ta = Number(a.simulation_time);
+        const tb = Number(b.simulation_time);
+        if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+        return Number(a.frame_id) - Number(b.frame_id);
+      });
+
+      const monotonic = [];
+      let lastT = -Infinity;
+      for (const s of merged) {
+        const t = Number(s.simulation_time);
+        if (t + 1e-9 >= lastT) {
+          monotonic.push(s);
+          lastT = t;
+        }
+      }
+      frameBuffer = monotonic;
+      latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+      ingestPlotFrames(history);
+
+      const labels = latest?.web_overlay?.label_dict || {};
+      const labelText = showCarStateInfo && Object.keys(labels).length > 0
+        ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
+        : "";
+      const camMode = cameraFollowEgo ? "follow-car" : "free";
+      statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+      if (replayRecordingEnabled) {
+        updateReplayBarUI();
+      }
+    }
+
+    async function fetchStateHistoryTick() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
+        return;
+      }
+      inflightFetches += 1;
+      try {
+        const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
+        const r = await fetch(`/state-history?since=${since}`);
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        if (typeof payload.replay_recording_enabled === "boolean") {
+          if (payload.replay_recording_enabled !== replayRecordingEnabled) {
+            replayRecordingEnabled = payload.replay_recording_enabled;
+            applyReplayRecordingUi();
+            startStatePolling();
+            return;
+          }
+        }
+        await processStatePollPayload(payload, history);
+      } catch (e) {
+        statusEl.textContent = "Waiting for simulation state...";
+      } finally {
+        const now = performance.now() / 1000.0;
+        if (lastFetchCompleteWallS !== null) {
+          const interval = Math.max(0.01, now - lastFetchCompleteWallS);
+          observedFetchIntervalS = 0.8 * observedFetchIntervalS + 0.2 * interval;
+        }
+        lastFetchCompleteWallS = now;
+        inflightFetches = Math.max(0, inflightFetches - 1);
+      }
+    }
+
+    let statePollTimer = null;
+    function startStatePolling() {
+      if (statePollTimer !== null) {
+        clearInterval(statePollTimer);
+        statePollTimer = null;
+      }
+      const tick = replayRecordingEnabled ? fetchStateHistoryTick : fetchStateTick;
+      tick();
+      statePollTimer = setInterval(tick, HISTORY_POLL_MS);
+    }
+
     function startHistoryPolling() {
-      fetchStateHistoryTick();
-      setInterval(fetchStateHistoryTick, HISTORY_POLL_MS);
+      startStatePolling();
     }
 
     function draw() {
@@ -2470,6 +2531,7 @@
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
+    applyReplayRecordingUi();
     syncReplaySpeedInput();
     updateReplayBarUI();
     resizeCanvas();

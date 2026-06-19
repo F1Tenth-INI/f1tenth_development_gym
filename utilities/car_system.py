@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import trange
 from typing import Any, Optional
 import importlib
+from collections import deque
                 
 import os
 
@@ -22,6 +23,10 @@ from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder, experiment_analysis_path # 25MB
 from utilities.imu_utilities import IMUUtilities
+
+# Bounded history for controller observations (SAC/NNI need ~25; we append up to twice per control step).
+CAR_STATE_HISTORY_MAXLEN = 128
+CONTROL_HISTORY_MAXLEN = 128
 
 try:
     from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
@@ -71,8 +76,8 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
-        self.car_state_history = []
-        self.control_history = []
+        self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
+        self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
         car_index = 1
         self.scans = None
         self.control_index = 0
@@ -199,8 +204,8 @@ class CarSystem:
 
         self.control_index = 0
 
-        self.control_history = []
-        self.car_state_history = []
+        self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
+        self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
         self.lidar_utils.reset()
         self.waypoint_utils.reset()
         if self.reward_calculator is not None:
