@@ -463,11 +463,16 @@
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const LIVE_BUFFER_WINDOW_S = 2.0;
+    const LIVE_BUFFER_WINDOW_S = 1.0;
+    const REPLAY_BUFFER_WINDOW_S = 2.5;
     const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
-    const TARGET_BUFFER_DELAY_S = 1.5;
-    const MIN_BUFFER_DELAY_S = 1.0;
-    const HISTORY_POLL_MS = 100;
+    const LIVE_TARGET_DELAY_S = 0.15;   // live view: tiny delay for interpolation only
+    const REPLAY_TARGET_DELAY_S = 1.5;  // replay/scrub mode
+    const LIVE_MIN_BUFFER_DELAY_S = 0.08;
+    const REPLAY_MIN_BUFFER_DELAY_S = 1.0;
+    const LIVE_POLL_MS = 40;            // ~25 Hz; matches typical control rate better than 10 Hz
+    const REPLAY_POLL_MS = 100;
+    const HISTORY_POLL_MS = 100; // legacy default; live/replay use getStatePollIntervalMs()
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
     let inflightFetches = 0;
@@ -1557,12 +1562,30 @@
       return sanitizeFramePoses(last);
     }
 
+    function getLiveBufferWindowS() {
+      return replayRecordingEnabled ? REPLAY_BUFFER_WINDOW_S : LIVE_BUFFER_WINDOW_S;
+    }
+
+    function getTargetBufferDelayS() {
+      return replayRecordingEnabled ? REPLAY_TARGET_DELAY_S : LIVE_TARGET_DELAY_S;
+    }
+
+    function getMinBufferDelayS() {
+      return replayRecordingEnabled ? REPLAY_MIN_BUFFER_DELAY_S : LIVE_MIN_BUFFER_DELAY_S;
+    }
+
+    function getStatePollIntervalMs() {
+      return replayRecordingEnabled ? REPLAY_POLL_MS : LIVE_POLL_MS;
+    }
+
     function syncLivePlaybackTime(nowS) {
       if (frameBuffer.length === 0) return;
       const oldestT = frameBuffer[0].simulation_time;
       const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      const targetDelay = getTargetBufferDelayS();
+      const minHorizon = getMinBufferDelayS();
       if (playbackSimTime === null) {
-        playbackSimTime = newestT - TARGET_BUFFER_DELAY_S;
+        playbackSimTime = newestT - targetDelay;
         if (playbackSimTime < oldestT) playbackSimTime = oldestT;
         lastDrawWallTimeS = nowS;
         return;
@@ -1570,10 +1593,10 @@
       const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
       lastDrawWallTimeS = nowS;
       const currentHorizon = newestT - playbackSimTime;
-      const horizonError = currentHorizon - TARGET_BUFFER_DELAY_S;
+      const horizonError = currentHorizon - targetDelay;
       const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
       const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
-      if (currentHorizon > MIN_BUFFER_DELAY_S) {
+      if (currentHorizon > minHorizon) {
         playbackSimTime += dtWall * playbackRate;
       }
       playbackSimTime = Math.max(playbackSimTime, oldestT);
@@ -2040,7 +2063,7 @@
         scheduleArchiveBackfill();
       }
 
-      const cutoff = latestSimulationTime - LIVE_BUFFER_WINDOW_S;
+      const cutoff = latestSimulationTime - getLiveBufferWindowS();
       const mergedByFrameId = new Map();
       for (const s of [...frameBuffer, ...history]) {
         if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
@@ -2123,7 +2146,7 @@
       }
       const tick = replayRecordingEnabled ? fetchStateHistoryTick : fetchStateTick;
       tick();
-      statePollTimer = setInterval(tick, HISTORY_POLL_MS);
+      statePollTimer = setInterval(tick, getStatePollIntervalMs());
     }
 
     function startHistoryPolling() {

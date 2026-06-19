@@ -65,7 +65,8 @@ def _model_dir_for_name(model_name: str) -> Path:
 def backup_existing_model_if_present(save_model_name: str) -> Optional[Path]:
     """
     If models/{save_model_name} already exists with content, copy it to
-    models/{save_model_name}_backup_{timestamp} before training overwrites it.
+    models/{save_model_name}_backup_{timestamp}, then remove the original
+    directory so training starts from scratch (no weights/metrics/replay resume).
     """
     model_dir = _model_dir_for_name(save_model_name)
     if not model_dir.is_dir():
@@ -91,7 +92,16 @@ def backup_existing_model_if_present(save_model_name: str) -> Optional[Path]:
         print(f"[run_training] Failed to back up {model_dir} -> {backup_dir}: {exc}")
         raise
 
-    print(f"[run_training] Backed up existing model: {model_dir} -> {backup_dir}")
+    try:
+        shutil.rmtree(model_dir)
+    except Exception as exc:
+        print(f"[run_training] Failed to remove model dir after backup {model_dir}: {exc}")
+        raise
+
+    print(
+        f"[run_training] Backed up existing model: {model_dir} -> {backup_dir}; "
+        f"removed {model_dir} for a fresh training run"
+    )
     return backup_dir
 
 
@@ -444,7 +454,9 @@ def main() -> None:
     else:
         train_batch_size = int(Settings.SAC_BATCH_SIZE)
 
-    backup_existing_model_if_present(str(run_args.save_model_name))
+    # Only reset the save-model directory when not loading a checkpoint.
+    if run_args.load_model_name is None:
+        backup_existing_model_if_present(str(run_args.save_model_name))
 
     if run_args.no_metrics_http:
         Settings.LEARNER_METRICS_HTTP_ENABLED = False

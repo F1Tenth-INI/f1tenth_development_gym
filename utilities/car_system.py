@@ -366,13 +366,10 @@ class CarSystem:
             # "reward_difficulty": self.reward_calculator.difficulty
         }
 
-        reward_result = self.reward_calculator._calculate_reward(self, observation)
-        if isinstance(reward_result, dict):
-            self.reward = float(reward_result.get("total_reward", 0.0))
-            self.reward_components = dict(reward_result.get("components") or {})
-        else:
-            self.reward = float(reward_result)
-            self.reward_components = dict(getattr(self.reward_calculator, "last_reward_components", {}) or {})
+        controller_observation = self._build_controller_observation(observation)
+        reward_result = self.reward_calculator._calculate_reward(controller_observation)
+        self.reward = float(reward_result["total_reward"])
+        self.reward_components = dict(reward_result.get("components") or {})
 
         observation.update({
             "reward": self.reward,
