@@ -31,6 +31,7 @@ sys.path.append(os.path.join(REPO_ROOT, "utilities"))
 from sim.f110_sim.envs.car_model_jax import CarModelJAX
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.imu_utilities import IMUUtilities
+from utilities.motor_sensor_utilities import MotorSensorUtilities
 from utilities.state_utilities import STATE_INDICES, STATE_VARIABLES
 
 STEERING_CONTROL_COLUMN = "angular_control_executed"
@@ -64,7 +65,6 @@ class VisualizationSettings:
     enable_comparison: bool = True
     show_controls: bool = False
     show_delta_state: bool = False
-    show_imu: bool = True
     show_all_comparisons: bool = False
     sync_scales: bool = False
     show_metrics: bool = True
@@ -150,6 +150,15 @@ class VisualizationService:
             "ks_jax": CarModelJAX(model_type="ks", dt=0.04, intermediate_steps=4),
             "residual": CarModelJAX(model_type="residual", dt=0.04, intermediate_steps=4),
         }
+
+    def invalidate_car_parameters_cache(self, param_file: Optional[str] = None) -> None:
+        """Drop cached car params and IMU simulators so the next load reads from disk."""
+        if param_file is None:
+            self._car_params_cache.clear()
+            self._imu_sim_cache.clear()
+        else:
+            self._car_params_cache.pop(param_file, None)
+            self._imu_sim_cache.pop(param_file, None)
 
     def load_car_parameters(self, param_file: str) -> Optional[np.ndarray]:
         if param_file in self._car_params_cache:
@@ -354,7 +363,16 @@ class VisualizationService:
                 car_parameter_file=car_parameter_file,
                 imu_sim=imu_sim,
             )
-            return self.convert_predictions_to_dict(predicted_states, imu_series)
+            motor_series = MotorSensorUtilities.simulate_motor_arrays(
+                predicted_states,
+                np.asarray(control_seq),
+                dt,
+                prime_state=np.asarray(initial_state),
+                car_parameter_file=car_parameter_file,
+            )
+            return self.convert_predictions_to_dict(
+                predicted_states, imu_series, motor_series
+            )
         except Exception as exc:
             print(f"Model prediction failed: {exc}")
             import traceback
@@ -365,6 +383,7 @@ class VisualizationService:
         self,
         predicted_states: np.ndarray,
         imu_series: Optional[Dict[str, np.ndarray]] = None,
+        motor_series: Optional[Dict[str, np.ndarray]] = None,
     ) -> Dict[str, np.ndarray]:
         comparison_data = {}
         for col_name, idx in self.state_indices.items():
@@ -374,6 +393,10 @@ class VisualizationService:
             for key in IMUUtilities.IMU_COMPARE_KEYS:
                 if key in imu_series:
                     comparison_data[key] = np.asarray(imu_series[key])
+        if motor_series:
+            for key in MotorSensorUtilities.MOTOR_COMPARE_KEYS:
+                if key in motor_series:
+                    comparison_data[key] = np.asarray(motor_series[key])
         return comparison_data
 
     def run_single_comparison_at_index(
@@ -505,7 +528,9 @@ class VisualizationService:
         if not set(expected).issubset(self.comparison_data_dict.keys()):
             return False
         available = set(self._physics_state_columns())
-        required = available | set(IMUUtilities.IMU_COMPARE_KEYS)
+        required = available | set(IMUUtilities.IMU_COMPARE_KEYS) | set(
+            MotorSensorUtilities.MOTOR_COMPARE_KEYS
+        )
         cached_states = set(self._cached_comparison_states())
         return required.issubset(cached_states)
 
@@ -726,6 +751,7 @@ class VisualizationService:
         self.comparison_data_dict = {}
         model_key = self.get_model_key(self.settings.default_car_model)
         param_file = self.get_param_filename(self.settings.default_car_parameters)
+        self.invalidate_car_parameters_cache(param_file)
         horizon = self.settings.horizon_steps
         steering_delay, acceleration_delay = self._get_delays()
 
@@ -871,6 +897,9 @@ class VisualizationService:
         for imu_key in IMUUtilities.IMU_COMPARE_KEYS:
             if imu_key not in names:
                 names.append(imu_key)
+        for motor_key in MotorSensorUtilities.MOTOR_COMPARE_KEYS:
+            if motor_key not in names:
+                names.append(motor_key)
         return names
 
     def _states_matrix_from_dataframe(self, start_idx: int, end_idx: int) -> np.ndarray:
@@ -898,10 +927,33 @@ class VisualizationService:
             imu_sim=self.get_imu_simulator(param_file),
         )
 
+    def _motor_ground_truth_from_states(self, start_idx: int, end_idx: int) -> Dict[str, List[float]]:
+        dt = self.get_timestep()
+        states = self._states_matrix_from_dataframe(start_idx, end_idx)
+        controls = MotorSensorUtilities.control_sequence_from_dataframe(
+            self.data, start_idx, end_idx - start_idx
+        )
+        prime_state = None
+        if start_idx > 0:
+            prime_state = self.extract_initial_state_at_index(start_idx - 1)
+        param_file = self.get_param_filename(self.settings.default_car_parameters)
+        return MotorSensorUtilities.simulate_motor_series(
+            states,
+            controls,
+            dt,
+            prime_state=prime_state,
+            car_parameter_file=param_file,
+        )
+
     def _ground_truth_series(self, column_name: str, start_idx: int, end_idx: int) -> np.ndarray:
         if IMUUtilities.is_imu_channel(column_name):
             simulated = self._imu_ground_truth_from_states(start_idx, end_idx)
             return IMUUtilities.ground_truth_imu_series(
+                self.data, column_name, start_idx, end_idx, simulated=simulated
+            )
+        if MotorSensorUtilities.is_motor_channel(column_name):
+            simulated = self._motor_ground_truth_from_states(start_idx, end_idx)
+            return MotorSensorUtilities.ground_truth_motor_series(
                 self.data, column_name, start_idx, end_idx, simulated=simulated
             )
         if column_name in self.data.columns:
@@ -989,11 +1041,16 @@ class VisualizationService:
         shared = self._plot_shared_columns(start_idx, end_idx)
 
         imu_simulated = self._imu_ground_truth_from_states(start_idx, end_idx)
+        motor_simulated = self._motor_ground_truth_from_states(start_idx, end_idx)
         ground_truth: Dict[str, List[float]] = {}
         for col in state_cols:
             if IMUUtilities.is_imu_channel(col):
                 series = IMUUtilities.ground_truth_imu_series(
                     self.data, col, start_idx, end_idx, simulated=imu_simulated
+                )
+            elif MotorSensorUtilities.is_motor_channel(col):
+                series = MotorSensorUtilities.ground_truth_motor_series(
+                    self.data, col, start_idx, end_idx, simulated=motor_simulated
                 )
             elif col in self.data.columns:
                 series = self.data[col].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)

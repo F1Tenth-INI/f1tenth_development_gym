@@ -53,3 +53,5 @@ imu_y: 0.0
 wheel_radius: 0.05  # drive wheel radius [m]
 motor_current_gain: 1.5  # motor current model gain [A/(m/s)]
 motor_current_max_a: 15.0  # motor current saturation [A]
+speed_to_erpm_gain: 4352.0  # VESC ERPM gain [ERPM/(m/s)]
+speed_to_erpm_offset: 220.0  # VESC ERPM offset at zero speed [ERPM]

@@ -18,12 +18,20 @@ class MotorSensorSimulator:
         "wheel_speed_front_rad_s",
         "wheel_speed_rear_rpm",
         "wheel_speed_front_rpm",
+        "motor_angular_velocity",
         "steering_rate",
         "longitudinal_accel",
         "motor_current_a",
         "motor_throttle",
         "motor_brake",
     )
+
+    @staticmethod
+    def vesc_erpm_from_velocity(v_x: float, car_params) -> float:
+        """Mimic VESC /sensors/core.state.speed from longitudinal velocity [m/s]."""
+        gain = float(getattr(car_params, "speed_to_erpm_gain", 4352.0))
+        offset = float(getattr(car_params, "speed_to_erpm_offset", 220.0))
+        return gain * float(v_x) + offset
 
     @staticmethod
     def from_states(state, prev_state, control, car_params, dt=None):
@@ -62,12 +70,14 @@ class MotorSensorSimulator:
 
         steering_rate = (delta - prev_delta) / dt if dt > 0.0 else 0.0
         longitudinal_accel = (v_x - prev_v_x) / dt if dt > 0.0 else 0.0
+        motor_angular_velocity = MotorSensorSimulator.vesc_erpm_from_velocity(v_x, car_params)
 
         return {
             "wheel_speed_rear_rad_s": rear_rad_s,
             "wheel_speed_front_rad_s": front_rad_s,
             "wheel_speed_rear_rpm": rear_rad_s * rpm_scale,
             "wheel_speed_front_rpm": front_rad_s * rpm_scale,
+            "motor_angular_velocity": float(motor_angular_velocity),
             "steering_rate": float(steering_rate),
             "longitudinal_accel": float(longitudinal_accel),
             "motor_current_a": float(motor_current),

@@ -40,12 +40,13 @@ class VehicleParameters:
     wheel_radius: float  # Drive wheel radius [m]
     motor_current_gain: float  # Motor current model gain [A/(m/s)]
     motor_current_max_a: float  # Motor current saturation [A]
+    speed_to_erpm_gain: float  # VESC ERPM gain [ERPM/(m/s)]
+    speed_to_erpm_offset: float  # VESC ERPM offset at zero speed [ERPM]
 
     def __init__(self, param_file_name='gym_car_parameters.yml'):
         class_variable_names = list(VehicleParameters.__annotations__.keys())
         optional_defaults = {
-            "imu_x": 0.0,
-            "imu_y": 0.0,
+          
         }
         current_dir = os.path.dirname(__file__)
         yaml_file_path = os.path.join(current_dir, param_file_name)

@@ -26,6 +26,11 @@ const IMU_CHANNELS = [
   { key: "imu_gyro_z", label: "IMU ω_z" },
 ];
 
+const MOTOR_CHANNELS = [
+  { key: "motor_angular_velocity", label: "Motor ω (ERPM)" },
+  { key: "motor_current_a", label: "Motor current [A]" },
+];
+
 const CTRL_COLOR_BY_COLUMN = {
   angular_control_executed: CTRL_STEERING_COLOR,
   translational_control_executed: CTRL_ACCEL_COLOR,
@@ -460,13 +465,36 @@ function addComparisonRowTraces({
   });
 }
 
-function buildSubplotLayout({ showDelta, showControls, showImu }) {
+function motorDataFromBundle(bundle) {
+  const channels = {};
+  const filtered = settings.enable_comparison ? filterPredictionItems(bundle) : [];
+  for (const { key, label } of MOTOR_CHANNELS) {
+    const gt = bundle.ground_truth?.[key];
+    if (!gt?.length) continue;
+    const predictions = [];
+    for (const p of filtered) {
+      const values = p.states?.[key];
+      if (values?.length) {
+        predictions.push({ start_index: p.start_index, time: p.time, values });
+      }
+    }
+    channels[key] = { label, ground_truth: gt, predictions };
+  }
+  return channels;
+}
+
+function buildSubplotLayout({ showDelta, showControls, showImu, showMotor }) {
   const rowSpecs = [{ kind: "main", weight: 0.38 }];
   if (showDelta) rowSpecs.push({ kind: "delta", weight: 0.1 });
   if (showControls) rowSpecs.push({ kind: "controls", weight: 0.12 });
   if (showImu) {
     IMU_CHANNELS.forEach((ch) => {
       rowSpecs.push({ kind: "imu", channel: ch.key, label: ch.label, weight: 0.1 });
+    });
+  }
+  if (showMotor) {
+    MOTOR_CHANNELS.forEach((ch) => {
+      rowSpecs.push({ kind: "motor", channel: ch.key, label: ch.label, weight: 0.1 });
     });
   }
   if (rowSpecs.length === 1) {
@@ -526,6 +554,7 @@ function plotDataFromBundle(bundle, stateName) {
     ground_truth: null,
     predictions: [],
     imu: imuDataFromBundle(bundle),
+    motor: motorDataFromBundle(bundle),
     other_data: bundle.other_data || {},
     controls: bundle.controls || {},
     start_index: bundle.start_index,
@@ -697,14 +726,22 @@ function buildPlotFromData(plotData) {
   const noState = !plotData.state_name;
   const showDelta = !noState && settings.show_delta_state;
   const showControls = settings.show_controls && Object.keys(plotData.controls || {}).length > 0;
-  const showImu = settings.show_imu && Object.keys(plotData.imu || {}).length > 0;
+  const showImu = Object.keys(plotData.imu || {}).length > 0;
+  const showMotor = Object.keys(plotData.motor || {}).length > 0;
   const multiPred = !noState && settings.show_all_comparisons && plotData.predictions.length > 1;
   const imuMultiPred = showImu && settings.show_all_comparisons
     && IMU_CHANNELS.some(({ key }) => (plotData.imu[key]?.predictions?.length ?? 0) > 1);
+  const motorMultiPred = showMotor && settings.show_all_comparisons
+    && MOTOR_CHANNELS.some(({ key }) => (plotData.motor[key]?.predictions?.length ?? 0) > 1);
   const showPredLegend = !multiPred;
   const otherCols = Object.keys(plotData.other_data || {});
 
-  const { rowSpecs, rowCount } = buildSubplotLayout({ showDelta, showControls, showImu });
+  const { rowSpecs, rowCount } = buildSubplotLayout({
+    showDelta,
+    showControls,
+    showImu,
+    showMotor,
+  });
   const traces = [];
   const chartTheme = getChartTheme();
 
@@ -737,12 +774,14 @@ function buildPlotFromData(plotData) {
   let deltaIds = null;
   let controlsIds = null;
   const imuAxisByChannel = {};
+  const motorAxisByChannel = {};
   rowSpecs.forEach((spec, i) => {
     const ids = axisIds[i];
     if (spec.kind === "main") mainIds = ids;
     else if (spec.kind === "delta") deltaIds = ids;
     else if (spec.kind === "controls") controlsIds = ids;
     else if (spec.kind === "imu") imuAxisByChannel[spec.channel] = ids;
+    else if (spec.kind === "motor") motorAxisByChannel[spec.channel] = ids;
   });
 
   // --- Main state row
@@ -887,8 +926,27 @@ function buildPlotFromData(plotData) {
         axisIds: axisIdsForChannel,
         multiPred: imuMultiPred,
         showPredLegend: !imuMultiPred,
-        gtName: `${channel.label} GT`,
-        predLegendName: `${channel.label} Model`,
+        gtName: `${channel.label} measured`,
+        predLegendName: `${channel.label} model`,
+      });
+    });
+  }
+
+  if (showMotor) {
+    MOTOR_CHANNELS.forEach(({ key }) => {
+      const channel = plotData.motor[key];
+      const axisIdsForChannel = motorAxisByChannel[key];
+      if (!channel || !axisIdsForChannel) return;
+      addComparisonRowTraces({
+        traces,
+        time: plotData.time,
+        groundTruth: channel.ground_truth,
+        predictions: channel.predictions,
+        axisIds: axisIdsForChannel,
+        multiPred: motorMultiPred,
+        showPredLegend: !motorMultiPred,
+        gtName: `${channel.label} measured`,
+        predLegendName: `${channel.label} model`,
       });
     });
   }
@@ -901,6 +959,7 @@ function buildPlotFromData(plotData) {
     `ctrl-${showControls}`,
     `delta-${showDelta}`,
     `imu-${showImu}`,
+    `motor-${showMotor}`,
     `state-${noState ? "none" : plotData.state_name}`,
     `cmp-${comparisonKey}`,
   ].join("-");
@@ -909,7 +968,7 @@ function buildPlotFromData(plotData) {
   layout.title = { text: chartTitle, font: { size: 14 } };
   if (rowCount > 1) {
     layout.title = { text: chartTitle, font: { size: 14 }, y: 0.98 };
-    if (showControls || showImu) layout.margin = { ...layout.margin, r: 70 };
+    if (showControls || showImu || showMotor) layout.margin = { ...layout.margin, r: 70 };
   }
 
   return { traces, layout, structureKey };
@@ -1086,7 +1145,6 @@ function readFormSettings() {
     enable_comparison: document.getElementById("enable-comparison").checked,
     show_controls: document.getElementById("show-controls").checked,
     show_delta_state: document.getElementById("show-delta").checked,
-    show_imu: document.getElementById("show-imu").checked,
     show_all_comparisons: document.getElementById("show-all-comparisons").checked,
     sync_scales: document.getElementById("sync-scales").checked,
     show_metrics: document.getElementById("show-metrics").checked,
@@ -1110,7 +1168,6 @@ function applySettingsToForm(s) {
   document.getElementById("enable-comparison").checked = s.enable_comparison ?? true;
   document.getElementById("show-controls").checked = s.show_controls ?? false;
   document.getElementById("show-delta").checked = s.show_delta_state ?? false;
-  document.getElementById("show-imu").checked = s.show_imu ?? true;
   document.getElementById("show-all-comparisons").checked = s.show_all_comparisons ?? false;
   syncComparisonSliderUi();
   document.getElementById("sync-scales").checked = s.sync_scales ?? false;
@@ -1707,7 +1764,7 @@ function bindEventListeners() {
     });
   });
 
-  ["show-controls", "show-delta", "show-imu"].forEach((id) => {
+  ["show-controls", "show-delta"].forEach((id) => {
     document.getElementById(id).addEventListener("change", async () => {
       await pushSettings(undefined, false);
       if (id === "show-controls") invalidatePlotBundle();
