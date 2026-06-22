@@ -153,6 +153,8 @@ class RLAgentPlanner(template_planner):
         self._stream_send_idx = 0
         self._stream_batch_size = int(getattr(Settings, "SAC_STREAM_BATCH_SIZE", 8))
         self._episode_id = 0
+        # Pause transition logging/streaming after episode end until planner.reset().
+        self._collecting_transitions = True
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -178,6 +180,7 @@ class RLAgentPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
+        self._collecting_transitions = True
         # do not clear self._episode here; do it on episode end
 
     def process_observation(self, controller_observation):
@@ -248,12 +251,8 @@ class RLAgentPlanner(template_planner):
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
         self._maybe_handle_server_terminate()
 
-        reward = driver_obs['reward']
-        done = driver_obs['done']
-        info = driver_obs['info']
-
-        # if(done and self.autonomous_driving):
-        #     print(f"DONE CALLED.")
+        if not self.autonomous_driving:
+            return
 
         """Called by env AFTER stepping with post-step controller observation."""
         if self.prev_obs_raw is None or self.prev_action is None:
@@ -299,6 +298,8 @@ class RLAgentPlanner(template_planner):
                         f"total reward {total_reward:.2f}."
                     )
             self._reset_episode_state()
+            if bool(info_out.get("truncated")) or bool(driver_obs.get("interrupted")):
+                self._collecting_transitions = False
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
@@ -546,6 +547,11 @@ class RLAgentPlanner(template_planner):
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
 
+    def _send_batch(self, batch: list, episode_id: int, episode_end: bool = False) -> None:
+        if not batch:
+            return
+        self.client.send_transition_batch(batch, episode_id, episode_end=episode_end)
+
     def _maybe_stream_send(self) -> None:
         """Stream fixed-size transition batches while the episode is running."""
         if not (self.training_mode and self.autonomous_driving and self.client is not None):
@@ -555,7 +561,7 @@ class RLAgentPlanner(template_planner):
             return
         batch = self._episode[self._stream_send_idx : self._stream_send_idx + self._stream_batch_size]
         try:
-            self.client.send_transition_batch(batch, self._episode_id)
+            self._send_batch(batch, self._episode_id)
             self._stream_send_idx += len(batch)
         except Exception as e:
             print(f"[RLAgentPlanner] Stream send failed: {e}")
@@ -567,8 +573,17 @@ class RLAgentPlanner(template_planner):
         remaining = self._episode[self._stream_send_idx :]
         if not remaining:
             return
+        min_episode_len = int(getattr(Settings, "SAC_MIN_EPISODE_END_BATCH_SIZE", 2))
+        if episode_end and len(self._episode) < min_episode_len:
+            if Settings.SAC_AGENT_DEBUG:
+                print(
+                    f"[RLAgentPlanner] Skipping short episode "
+                    f"({len(self._episode)} transition(s), min={min_episode_len})"
+                )
+            self._stream_send_idx = len(self._episode)
+            return
         try:
-            self.client.send_transition_batch(remaining, self._episode_id, episode_end=episode_end)
+            self._send_batch(remaining, self._episode_id, episode_end=episode_end)
             self._stream_send_idx = len(self._episode)
         except Exception as e:
             print(f"[RLAgentPlanner] Flush send failed: {e}")
@@ -585,7 +600,7 @@ class RLAgentPlanner(template_planner):
 
         try:
             n = self.BOOTSTRAP_TRANSITIONS
-            self.client.send_transition_batch(self._episode[:n], self._episode_id)
+            self._send_batch(self._episode[:n], self._episode_id)
             self._bootstrap_sent = True
             self._episode = self._episode[n:]
         except Exception as e:

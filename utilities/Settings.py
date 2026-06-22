@@ -5,9 +5,10 @@ class Settings():
     ENVIRONMENT_NAME = 'Car'  # Car or Quadruped
     ENV_CAR_PARAMETER_FILE = "yokomo1_car_parameters.yml" # Car parameters for simulated car
     SIM_ODE_IMPLEMENTATION = "jax_pacejka"  # Use the implementation  'jax_pacejka' or 'jit_Pacejka' or 'residual': For fast simulation / 'ODE_TF': For SI_Toolkit batch model thats also used in mpc
-    
+    CAR_NAME = "yokomo1"
+
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "TheTrack2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -102,13 +103,15 @@ class Settings():
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
 
     ## waypoints generation ##
-    MIN_CURV_SAFETY_WIDTH = 1.0             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    MIN_CURV_SAFETY_WIDTH = 0.6             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
     IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 10.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
+    WAYPOINT_LOCAL_SEARCH_BACK = 10   # Local nearest-wpt search behind last index (was 3)
+    WAYPOINT_LOCAL_SEARCH_AHEAD = 15  # Local nearest-wpt search ahead of last index (was 5)
     
 
     ##Lidar Settings ##
@@ -190,11 +193,14 @@ class Settings():
     ## SAC Agent planner
     ACTOR_ID = 0                         # RL actor index (TCP learner + web renderer port offset)
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
+    SAC_INFERENCE_MODEL_NAME = "Physical-42d"  # Model name to be used for inference. If None, the agent will be in training mode
     # If set (seconds), training actor sends learner terminate once at least two completed laps
     # are strictly faster than this (so metrics can include the first sub-threshold lap).
     SAC_TERMINATE_BELOW_LAPTIME = None
     SAC_AGENT_DEBUG = False
     LEARNER_SERVER_DEBUG = False
+    # Log every N streamed batches to stdout (1 = every batch).
+    LEARNER_INGEST_LOG_EVERY_BATCHES = 5
     # Min seconds between train status updates when not using run_training combined display.
     LEARNER_SERVER_TRAIN_LOG_INTERVAL_S = 1.0
 
@@ -243,7 +249,12 @@ class Settings():
     SAC_BATCH_SIZE = 256
     # Stream transitions to the learner every N env steps (episode tail is flushed on done).
     SAC_STREAM_BATCH_SIZE = 32
-    # Metrics PNG (training_metrics.png): positive int = every N CSV rows; "end" = only when training stops.
+    # Skip episode-end TCP batches shorter than this (guards crash-only spam).
+    SAC_MIN_EPISODE_END_BATCH_SIZE = 2
+    # Metrics PNG (training_metrics.png):
+    # SAC_METRICS_PLOT_INTERVAL_S > 0: refresh every N seconds (wall clock).
+    # SAC_METRICS_PLOT_EVERY (when interval is 0): positive int = every N CSV rows; "end" = only when training stops.
+    SAC_METRICS_PLOT_INTERVAL_S = 10.0
     SAC_METRICS_PLOT_EVERY = "end"
     # Live metrics dashboard (GET /api/metrics on learner HTTP port).
     LEARNER_METRICS_HTTP_ENABLED = True
@@ -276,7 +287,7 @@ class Settings():
     
     # Deprecated
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
-
+    WALL_CLOCK_LAPTIMES = True
 
     @classmethod
     def recalculate_paths(cls) -> None:

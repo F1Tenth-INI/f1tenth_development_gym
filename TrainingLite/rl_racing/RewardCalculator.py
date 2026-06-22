@@ -83,9 +83,14 @@ class RewardCalculator:
         wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
-        if leave_bounds or crash or interruption:
+        if interruption:
             crash_penalty = -self.w_crash
-            crash_penalty -= 1.5  * speed
+            crash_penalty -= 1.5 * speed
+            reward += crash_penalty
+            self.truncated = True
+        elif (leave_bounds or crash) and not self.truncated:
+            crash_penalty = -self.w_crash
+            crash_penalty -= 1.5 * speed
             reward += crash_penalty
             if Settings.TRUNCATE_ON_LEAVE_TRACK:
                 self.truncated = True

@@ -80,8 +80,43 @@ def _is_array_like_column(series: pd.Series) -> bool:
     return False
 
 
-def load_metrics_payload(csv_path: str, model_name: str) -> Dict[str, Any]:
-    """Parse learning_metrics.csv into a JSON-serializable chart payload."""
+def load_metrics_payload(
+    csv_path: str,
+    model_name: str,
+    ingest_csv_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Parse learning_metrics.csv (and optional ingest_metrics.csv) into chart payload."""
+    payload = _load_single_metrics_csv(csv_path, model_name, source_label="training")
+    if not ingest_csv_path:
+        return payload
+
+    ingest_payload = _load_single_metrics_csv(
+        ingest_csv_path, model_name, source_label="ingest"
+    )
+    if not ingest_payload.get("series"):
+        return payload
+    if not payload.get("series"):
+        ingest_payload["poll_interval_s"] = payload.get("poll_interval_s")
+        return ingest_payload
+
+    training_mtime = payload.get("csv_mtime") or 0.0
+    ingest_mtime = ingest_payload.get("csv_mtime") or 0.0
+    payload["series"] = ingest_payload["series"] + payload["series"]
+    payload["row_count"] = int(payload.get("row_count", 0)) + int(
+        ingest_payload.get("row_count", 0)
+    )
+    payload["csv_mtime"] = max(training_mtime, ingest_mtime)
+    payload["ingest_row_count"] = int(ingest_payload.get("row_count", 0))
+    return payload
+
+
+def _load_single_metrics_csv(
+    csv_path: str,
+    model_name: str,
+    *,
+    source_label: str = "training",
+) -> Dict[str, Any]:
+    """Parse one metrics CSV into a JSON-serializable chart payload."""
     if not os.path.isfile(csv_path):
         return {
             "model_name": model_name,
@@ -147,7 +182,12 @@ def load_metrics_payload(csv_path: str, model_name: str) -> Dict[str, Any]:
                 x_base = float(x_vals[idx])
                 xs.extend([x_base] * len(arr))
                 ys.extend(arr)
-            series.append({"name": col, "type": "scatter", "x": xs, "y": ys})
+            series.append({
+                "name": f"{source_label}:{col}" if source_label != "training" else col,
+                "type": "scatter",
+                "x": xs,
+                "y": ys,
+            })
         else:
             ys_numeric: List[Optional[float]] = []
             for raw in col_series.values:
@@ -162,7 +202,7 @@ def load_metrics_payload(csv_path: str, model_name: str) -> Dict[str, Any]:
             plot_type = "scatter" if col in {"min_laptime", "avg_laptime"} else "line"
             series.append(
                 {
-                    "name": col,
+                    "name": f"{source_label}:{col}" if source_label != "training" else col,
                     "type": plot_type,
                     "x": [float(x) for x in x_vals],
                     "y": ys_numeric,
@@ -177,6 +217,7 @@ def load_metrics_payload(csv_path: str, model_name: str) -> Dict[str, Any]:
         "x_key": x_key,
         "x_label": x_label,
         "series": series,
+        "source": source_label,
     }
 
 
@@ -218,10 +259,12 @@ class MetricsHttpServer:
         csv_path: str,
         model_name: str,
         poll_hint_s: float = 2.0,
+        ingest_csv_path: Optional[str] = None,
     ):
         self.host = host
         self.port = int(port)
         self.csv_path = csv_path
+        self.ingest_csv_path = ingest_csv_path
         self.model_name = model_name
         self.poll_hint_s = float(poll_hint_s)
         self._server: Optional[asyncio.AbstractServer] = None
@@ -260,7 +303,10 @@ class MetricsHttpServer:
                 writer.write(_json_response(body))
             elif path in ("/api/metrics", "/metrics"):
                 payload = await asyncio.to_thread(
-                    load_metrics_payload, self.csv_path, self.model_name
+                    load_metrics_payload,
+                    self.csv_path,
+                    self.model_name,
+                    self.ingest_csv_path,
                 )
                 payload["poll_interval_s"] = self.poll_hint_s
                 writer.write(_json_response(payload))
