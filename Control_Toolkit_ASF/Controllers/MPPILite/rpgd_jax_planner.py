@@ -11,6 +11,7 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import (
     NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX,
+    LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX,
 )
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 
@@ -528,27 +529,30 @@ def compute_waypoint_distance_jax(state, waypoints):
     return min_dist_sq, min_idx
 
 @jax.jit
-def cost_function_jax(state, control, waypoints):
+def cost_function_jax(state, control, waypoints, lr):
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
     angular_control_cost = jnp.abs(control[0]) * 0.1
     translational_control_cost = jnp.abs(control[1]) * 0.0
     waypoint_cost = waypoint_dist_sq * 20.0
     target_speed = waypoints[min_idx, 5]
     speed_cost = 0.5 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    slip_cost = 0.05 * (state[LINEAR_VEL_Y_IDX] ) ** 2
+    v_x_safe = jnp.maximum(state[LINEAR_VEL_X_IDX], 0.1)
+    v_y_rear = state[LINEAR_VEL_Y_IDX] - state[ANGULAR_VEL_Z_IDX] * lr
+    slip_cost = 0.05 * (v_y_rear / v_x_safe) ** 2
     # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 10.0  # Heavy penalty for large steering angles
-    translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
+    angular_quadratic_penalty = control[0] ** 2 * 0.0  # Heavy penalty for large steering angles
+    # translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
+    translational_quadratic_penalty = 0
     return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost
 
 @jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, 
+def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
                               intra_horizon_smoothness_weight=2.0, 
                               angular_smoothness_weight=1.0, 
                               translational_smoothness_weight=0.1):
     
     # Standard cost for each state-control pair
-    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints)
+    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, lr)
     standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
     
     # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
@@ -607,13 +611,15 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     if control_history is None:
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
+
+    lr = car_params[2]
     
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with constant timestep (use literal value for static compilation)
         trajectory = car_steps_sequential_jax(state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
         # Compute cost
-        costs = cost_function_sequence_jax(trajectory, Q_full, waypoints,
+        costs = cost_function_sequence_jax(trajectory, Q_full, waypoints, lr,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
                                          translational_smoothness_weight)
@@ -654,7 +660,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
         trajectory = car_steps_sequential_jax(state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
-        costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints,
+        costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints, lr,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
                                          translational_smoothness_weight)
