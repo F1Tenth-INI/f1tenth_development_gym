@@ -76,13 +76,13 @@ class StanleyPlanner(template_planner):
             control_limits=(control_limits_low, control_limits_high),
         )
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self, controller_observation):
 
 
-        angular_control, translational_control = self.stanley.step(self.car_state,
+        angular_control, translational_control = self.stanley.step(self.get_car_state(controller_observation),
                                                                self.time,
                                                                {
-                                                                   "next_waypoints": self.waypoints
+                                                                   "next_waypoints": controller_observation["next_waypoints"]
                                                                })
 
         self.render_utils.update_pp(

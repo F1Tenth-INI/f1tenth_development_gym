@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
-from utilities.imu_simulator import *
+from utilities.imu_simulator import IMUSimulator
 from utilities.state_utilities import STATE_VARIABLES
 from utilities.ekf import EKF, alpha_beta_filter, moving_average_zero_phase
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
@@ -49,12 +49,10 @@ def add_simulated_imu_data(df: pd.DataFrame) -> pd.DataFrame:
         
         # Simulate IMU data
         imu_data = imu_simulator.update_car_state(state, 0.04)  # Assuming a timestep of 0.04s
-        
-        
-        # Append simulated data to lists
-        simulated_imu_data['imu_accel_x'].append(imu_data[imu_simulator.accel_x_idx])
-        simulated_imu_data['imu_accel_y'].append(imu_data[imu_simulator.accel_y_idx])
-        simulated_imu_data['imu_gyro_z'].append(imu_data[imu_simulator.gyro_z_idx])
+
+        simulated_imu_data['imu_accel_x'].append(imu_data['imu_a_x'])
+        simulated_imu_data['imu_accel_y'].append(imu_data['imu_a_y'])
+        simulated_imu_data['imu_gyro_z'].append(imu_data['imu_gyro_z'])
         
     # Add simulated IMU data to the dataframe
     df['imu_accel_x'] = simulated_imu_data['imu_accel_x']

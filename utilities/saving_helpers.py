@@ -24,13 +24,17 @@ def move_csv_to_crash_folder(csv_filepath, path_to_plots):
         shutil.move(path_to_plots, dir_path)
 
 
+def experiment_analysis_path(csv_filepath):
+    path_to_experiment_recordings, experiment_filename = os.path.split(csv_filepath)
+    experiment_name = experiment_filename[:-4]  # Remove .csv
+    return os.path.join(path_to_experiment_recordings, f"{experiment_name}_analysis")
+
+
 def save_experiment_data(csv_filepath):
     """
     Analyze a recording using the new ExperimentAnalyzer CLI.
     """
-    path_to_experiment_recordings, experiment_filename = os.path.split(csv_filepath)
-    experiment_name = experiment_filename[:-4]  # Remove .csv
-    save_path = os.path.join(path_to_experiment_recordings, f"{experiment_name}_analysis")
+    save_path = experiment_analysis_path(csv_filepath)
 
     try:
         # Get the repo root directory
@@ -56,6 +60,8 @@ def save_experiment_data(csv_filepath):
         
     if Settings.SAVE_VIDEOS:
         try:
+            path_to_experiment_recordings, experiment_filename = os.path.split(csv_filepath)
+            experiment_name = experiment_filename[:-4]
             recording_to_video_converter = RecordingToVideoConverter(path_to_experiment_recordings, experiment_name, Settings.MAP_NAME)
             recording_to_video_converter.render_video()
         except Exception as e:

@@ -1,8 +1,9 @@
 import yaml
 import numpy as np
 from tqdm import trange
-from typing import Optional
+from typing import Any, Optional
 import importlib
+from collections import deque
                 
 import os
 
@@ -20,8 +21,12 @@ from utilities.waypoint_utils import WaypointUtils
 
 from utilities.Recorder import Recorder, get_basic_data_dict
 from utilities.csv_logger import augment_csv_header_with_laptime
-from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder # 25MB
+from utilities.saving_helpers import save_experiment_data, move_csv_to_crash_folder, experiment_analysis_path # 25MB
 from utilities.imu_utilities import IMUUtilities
+
+# Bounded history for controller observations (SAC/NNI need ~25; we append up to twice per control step).
+CAR_STATE_HISTORY_MAXLEN = 128
+CONTROL_HISTORY_MAXLEN = 128
 
 try:
     from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
@@ -71,14 +76,17 @@ class CarSystem:
         
         # Initial values
         self.car_state = np.ones(len(STATE_VARIABLES))
-        self.car_state_history = []
-        self.control_history = []
+        self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
+        self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
         car_index = 1
         self.scans = None
         self.control_index = 0
 
 
-        self.obs = None
+        self.driver_observation = None
+        self.controller_observation = None
+        self.imu = IMUUtilities.zeros_dict()
+        self.motor_sensors = {}
         
         
         ### Utilities 
@@ -189,12 +197,15 @@ class CarSystem:
 
     def reset(self):
         self.car_state = None
+        self.driver_observation = None
+        self.imu = IMUUtilities.zeros_dict()
+        self.motor_sensors = {}
         self.laptimes = []
 
         self.control_index = 0
 
-        self.control_history = []
-        self.car_state_history = []
+        self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
+        self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
         self.lidar_utils.reset()
         self.waypoint_utils.reset()
         if self.reward_calculator is not None:
@@ -222,11 +233,13 @@ class CarSystem:
             print("Tunner connection not possible.")
     
     def set_car_state(self, car_state):
-        self.car_state = car_state
-        self.car_state_history.append(car_state)
-        if self.planner is not None:
-            self.planner.car_state = self.car_state
+        self.car_state = np.asarray(car_state, dtype=np.float32)
 
+    def _append_car_state_history(self, car_state=None):
+        """Append one car state snapshot to history (post-step in on_step_end)."""
+        if car_state is None:
+            car_state = self.car_state
+        self.car_state_history.append(np.asarray(car_state, dtype=np.float32).copy())
 
     def set_scans(self, ranges):
         if self.lightweight_mode:
@@ -234,26 +247,69 @@ class CarSystem:
         ranges = np.array(ranges)
         self.lidar_utils.update_ranges(ranges, self.car_state)
 
+    def set_sensors(self, sensors):
+        """Store raw sensor readings from driver_obs['sensors']."""
+        self.imu = sensors["imu"]
+        self.motor_sensors = sensors["motor_sensors"]
+
     def render(self, e):
         if Settings.RENDER_MODE is not None:
             self.render_utils.render(e)
 
-    def process_observation(self, env_state=None):
+    def _apply_observation(self, observation):
+        self.driver_observation = observation
+        # `driver_obs` is expected to always contain these fields.
+        scans = observation["scans"]
+        sensors = observation["sensors"]
+        self.set_car_state(observation["car_state"])
+        self.set_scans(scans)
+        self.set_sensors(sensors)
+        self.set_waypoints()
+
+    def _build_planner_step_end_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
+        """Build post-step controller observation for planner transition logging."""
+        controller_observation = self._build_controller_observation(observation)
+        controller_observation.update({
+            "reward": observation["reward"],
+            "done": observation["done"],
+            "info": observation.get("info", {}),
+            "truncated": observation.get("truncated"),
+        })
+        return controller_observation
+
+    def _build_controller_observation(self, driver_observation: dict[str, Any]) -> dict[str, Any]:
+        """Enrich raw driver observation with CarSystem-computed planner fields."""
+        controller_observation = {
+            **driver_observation,
+            "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "state_history": np.asarray(self.car_state_history, dtype=np.float32),
+            "control_history": np.asarray(self.control_history, dtype=np.float32),
+            "frenet_coordinates": np.asarray(
+                self.waypoint_utils.frenet_coordinates, dtype=np.float32
+            ),
+        }
+        if not self.lightweight_mode:
+            controller_observation["processed_ranges"] = np.asarray(
+                self.lidar_utils.processed_ranges, dtype=np.float32
+            )
+            controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
+        return controller_observation
+
+    def process_observation(self, driver_observation):
                 
         # Control step
-        # env_state is an optional full-environment snapshot provided by the
-        # simulation loop (all cars + other relevant data). Most planners
-        # ignore it; some custom controllers may read `self.planner.env_state`.
-        self.env_state = env_state
-        try:
-            if self.planner is not None:
-                setattr(self.planner, "env_state", env_state)
-        except Exception:
-            # Be permissive: controllers may use __slots__ or other restrictions.
-            pass
+        # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
+        # env_state (optional): full-environment snapshot in driver_observation for multi-agent sim.
+        self.env_state = driver_observation.get("env_state")
+        self._apply_observation(driver_observation)
+        if not self.car_state_history:
+            self._append_car_state_history()
 
         if self.planner is not None:
-            self.angular_control, self.translational_control = self.planner.process_observation()
+            controller_observation = self._build_controller_observation(driver_observation)
+            self.angular_control, self.translational_control = self.planner.process_observation(
+                controller_observation
+            )
 
             # MPC delay compensation: only when a control sequence exists (not during startup ramp).
             if getattr(self.planner, 'optimal_control_sequence', None) is not None:
@@ -269,6 +325,9 @@ class CarSystem:
         
         # Add noise to control
         self.angular_control, self.translational_control = self.add_control_noise(np.array([self.angular_control, self.translational_control]))
+        self.control_history.append(
+            np.array([self.angular_control, self.translational_control], dtype=np.float32)
+        )
         
         self.process_data_post_control()
         
@@ -277,28 +336,23 @@ class CarSystem:
         
         return self.angular_control, self.translational_control
 
-    def on_step_end(self, next_obs):
+    def on_step_end(self, observation=None):
+        if observation is None:
+            return
 
-        self.obs = next_obs.copy()
-
-        #Car state and Lidar are updated by parent
-        car_state = next_obs['car_state']
-        ranges = next_obs['scans']
-
-        self.set_car_state(car_state)
-        self.set_scans(ranges)
-        self.set_waypoints()
+        self._apply_observation(observation)
+        self._append_car_state_history()
         
         if self.lightweight_mode:
-            next_obs.update({
+            observation.update({
                 "reward": 0.0,
                 "info": {},
-                "truncated": next_obs['collision'],
-                "done": next_obs['terminated'] or next_obs['collision'] or next_obs['interrupted'] or next_obs['done'],
+                "truncated": observation['collision'],
+                "done": observation['terminated'] or observation['collision'] or observation['interrupted'] or observation['done'],
             })
-            self.obs = next_obs
             if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-                self.planner.on_step_end(self.obs)
+                step_end_observation = self._build_planner_step_end_observation(observation)
+                self.planner.on_step_end(step_end_observation)
             return
 
         # TODO: Recording
@@ -306,34 +360,31 @@ class CarSystem:
             # Snapshot current lap history to avoid sharing a mutable list
             # reference across stored transitions.
             "lap_times": list(self.laptimes),
-            "truncated": self.reward_calculator.truncated or next_obs['collision'] or next_obs['interrupted'],
-            "terminated": next_obs['terminated'],
-            "collision": next_obs['collision']
+            "truncated": self.reward_calculator.truncated or observation['collision'] or observation['interrupted'],
+            "terminated": observation['terminated'],
+            "collision": observation['collision']
             # "reward_difficulty": self.reward_calculator.difficulty
         }
 
-        reward_result = self.reward_calculator._calculate_reward(self, next_obs)
-        if isinstance(reward_result, dict):
-            self.reward = float(reward_result.get("total_reward", 0.0))
-            self.reward_components = dict(reward_result.get("components") or {})
-        else:
-            self.reward = float(reward_result)
-            self.reward_components = dict(getattr(self.reward_calculator, "last_reward_components", {}) or {})
+        controller_observation = self._build_controller_observation(observation)
+        reward_result = self.reward_calculator._calculate_reward(controller_observation)
+        self.reward = float(reward_result["total_reward"])
+        self.reward_components = dict(reward_result.get("components") or {})
 
-        next_obs.update({
+        observation.update({
             "reward": self.reward,
             "info": info,
-            "truncated": self.reward_calculator.truncated or next_obs['collision'],
-            "done": self.reward_calculator.truncated or next_obs['terminated'] or next_obs['collision'] or next_obs['interrupted'] or next_obs['done'],
+            "truncated": self.reward_calculator.truncated or observation['collision'],
+            "done": self.reward_calculator.truncated or observation['terminated'] or observation['collision'] or observation['interrupted'] or observation['done'],
         })
-
-        self.obs = next_obs
 
         if self.render_utils is not None and not self.lightweight_mode:
             self.update_render_utils()
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-            self.planner.on_step_end(self.obs)
+            self.planner.on_step_end(
+                self._build_planner_step_end_observation(observation)
+            )
 
         # Do not reset the reward calculator here: render_env() runs after on_step_end
         # and must still publish the terminal-step reward. driver.reset() clears it.
@@ -392,6 +443,7 @@ class CarSystem:
             'speed': car_state[LINEAR_VEL_X_IDX],
             'Wp_idx': self.waypoint_utils.nearest_waypoint_index,
         }
+        label_dict.update(IMUUtilities.overlay_label_dict(self.imu))
         for name, value in (self.reward_components or {}).items():
             label_dict[f'reward: {name}'] = float(value)
         label_dict['reward: total'] = float(self.reward)
@@ -458,7 +510,15 @@ class CarSystem:
         
         if self.control_index % Settings.PLAN_EVERY_N_STEPS == 0:
             next_interpolated_waypoints = WaypointUtils.get_interpolated_waypoints(self.waypoint_utils.next_waypoints, Settings.INTERPOLATE_LOCA_WP)
-            self.waypoints_planner.process_observation()
+            self.waypoints_planner.lidar_utils = self.lidar_utils
+            driver_obs = self.driver_observation if self.driver_observation is not None else {"car_state": self.car_state}
+            controller_observation = {
+                **driver_obs,
+                "next_waypoints": next_interpolated_waypoints,
+                "processed_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+                "lidar_points": self.lidar_utils.processed_points_map_coordinates,
+            }
+            self.waypoints_planner.process_observation(controller_observation)
             optimal_trajectory = self.waypoints_planner.mpc.optimizer.optimal_trajectory
             if optimal_trajectory is not None:
                 self.waypoints_from_mpc[:, WP_X_IDX] = optimal_trajectory[0, -len(self.waypoints_from_mpc):, POSE_X_IDX]
@@ -532,20 +592,6 @@ class CarSystem:
             basic_dict.update({'forged_history_applied': lambda: self.history_forger.forged_history_applied})
 
         if(hasattr(self, 'recorder') and self.recorder is not None):
-            # Process IMU data before recording
-            if hasattr(self, 'obs') and self.obs is not None:
-                imu_array = self.obs.get('imu', None)
-                
-                # Convert IMU data to dictionary using IMUUtilities
-                if imu_array is not None:
-                    imu_dict_raw = IMUUtilities.imu_array_to_dict(imu_array)
-                else:
-                    # Fallback to zeros if no IMU data available
-                    imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
-                
-                # Convert to lambda functions for lazy evaluation (compatible with Recorder)
-                self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
-            
             # Get simulation observations if available
             sim_obs = getattr(self, 'sim_obs', None)
             basic_dict = get_basic_data_dict(self, sim_obs)
@@ -572,10 +618,6 @@ class CarSystem:
         self.recorder: Optional[Recorder] = None
         
         if Settings.SAVE_RECORDINGS and self.save_recordings:
-            # Initialize IMU dict with zeros for Recorder initialization
-            imu_dict_raw = IMUUtilities.imu_array_to_dict(np.zeros(IMUUtilities.IMU_DATA_DIM))
-            self.imu_dict = {key: lambda k=key: imu_dict_raw[k] for key in imu_dict_raw.keys()}
-            
             self.recorder = Recorder(driver=self)
             
             # Add more internal data to recording dict:
@@ -670,10 +712,6 @@ class CarSystem:
 
         self._simulation_ended = True
 
-        if Settings.SAVE_REWARDS and self.reward_calculator is not None:
-            if self.reward_calculator is not None:
-                self.reward_calculator.plot_history(save_path="./")
-
         if self.recorder is not None:    
 
             if self.recorder.recording_mode == 'offline':  # As adding lines to header needs saving whole file once again
@@ -683,6 +721,15 @@ class CarSystem:
             path_to_plots = None
             if Settings.SAVE_PLOTS:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
+
+                if (
+                    Settings.SAVE_REWARDS
+                    and self.reward_calculator is not None
+                    and len(self.reward_calculator.reward_components_history) > 0
+                ):
+                    self.reward_calculator.plot_history(
+                        save_path=experiment_analysis_path(self.recorder.csv_filepath)
+                    )
 
             if collision:
                 index = min(len(self.car_state_history), 200)

@@ -28,7 +28,7 @@ class manual_planner(template_planner):
         self.angular_control_normed = None
         self.translational_control_normed = None
 
-    def process_observation(self):
+    def process_observation(self, controller_observation):
         self.angular_control_normed, self.translational_control_normed = self.joystick.read()
 
         self.translational_control = 5 * self.translational_control_normed

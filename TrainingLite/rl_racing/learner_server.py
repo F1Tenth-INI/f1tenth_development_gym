@@ -19,7 +19,7 @@ import time
 import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker
+from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker, IngestStatsTracker
 from metrics_http import MetricsHttpServer
 
 from utilities.Settings import Settings
@@ -166,6 +166,8 @@ class LearnerServer:
             self._sync_save_model_from_load_model()
 
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
+        self.ingest_stats_csv_path = os.path.join(self.model_dir, "ingest_metrics.csv")
+        self.ingest_stats = IngestStatsTracker(self.ingest_stats_csv_path)
         self.obs_tracker = ObsRewardTracker(
             model_dir=self.model_dir,
             enabled=bool(getattr(Settings, "SAC_OBS_TRACKING_ENABLED", True)),
@@ -299,8 +301,13 @@ class LearnerServer:
             handle_timeout_termination=False,
         )
         self.model.replay_buffer = self.replay_buffer
-        if self.load_replay_buffer_enabled:
+        if self.load_replay_buffer_enabled and self.load_model_name is not None:
             self._load_replay_buffer()
+        elif self.load_replay_buffer_enabled:
+            print(
+                "[server] Replay-buffer loading skipped: no load_model_name set "
+                "(starting from scratch)."
+            )
         else:
             print("[server] Replay-buffer loading disabled; starting with empty replay buffer.")
         # Restore historical counters from metrics, then ensure loaded replay
@@ -527,77 +534,19 @@ class LearnerServer:
             self.replay_buffer.reset()
 
     def _restore_training_counters_from_metrics(self) -> None:
-        """Restore cumulative counters from learning_metrics.csv (last valid row)."""
+        """Initialize training counters for this run (never resume from metrics CSV)."""
+        self.total_weight_updates = 0
+        self.total_actor_timesteps = 0
         if self.load_model_name is not None:
-            # When bootstrapping from a pretrained model, start run counters fresh.
-            self.total_weight_updates = 0
-            self.total_actor_timesteps = 0
             print(
                 "[server] load_model_name is set; starting with reset counters: "
                 "total_weight_updates=0, total_actor_timesteps=0"
             )
-            return
-
-        metrics_path = self.trainingLogHelper.csv_path
-        if not os.path.isfile(metrics_path):
-            return
-
-        try:
-            with open(metrics_path, "r", newline="", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-            if len(rows) < 2:
-                return
-
-            header = rows[0]
-            expected_len = len(header)
-            if expected_len == 0:
-                return
-
-            idx_updates = header.index("total_weight_updates") if "total_weight_updates" in header else None
-            idx_timesteps = header.index("total_timesteps") if "total_timesteps" in header else None
-            if idx_updates is None and idx_timesteps is None:
-                return
-
-            restored_updates: Optional[int] = None
-            restored_timesteps: Optional[int] = None
-            for row in reversed(rows[1:]):
-                # Skip malformed rows (e.g. schema drift or partial writes).
-                if len(row) != expected_len:
-                    continue
-                try:
-                    if idx_updates is not None:
-                        restored_updates = int(float(row[idx_updates]))
-                    if idx_timesteps is not None:
-                        restored_timesteps = int(float(row[idx_timesteps]))
-                except Exception:
-                    restored_updates = None
-                    restored_timesteps = None
-                    continue
-                break
-
-            if restored_updates is not None:
-                self.total_weight_updates = max(self.total_weight_updates, restored_updates)
-            if restored_timesteps is not None:
-                self.total_actor_timesteps = max(self.total_actor_timesteps, restored_timesteps)
-
-            if restored_updates is not None or restored_timesteps is not None:
-                print(
-                    "[server] Restored training counters from learning_metrics.csv: "
-                    f"total_weight_updates={self.total_weight_updates}, "
-                    f"total_actor_timesteps={self.total_actor_timesteps}"
-                )
-                self._sync_checkpoint_cursor_from_timesteps()
-        except Exception as e:
-            print(f"[server] Failed to restore counters from {metrics_path}: {e}")
-
-    def _sync_checkpoint_cursor_from_timesteps(self) -> None:
-        """Align checkpoint cursor after resume so we do not re-save old milestones."""
-        if self.checkpoint_frequency <= 0:
-            return
-        self.last_checkpoint_timestep = (
-            self.total_actor_timesteps // self.checkpoint_frequency
-        ) * self.checkpoint_frequency
+        else:
+            print(
+                "[server] No load_model_name set; starting with fresh counters "
+                "(not restoring from learning_metrics.csv)."
+            )
 
     def _maybe_schedule_actor_timestep_checkpoints(self) -> None:
         """Save checkpoints at Settings.SAC_CHECKPOINT_FREQUENCY actor timesteps."""
@@ -1406,18 +1355,10 @@ class LearnerServer:
                         except Exception as e:
                             print(f"[server] Failed to init model from first obs: {e}")
 
-                    if Settings.RL_CRASH_REWQARD_RAMPING:
-                        batch = self._apply_crash_ramp(batch, ramp_steps=20, max_ramp_value=15.0)
-
                     if self.model is not None:
                         n_ingested = self._ingest_transitions(batch)
                         if n_ingested > 0:
                             await self._notify_new_samples(n_ingested)
-                            if Settings.LEARNER_SERVER_DEBUG:
-                                print(
-                                    f"[server] Ingested {n_ingested} transition(s) "
-                                    f"(replay={self.replay_buffer.size()})."
-                                )
 
                     self.total_actor_timesteps += len(batch)
                     self.last_episode_time = time.time()
@@ -1427,11 +1368,23 @@ class LearnerServer:
                         actor_id, episode_id, batch, episode_end=episode_end
                     )
                     for completed_episode in completed_episodes:
-                        if completed_episode:
-                            ep_actor = int(completed_episode[0].get("actor_id", actor_id))
-                            ep_id = int(completed_episode[0].get("episode_id", episode_id))
-                            self._finalize_stream_batches_for_episode(ep_actor, ep_id)
+                        if not completed_episode:
+                            continue
+                        if Settings.RL_CRASH_REWQARD_RAMPING:
+                            self._apply_crash_ramp(
+                                completed_episode, ramp_steps=20, max_ramp_value=15.0
+                            )
+                        ep_actor = int(completed_episode[0].get("actor_id", actor_id))
+                        ep_id = int(completed_episode[0].get("episode_id", episode_id))
+                        self._finalize_stream_batches_for_episode(ep_actor, ep_id)
                         self.episode_buffer.add_episode(completed_episode)
+
+                    replay_size = int(self.replay_buffer.size() if self.replay_buffer is not None else 0)
+                    self.ingest_stats.record_batch(
+                        batch,
+                        episodes_completed=len(completed_episodes),
+                        replay_buffer_size=replay_size,
+                    )
 
                     if not self._lap_terminate_triggered:
                         for ep in self._episodes_to_check_for_lap_threshold(
@@ -1559,6 +1512,7 @@ class LearnerServer:
                 csv_path=self.trainingLogHelper.csv_path,
                 model_name=self.save_model_name,
                 poll_hint_s=float(getattr(Settings, "LEARNER_METRICS_HTTP_POLL_S", 2.0)),
+                ingest_csv_path=self.ingest_stats_csv_path,
             )
             await metrics_http.start()
 

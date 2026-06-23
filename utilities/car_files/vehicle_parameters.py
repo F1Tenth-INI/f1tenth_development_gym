@@ -35,9 +35,19 @@ class VehicleParameters:
     brake_multiplier: float  # Scales commanded deceleration (values < 1 weaken braking)
     accel_multiplier: float  # Scales commanded acceleration (values < 1 weaken acceleration)
     steering_multiplier: float  # Scales commanded steering angle (values < 1 reduce steering)
+    imu_x: float  # IMU offset from rear axle, body x forward [m]
+    imu_y: float  # IMU offset from rear axle, body y left [m]
+    wheel_radius: float  # Drive wheel radius [m]
+    motor_current_gain: float  # Motor current model gain [A/(m/s)]
+    motor_current_max_a: float  # Motor current saturation [A]
+    speed_to_erpm_gain: float  # VESC ERPM gain [ERPM/(m/s)]
+    speed_to_erpm_offset: float  # VESC ERPM offset at zero speed [ERPM]
 
     def __init__(self, param_file_name='gym_car_parameters.yml'):
         class_variable_names = list(VehicleParameters.__annotations__.keys())
+        optional_defaults = {
+          
+        }
         current_dir = os.path.dirname(__file__)
         yaml_file_path = os.path.join(current_dir, param_file_name)
 
@@ -45,8 +55,12 @@ class VehicleParameters:
           params = yaml.safe_load(file)
           for class_variable_name in class_variable_names:
             if class_variable_name not in params:
-              raise ValueError(f"Parameter '{class_variable_name}' not found in the YAML file.")
-            setattr(self, class_variable_name, params[class_variable_name])
+              if class_variable_name in optional_defaults:
+                setattr(self, class_variable_name, optional_defaults[class_variable_name])
+              else:
+                raise ValueError(f"Parameter '{class_variable_name}' not found in the YAML file.")
+            else:
+              setattr(self, class_variable_name, params[class_variable_name])
 
         if Settings.SURFACE_FRICTION is not None:
             self.mu = Settings.SURFACE_FRICTION

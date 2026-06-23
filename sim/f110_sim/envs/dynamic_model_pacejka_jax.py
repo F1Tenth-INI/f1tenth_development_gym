@@ -141,6 +141,19 @@ def _next_step_output(psi_dot, v_x, v_y, psi, s_x, s_y, delta):
     ], dtype=jnp.float32)
 
 
+def _blend_states_circular_yaw(s_ks, s_pacejka, weight):
+    """Linear blend for dynamic states; circular blend for yaw (avoids pi-wrap artifacts)."""
+    w = weight
+    blended = (1.0 - w) * s_ks + w * s_pacejka
+    sin_yaw = (1.0 - w) * jnp.sin(s_ks[3]) + w * jnp.sin(s_pacejka[3])
+    cos_yaw = (1.0 - w) * jnp.cos(s_ks[3]) + w * jnp.cos(s_pacejka[3])
+    psi = jnp.arctan2(sin_yaw, cos_yaw)
+    blended = blended.at[3].set(psi)
+    blended = blended.at[4].set(jnp.cos(psi))
+    blended = blended.at[5].set(jnp.sin(psi))
+    return blended
+
+
 @partial(jax.jit, static_argnames=['intermediate_steps', 'ode_model'])
 def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1,
                              ode_model='ODE:ks_pacejka'):
@@ -220,7 +233,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
 
         if use_blend:
             weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_x - 1.75)))
-            next_state = (1.0 - weight) * s_ks + weight * s_pacejka
+            next_state = _blend_states_circular_yaw(s_ks, s_pacejka, weight)
         elif use_pacejka:
             next_state = s_pacejka
         else:

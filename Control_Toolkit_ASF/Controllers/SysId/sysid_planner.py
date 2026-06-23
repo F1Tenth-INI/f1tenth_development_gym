@@ -44,13 +44,13 @@ class SysIdPlanner(template_planner):
         self.control_index = 0
         
 
-    def process_observation(self, ranges=None, ego_odom=None):
+    def process_observation(self, controller_observation=None):
         
         
         self.angular_control = 0.
         desired_speed = 6.        
         desired_angle = 0.4 
-        current_speed = self.car_state[LINEAR_VEL_X_IDX]
+        current_speed = self.get_car_state(controller_observation)[LINEAR_VEL_X_IDX]
         # print('Speed:', current_speed)
         
         if(current_speed > desired_speed - 0.5):

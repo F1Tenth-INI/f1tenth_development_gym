@@ -9,7 +9,7 @@ import yaml
 
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
-from utilities.imu_simulator import *
+from utilities.imu_utilities import IMUUtilities
 
 experiment_path =os.path.dirname(os.path.realpath(__file__))
 
@@ -28,7 +28,11 @@ mu_history = []
 def predict_slip_angle(state: np.ndarray, imu_data: np.ndarray) -> float:
     
     state_dict = StateUtilities.state_to_dict(state)
-    imu_dict = IMUSimulator.array_to_dict(imu_data)
+    imu_dict = (
+        imu_data
+        if isinstance(imu_data, dict)
+        else IMUUtilities.imu_array_to_dict(imu_data)
+    )
     
     input_dict = {**state_dict, **imu_dict}
     

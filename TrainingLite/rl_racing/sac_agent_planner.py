@@ -68,7 +68,7 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
-    STATE_HISTORY_LEN = 25
+    LIDAR_HISTORY_LEN = 1
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -128,7 +128,7 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
-        self.state_history = deque([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)], maxlen=self.STATE_HISTORY_LEN)
+        self.lidar_history: deque[np.ndarray] = deque(maxlen=self.LIDAR_HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -155,6 +155,8 @@ class RLAgentPlanner(template_planner):
         self._stream_send_idx = 0
         self._stream_batch_size = int(getattr(Settings, "SAC_STREAM_BATCH_SIZE", 8))
         self._episode_id = 0
+        # Pause transition logging/streaming after episode end until planner.reset().
+        self._collecting_transitions = True
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -167,9 +169,7 @@ class RLAgentPlanner(template_planner):
     def reset(self):
         self.action_history_queue.clear()
         self.action_history_queue.extend([np.zeros(2) for _ in range(self.HISTORY_LEN)])
-        self.state_history.clear()
-        self.state_history.extend([np.zeros(10) for _ in range(self.STATE_HISTORY_LEN)])
-        
+
         self.transition_logger.clear()
         self.control_index = 0
         # Do not reset _bootstrap_sent here: car_system.reset() runs on every env
@@ -182,13 +182,34 @@ class RLAgentPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
+        self.lidar_history.clear()
+        self._collecting_transitions = True
         # do not clear self._episode here; do it on episode end
 
-    def process_observation(self, ranges=None, ego_odom=None, observation=None):
+    def _append_lidar_history(self, controller_observation: Dict[str, Any]) -> None:
+        ranges = controller_observation.get("processed_ranges")
+        if ranges is None or len(ranges) == 0:
+            return
+        scan = np.asarray(ranges, dtype=np.float32).copy()
+        if self.lidar_history and np.allclose(self.lidar_history[-1], scan):
+            return
+        self.lidar_history.append(scan)
+
+    def _lidar_history_array(self, n_beams: int) -> np.ndarray:
+        history = np.zeros((self.LIDAR_HISTORY_LEN, n_beams), dtype=np.float32)
+        if not self.lidar_history:
+            return history
+        stacked = np.asarray(list(self.lidar_history), dtype=np.float32)
+        n = min(stacked.shape[0], self.LIDAR_HISTORY_LEN)
+        history[-n:] = stacked[-n:]
+        return history
+
+    def process_observation(self, controller_observation):
+        self._controller_observation = controller_observation
         self._maybe_handle_server_terminate()
 
         if not self.autonomous_driving:
-            return self._fallback_action()
+            return self._fallback_action(controller_observation)
         
         sd_to_load = self._sync_from_server()
         if self.observation_builder_fn is None:
@@ -204,11 +225,13 @@ class RLAgentPlanner(template_planner):
             self.prev_translational_control = 0.0
             return 0.0, 0.0
 
-        self.fallback_action = self._fallback_action()
+        self.fallback_action = self._fallback_action(controller_observation)
 
+        if not self.lidar_history:
+            self._append_lidar_history(controller_observation)
 
         # --- build raw obs (manual normalization happens inside) ---
-        raw_obs = self._build_observation()
+        raw_obs = self._build_observation(controller_observation)
         self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
         action = self._select_action(raw_obs)
@@ -243,7 +266,6 @@ class RLAgentPlanner(template_planner):
         self.prev_translational_control = self.translational_control
         
         self.action_history_queue.append(action)
-        self.state_history.append(self.car_state)
         
         self.control_index += 1
         return self.angular_control, self.translational_control
@@ -252,19 +274,19 @@ class RLAgentPlanner(template_planner):
     def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
         self._maybe_handle_server_terminate()
 
-        reward = driver_obs['reward']
-        done = driver_obs['done']
-        info = driver_obs['info']
+        if not self.autonomous_driving:
+            return
 
-        # if(done and self.autonomous_driving):
-        #     print(f"DONE CALLED.")
-
-        """Called by env AFTER stepping. Pass the obs returned by env.step"""
+        """Called by env AFTER stepping with post-step controller observation."""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
+        self._append_lidar_history(driver_obs)
+        next_obs = self._build_observation(driver_obs)
 
-        next_obs = self._build_observation()
+        reward = float(driver_obs.get("reward", 0.0))
+        done = bool(driver_obs.get("done", False))
+        info = driver_obs.get("info", {})
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
@@ -304,6 +326,8 @@ class RLAgentPlanner(template_planner):
                         f"total reward {total_reward:.2f}."
                     )
             self._reset_episode_state()
+            if bool(info_out.get("truncated")) or bool(driver_obs.get("interrupted")):
+                self._collecting_transitions = False
 
     def on_simulation_end(self, collision=False):
         """Called when the simulation ends. Sends a terminate message to the server."""
@@ -343,55 +367,64 @@ class RLAgentPlanner(template_planner):
         finally:
             self.close()
     
-    def _fallback_action(self) -> np.ndarray:
+    def _fallback_action(self, controller_observation=None) -> np.ndarray:
 
         self.fallback_planner.lidar_utils = self.lidar_utils
-        self.fallback_planner.car_state = self.car_state
         self.fallback_planner.waypoint_utils = self.waypoint_utils
 
-        fallback_control = self.fallback_planner.process_observation()
+        if controller_observation is None:
+            controller_observation = getattr(self, "_controller_observation", None)
+        fallback_control = self.fallback_planner.process_observation(controller_observation)
         fallback_action = fallback_control / self.action_denormalization_array
         # return [0., 0.]
         return fallback_action
 
-  
-    
-    def _build_super_observation(self) -> Dict[str, np.ndarray]:
+
+    def _build_super_observation(self, controller_observation: Dict[str, Any]) -> Dict[str, np.ndarray]:
         """ 
         Builds the super observation dictionary.
         This dict should contain all the information that the observation available in the environment.
         This dict is then used to build the observation array for the policy.
         """
-        car_state = self.car_state
+      
+        car_state = self.get_car_state(controller_observation)
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
-        state_history = np.asarray(list(self.state_history), dtype=np.float32)
+        state_history = np.asarray(controller_observation["state_history"], dtype=np.float32)
 
-        # Get border points relative to the car's position
+        next_waypoints = np.asarray(controller_observation["next_waypoints"], dtype=np.float32)
         border_points = self.waypoint_utils.get_track_border_positions_relative(
-            self.waypoint_utils.next_waypoints, car_state
+            next_waypoints, car_state
         )
 
-        fallback_action = self._fallback_action()
+        fallback_action = self._fallback_action(controller_observation)
+        lidar_ranges = np.asarray(controller_observation["processed_ranges"], dtype=np.float32)
+        sensors = controller_observation.get("sensors") or {}
+        imu = controller_observation.get("imu", sensors.get("imu", {}))
+        motor_sensors = controller_observation.get("motor_sensors", sensors.get("motor_sensors", {}))
         return {
-            "car_state": self.car_state,
+            "car_state": car_state,
             "state_history": state_history,
-            "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "imu": imu,
+            "motor_sensors": motor_sensors,
+            "env_state": controller_observation["env_state"],
+            "next_waypoints": next_waypoints,
             "border_points": np.asarray(border_points, dtype=np.float32),
-            "lidar_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+            "lidar_ranges": lidar_ranges,
+            "lidar_history": self._lidar_history_array(lidar_ranges.shape[0]),
             "last_actions": np.asarray(last_actions, dtype=np.float32),
-            "frenet_coordinates": (np.asarray(self.waypoint_utils.frenet_coordinates, dtype=np.float32)),
+            "frenet_coordinates": np.asarray(controller_observation["frenet_coordinates"], dtype=np.float32),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
             "pp_action": np.asarray(fallback_action, dtype=np.float32),
             "fallback_action": np.asarray(fallback_action, dtype=np.float32),
         }
 
-    def _build_observation(self) -> np.ndarray:
+    def _build_observation(self, controller_observation: Dict[str, Any]) -> np.ndarray:
         if self.observation_builder_fn is None:
             raise RuntimeError(
                 "No observation builder loaded from model folder. "
                 "Expected '<model_dir>/client/observation_builder.py'."
             )
-        super_obs = self._build_super_observation()
+        super_obs = self._build_super_observation(controller_observation)
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
 
@@ -475,7 +508,6 @@ class RLAgentPlanner(template_planner):
             print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
         return False
 
-
     def _init_model_for_obs_dim(self, obs_dim: int) -> None:
         """
         Initialize SB3 SAC with a dummy env whose observation_space matches `obs_dim`.
@@ -551,29 +583,50 @@ class RLAgentPlanner(template_planner):
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
 
+    def _send_batch(self, batch: list, episode_id: int, episode_end: bool = False) -> None:
+        if not batch:
+            return
+        self.client.send_transition_batch(batch, episode_id, episode_end=episode_end)
+
+    def _can_stream_transitions(self) -> bool:
+        return (
+            self.training_mode
+            and self.autonomous_driving
+            and self.client is not None
+        )
+
     def _maybe_stream_send(self) -> None:
         """Stream fixed-size transition batches while the episode is running."""
-        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+        if not self._can_stream_transitions():
             return
         pending = len(self._episode) - self._stream_send_idx
         if pending < self._stream_batch_size:
             return
         batch = self._episode[self._stream_send_idx : self._stream_send_idx + self._stream_batch_size]
         try:
-            self.client.send_transition_batch(batch, self._episode_id)
+            self._send_batch(batch, self._episode_id)
             self._stream_send_idx += len(batch)
         except Exception as e:
             print(f"[RLAgentPlanner] Stream send failed: {e}")
 
     def _flush_stream_send(self, episode_end: bool = False) -> None:
         """Send any remaining transitions at episode end."""
-        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+        if not self._can_stream_transitions():
             return
         remaining = self._episode[self._stream_send_idx :]
         if not remaining:
             return
+        min_episode_len = int(getattr(Settings, "SAC_MIN_EPISODE_END_BATCH_SIZE", 2))
+        if episode_end and len(self._episode) < min_episode_len:
+            if Settings.SAC_AGENT_DEBUG:
+                print(
+                    f"[RLAgentPlanner] Skipping short episode "
+                    f"({len(self._episode)} transition(s), min={min_episode_len})"
+                )
+            self._stream_send_idx = len(self._episode)
+            return
         try:
-            self.client.send_transition_batch(remaining, self._episode_id, episode_end=episode_end)
+            self._send_batch(remaining, self._episode_id, episode_end=episode_end)
             self._stream_send_idx = len(self._episode)
         except Exception as e:
             print(f"[RLAgentPlanner] Flush send failed: {e}")
@@ -590,7 +643,7 @@ class RLAgentPlanner(template_planner):
 
         try:
             n = self.BOOTSTRAP_TRANSITIONS
-            self.client.send_transition_batch(self._episode[:n], self._episode_id)
+            self._send_batch(self._episode[:n], self._episode_id)
             self._bootstrap_sent = True
             self._episode = self._episode[n:]
         except Exception as e:

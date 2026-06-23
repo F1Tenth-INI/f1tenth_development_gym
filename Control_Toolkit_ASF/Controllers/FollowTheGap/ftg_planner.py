@@ -64,28 +64,18 @@ class FollowTheGapPlanner(template_planner):
 
 
 
-    def process_observation(self):
-        """
-        gives actuation given observation
-        @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-        @ ego_odom: A dict with following indices:
-        {
-            'pose_x': float,
-            'pose_y': float,
-            'pose_theta': float,
-            'linear_vel_x': float,
-            'linear_vel_y': float,
-            'angular_vel_z': float,
-        }
-        """
-        pose_x = self.car_state[POSE_X_IDX]
-        pose_y = self.car_state[POSE_Y_IDX]
-        pose_theta = self.car_state[POSE_THETA_IDX]
-        v_x = self.car_state[LINEAR_VEL_X_IDX]
+    def process_observation(self, controller_observation):
+        car_state = self.get_car_state(controller_observation)
+        processed_ranges = controller_observation["processed_ranges"]
+
+        pose_x = car_state[POSE_X_IDX]
+        pose_y = car_state[POSE_Y_IDX]
+        pose_theta = car_state[POSE_THETA_IDX]
+        v_x = car_state[LINEAR_VEL_X_IDX]
         
         self.current_position = [pose_x, pose_y, v_x]
 
-        scans = np.array(ranges)
+        scans = np.array(processed_ranges)
         # Take into account size of car
         scans -= 0.3
 

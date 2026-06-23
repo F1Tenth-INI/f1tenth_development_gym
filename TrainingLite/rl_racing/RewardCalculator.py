@@ -65,28 +65,32 @@ class RewardCalculator:
         self.accumulated_reward = 0
         self.last_reward_components = {}
 
-    def _calculate_reward(self, driver: 'CarSystem', obs: dict) -> float:
-        waypoint_utils: WaypointUtils = driver.waypoint_utils
-        car_state = driver.car_state
+    def _calculate_reward(self, controller_obs: dict) -> dict:
+        car_state = np.asarray(controller_obs["car_state"])
+        next_waypoints = np.asarray(controller_obs["next_waypoints"])
+        frenet_coordinates = np.asarray(controller_obs["frenet_coordinates"])
         reward = 0
 
-        # Get variables
-        crash = obs.get('collision', False)
-        interruption = obs.get('interrupted', False)
+        crash = controller_obs.get('collision', False)
+        interruption = controller_obs.get('interrupted', False)
 
         speed = math.sqrt(car_state[LINEAR_VEL_X_IDX]**2 + car_state[LINEAR_VEL_Y_IDX]**2)
-        s, d, e, k = waypoint_utils.frenet_coordinates
-
+        s, d, e, k = frenet_coordinates
 
         # Crash / Leave virtual track penalty 
         crash_penalty = 0
 
-        wp_distances_l = driver.waypoint_utils.next_waypoints[0, WP_D_LEFT_IDX]
-        wp_distances_r = driver.waypoint_utils.next_waypoints[0, WP_D_RIGHT_IDX]
+        wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
+        wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
-        if leave_bounds or crash or interruption:
+        if interruption:
             crash_penalty = -self.w_crash
-            crash_penalty -= 1.5  * speed
+            crash_penalty -= 1.5 * speed
+            reward += crash_penalty
+            self.truncated = True
+        elif (leave_bounds or crash) and not self.truncated:
+            crash_penalty = -self.w_crash
+            crash_penalty -= 1.5 * speed
             reward += crash_penalty
             if Settings.TRUNCATE_ON_LEAVE_TRACK:
                 self.truncated = True
@@ -111,7 +115,11 @@ class RewardCalculator:
         # Penalize d_control for smooth control
         d_action_penality = 0.0
 
-        action = np.array([driver.angular_control, driver.translational_control])
+        control_history = np.asarray(controller_obs.get("control_history", []))
+        if len(control_history) > 0:
+            action = np.asarray(control_history[-1], dtype=np.float64)
+        else:
+            action = np.zeros(2, dtype=np.float64)
         if(self.last_action is None):
             self.last_action = action
         d_action = self.last_action - action
@@ -122,7 +130,7 @@ class RewardCalculator:
         # Speed cap penalty
         speed_cap_penalty = 0.0
         
-        suggested_speed = waypoint_utils.next_waypoints[0, WP_VX_IDX]
+        suggested_speed = next_waypoints[0, WP_VX_IDX]
         if(speed > suggested_speed):
             speed_cap_penalty = - self.w_speed_cap * (speed - suggested_speed) ** 2
         reward += speed_cap_penalty
@@ -252,4 +260,6 @@ class RewardCalculator:
         
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-        plt.savefig(os.path.join(save_path, "cumulative_reward_components.png"))
+        output_path = os.path.join(save_path, "cumulative_reward_components.png")
+        plt.savefig(output_path)
+        plt.close(fig)

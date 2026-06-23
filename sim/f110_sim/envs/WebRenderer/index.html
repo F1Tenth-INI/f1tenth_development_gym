@@ -43,7 +43,7 @@
     .side-panel {
       position: fixed;
       top: 72px;
-      bottom: 0;
+      bottom: 48px;
       z-index: 40;
       display: flex;
       flex-direction: column;
@@ -251,6 +251,79 @@
       -webkit-user-select: none;
       user-select: none;
     }
+    #replay-bar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: rgba(4, 12, 38, 0.94);
+      border-top: 1px solid rgba(255, 255, 255, 0.25);
+      font-size: 13px;
+      pointer-events: auto;
+    }
+    #replay-bar button {
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    #replay-bar button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    #replay-play { min-width: 72px; }
+    #replay-live.active { background: #2d6a4f; border-color: #95d5b2; }
+    #replay-slider {
+      flex: 1;
+      min-width: 80px;
+      cursor: pointer;
+      accent-color: #ac61b9;
+    }
+    #replay-time {
+      min-width: 118px;
+      font-variant-numeric: tabular-nums;
+      opacity: 0.9;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .replay-speed-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.88);
+      white-space: nowrap;
+      user-select: none;
+    }
+    .replay-speed-control input {
+      width: 52px;
+      padding: 4px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 12px;
+      text-align: center;
+    }
+    .replay-speed-control input:focus {
+      outline: none;
+      border-color: #ac61b9;
+      background: rgba(255, 255, 255, 0.16);
+    }
+    .replay-speed-control input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -264,17 +337,17 @@
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state &amp; reward plots</button>
+        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state, IMU &amp; reward plots</button>
         <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
-  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state and reward plots">Plots</button>
-  <aside id="plots-panel" class="side-panel left" aria-label="Control, state and reward plots" aria-hidden="true">
+  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state, IMU and reward plots">Plots</button>
+  <aside id="plots-panel" class="side-panel left" aria-label="Control, state, IMU and reward plots" aria-hidden="true">
     <div id="plots-panel-resize-handle" title="Drag to resize panel width"></div>
     <div class="side-panel-header">
-      <span>Control, State &amp; Reward plots</span>
+      <span>Control, State, IMU &amp; Reward plots</span>
       <label class="plot-window-control" title="Seconds of history shown on each plot">
         Window (s)
         <input id="plot-window-s" type="text" inputmode="decimal" value="50" size="4" aria-label="Plot time window in seconds" />
@@ -290,6 +363,10 @@
         <h3 class="plot-section-title">State</h3>
         <canvas id="state-plot-canvas"></canvas>
       </section>
+      <section class="plot-section" id="imu-plots-section" aria-label="IMU plots">
+        <h3 class="plot-section-title">IMU</h3>
+        <canvas id="imu-plot-canvas"></canvas>
+      </section>
       <section class="plot-section" id="reward-plots-section" aria-label="Reward plots">
         <div class="plot-section-title-row">
           <span>Reward</span>
@@ -302,6 +379,17 @@
       </section>
     </div>
   </aside>
+  <div id="replay-bar" aria-label="Buffer replay controls">
+    <button id="replay-play" type="button" title="Pause live view or play/pause buffer replay">Pause</button>
+    <button id="replay-live" type="button" class="active" title="Resume delayed live stream">Live</button>
+    <label class="replay-speed-control" title="Replay speed multiplier (1.0 = real-time sim)">
+      Speed
+      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4" aria-label="Replay speed multiplier" />
+      <span>×</span>
+    </label>
+    <input id="replay-slider" type="range" min="0" max="1000" value="1000" step="1" aria-label="Scrub buffered simulation time" />
+    <span id="replay-time">—</span>
+  </div>
   <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
   <aside id="metrics-panel" class="side-panel left" aria-label="SAC training metrics" aria-hidden="true">
     <div class="side-panel-header">
@@ -321,9 +409,11 @@
     const plotsPanelCloseEl = document.getElementById("plots-panel-close");
     const controlPlotCanvas = document.getElementById("control-plot-canvas");
     const statePlotCanvas = document.getElementById("state-plot-canvas");
+    const imuPlotCanvas = document.getElementById("imu-plot-canvas");
     const rewardPlotCanvas = document.getElementById("reward-plot-canvas");
     const controlPlotCtx = controlPlotCanvas.getContext("2d");
     const statePlotCtx = statePlotCanvas.getContext("2d");
+    const imuPlotCtx = imuPlotCanvas.getContext("2d");
     const rewardPlotCtx = rewardPlotCanvas.getContext("2d");
     const plotsPanelResizeHandleEl = document.getElementById("plots-panel-resize-handle");
     const plotWindowInputEl = document.getElementById("plot-window-s");
@@ -345,6 +435,7 @@
     let metricsUiConfig = null;
     let plotsPanelOpen = false;
     let metricsPanelOpen = false;
+    let replayRecordingEnabled = false;
     let mapMeta = null;
     let mapImg = null;
     let latest = null;
@@ -360,19 +451,35 @@
     let lastIngestedPlotFrameId = 0;
     let staticOverlay = {};
     let frameBuffer = [];
+    let experimentArchive = [];
+    let experimentArchiveByFrameId = new Map();
     let playbackSimTime = null;
+    let bufferPlaybackMode = "live"; // "live" | "manual"
+    let manualPlaybackPlaying = false;
+    let replayScrubbing = false;
+    let replaySpeed = 1.0;
+    const REPLAY_SPEED_MIN = 0.1;
+    const REPLAY_SPEED_MAX = 20.0;
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const BUFFER_WINDOW_S = 2.5;
-    const TARGET_BUFFER_DELAY_S = 1.8;
-    const MIN_BUFFER_DELAY_S = 1.2;
-    const HISTORY_POLL_MS = 100;
+    const LIVE_BUFFER_WINDOW_S = 1.0;
+    const REPLAY_BUFFER_WINDOW_S = 2.5;
+    const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
+    const LIVE_TARGET_DELAY_S = 0.15;   // live view: tiny delay for interpolation only
+    const REPLAY_TARGET_DELAY_S = 1.5;  // replay/scrub mode
+    const LIVE_MIN_BUFFER_DELAY_S = 0.08;
+    const REPLAY_MIN_BUFFER_DELAY_S = 1.0;
+    const LIVE_POLL_MS = 40;            // ~25 Hz; matches typical control rate better than 10 Hz
+    const REPLAY_POLL_MS = 100;
+    const HISTORY_POLL_MS = 100; // legacy default; live/replay use getStatePollIntervalMs()
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
     let inflightFetches = 0;
     let clientSessionId = null;
     let zoom = 60.0; // pixels per meter
+    let carLengthM = 0.58;
+    let carWidthM = 0.31;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -430,9 +537,21 @@
       "wp_idx",
       "surface friction",
     ];
+    const IMU_PLOT_KEY_ORDER = [
+      "imu: a_x",
+      "imu: a_y",
+      "imu: av_z",
+      "imu_a_x",
+      "imu_a_y",
+      "imu_gyro_z",
+      "imu1_a_x",
+      "imu1_a_y",
+      "imu1_av_z",
+    ];
     let timeSeriesData = {};
     let controlPlotKeys = [CONTROL_ANGULAR_KEY, CONTROL_TRANSLATIONAL_KEY];
     let statePlotKeys = [];
+    let imuPlotKeys = [];
     let rewardPlotKeys = [];
     let episodeTotalPlotEnabled = false;
     let showIntegratedRewardComponents = false;
@@ -442,9 +561,11 @@
     const SUBPLOT_SECTION_PAD_PX = 56;
     let lastControlPlotLayoutKey = "";
     let lastStatePlotLayoutKey = "";
+    let lastImuPlotLayoutKey = "";
     let lastRewardPlotLayoutKey = "";
     let controlPlotLayoutCache = null;
     let statePlotLayoutCache = null;
+    let imuPlotLayoutCache = null;
     let rewardPlotLayoutCache = null;
     let plotHover = null;
     let plotHoverCanvas = null;
@@ -476,6 +597,7 @@
       }
       lastControlPlotLayoutKey = "";
       lastStatePlotLayoutKey = "";
+      lastImuPlotLayoutKey = "";
       lastRewardPlotLayoutKey = "";
       plotHover = null;
       plotHoverCanvas = null;
@@ -487,6 +609,10 @@
 
     function statePlotLayoutKey() {
       return statePlotKeys.join("|");
+    }
+
+    function imuPlotLayoutKey() {
+      return imuPlotKeys.join("|");
     }
 
     function rewardPlotLayoutKey() {
@@ -520,9 +646,11 @@
       if (!plotsPanelOpen) return;
       const controlKey = controlPlotLayoutKey();
       const stateKey = statePlotLayoutKey();
+      const imuKey = imuPlotLayoutKey();
       const rewardKey = rewardPlotLayoutKey();
       const controlChanged = force || controlKey !== lastControlPlotLayoutKey;
       const stateChanged = force || stateKey !== lastStatePlotLayoutKey;
+      const imuChanged = force || imuKey !== lastImuPlotLayoutKey;
       const rewardChanged = force || rewardKey !== lastRewardPlotLayoutKey;
       if (controlChanged) {
         lastControlPlotLayoutKey = controlKey;
@@ -531,6 +659,10 @@
       if (stateChanged) {
         lastStatePlotLayoutKey = stateKey;
         resizeSectionPlotCanvas(statePlotCanvas, statePlotCtx, statePlotKeys);
+      }
+      if (imuChanged) {
+        lastImuPlotLayoutKey = imuKey;
+        resizeSectionPlotCanvas(imuPlotCanvas, imuPlotCtx, imuPlotKeys);
       }
       if (rewardChanged) {
         lastRewardPlotLayoutKey = rewardKey;
@@ -582,8 +714,8 @@
       togglePlotsEl.classList.toggle("active", plotsPanelOpen);
       togglePlotsEl.setAttribute("aria-pressed", plotsPanelOpen ? "true" : "false");
       togglePlotsEl.textContent = plotsPanelOpen
-        ? "Hide control, state & reward plots"
-        : "Control, state & reward plots";
+        ? "Hide control, state, IMU & reward plots"
+        : "Control, state, IMU & reward plots";
       updateSidePanelLayout();
     }
 
@@ -732,6 +864,18 @@
       return norm.startsWith("reward:") || norm === "reward";
     }
 
+    function isImuPlotKey(key) {
+      const norm = normalizeLabelName(key);
+      if (norm.startsWith("imu:")) return true;
+      return (
+        norm.startsWith("imu_a_")
+        || norm.startsWith("imu_gyro_")
+        || norm.startsWith("imu1_a_")
+        || norm.startsWith("imu1_av_")
+        || norm.startsWith("imu_av_")
+      );
+    }
+
     function isEpisodeIntegratedTotalKey(key) {
       return normalizeLabelName(key) === normalizeLabelName(EPISODE_TOTAL_REWARD_KEY);
     }
@@ -782,6 +926,20 @@
       });
     }
 
+    function sortImuPlotKeys(keys) {
+      const rank = (key) => {
+        const norm = normalizeLabelName(key);
+        const idx = IMU_PLOT_KEY_ORDER.findIndex((hint) => norm === normalizeLabelName(hint));
+        return idx >= 0 ? idx : IMU_PLOT_KEY_ORDER.length + 1;
+      };
+      return [...keys].sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        return normalizeLabelName(a).localeCompare(normalizeLabelName(b));
+      });
+    }
+
     function discoverPlotKeys(labels) {
       const angularKey = resolveControlKey(labels, CONTROL_ANGULAR_KEY, "angular_control");
       const translationalKey = resolveControlKey(labels, CONTROL_TRANSLATIONAL_KEY, "translational_control");
@@ -800,20 +958,33 @@
 
       const nextStateKeys = sortStatePlotKeys(
         Object.keys(labels).filter(
-          (key) => !isControlLabelKey(key) && !isRewardPlotKey(key) && parseNumeric(labels[key]) !== null
+          (key) => (
+            !isControlLabelKey(key)
+            && !isRewardPlotKey(key)
+            && !isImuPlotKey(key)
+            && parseNumeric(labels[key]) !== null
+          )
+        )
+      );
+      const nextImuKeys = sortImuPlotKeys(
+        Object.keys(labels).filter(
+          (key) => isImuPlotKey(key) && parseNumeric(labels[key]) !== null
         )
       );
       const controlChanged = controlPlotKeys.join("|") !== nextControlKeys.join("|");
       const stateChanged = statePlotKeys.join("|") !== nextStateKeys.join("|");
+      const imuChanged = imuPlotKeys.join("|") !== nextImuKeys.join("|");
       const rewardChanged = rewardPlotKeys.join("|") !== nextRewardKeys.join("|");
       controlPlotKeys = nextControlKeys;
       statePlotKeys = nextStateKeys;
+      imuPlotKeys = nextImuKeys;
       rewardPlotKeys = nextRewardKeys;
-      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys]) {
         if (!Array.isArray(timeSeriesData[key])) timeSeriesData[key] = [];
       }
       if (controlChanged) lastControlPlotLayoutKey = "";
       if (stateChanged) lastStatePlotLayoutKey = "";
+      if (imuChanged) lastImuPlotLayoutKey = "";
       if (rewardChanged) lastRewardPlotLayoutKey = "";
     }
 
@@ -855,7 +1026,7 @@
       }
 
       discoverPlotKeys(labels);
-      const allKeys = [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys];
+      const allKeys = [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys];
       if (allKeys.length === 0) return;
 
       for (const key of allKeys) {
@@ -885,7 +1056,7 @@
     }
 
     function trimTimeSeries(minTime) {
-      for (const key of [...controlPlotKeys, ...statePlotKeys, ...rewardPlotKeys]) {
+      for (const key of [...controlPlotKeys, ...statePlotKeys, ...imuPlotKeys, ...rewardPlotKeys]) {
         const series = timeSeriesData[key];
         if (!Array.isArray(series) || series.length === 0) continue;
         let cutIdx = 0;
@@ -1169,6 +1340,7 @@
       if (keys.length === 0) {
         if (section === "control") controlPlotLayoutCache = null;
         else if (section === "state") statePlotLayoutCache = null;
+        else if (section === "imu") imuPlotLayoutCache = null;
         else if (section === "reward") rewardPlotLayoutCache = null;
         if (plotHoverCanvas === plotCanvas) {
           plotHover = null;
@@ -1190,6 +1362,7 @@
       const layout = computePlotLayout(w, h, keys, nowT, titleForKey);
       if (section === "control") controlPlotLayoutCache = layout;
       else if (section === "state") statePlotLayoutCache = layout;
+      else if (section === "imu") imuPlotLayoutCache = layout;
       else if (section === "reward") rewardPlotLayoutCache = layout;
 
       for (const subplot of layout.subplots) {
@@ -1229,6 +1402,14 @@
       );
       drawSectionTimeSeriesPlots(
         frame,
+        imuPlotCanvas,
+        imuPlotCtx,
+        imuPlotKeys,
+        "Waiting for IMU telemetry (a_x, a_y, av_z)...",
+        "imu"
+      );
+      drawSectionTimeSeriesPlots(
+        frame,
         rewardPlotCanvas,
         rewardPlotCtx,
         rewardPlotKeys,
@@ -1237,22 +1418,43 @@
       );
     }
 
+    function normalizeAngle(a) {
+      return Math.atan2(Math.sin(a), Math.cos(a));
+    }
+
+    function unwrapAngleToRef(angle, ref) {
+      let a = Number(angle);
+      const r = Number(ref);
+      while (a - r > Math.PI) a -= 2 * Math.PI;
+      while (a - r < -Math.PI) a += 2 * Math.PI;
+      return a;
+    }
+
+    function sanitizeFramePoses(frame) {
+      if (!frame || !Array.isArray(frame.poses)) return frame;
+      return {
+        ...frame,
+        poses: frame.poses.map((p) => {
+          if (!Array.isArray(p) || p.length < 3) return p;
+          return [Number(p[0]), Number(p[1]), normalizeAngle(p[2])];
+        }),
+      };
+    }
+
     function lerp(a, b, t) {
       return a + (b - a) * t;
     }
 
     function angleLerp(a, b, t) {
-      let d = b - a;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
-      return a + d * t;
+      const a0 = normalizeAngle(a);
+      const b0 = unwrapAngleToRef(b, a0);
+      return normalizeAngle(lerp(a0, b0, t));
     }
 
     function angleDelta(a, b) {
-      let d = b - a;
-      while (d > Math.PI) d -= 2 * Math.PI;
-      while (d < -Math.PI) d += 2 * Math.PI;
-      return d;
+      const a0 = normalizeAngle(a);
+      const b0 = unwrapAngleToRef(b, a0);
+      return b0 - a0;
     }
 
     function interpolateState(a, b, t) {
@@ -1294,7 +1496,7 @@
         poses.push([
           p1[0] + vx * extraClamped,
           p1[1] + vy * extraClamped,
-          p1[2] + w * extraClamped,
+          normalizeAngle(p1[2] + w * extraClamped),
         ]);
       }
       return {
@@ -1305,51 +1507,266 @@
       };
     }
 
-    function stateForRender() {
-      if (frameBuffer.length === 0) return null;
-      if (frameBuffer.length === 1) return frameBuffer[0];
+    function getExperimentTimeRange() {
+      const archiveEnd = experimentArchive.length > 0
+        ? Number(experimentArchive[experimentArchive.length - 1].simulation_time)
+        : 0.0;
+      const end = Math.max(archiveEnd, Number(latestSimulationTime || 0.0));
+      if (end <= 0.0 && experimentArchive.length === 0) return null;
+      const start = experimentArchive.length > 0
+        ? Number(experimentArchive[0].simulation_time)
+        : 0.0;
+      return { start, end };
+    }
 
-      const nowS = performance.now() / 1000.0;
-      const oldestT = frameBuffer[0].simulation_time;
-      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
-
-      if (playbackSimTime === null) {
-        playbackSimTime = newestT - TARGET_BUFFER_DELAY_S;
-        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
-        lastDrawWallTimeS = nowS;
-      } else {
-        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
-        lastDrawWallTimeS = nowS;
-
-        // Keep horizon near target; gentle PLL-like correction.
-        const currentHorizon = newestT - playbackSimTime;
-        const horizonError = currentHorizon - TARGET_BUFFER_DELAY_S;
-        const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
-        const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
-
-        if (currentHorizon > MIN_BUFFER_DELAY_S) {
-          playbackSimTime += dtWall * playbackRate;
+    function mergeIntoExperimentArchive(samples) {
+      if (!Array.isArray(samples) || samples.length === 0) return;
+      for (const s of samples) {
+        if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+        const fid = Number(s.frame_id);
+        const existing = experimentArchiveByFrameId.get(fid);
+        if (!existing || Number(s.simulation_time) >= Number(existing.simulation_time)) {
+          experimentArchiveByFrameId.set(fid, sanitizeFramePoses(s));
         }
-
-        // Never run playback backward; keep inside available buffer.
-        playbackSimTime = Math.max(playbackSimTime, oldestT);
-        playbackSimTime = Math.min(playbackSimTime, newestT + 0.1);
       }
-      const target = playbackSimTime;
-      if (target <= frameBuffer[0].simulation_time) return frameBuffer[0];
+      if (experimentArchiveByFrameId.size > MAX_EXPERIMENT_FRAMES) {
+        const sortedIds = Array.from(experimentArchiveByFrameId.keys()).sort((a, b) => a - b);
+        const dropCount = sortedIds.length - MAX_EXPERIMENT_FRAMES;
+        for (let i = 0; i < dropCount; i++) {
+          experimentArchiveByFrameId.delete(sortedIds[i]);
+        }
+      }
+      experimentArchive = Array.from(experimentArchiveByFrameId.values()).sort((a, b) => {
+        const ta = Number(a.simulation_time);
+        const tb = Number(b.simulation_time);
+        if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+        return Number(a.frame_id) - Number(b.frame_id);
+      });
+    }
 
-      for (let i = 1; i < frameBuffer.length; i++) {
-        const a = frameBuffer[i - 1];
-        const b = frameBuffer[i];
+    function stateAtExperimentTime(target) {
+      if (experimentArchive.length === 0) return null;
+      if (experimentArchive.length === 1) return experimentArchive[0];
+      if (target <= experimentArchive[0].simulation_time) return experimentArchive[0];
+
+      for (let i = 1; i < experimentArchive.length; i++) {
+        const a = experimentArchive[i - 1];
+        const b = experimentArchive[i];
         if (target <= b.simulation_time) {
           const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
           const t = Math.max(0.0, Math.min(1.0, (target - a.simulation_time) / dt));
           return interpolateState(a, b, t);
         }
       }
-      const last = frameBuffer[frameBuffer.length - 1];
-      const prev = frameBuffer.length > 1 ? frameBuffer[frameBuffer.length - 2] : null;
-      return extrapolateState(prev, last, target);
+      const last = experimentArchive[experimentArchive.length - 1];
+      return sanitizeFramePoses(last);
+    }
+
+    function getLiveBufferWindowS() {
+      return replayRecordingEnabled ? REPLAY_BUFFER_WINDOW_S : LIVE_BUFFER_WINDOW_S;
+    }
+
+    function getTargetBufferDelayS() {
+      return replayRecordingEnabled ? REPLAY_TARGET_DELAY_S : LIVE_TARGET_DELAY_S;
+    }
+
+    function getMinBufferDelayS() {
+      return replayRecordingEnabled ? REPLAY_MIN_BUFFER_DELAY_S : LIVE_MIN_BUFFER_DELAY_S;
+    }
+
+    function getStatePollIntervalMs() {
+      return replayRecordingEnabled ? REPLAY_POLL_MS : LIVE_POLL_MS;
+    }
+
+    function syncLivePlaybackTime(nowS) {
+      if (frameBuffer.length === 0) return;
+      const oldestT = frameBuffer[0].simulation_time;
+      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      const targetDelay = getTargetBufferDelayS();
+      const minHorizon = getMinBufferDelayS();
+      if (playbackSimTime === null) {
+        playbackSimTime = newestT - targetDelay;
+        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
+        lastDrawWallTimeS = nowS;
+        return;
+      }
+      const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+      lastDrawWallTimeS = nowS;
+      const currentHorizon = newestT - playbackSimTime;
+      const horizonError = currentHorizon - targetDelay;
+      const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
+      const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
+      if (currentHorizon > minHorizon) {
+        playbackSimTime += dtWall * playbackRate;
+      }
+      playbackSimTime = Math.max(playbackSimTime, oldestT);
+      playbackSimTime = Math.min(playbackSimTime, newestT);
+    }
+
+    function stateFromLiveBuffer(target) {
+      if (frameBuffer.length === 0) return null;
+      if (frameBuffer.length === 1) return sanitizeFramePoses(frameBuffer[0]);
+      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      const clampedTarget = Math.max(
+        frameBuffer[0].simulation_time,
+        Math.min(target, newestT)
+      );
+      if (clampedTarget <= frameBuffer[0].simulation_time) {
+        return sanitizeFramePoses(frameBuffer[0]);
+      }
+      for (let i = 1; i < frameBuffer.length; i++) {
+        const a = frameBuffer[i - 1];
+        const b = frameBuffer[i];
+        if (clampedTarget <= b.simulation_time) {
+          const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
+          const t = Math.max(0.0, Math.min(1.0, (clampedTarget - a.simulation_time) / dt));
+          return interpolateState(a, b, t);
+        }
+      }
+      return sanitizeFramePoses(frameBuffer[frameBuffer.length - 1]);
+    }
+
+    function simTimeFromSliderValue(sliderValue) {
+      const range = getExperimentTimeRange();
+      if (!range) return 0.0;
+      const span = Math.max(1e-6, range.end - range.start);
+      const frac = clamp(Number(sliderValue) / 1000.0, 0.0, 1.0);
+      return range.start + frac * span;
+    }
+
+    function sliderValueFromSimTime(simTime) {
+      const range = getExperimentTimeRange();
+      if (!range) return 1000;
+      const span = Math.max(1e-6, range.end - range.start);
+      const frac = clamp((Number(simTime) - range.start) / span, 0.0, 1.0);
+      return Math.round(frac * 1000);
+    }
+
+    function syncReplaySpeedInput() {
+      const el = document.getElementById("replay-speed");
+      if (!el) return;
+      el.value = replaySpeed.toFixed(1);
+      el.disabled = bufferPlaybackMode === "live";
+    }
+
+    function applyReplaySpeedFromInput() {
+      const el = document.getElementById("replay-speed");
+      const parsed = parseNumeric(el?.value);
+      if (parsed === null) {
+        syncReplaySpeedInput();
+        return;
+      }
+      replaySpeed = clamp(parsed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+      syncReplaySpeedInput();
+    }
+
+    function getReplaySpeed() {
+      return clamp(replaySpeed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+    }
+
+    function updateReplayPlayButton() {
+      const btn = document.getElementById("replay-play");
+      if (!btn) return;
+      if (bufferPlaybackMode === "live") {
+        btn.textContent = "Pause";
+        btn.title = "Pause live view and scrub the buffer";
+      } else if (manualPlaybackPlaying) {
+        btn.textContent = "Pause";
+        btn.title = "Pause buffer replay";
+      } else {
+        btn.textContent = "Play";
+        btn.title = "Play buffer replay";
+      }
+    }
+
+    function updateReplayBarUI() {
+      const sliderEl = document.getElementById("replay-slider");
+      const timeEl = document.getElementById("replay-time");
+      const liveBtn = document.getElementById("replay-live");
+      const range = getExperimentTimeRange();
+      if (!sliderEl || !timeEl || !range) {
+        if (timeEl) timeEl.textContent = "—";
+        if (sliderEl) sliderEl.disabled = true;
+        return;
+      }
+      sliderEl.disabled = range.end <= range.start;
+      if (!replayScrubbing) {
+        if (bufferPlaybackMode === "live") {
+          sliderEl.value = "1000";
+        } else {
+          const t = playbackSimTime ?? range.end;
+          sliderEl.value = String(sliderValueFromSimTime(t));
+        }
+      }
+      const shownT = bufferPlaybackMode === "live"
+        ? range.end
+        : (playbackSimTime ?? range.end);
+      const modeLabel = bufferPlaybackMode === "live" ? "live" : (manualPlaybackPlaying ? "replay" : "paused");
+      timeEl.textContent = `${shownT.toFixed(2)}s / ${range.end.toFixed(2)}s (${modeLabel})`;
+      if (liveBtn) liveBtn.classList.toggle("active", bufferPlaybackMode === "live");
+      syncReplaySpeedInput();
+      updateReplayPlayButton();
+    }
+
+    function enterManualPlayback() {
+      bufferPlaybackMode = "manual";
+      manualPlaybackPlaying = false;
+      if (playbackSimTime === null) {
+        const range = getExperimentTimeRange();
+        playbackSimTime = range ? range.end : 0.0;
+      }
+      lastDrawWallTimeS = performance.now() / 1000.0;
+      updateReplayBarUI();
+    }
+
+    function goLivePlayback() {
+      bufferPlaybackMode = "live";
+      manualPlaybackPlaying = false;
+      replayScrubbing = false;
+      playbackSimTime = null;
+      lastDrawWallTimeS = null;
+      updateReplayBarUI();
+    }
+
+    function toggleReplayPlayPause() {
+      const range = getExperimentTimeRange();
+      if (!range || range.end <= range.start) return;
+      if (bufferPlaybackMode === "live") {
+        syncLivePlaybackTime(performance.now() / 1000.0);
+        enterManualPlayback();
+        return;
+      }
+      manualPlaybackPlaying = !manualPlaybackPlaying;
+      lastDrawWallTimeS = performance.now() / 1000.0;
+      updateReplayBarUI();
+    }
+
+    function stateForRender() {
+      const nowS = performance.now() / 1000.0;
+
+      if (replayRecordingEnabled && bufferPlaybackMode === "manual") {
+        const range = getExperimentTimeRange();
+        if (!range) return null;
+        if (playbackSimTime === null) playbackSimTime = range.end;
+        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+        lastDrawWallTimeS = nowS;
+        if (manualPlaybackPlaying) {
+          playbackSimTime += dtWall * getReplaySpeed();
+          if (playbackSimTime >= range.end) {
+            playbackSimTime = range.end;
+            manualPlaybackPlaying = false;
+          }
+        }
+        playbackSimTime = Math.max(playbackSimTime, range.start);
+        playbackSimTime = Math.min(playbackSimTime, range.end);
+        const archived = stateAtExperimentTime(playbackSimTime);
+        if (archived) return archived;
+        return stateFromLiveBuffer(playbackSimTime);
+      }
+
+      if (frameBuffer.length === 0) return null;
+      syncLivePlaybackTime(nowS);
+      return stateFromLiveBuffer(playbackSimTime);
     }
 
     function drawPoints(points, color, radius, cx, cy) {
@@ -1401,6 +1818,30 @@
           ctx.arc(sx, sy, radius, 0, Math.PI * 2);
           ctx.fill();
         }
+      }
+    }
+
+    function applyReplayRecordingUi() {
+      const replayBarEl = document.getElementById("replay-bar");
+      if (replayBarEl) {
+        replayBarEl.style.display = replayRecordingEnabled ? "" : "none";
+      }
+    }
+
+    async function loadUiConfig() {
+      try {
+        const r = await fetch("/ui-config", { cache: "no-store" });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
+        if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+        if (typeof cfg.replay_recording_enabled === "boolean") {
+          replayRecordingEnabled = cfg.replay_recording_enabled;
+          applyReplayRecordingUi();
+          startStatePolling();
+        }
+      } catch (e) {
+        // Keep defaults when ui-config is unavailable.
       }
     }
 
@@ -1486,105 +1927,67 @@
       }
     }
 
-    async function fetchStateHistoryTick() {
+    async function fetchArchiveBackfillTick() {
+      if (!replayRecordingEnabled) return;
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) return;
+      if (experimentArchive.length === 0) return;
+      const oldestFrameId = Number(experimentArchive[0].frame_id);
+      if (oldestFrameId <= 1) return;
+
+      inflightFetches += 1;
+      try {
+        const since = Math.max(0, oldestFrameId - 201);
+        const r = await fetch(`/state-history?since=${since}`);
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        mergeIntoExperimentArchive(history);
+      } catch (e) {
+        // Best-effort backfill; regular polling continues.
+      } finally {
+        inflightFetches = Math.max(0, inflightFetches - 1);
+        const nextOldest = experimentArchive.length > 0 ? Number(experimentArchive[0].frame_id) : 1;
+        if (nextOldest > 1 && inflightFetches < MAX_INFLIGHT_FETCHES) {
+          fetchArchiveBackfillTick();
+        }
+      }
+    }
+
+    function scheduleArchiveBackfill() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) return;
+      if (experimentArchive.length === 0) return;
+      if (Number(experimentArchive[0].frame_id) <= 1) return;
+      fetchArchiveBackfillTick();
+    }
+
+    async function fetchStateTick() {
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
         return;
       }
       inflightFetches += 1;
       try {
-        const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
-        const r = await fetch(`/state-history?since=${since}`);
-        const payload = await r.json();
-        const history = Array.isArray(payload.history) ? payload.history : [];
-        const serverSessionId = payload.session_id || null;
-        const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
-        if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
-          // New backend instance detected: reset client-side state and continue seamlessly.
-          frameBuffer = [];
-          latest = null;
-          latestSimulationTime = 0.0;
-          latestSimAtPoll = 0.0;
-          latestPollWallTimeS = 0.0;
-          prevPollSimTime = null;
-          prevPollWallTimeS = null;
-          simTimeRate = 1.0;
-          observedFetchIntervalS = 0.1;
-          lastFetchCompleteWallS = null;
-          lastFrameId = 0;
-          lastIngestedPlotFrameId = 0;
-          timeSeriesData = {};
-          playbackSimTime = null;
-          lastDrawWallTimeS = null;
-          browserPositionHistory = [];
-          browserHistoryLastFrameId = 0;
-          clientSessionId = serverSessionId;
-          loadMap();
-          loadStaticOverlay();
-          statusEl.textContent = "Detected new experiment backend. Reconnected.";
+        const r = await fetch("/state", { cache: "no-store" });
+        const state = await r.json();
+        if (typeof state.replay_recording_enabled === "boolean") {
+          if (state.replay_recording_enabled !== replayRecordingEnabled) {
+            replayRecordingEnabled = state.replay_recording_enabled;
+            applyReplayRecordingUi();
+            startStatePolling();
+            return;
+          }
         }
-        if (clientSessionId === null && serverSessionId !== null) {
-          clientSessionId = serverSessionId;
-        }
-        appendHistorySamples(history);
-        // Ignore stale response snapshots that are older than what we already processed.
-        if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+        const frameId = Number(state.frame_id || 0);
+        if (!Number.isFinite(frameId) || frameId <= lastFrameId) {
           return;
         }
-        const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
-        const nowWall = performance.now() / 1000.0;
-        if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
-          const dSim = newLatestSimulationTime - prevPollSimTime;
-          const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
-          const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
-          // Smooth estimate to avoid jitter in playback speed.
-          simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
-        }
-        prevPollSimTime = newLatestSimulationTime;
-        prevPollWallTimeS = nowWall;
-        latestSimulationTime = newLatestSimulationTime;
-        lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
-        latestSimAtPoll = latestSimulationTime;
-        latestPollWallTimeS = nowWall;
-
-        const cutoff = latestSimulationTime - BUFFER_WINDOW_S;
-        const mergedByFrameId = new Map();
-        for (const s of [...frameBuffer, ...history]) {
-          if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
-          if (s.simulation_time < cutoff) continue;
-          const fid = Number(s.frame_id);
-          const existing = mergedByFrameId.get(fid);
-          if (!existing || s.simulation_time >= existing.simulation_time) {
-            mergedByFrameId.set(fid, s);
-          }
-        }
-
-        const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
-          const ta = Number(a.simulation_time);
-          const tb = Number(b.simulation_time);
-          if (Math.abs(ta - tb) > 1e-9) return ta - tb;
-          return Number(a.frame_id) - Number(b.frame_id);
-        });
-
-        // Ensure monotonic simulation_time in buffer (drop regressions).
-        const monotonic = [];
-        let lastT = -Infinity;
-        for (const s of merged) {
-          const t = Number(s.simulation_time);
-          if (t + 1e-9 >= lastT) {
-            monotonic.push(s);
-            lastT = t;
-          }
-        }
-        frameBuffer = monotonic;
-        latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
-        ingestPlotFrames(monotonic);
-
-        const labels = latest?.web_overlay?.label_dict || {};
-        const labelText = showCarStateInfo && Object.keys(labels).length > 0
-          ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
-          : "";
-        const camMode = cameraFollowEgo ? "follow-car" : "free";
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+        const history = [state];
+        const payload = {
+          history,
+          latest_simulation_time: Number(state.simulation_time || 0.0),
+          latest_frame_id: frameId,
+          session_id: state.session_id || null,
+          replay_recording_enabled: replayRecordingEnabled,
+        };
+        await processStatePollPayload(payload, history);
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {
@@ -1598,9 +2001,156 @@
       }
     }
 
+    async function processStatePollPayload(payload, history) {
+      const serverSessionId = payload.session_id || null;
+      if (typeof payload.replay_recording_enabled === "boolean") {
+        replayRecordingEnabled = payload.replay_recording_enabled;
+        applyReplayRecordingUi();
+      }
+      const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
+      if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
+        frameBuffer = [];
+        experimentArchive = [];
+        experimentArchiveByFrameId = new Map();
+        latest = null;
+        latestSimulationTime = 0.0;
+        latestSimAtPoll = 0.0;
+        latestPollWallTimeS = 0.0;
+        prevPollSimTime = null;
+        prevPollWallTimeS = null;
+        simTimeRate = 1.0;
+        observedFetchIntervalS = 0.1;
+        lastFetchCompleteWallS = null;
+        lastFrameId = 0;
+        lastIngestedPlotFrameId = 0;
+        timeSeriesData = {};
+        playbackSimTime = null;
+        bufferPlaybackMode = "live";
+        manualPlaybackPlaying = false;
+        replayScrubbing = false;
+        lastDrawWallTimeS = null;
+        browserPositionHistory = [];
+        browserHistoryLastFrameId = 0;
+        clientSessionId = serverSessionId;
+        loadMap();
+        loadStaticOverlay();
+        statusEl.textContent = "Detected new experiment backend. Reconnected.";
+      }
+      if (clientSessionId === null && serverSessionId !== null) {
+        clientSessionId = serverSessionId;
+      }
+      appendHistorySamples(history);
+      if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+        return;
+      }
+      const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
+      const nowWall = performance.now() / 1000.0;
+      if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
+        const dSim = newLatestSimulationTime - prevPollSimTime;
+        const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
+        const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
+        simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
+      }
+      prevPollSimTime = newLatestSimulationTime;
+      prevPollWallTimeS = nowWall;
+      latestSimulationTime = newLatestSimulationTime;
+      lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
+      latestSimAtPoll = latestSimulationTime;
+      latestPollWallTimeS = nowWall;
+
+      if (replayRecordingEnabled) {
+        mergeIntoExperimentArchive(history);
+        scheduleArchiveBackfill();
+      }
+
+      const cutoff = latestSimulationTime - getLiveBufferWindowS();
+      const mergedByFrameId = new Map();
+      for (const s of [...frameBuffer, ...history]) {
+        if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+        if (s.simulation_time < cutoff) continue;
+        const fid = Number(s.frame_id);
+        const existing = mergedByFrameId.get(fid);
+        if (!existing || s.simulation_time >= existing.simulation_time) {
+          mergedByFrameId.set(fid, s);
+        }
+      }
+
+      const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
+        const ta = Number(a.simulation_time);
+        const tb = Number(b.simulation_time);
+        if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+        return Number(a.frame_id) - Number(b.frame_id);
+      });
+
+      const monotonic = [];
+      let lastT = -Infinity;
+      for (const s of merged) {
+        const t = Number(s.simulation_time);
+        if (t + 1e-9 >= lastT) {
+          monotonic.push(s);
+          lastT = t;
+        }
+      }
+      frameBuffer = monotonic;
+      latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+      ingestPlotFrames(history);
+
+      const labels = latest?.web_overlay?.label_dict || {};
+      const labelText = showCarStateInfo && Object.keys(labels).length > 0
+        ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
+        : "";
+      const camMode = cameraFollowEgo ? "follow-car" : "free";
+      statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+      if (replayRecordingEnabled) {
+        updateReplayBarUI();
+      }
+    }
+
+    async function fetchStateHistoryTick() {
+      if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
+        return;
+      }
+      inflightFetches += 1;
+      try {
+        const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
+        const r = await fetch(`/state-history?since=${since}`);
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        if (typeof payload.replay_recording_enabled === "boolean") {
+          if (payload.replay_recording_enabled !== replayRecordingEnabled) {
+            replayRecordingEnabled = payload.replay_recording_enabled;
+            applyReplayRecordingUi();
+            startStatePolling();
+            return;
+          }
+        }
+        await processStatePollPayload(payload, history);
+      } catch (e) {
+        statusEl.textContent = "Waiting for simulation state...";
+      } finally {
+        const now = performance.now() / 1000.0;
+        if (lastFetchCompleteWallS !== null) {
+          const interval = Math.max(0.01, now - lastFetchCompleteWallS);
+          observedFetchIntervalS = 0.8 * observedFetchIntervalS + 0.2 * interval;
+        }
+        lastFetchCompleteWallS = now;
+        inflightFetches = Math.max(0, inflightFetches - 1);
+      }
+    }
+
+    let statePollTimer = null;
+    function startStatePolling() {
+      if (statePollTimer !== null) {
+        clearInterval(statePollTimer);
+        statePollTimer = null;
+      }
+      const tick = replayRecordingEnabled ? fetchStateHistoryTick : fetchStateTick;
+      tick();
+      statePollTimer = setInterval(tick, getStatePollIntervalMs());
+    }
+
     function startHistoryPolling() {
-      fetchStateHistoryTick();
-      setInterval(fetchStateHistoryTick, HISTORY_POLL_MS);
+      startStatePolling();
     }
 
     function draw() {
@@ -1694,8 +2244,8 @@
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = 0.58 * zoom;
-          const carWid = 0.31 * zoom;
+          const carLen = carLengthM * zoom;
+          const carWid = carWidthM * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
@@ -1707,6 +2257,9 @@
       if (plotsPanelOpen) {
         maybeResizePlotCanvases();
         drawTimeSeriesPlots(frame);
+      }
+      if (bufferPlaybackMode === "manual") {
+        updateReplayBarUI();
       }
       requestAnimationFrame(draw);
     }
@@ -1867,6 +2420,44 @@
     document.getElementById("toggle-follow").addEventListener("click", () => {
       toggleCameraFollow();
     });
+    const replayPlayEl = document.getElementById("replay-play");
+    const replayLiveEl = document.getElementById("replay-live");
+    const replaySliderEl = document.getElementById("replay-slider");
+    const replaySpeedEl = document.getElementById("replay-speed");
+    replayPlayEl.addEventListener("click", () => {
+      toggleReplayPlayPause();
+    });
+    replayLiveEl.addEventListener("click", () => {
+      goLivePlayback();
+    });
+    replaySliderEl.addEventListener("pointerdown", () => {
+      replayScrubbing = true;
+      enterManualPlayback();
+      manualPlaybackPlaying = false;
+    });
+    replaySliderEl.addEventListener("pointerup", () => {
+      replayScrubbing = false;
+      updateReplayBarUI();
+    });
+    replaySliderEl.addEventListener("pointercancel", () => {
+      replayScrubbing = false;
+      updateReplayBarUI();
+    });
+    replaySliderEl.addEventListener("input", () => {
+      playbackSimTime = simTimeFromSliderValue(replaySliderEl.value);
+      enterManualPlayback();
+      manualPlaybackPlaying = false;
+      updateReplayBarUI();
+    });
+    replaySpeedEl.addEventListener("change", applyReplaySpeedFromInput);
+    replaySpeedEl.addEventListener("blur", applyReplaySpeedFromInput);
+    replaySpeedEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applyReplaySpeedFromInput();
+        replaySpeedEl.blur();
+      }
+    });
     toggleMapEl.addEventListener("change", () => {
       showMap = !!toggleMapEl.checked;
     });
@@ -1903,6 +2494,7 @@
     }
     bindPlotCanvasHover(controlPlotCanvas, () => controlPlotLayoutCache);
     bindPlotCanvasHover(statePlotCanvas, () => statePlotLayoutCache);
+    bindPlotCanvasHover(imuPlotCanvas, () => imuPlotLayoutCache);
     bindPlotCanvasHover(rewardPlotCanvas, () => rewardPlotLayoutCache);
     plotsPanelResizeHandleEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
@@ -1962,7 +2554,11 @@
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
+    applyReplayRecordingUi();
+    syncReplaySpeedInput();
+    updateReplayBarUI();
     resizeCanvas();
+    loadUiConfig();
     loadMap();
     loadStaticOverlay();
     startHistoryPolling();

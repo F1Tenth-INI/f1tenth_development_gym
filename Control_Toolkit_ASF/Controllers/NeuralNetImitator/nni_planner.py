@@ -59,8 +59,10 @@ class NeuralNetImitatorPlanner(template_planner):
         if number_of_next_waypoints_network > Settings.LOOK_AHEAD_STEPS:
             raise ValueError('Number of waypoints required by network ({}) different than that set in Settings ({})'.format(number_of_next_waypoints_network, Settings.LOOK_AHEAD_STEPS))
 
-    def process_observation(self):
+    def process_observation(self, controller_observation):
 
+        car_state = self.get_car_state(controller_observation)
+        next_waypoints = controller_observation["next_waypoints"]
 
         # Build a dict data_dict, to store all environment and sensor data that we have access to
         # The NNI will then extract the data it needs from this dict
@@ -75,8 +77,8 @@ class NeuralNetImitatorPlanner(template_planner):
         # lidar_dict = dict(zip(lidar_keys, lidar_values))
         lidar_dict = {}
         # Waypoint dict
-        self.waypoints = self.waypoint_utils.next_waypoints
-        waypoints_relative = self.waypoint_utils.get_relative_positions(self.waypoints, self.car_state)
+        self.waypoints = next_waypoints
+        waypoints_relative = self.waypoint_utils.get_relative_positions(self.waypoints, car_state)
         waypoints_relative_x = waypoints_relative[:, 0]
         waypoints_relative_y = waypoints_relative[:, 1]
         next_waypoint_vx = self.waypoints[:, WP_VX_IDX]
@@ -99,7 +101,7 @@ class NeuralNetImitatorPlanner(template_planner):
             'translational_control_calculated_-1': self.control_history[-1][1],
         }
         # Carstate dict
-        state_dict = {state_name: self.car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
+        state_dict = {state_name: car_state[STATE_INDICES[state_name]] for state_name in STATE_VARIABLES}
         # print("angular_vel_z: ", state_dict.get('angular_vel_z', 'Key not found'))        # Combine all dictionaries into one
         data_dict = {**waypoints_dict, **state_dict, **lidar_dict, **env_dict, **control_dict}
         

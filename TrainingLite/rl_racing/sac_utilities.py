@@ -390,6 +390,74 @@ class ObsRewardTracker:
 
 
 
+class IngestStatsTracker:
+    """Append-only log of streamed transition batches (updates before SAC training runs)."""
+
+    HEADER = [
+        "time",
+        "batch_size",
+        "batch_mean_reward",
+        "batch_min_reward",
+        "batch_max_reward",
+        "batch_done_count",
+        "episodes_completed_total",
+        "transitions_total",
+        "replay_buffer_size",
+    ]
+
+    def __init__(self, csv_path: str):
+        self.csv_path = csv_path
+        self._start = time.time()
+        self._episodes_completed = 0
+        self._transitions_total = 0
+        self._batch_count = 0
+        target_dir = os.path.dirname(csv_path)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
+        if not os.path.isfile(csv_path):
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(self.HEADER)
+
+    def record_batch(
+        self,
+        batch: List[dict],
+        *,
+        episodes_completed: int,
+        replay_buffer_size: int,
+    ) -> None:
+        if not batch:
+            return
+
+        rewards = [float(t.get("reward", 0.0)) for t in batch]
+        done_count = sum(1 for t in batch if bool(t.get("done")))
+        self._batch_count += 1
+        self._episodes_completed += int(episodes_completed)
+        self._transitions_total += len(batch)
+
+        row = {
+            "time": round(time.time() - self._start, 3),
+            "batch_size": len(batch),
+            "batch_mean_reward": float(np.mean(rewards)),
+            "batch_min_reward": float(np.min(rewards)),
+            "batch_max_reward": float(np.max(rewards)),
+            "batch_done_count": int(done_count),
+            "episodes_completed_total": int(self._episodes_completed),
+            "transitions_total": int(self._transitions_total),
+            "replay_buffer_size": int(replay_buffer_size),
+        }
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
+            csv.DictWriter(f, fieldnames=self.HEADER).writerow(row)
+
+        log_every = max(1, int(getattr(Settings, "LEARNER_INGEST_LOG_EVERY_BATCHES", 5)))
+        if Settings.LEARNER_SERVER_DEBUG or (self._batch_count % log_every) == 0:
+            print(
+                "[server] Ingest batch "
+                f"size={row['batch_size']} mean_r={row['batch_mean_reward']:.3f} "
+                f"done={row['batch_done_count']} replay={row['replay_buffer_size']} "
+                f"episodes_total={row['episodes_completed_total']}"
+            )
+
+
 class TrainingLogHelper():
     def __init__(self, model_name: str, model_dir: str):
         self.model_name = model_name
@@ -399,6 +467,10 @@ class TrainingLogHelper():
 
         self.training_index = 0
         self.plot_every: Union[int, str] = self._parse_plot_every_setting()
+        self._metrics_plot_interval_s = float(
+            getattr(Settings, "SAC_METRICS_PLOT_INTERVAL_S", 0.0)
+        )
+        self._last_metrics_plot_time = 0.0
         self._final_metrics_png_done = False
 
 
@@ -414,6 +486,14 @@ class TrainingLogHelper():
             return 5
 
     def maybe_plot_training_metrics_periodic(self) -> None:
+        if self._metrics_plot_interval_s > 0:
+            now = time.time()
+            if (now - self._last_metrics_plot_time) < self._metrics_plot_interval_s:
+                return
+            self._last_metrics_plot_time = now
+            self._plot_training_metrics_safe(final=False)
+            return
+
         if self.plot_every == "end":
             return
         if self.training_index % int(self.plot_every) != 0:

@@ -35,9 +35,15 @@ class PlannerAsController:
         obstacles = np.array([])
         self.waypoint_utils.next_waypoints = updated_attributes['next_waypoints']
         lidar_at_proper_indices = np.zeros((1080,), dtype=np.float32)
-        lidar_at_proper_indices[self.LIDAR.processed_scan_indices] = updated_attributes['lidar']
-        self.LIDAR.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
-        new_controls = self.planner.process_observation(self.LIDAR, s)
+        lidar_at_proper_indices[self.lidar_utils.processed_scan_indices] = updated_attributes['lidar']
+        self.lidar_utils.update_ranges(lidar_at_proper_indices, np.array(s, dtype=np.float64))
+        controller_observation = {
+            "car_state": np.array(s, dtype=np.float64),
+            "next_waypoints": updated_attributes['next_waypoints'],
+            "processed_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
+            "lidar_points": self.lidar_utils.processed_points_map_coordinates,
+        }
+        new_controls = self.planner.process_observation(controller_observation)
 
         return new_controls
 

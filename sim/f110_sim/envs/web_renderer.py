@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import threading
 import time
@@ -127,6 +128,8 @@ HTML_PAGE = """<!doctype html>
     let inflightFetches = 0;
     let clientSessionId = null;
     let zoom = 60.0; // pixels per meter
+    let carLengthM = 0.58;
+    let carWidthM = 0.31;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -597,6 +600,18 @@ HTML_PAGE = """<!doctype html>
       }
     }
 
+    async function loadUiConfig() {
+      try {
+        const r = await fetch("/ui-config", { cache: "no-store" });
+        if (!r.ok) return;
+        const cfg = await r.json();
+        if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
+        if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+      } catch (e) {
+        // Keep defaults when ui-config is unavailable.
+      }
+    }
+
     async function loadMap() {
       try {
         const r = await fetch("/map");
@@ -825,8 +840,8 @@ HTML_PAGE = """<!doctype html>
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = 0.58 * zoom;
-          const carWid = 0.31 * zoom;
+          const carLen = carLengthM * zoom;
+          const carWid = carWidthM * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
@@ -1024,6 +1039,7 @@ HTML_PAGE = """<!doctype html>
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
     resizeCanvas();
+    loadUiConfig();
     loadMap();
     loadStaticOverlay();
     startHistoryPolling();
@@ -1068,11 +1084,13 @@ class WebEnvRenderer:
             "poses": [],
         }
         self._session_id = f"{int(time.time() * 1000)}-{os.getpid()}"
+        # Full frame archive for browser replay/scrubbing. Disabled by default;
+        # enable via Settings.REPLAY_RECORDING = True.
+        self._replay_recording_enabled = self._read_replay_recording_setting()
         self._state_history = []
-        # Keep a larger server-side history so client buffer length
-        # is independent from per-request chunk size.
-        self._state_history_max = 600
-        self._history_chunk_size = 50
+        # Full experiment archive for scrub/replay when Settings.REPLAY_RECORDING = True.
+        self._state_history_max = 24000
+        self._history_chunk_size = 200
         self._publish_rate_hz = 50.0
         self._last_published_sim_time: Optional[float] = None
         self._frame_id = 0
@@ -1111,6 +1129,7 @@ class WebEnvRenderer:
         }
         self._map_image_path: Optional[str] = None
         self._viewer_last_seen: Dict[str, float] = {}
+        self._last_client_poll_s = 0.0
         self._viewer_timeout_s = 6.0
         self._auto_open_cooldown_s = 12.0
         self._last_auto_open_attempt_s = 0.0
@@ -1135,6 +1154,7 @@ class WebEnvRenderer:
                 query = parse_qs(parsed.query)
 
                 if path == "/" or path == "/index.html":
+                    renderer._note_client_activity()
                     body = renderer._load_html_page().encode("utf-8")
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1144,26 +1164,41 @@ class WebEnvRenderer:
                     return
 
                 if path == "/state":
+                    renderer._note_client_activity()
                     with renderer._lock:
                         payload = dict(renderer._state)
+                        payload["session_id"] = renderer._session_id
+                        payload["replay_recording_enabled"] = renderer._replay_recording_enabled
                     self._send_json(payload)
                     return
 
                 if path == "/state-history":
+                    renderer._note_client_activity()
                     since_raw = query.get("since", ["0"])[0]
                     try:
                         since_id = int(since_raw)
                     except ValueError:
                         since_id = 0
                     with renderer._lock:
-                        history = [s for s in renderer._state_history if int(s.get("frame_id", 0)) > since_id]
-                        if len(history) > renderer._history_chunk_size:
-                            history = history[-renderer._history_chunk_size :]
+                        if renderer._replay_recording_enabled:
+                            history = [
+                                s
+                                for s in renderer._state_history
+                                if int(s.get("frame_id", 0)) > since_id
+                            ]
+                            if len(history) > renderer._history_chunk_size:
+                                history = history[-renderer._history_chunk_size :]
+                        else:
+                            # Live view only: no server archive; expose at most the latest frame.
+                            state = dict(renderer._state)
+                            frame_id = int(state.get("frame_id", 0))
+                            history = [state] if frame_id > since_id else []
                         payload = {
                             "history": history,
                             "latest_simulation_time": float(renderer._state.get("simulation_time", 0.0)),
                             "latest_frame_id": int(renderer._state.get("frame_id", 0)),
                             "session_id": renderer._session_id,
+                            "replay_recording_enabled": renderer._replay_recording_enabled,
                         }
                     self._send_json(payload)
                     return
@@ -1275,10 +1310,22 @@ class WebEnvRenderer:
         # Defensive fallback: loop always returns or raises above.
         raise RuntimeError("Unexpected server bind loop termination.")
 
+    def _note_client_activity(self, now_s: Optional[float] = None) -> None:
+        now_s = time.time() if now_s is None else now_s
+        with self._lock:
+            self._last_client_poll_s = now_s
+
+    def has_active_viewer(self, now_s: Optional[float] = None) -> bool:
+        """True when a browser client recently polled or sent a heartbeat."""
+        return self._has_active_viewer(now_s)
+
     def _has_active_viewer(self, now_s: Optional[float] = None) -> bool:
+        now_s = time.time() if now_s is None else now_s
         with self._lock:
             self._prune_inactive_viewers_locked(now_s)
-            return len(self._viewer_last_seen) > 0
+            if len(self._viewer_last_seen) > 0:
+                return True
+            return (now_s - float(self._last_client_poll_s)) <= self._viewer_timeout_s
 
     def _browser_url(self) -> str:
         """URL for local browser tabs (bind-all addresses map to localhost)."""
@@ -1319,14 +1366,30 @@ class WebEnvRenderer:
         self._auto_open_done = True
 
     @staticmethod
-    def _build_ui_config() -> Dict[str, Any]:
+    def _read_replay_recording_setting() -> bool:
         try:
             from utilities.Settings import Settings
+
+            return bool(getattr(Settings, "REPLAY_RECORDING", False))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _build_ui_config() -> Dict[str, Any]:
+        car_length = 0.58
+        car_width = 0.31
+        replay_recording_enabled = WebEnvRenderer._read_replay_recording_setting()
+        try:
+            from utilities.Settings import Settings
+            from utilities.car_files.vehicle_parameters import VehicleParameters
 
             controller = str(getattr(Settings, "CONTROLLER", "") or "")
             metrics_enabled = bool(getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True))
             metrics_port = int(getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 5556))
             open_default = bool(getattr(Settings, "SAC_METRICS_PANEL_OPEN_DEFAULT", False))
+            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            car_length = float(car_params.length)
+            car_width = float(car_params.width)
         except Exception:
             controller = ""
             metrics_enabled = False
@@ -1339,6 +1402,9 @@ class WebEnvRenderer:
             "show_sac_metrics": show_sac_metrics,
             "metrics_port": metrics_port,
             "metrics_panel_open_default": open_default and show_sac_metrics,
+            "car_length": car_length,
+            "car_width": car_width,
+            "replay_recording_enabled": replay_recording_enabled,
         }
 
     def _load_html_page(self) -> str:
@@ -1427,7 +1493,11 @@ class WebEnvRenderer:
             other = []
             for key in labels.keys():
                 lowered = str(key).strip().lower()
-                if lowered.startswith("reward:") or "control" in lowered:
+                if (
+                    lowered.startswith("reward:")
+                    or lowered.startswith("imu:")
+                    or "control" in lowered
+                ):
                     priority.append(key)
                 else:
                     other.append(key)
@@ -1437,14 +1507,21 @@ class WebEnvRenderer:
 
         return self._round_floats(overlay, self._float_precision_digits)
 
+    @staticmethod
+    def _wrap_angle_rad(angle: float) -> float:
+        return float(math.atan2(math.sin(angle), math.cos(angle)))
+
     def render(self, render_obs: Dict[str, Any]):
+        if not self._has_active_viewer():
+            return
+
         car_states = render_obs.get("car_states")
         poses = []
         if car_states is not None:
             for state in car_states:
                 x = float(state[POSE_X_IDX])
                 y = float(state[POSE_Y_IDX])
-                theta = float(state[POSE_THETA_IDX])
+                theta = self._wrap_angle_rad(float(state[POSE_THETA_IDX]))
                 if not (np.isfinite(x) and np.isfinite(y) and np.isfinite(theta)):
                     continue
                 poses.append([x, y, theta])
@@ -1453,7 +1530,7 @@ class WebEnvRenderer:
             poses_y = render_obs.get("poses_y", [])
             poses_theta = render_obs.get("poses_theta", [])
             for x, y, theta in zip(poses_x, poses_y, poses_theta):
-                poses.append([float(x), float(y), float(theta)])
+                poses.append([float(x), float(y), self._wrap_angle_rad(float(theta))])
 
         overlay = dict(render_obs.get("web_overlay", {}) or {})
         static_overlay = {}
@@ -1494,9 +1571,12 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
-            self._state_history.append(self._state)
-            if len(self._state_history) > self._state_history_max:
-                self._state_history = self._state_history[-self._state_history_max :]
+            # Full frame archive only when Settings.REPLAY_RECORDING = True.
+            # Live view uses latest _state; the browser keeps a short local buffer for smooth playback.
+            if self._replay_recording_enabled:
+                self._state_history.append(self._state)
+                if len(self._state_history) > self._state_history_max:
+                    self._state_history = self._state_history[-self._state_history_max :]
 
     def close(self):
         self._server.shutdown()

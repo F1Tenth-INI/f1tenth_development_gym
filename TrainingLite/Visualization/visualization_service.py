@@ -30,6 +30,8 @@ sys.path.append(os.path.join(REPO_ROOT, "utilities"))
 
 from sim.f110_sim.envs.car_model_jax import CarModelJAX
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.imu_utilities import IMUUtilities
+from utilities.motor_sensor_utilities import MotorSensorUtilities
 from utilities.state_utilities import STATE_INDICES, STATE_VARIABLES
 
 STEERING_CONTROL_COLUMN = "angular_control_executed"
@@ -108,6 +110,10 @@ class VisualizationService:
 
         self.car_models = None
         self._current_start_index: Optional[int] = None
+        self._car_params_cache: Dict[str, np.ndarray] = {}
+        self._imu_sim_cache: Dict[str, Any] = {}
+        self._plot_bundle_cache: Optional[Dict[str, Any]] = None
+        self._plot_bundle_key: Optional[tuple] = None
 
         self.available_car_params: Dict[str, str] = {}
         car_files_dir = os.path.join(REPO_ROOT, "utilities", "car_files")
@@ -145,7 +151,18 @@ class VisualizationService:
             "residual": CarModelJAX(model_type="residual", dt=0.04, intermediate_steps=4),
         }
 
+    def invalidate_car_parameters_cache(self, param_file: Optional[str] = None) -> None:
+        """Drop cached car params and IMU simulators so the next load reads from disk."""
+        if param_file is None:
+            self._car_params_cache.clear()
+            self._imu_sim_cache.clear()
+        else:
+            self._car_params_cache.pop(param_file, None)
+            self._imu_sim_cache.pop(param_file, None)
+
     def load_car_parameters(self, param_file: str) -> Optional[np.ndarray]:
+        if param_file in self._car_params_cache:
+            return self._car_params_cache[param_file]
         try:
             vehicle_params = VehicleParameters(param_file)
             params_array = vehicle_params.to_np_array()
@@ -154,12 +171,20 @@ class VisualizationService:
                 c_pf_b = params_array[7]
                 i_z = params_array[5]
                 print(f"Loaded parameters from {param_file}: mu={mu:.3f}, C_Pf_B={c_pf_b:.3f}, I_z={i_z:.4f}")
+            self._car_params_cache[param_file] = params_array
             return params_array
         except Exception as exc:
             print(f"Error loading car parameters from {param_file}: {exc}")
             import traceback
             traceback.print_exc()
             return None
+
+    def get_imu_simulator(self, param_file: str):
+        if param_file not in self._imu_sim_cache:
+            from utilities.imu_simulator import IMUSimulator
+
+            self._imu_sim_cache[param_file] = IMUSimulator(car_parameter_file=param_file)
+        return self._imu_sim_cache[param_file]
 
     def get_model_key(self, display_name: str) -> str:
         for key, name in AVAILABLE_MODELS.items():
@@ -270,7 +295,32 @@ class VisualizationService:
             return float(self.data[self.time_column].iloc[1] - self.data[self.time_column].iloc[0])
         return 0.04
 
-    def run_model_prediction(
+    def _residual_histories_for_index(self, car_model, start_idx: int):
+        history_length = 10
+        if self.data is not None and start_idx >= history_length:
+            state_history = np.array(
+                [
+                    self.extract_initial_state_at_index(start_idx - history_length + i)
+                    for i in range(history_length)
+                ],
+                dtype=np.float32,
+            )
+            control_history = np.array(
+                [
+                    self.extract_control_sequence_at_index(
+                        start_idx - history_length + i, 1, 0, 0
+                    )[0]
+                    for i in range(history_length)
+                ],
+                dtype=np.float32,
+            )
+            return state_history, control_history
+        return (
+            np.array(car_model.state_history),
+            np.array(car_model.control_history),
+        )
+
+    def run_model_rollout(
         self,
         model_name: str,
         initial_state: jnp.ndarray,
@@ -278,7 +328,11 @@ class VisualizationService:
         car_params: np.ndarray,
         dt: float,
         horizon: int,
-    ) -> Optional[np.ndarray]:
+        start_index: Optional[int] = None,
+        car_parameter_file: Optional[str] = None,
+        imu_sim=None,
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Dynamics + IMU rollout; returns all physics states and IMU channels."""
         if self.car_models is None:
             self.reload_car_models()
 
@@ -293,42 +347,31 @@ class VisualizationService:
 
             state_history = None
             control_history = None
-            if model_name == "residual":
-                history_length = 10
-                if (
-                    self._current_start_index is not None
-                    and self.data is not None
-                    and self._current_start_index >= history_length
-                ):
-                    start_idx = self._current_start_index
-                    state_history = np.array(
-                        [
-                            self.extract_initial_state_at_index(start_idx - history_length + i)
-                            for i in range(history_length)
-                        ],
-                        dtype=np.float32,
-                    )
-                    control_history = np.array(
-                        [
-                            self.extract_control_sequence_at_index(
-                                start_idx - history_length + i, 1, 0, 0
-                            )[0]
-                            for i in range(history_length)
-                        ],
-                        dtype=np.float32,
-                    )
-                else:
-                    state_history = np.array(car_model.state_history)
-                    control_history = np.array(car_model.control_history)
+            if model_name == "residual" and start_index is not None:
+                state_history, control_history = self._residual_histories_for_index(
+                    car_model, start_index
+                )
 
             control_seq = control_sequence[:horizon]
-            return np.array(
-                car_model.car_steps_sequential(
-                    initial_state,
-                    control_seq,
-                    state_history=state_history,
-                    control_history=control_history,
-                )
+            predicted_states, imu_series = IMUUtilities.rollout_dynamics_with_imu(
+                car_model,
+                np.asarray(initial_state),
+                control_seq,
+                dt,
+                state_history=state_history,
+                control_history=control_history,
+                car_parameter_file=car_parameter_file,
+                imu_sim=imu_sim,
+            )
+            motor_series = MotorSensorUtilities.simulate_motor_arrays(
+                predicted_states,
+                np.asarray(control_seq),
+                dt,
+                prime_state=np.asarray(initial_state),
+                car_parameter_file=car_parameter_file,
+            )
+            return self.convert_predictions_to_dict(
+                predicted_states, imu_series, motor_series
             )
         except Exception as exc:
             print(f"Model prediction failed: {exc}")
@@ -336,11 +379,24 @@ class VisualizationService:
             traceback.print_exc()
             return None
 
-    def convert_predictions_to_dict(self, predicted_states: np.ndarray) -> Dict[str, np.ndarray]:
+    def convert_predictions_to_dict(
+        self,
+        predicted_states: np.ndarray,
+        imu_series: Optional[Dict[str, np.ndarray]] = None,
+        motor_series: Optional[Dict[str, np.ndarray]] = None,
+    ) -> Dict[str, np.ndarray]:
         comparison_data = {}
         for col_name, idx in self.state_indices.items():
             if col_name in self.state_columns:
                 comparison_data[col_name] = predicted_states[:, idx]
+        if imu_series:
+            for key in IMUUtilities.IMU_COMPARE_KEYS:
+                if key in imu_series:
+                    comparison_data[key] = np.asarray(imu_series[key])
+        if motor_series:
+            for key in MotorSensorUtilities.MOTOR_COMPARE_KEYS:
+                if key in motor_series:
+                    comparison_data[key] = np.asarray(motor_series[key])
         return comparison_data
 
     def run_single_comparison_at_index(
@@ -351,11 +407,16 @@ class VisualizationService:
         horizon: int,
         steering_delay: int = 0,
         acceleration_delay: int = 0,
+        car_params: Optional[np.ndarray] = None,
+        imu_sim=None,
     ) -> Optional[Dict[str, np.ndarray]]:
         try:
-            car_params = self.load_car_parameters(param_file)
+            if car_params is None:
+                car_params = self.load_car_parameters(param_file)
             if car_params is None:
                 return None
+            if imu_sim is None and param_file is not None:
+                imu_sim = self.get_imu_simulator(param_file)
 
             initial_state = self.extract_initial_state_at_index(start_index)
             control_sequence = self.extract_control_sequence_at_index(
@@ -364,12 +425,17 @@ class VisualizationService:
             self._current_start_index = start_index
             dt = self.get_timestep()
 
-            predicted_states = self.run_model_prediction(
-                model_name, initial_state, control_sequence, car_params, dt, horizon
+            return self.run_model_rollout(
+                model_name,
+                initial_state,
+                control_sequence,
+                car_params,
+                dt,
+                horizon,
+                start_index=start_index,
+                car_parameter_file=param_file,
+                imu_sim=imu_sim,
             )
-            if predicted_states is None:
-                return None
-            return self.convert_predictions_to_dict(predicted_states)
         except Exception as exc:
             print(f"Single comparison failed for index {start_index}: {exc}")
             import traceback
@@ -428,6 +494,27 @@ class VisualizationService:
         sample = next(iter(self.comparison_data_dict.values()))
         return sorted(sample.keys())
 
+    def _comparison_start_bounds(self) -> tuple:
+        """Inclusive min/max comparison start indices for the active data range."""
+        if self.data is None:
+            return 0, -1
+        horizon = self.settings.horizon_steps
+        effective_start = self.settings.start_index
+        effective_end = (
+            self.settings.end_index if self.settings.end_index is not None else len(self.data)
+        )
+        last_start = effective_end - horizon
+        if last_start < effective_start:
+            return effective_start, effective_start - 1
+        return effective_start, last_start
+
+    def _expected_comparison_indices(self) -> List[int]:
+        """Every valid comparison start index in the active data range."""
+        min_start, last_start = self._comparison_start_bounds()
+        if last_start < min_start:
+            return []
+        return list(range(min_start, last_start + 1))
+
     def is_comparison_cache_valid(self) -> bool:
         if not self.comparison_data_dict or self._comparison_cache_key is None:
             return False
@@ -435,18 +522,31 @@ class VisualizationService:
             return False
         if self.data is None:
             return False
-        available = {
-            col for col in self.state_columns if col in self.data.columns
-        }
+        expected = self._expected_comparison_indices()
+        if not expected:
+            return False
+        if not set(expected).issubset(self.comparison_data_dict.keys()):
+            return False
+        available = set(self._physics_state_columns())
+        required = available | set(IMUUtilities.IMU_COMPARE_KEYS) | set(
+            MotorSensorUtilities.MOTOR_COMPARE_KEYS
+        )
         cached_states = set(self._cached_comparison_states())
-        return available.issubset(cached_states)
+        return required.issubset(cached_states)
 
     def get_comparison_cache_info(self) -> Dict[str, Any]:
+        expected = self._expected_comparison_indices()
+        indices_complete = (
+            bool(expected)
+            and set(expected).issubset(self.comparison_data_dict.keys())
+        )
         valid = self.is_comparison_cache_valid()
         return {
             "valid": valid,
             "states": self._cached_comparison_states() if self.comparison_data_dict else [],
             "indices_count": len(self.comparison_data_dict),
+            "expected_count": len(expected),
+            "indices_complete": indices_complete,
             "params_key": list(self._comparison_cache_key) if self._comparison_cache_key else None,
         }
 
@@ -526,9 +626,9 @@ class VisualizationService:
         self.settings.csv_file_path = abs_path
         self.clear_comparisons()
 
-        available_states = [col for col in self.state_columns if col in self.data.columns]
-        if available_states and self.settings.state_name not in ("", *available_states):
-            self.settings.state_name = available_states[0]
+        selectable = self._selectable_state_names()
+        if selectable and self.settings.state_name not in ("", *selectable):
+            self.settings.state_name = selectable[0]
 
         if self.settings.end_index is None:
             self.settings.end_index = len(self.data)
@@ -545,9 +645,7 @@ class VisualizationService:
             else None,
             "row_count": len(data) if data is not None else 0,
             "columns": list(data.columns) if data is not None else [],
-            "available_states": [
-                col for col in self.state_columns if data is not None and col in data.columns
-            ],
+            "available_states": self._selectable_state_names() if data is not None else [],
             "settings": self.settings.to_dict(),
             "comparison_slider": self.get_comparison_slider_range(),
             "comparison_indices": sorted(self.comparison_data_dict.keys()),
@@ -579,15 +677,13 @@ class VisualizationService:
     def get_comparison_slider_range(self) -> Dict[str, int]:
         if self.data is None:
             return {"min": 0, "max": 0}
-        horizon = self.settings.horizon_steps
-        effective_end = (
-            self.settings.end_index if self.settings.end_index is not None else len(self.data)
-        )
-        max_start = max(self.settings.start_index, effective_end - horizon)
+        min_start, last_start = self._comparison_start_bounds()
+        if last_start < min_start:
+            return {"min": min_start, "max": min_start}
         comp_idx = self.settings.comparison_start_index
-        comp_idx = max(self.settings.start_index, min(comp_idx, max_start))
+        comp_idx = max(min_start, min(comp_idx, last_start))
         self.settings.comparison_start_index = comp_idx
-        return {"min": self.settings.start_index, "max": max_start}
+        return {"min": min_start, "max": last_start}
 
     def _get_delays(self) -> tuple:
         return (
@@ -614,6 +710,7 @@ class VisualizationService:
             raise RuntimeError(f"Comparison failed at index {idx}")
 
         self.comparison_data_dict[idx] = result
+        self._invalidate_plot_bundle_cache()
         return {"start_index": idx, "horizon": horizon, "states": list(result.keys())}
 
     def start_full_comparison(self, force: bool = False) -> str:
@@ -632,18 +729,9 @@ class VisualizationService:
                 )
             return job_id
 
-        horizon = self.settings.horizon_steps
-        effective_start = self.settings.start_index
-        effective_end = (
-            self.settings.end_index if self.settings.end_index is not None else len(self.data)
-        )
-        max_start_idx = effective_end - horizon
-        if max_start_idx <= effective_start:
+        start_indices = self._expected_comparison_indices()
+        if not start_indices:
             raise ValueError("Horizon is larger than available data in current range")
-
-        range_size = max_start_idx - effective_start
-        step_size = max(1, range_size // 100)
-        start_indices = list(range(effective_start, max_start_idx, step_size))
 
         job_id = str(uuid.uuid4())
         job = ComparisonJob(job_id=job_id, status="running", total=len(start_indices))
@@ -663,8 +751,22 @@ class VisualizationService:
         self.comparison_data_dict = {}
         model_key = self.get_model_key(self.settings.default_car_model)
         param_file = self.get_param_filename(self.settings.default_car_parameters)
+        self.invalidate_car_parameters_cache(param_file)
         horizon = self.settings.horizon_steps
         steering_delay, acceleration_delay = self._get_delays()
+
+        car_params = self.load_car_parameters(param_file)
+        if car_params is None:
+            with self._jobs_lock:
+                job = self._jobs.get(job_id)
+                if job:
+                    job.status = "failed"
+                    job.error = f"Failed to load car parameters from {param_file}"
+            return
+
+        imu_sim = self.get_imu_simulator(param_file)
+        if model_key in self.car_models:
+            self.car_models[model_key].car_params = jnp.array(car_params)
 
         successful = 0
         for i, start_idx in enumerate(start_indices):
@@ -677,7 +779,14 @@ class VisualizationService:
                     )
 
             result = self.run_single_comparison_at_index(
-                start_idx, model_key, param_file, horizon, steering_delay, acceleration_delay
+                start_idx,
+                model_key,
+                param_file,
+                horizon,
+                steering_delay,
+                acceleration_delay,
+                car_params=car_params,
+                imu_sim=imu_sim,
             )
             if result is not None:
                 self.comparison_data_dict[start_idx] = result
@@ -706,6 +815,7 @@ class VisualizationService:
                     job.current = job.total
                     job.message = f"Completed {successful}/{len(start_indices)} comparisons"
                     self._comparison_cache_key = self._comparison_params_key()
+                    self._invalidate_plot_bundle_cache()
 
     def get_job_status(self, job_id: str) -> Dict[str, Any]:
         with self._jobs_lock:
@@ -725,6 +835,24 @@ class VisualizationService:
     def clear_comparisons(self) -> None:
         self.comparison_data_dict = {}
         self._comparison_cache_key = None
+        self._invalidate_plot_bundle_cache()
+
+    def _invalidate_plot_bundle_cache(self) -> None:
+        self._plot_bundle_cache = None
+        self._plot_bundle_key = None
+
+    def _plot_bundle_cache_key(self) -> tuple:
+        end = self.settings.end_index
+        if self.data is not None and end is None:
+            end = len(self.data)
+        return (
+            int(self.settings.start_index),
+            int(end) if end is not None else -1,
+            bool(self.settings.show_controls),
+            tuple(self.settings.selected_other_data),
+            len(self.comparison_data_dict),
+            self._comparison_cache_key,
+        )
 
     # ------------------------------------------------------------------ plot data
     def _get_time_slice(self, start_idx: int, end_idx: int) -> np.ndarray:
@@ -758,6 +886,80 @@ class VisualizationService:
             return np.arctan2(np.sin(delta_raw), np.cos(delta_raw))
         return np.diff(values)
 
+    def _physics_state_columns(self) -> List[str]:
+        if self.data is None:
+            return []
+        return [col for col in self.state_columns if col in self.data.columns]
+
+    def _selectable_state_names(self) -> List[str]:
+        """Physics states from CSV plus IMU channels (compared like other states)."""
+        names = list(self._physics_state_columns())
+        for imu_key in IMUUtilities.IMU_COMPARE_KEYS:
+            if imu_key not in names:
+                names.append(imu_key)
+        for motor_key in MotorSensorUtilities.MOTOR_COMPARE_KEYS:
+            if motor_key not in names:
+                names.append(motor_key)
+        return names
+
+    def _states_matrix_from_dataframe(self, start_idx: int, end_idx: int) -> np.ndarray:
+        n = end_idx - start_idx
+        states = np.zeros((n, len(STATE_VARIABLES)), dtype=np.float64)
+        for col_name, idx in self.state_indices.items():
+            if col_name in self.data.columns:
+                states[:, idx] = (
+                    self.data[col_name].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)
+                )
+        return states
+
+    def _imu_ground_truth_from_states(self, start_idx: int, end_idx: int) -> Dict[str, List[float]]:
+        dt = self.get_timestep()
+        states = self._states_matrix_from_dataframe(start_idx, end_idx)
+        prime_state = None
+        if start_idx > 0:
+            prime_state = self.extract_initial_state_at_index(start_idx - 1)
+        param_file = self.get_param_filename(self.settings.default_car_parameters)
+        return IMUUtilities.simulate_imu_series(
+            states,
+            dt,
+            prime_state=prime_state,
+            car_parameter_file=param_file,
+            imu_sim=self.get_imu_simulator(param_file),
+        )
+
+    def _motor_ground_truth_from_states(self, start_idx: int, end_idx: int) -> Dict[str, List[float]]:
+        dt = self.get_timestep()
+        states = self._states_matrix_from_dataframe(start_idx, end_idx)
+        controls = MotorSensorUtilities.control_sequence_from_dataframe(
+            self.data, start_idx, end_idx - start_idx
+        )
+        prime_state = None
+        if start_idx > 0:
+            prime_state = self.extract_initial_state_at_index(start_idx - 1)
+        param_file = self.get_param_filename(self.settings.default_car_parameters)
+        return MotorSensorUtilities.simulate_motor_series(
+            states,
+            controls,
+            dt,
+            prime_state=prime_state,
+            car_parameter_file=param_file,
+        )
+
+    def _ground_truth_series(self, column_name: str, start_idx: int, end_idx: int) -> np.ndarray:
+        if IMUUtilities.is_imu_channel(column_name):
+            simulated = self._imu_ground_truth_from_states(start_idx, end_idx)
+            return IMUUtilities.ground_truth_imu_series(
+                self.data, column_name, start_idx, end_idx, simulated=simulated
+            )
+        if MotorSensorUtilities.is_motor_channel(column_name):
+            simulated = self._motor_ground_truth_from_states(start_idx, end_idx)
+            return MotorSensorUtilities.ground_truth_motor_series(
+                self.data, column_name, start_idx, end_idx, simulated=simulated
+            )
+        if column_name in self.data.columns:
+            return self.data[column_name].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)
+        raise ValueError(f"Invalid state selection: {column_name}")
+
     def _plot_slice_context(self) -> tuple:
         if self.data is None:
             raise ValueError("No data loaded")
@@ -766,7 +968,7 @@ class VisualizationService:
             self.settings.end_index if self.settings.end_index is not None else len(self.data)
         )
         time_data = self._get_time_slice(start_idx, end_idx)
-        state_cols = [col for col in self.state_columns if col in self.data.columns]
+        state_cols = self._selectable_state_names()
         return start_idx, end_idx, time_data, state_cols
 
     def _plot_shared_columns(self, start_idx: int, end_idx: int) -> Dict[str, Any]:
@@ -831,14 +1033,30 @@ class VisualizationService:
 
     def get_plot_bundle(self) -> Dict[str, Any]:
         """All states + cached predictions in one payload for client-side state switching."""
+        cache_key = self._plot_bundle_cache_key()
+        if self._plot_bundle_cache is not None and self._plot_bundle_key == cache_key:
+            return self._plot_bundle_cache
+
         start_idx, end_idx, time_data, state_cols = self._plot_slice_context()
         shared = self._plot_shared_columns(start_idx, end_idx)
 
+        imu_simulated = self._imu_ground_truth_from_states(start_idx, end_idx)
+        motor_simulated = self._motor_ground_truth_from_states(start_idx, end_idx)
         ground_truth: Dict[str, List[float]] = {}
         for col in state_cols:
-            ground_truth[col] = (
-                self.data[col].iloc[start_idx:end_idx].to_numpy().tolist()
-            )
+            if IMUUtilities.is_imu_channel(col):
+                series = IMUUtilities.ground_truth_imu_series(
+                    self.data, col, start_idx, end_idx, simulated=imu_simulated
+                )
+            elif MotorSensorUtilities.is_motor_channel(col):
+                series = MotorSensorUtilities.ground_truth_motor_series(
+                    self.data, col, start_idx, end_idx, simulated=motor_simulated
+                )
+            elif col in self.data.columns:
+                series = self.data[col].iloc[start_idx:end_idx].to_numpy(dtype=np.float64)
+            else:
+                continue
+            ground_truth[col] = series.tolist()
 
         predictions: List[Dict[str, Any]] = []
         if self.comparison_data_dict:
@@ -848,7 +1066,7 @@ class VisualizationService:
                 states_out: Dict[str, List[float]] = {}
                 for state_name in state_cols:
                     if state_name in comp_data:
-                        states_out[state_name] = np.array(comp_data[state_name]).tolist()
+                        states_out[state_name] = np.asarray(comp_data[state_name]).tolist()
                 if not states_out:
                     continue
                 horizon = len(next(iter(states_out.values())))
@@ -859,7 +1077,7 @@ class VisualizationService:
                     "states": states_out,
                 })
 
-        return {
+        bundle = {
             "time": time_data.tolist(),
             "start_index": start_idx,
             "end_index": end_idx,
@@ -868,6 +1086,9 @@ class VisualizationService:
             "predictions": predictions,
             **shared,
         }
+        self._plot_bundle_cache = bundle
+        self._plot_bundle_key = cache_key
+        return bundle
 
     def get_plot_data(self) -> Dict[str, Any]:
         if self.data is None:
@@ -888,10 +1109,10 @@ class VisualizationService:
                 "delta": {},
             }
 
-        if state_name not in self.data.columns:
+        if state_name not in self._selectable_state_names():
             raise ValueError("Invalid state selection")
 
-        state_data = self.data[state_name].iloc[start_idx:end_idx].to_numpy()
+        state_data = self._ground_truth_series(state_name, start_idx, end_idx)
 
         result: Dict[str, Any] = {
             "state_name": state_name,
@@ -925,7 +1146,7 @@ class VisualizationService:
             return None
 
         state_name = self.settings.state_name
-        if not state_name or state_name not in self.data.columns:
+        if not state_name or state_name not in self._selectable_state_names():
             return None
         if not self.comparison_data_dict:
             return None
@@ -955,8 +1176,8 @@ class VisualizationService:
             if state_name not in comparison_data:
                 continue
             prediction = np.array(comparison_data[state_name])
-            pred_end = min(comp_start_idx + len(prediction), len(self.data))
-            gt_slice = self.data[state_name].iloc[comp_start_idx:pred_end].values
+            pred_end = min(comp_start_idx + len(prediction), end_idx)
+            gt_slice = self._ground_truth_series(state_name, comp_start_idx, pred_end)
             min_len = min(len(prediction), len(gt_slice))
             all_predictions.extend(prediction[:min_len].tolist())
             all_ground_truth.extend(gt_slice[:min_len].tolist())
