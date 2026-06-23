@@ -68,6 +68,7 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
+    LIDAR_HISTORY_LEN = 1
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -127,6 +128,7 @@ class RLAgentPlanner(template_planner):
         self.angular_control = 0.0
         self.translational_control = 0.0
         self.action_history_queue = deque([np.zeros(2) for _ in range(self.HISTORY_LEN)], maxlen=self.HISTORY_LEN)
+        self.lidar_history: deque[np.ndarray] = deque(maxlen=self.LIDAR_HISTORY_LEN)
 
         # Lowpass filter state for control outputs
         self.prev_angular_control = 0.0
@@ -180,8 +182,27 @@ class RLAgentPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
+        self.lidar_history.clear()
         self._collecting_transitions = True
         # do not clear self._episode here; do it on episode end
+
+    def _append_lidar_history(self, controller_observation: Dict[str, Any]) -> None:
+        ranges = controller_observation.get("processed_ranges")
+        if ranges is None or len(ranges) == 0:
+            return
+        scan = np.asarray(ranges, dtype=np.float32).copy()
+        if self.lidar_history and np.allclose(self.lidar_history[-1], scan):
+            return
+        self.lidar_history.append(scan)
+
+    def _lidar_history_array(self, n_beams: int) -> np.ndarray:
+        history = np.zeros((self.LIDAR_HISTORY_LEN, n_beams), dtype=np.float32)
+        if not self.lidar_history:
+            return history
+        stacked = np.asarray(list(self.lidar_history), dtype=np.float32)
+        n = min(stacked.shape[0], self.LIDAR_HISTORY_LEN)
+        history[-n:] = stacked[-n:]
+        return history
 
     def process_observation(self, controller_observation):
         self._controller_observation = controller_observation
@@ -206,6 +227,8 @@ class RLAgentPlanner(template_planner):
 
         self.fallback_action = self._fallback_action(controller_observation)
 
+        if not self.lidar_history:
+            self._append_lidar_history(controller_observation)
 
         # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation(controller_observation)
@@ -258,7 +281,12 @@ class RLAgentPlanner(template_planner):
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
+        self._append_lidar_history(driver_obs)
         next_obs = self._build_observation(driver_obs)
+
+        reward = float(driver_obs.get("reward", 0.0))
+        done = bool(driver_obs.get("done", False))
+        info = driver_obs.get("info", {})
 
         # Add curriculum difficulty to info for learner_server plotting (clamp to [0,1] to avoid float noise)
         info_out = dict(info or {})
@@ -369,12 +397,20 @@ class RLAgentPlanner(template_planner):
         )
 
         fallback_action = self._fallback_action(controller_observation)
+        lidar_ranges = np.asarray(controller_observation["processed_ranges"], dtype=np.float32)
+        sensors = controller_observation.get("sensors") or {}
+        imu = controller_observation.get("imu", sensors.get("imu", {}))
+        motor_sensors = controller_observation.get("motor_sensors", sensors.get("motor_sensors", {}))
         return {
             "car_state": car_state,
             "state_history": state_history,
+            "imu": imu,
+            "motor_sensors": motor_sensors,
+            "env_state": controller_observation["env_state"],
             "next_waypoints": next_waypoints,
             "border_points": np.asarray(border_points, dtype=np.float32),
-            "lidar_ranges": np.asarray(controller_observation["processed_ranges"], dtype=np.float32),
+            "lidar_ranges": lidar_ranges,
+            "lidar_history": self._lidar_history_array(lidar_ranges.shape[0]),
             "last_actions": np.asarray(last_actions, dtype=np.float32),
             "frenet_coordinates": np.asarray(controller_observation["frenet_coordinates"], dtype=np.float32),
             "global_waypoint_vel_factor": np.array([Settings.GLOBAL_WAYPOINT_VEL_FACTOR], dtype=np.float32),
@@ -552,9 +588,16 @@ class RLAgentPlanner(template_planner):
             return
         self.client.send_transition_batch(batch, episode_id, episode_end=episode_end)
 
+    def _can_stream_transitions(self) -> bool:
+        return (
+            self.training_mode
+            and self.autonomous_driving
+            and self.client is not None
+        )
+
     def _maybe_stream_send(self) -> None:
         """Stream fixed-size transition batches while the episode is running."""
-        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+        if not self._can_stream_transitions():
             return
         pending = len(self._episode) - self._stream_send_idx
         if pending < self._stream_batch_size:
@@ -568,7 +611,7 @@ class RLAgentPlanner(template_planner):
 
     def _flush_stream_send(self, episode_end: bool = False) -> None:
         """Send any remaining transitions at episode end."""
-        if not (self.training_mode and self.autonomous_driving and self.client is not None):
+        if not self._can_stream_transitions():
             return
         remaining = self._episode[self._stream_send_idx :]
         if not remaining:
