@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import os
+import random
 from typing import Optional
 
 import numpy as np
@@ -173,6 +174,7 @@ class VirtualOpponent:
         width: float,
         *,
         distance_ahead_waypoints: int = 30,
+        distance_ahead_random_max: int = 0,
         vel_factor: float = 1.0,
         loop: bool = True,
         start_offset_s: float = 0.0,
@@ -183,7 +185,9 @@ class VirtualOpponent:
         self.total_waypoints = int(total_waypoints)
         self.length = float(length)
         self.width = float(width)
-        self.distance_ahead_waypoints = int(distance_ahead_waypoints)
+        self._distance_ahead_waypoints_base = int(distance_ahead_waypoints)
+        self._distance_ahead_random_max = max(0, int(distance_ahead_random_max))
+        self.distance_ahead_waypoints = self._distance_ahead_waypoints_base
         self.vel_factor = float(vel_factor)
         self.loop = bool(loop)
         self.start_offset_s = float(start_offset_s)
@@ -191,6 +195,14 @@ class VirtualOpponent:
         self._anchor_sim_time: Optional[float] = None
         self._anchor_recording_time: Optional[float] = None
         self._current_pose: Optional[np.ndarray] = None
+
+    def _roll_distance_ahead_waypoints(self) -> None:
+        if self._distance_ahead_random_max > 0:
+            self.distance_ahead_waypoints = self._distance_ahead_waypoints_base + random.randint(
+                0, self._distance_ahead_random_max
+            )
+        else:
+            self.distance_ahead_waypoints = self._distance_ahead_waypoints_base
 
     def clear_anchor(self) -> None:
         self._anchor_sim_time = None
@@ -255,6 +267,7 @@ class VirtualOpponent:
 
     def set_anchor(self, ego_waypoint_index: int, sim_time: float) -> None:
         """Place opponent N waypoints ahead; anchor replay clock for vel_factor."""
+        self._roll_distance_ahead_waypoints()
         _pose, recording_time = self._sample_at_target_waypoint(ego_waypoint_index)
         self._anchor_sim_time = float(sim_time)
         self._anchor_recording_time = recording_time + self.start_offset_s
@@ -293,6 +306,16 @@ class VirtualOpponent:
         return get_vertices(self.current_pose(), self.length, self.width)
 
 
+def _require_per_opponent_array(attr_name: str, count: int) -> list:
+    values = list(getattr(Settings, attr_name, []) or [])
+    if len(values) != count:
+        raise ValueError(
+            f"Settings.{attr_name} must have length {count} "
+            f"(NUMBER_OF_VIRTUAL_OPPONENTS), got {len(values)}"
+        )
+    return values
+
+
 class VirtualOpponents:
     """Manage multiple virtual opponents and apply them as lidar occluders."""
 
@@ -313,44 +336,20 @@ class VirtualOpponents:
         total_waypoints = len(WaypointUtils().waypoints)
         length, width = get_virtual_opponent_dimensions()
 
-        recordings = list(getattr(Settings, "VIRTUAL_OPPONENT_RECORDINGS", []) or [])
-        if not recordings:
-            default_recording = getattr(Settings, "VIRTUAL_OPPONENT_RECORDING", None)
-            if default_recording:
-                recordings = [default_recording] * count
-        if len(recordings) < count:
-            raise ValueError(
-                "NUMBER_OF_VIRTUAL_OPPONENTS exceeds available VIRTUAL_OPPONENT_RECORDINGS."
-            )
-
-        distances_ahead = list(
-            getattr(Settings, "VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS", []) or []
+        recordings = _require_per_opponent_array("VIRTUAL_OPPONENT_RECORDINGS", count)
+        distances_ahead = _require_per_opponent_array(
+            "VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS", count
         )
-        if not distances_ahead:
-            default_distance = int(
-                getattr(Settings, "VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_DEFAULT", 30)
-            )
-            distances_ahead = [default_distance] * count
-        if len(distances_ahead) < count:
-            distances_ahead = distances_ahead + [distances_ahead[-1]] * (
-                count - len(distances_ahead)
-            )
-
-        vel_factors = list(getattr(Settings, "VIRTUAL_OPPONENT_VEL_FACTORS", []) or [])
-        if not vel_factors:
-            default_vel = float(getattr(Settings, "VIRTUAL_OPPONENT_VEL_FACTOR", 1.0))
-            vel_factors = [default_vel] * count
-        if len(vel_factors) < count:
-            vel_factors = vel_factors + [vel_factors[-1]] * (count - len(vel_factors))
-
-        start_offsets = list(getattr(Settings, "VIRTUAL_OPPONENT_START_OFFSET_S", []) or [])
-        if len(start_offsets) < count:
-            start_offsets = start_offsets + [0.0] * (count - len(start_offsets))
+        vel_factors = _require_per_opponent_array("VIRTUAL_OPPONENT_VEL_FACTORS", count)
+        start_offsets = _require_per_opponent_array("VIRTUAL_OPPONENT_START_OFFSET_S", count)
 
         trim_to_single_lap = bool(
             getattr(Settings, "VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP", True)
         )
         loop = bool(getattr(Settings, "VIRTUAL_OPPONENT_LOOP", True))
+        distance_ahead_random_max = int(
+            getattr(Settings, "VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX", 0)
+        )
 
         opponents: list[VirtualOpponent] = []
         for idx in range(count):
@@ -368,6 +367,7 @@ class VirtualOpponents:
                     length,
                     width,
                     distance_ahead_waypoints=int(distances_ahead[idx]),
+                    distance_ahead_random_max=distance_ahead_random_max,
                     vel_factor=float(vel_factors[idx]),
                     loop=loop,
                     start_offset_s=float(start_offsets[idx]),

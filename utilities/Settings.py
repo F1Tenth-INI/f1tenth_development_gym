@@ -8,7 +8,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "TheTrack2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     
@@ -65,17 +65,16 @@ class Settings():
     OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
 
     # Virtual opponents: lightweight lidar occluders replaying recorded trajectories (no physics).
-    NUMBER_OF_VIRTUAL_OPPONENTS = 0
+    # Per-opponent arrays must match NUMBER_OF_VIRTUAL_OPPONENTS.
+    NUMBER_OF_VIRTUAL_OPPONENTS = 2
     VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
-    VIRTUAL_OPPONENT_RECORDING = "sac_opponent_trajectory.csv"  # Default in TRAJECTORY_FOLDER, else RECORDING_FOLDER.
-    VIRTUAL_OPPONENT_RECORDINGS = []  # One CSV per opponent; falls back to VIRTUAL_OPPONENT_RECORDING.
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = []  # Per opponent: waypoints ahead of ego on track.
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_DEFAULT = 30
+    VIRTUAL_OPPONENT_RECORDINGS = ["sac_opponent_trajectory.csv", "sac_opponent_trajectory.csv"]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 50]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
+    VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5]
+    VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
-    VIRTUAL_OPPONENT_SIZE = [0.9 , 0.9]  # [width, length] in meters; None uses ego car dimensions.
-    VIRTUAL_OPPONENT_VEL_FACTOR = 0.5  # Recording playback speed after spawn (1.0 = recording pace).
-    VIRTUAL_OPPONENT_VEL_FACTORS = []  # Optional per-opponent vel factor; falls back to VEL_FACTOR.
-    VIRTUAL_OPPONENT_START_OFFSET_S = []  # Optional extra recording-time offset at spawn.
+    VIRTUAL_OPPONENT_SIZE = [0.9, 0.9]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
     
