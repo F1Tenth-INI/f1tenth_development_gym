@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 import os
 
 # Must be set BEFORE importing numpy, torch, jax, etc.
