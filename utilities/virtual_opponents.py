@@ -19,6 +19,7 @@ from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
 
 
 def _resolve_recording_path(recording_name: str) -> str:
+    _validate_recording_map(recording_name)
     if os.path.isabs(recording_name):
         return recording_name
     trajectory_folder = getattr(Settings, "VIRTUAL_OPPONENT_TRAJECTORY_FOLDER", None)
@@ -27,6 +28,19 @@ def _resolve_recording_path(recording_name: str) -> str:
         if os.path.isfile(committed_path):
             return committed_path
     return os.path.join(Settings.RECORDING_FOLDER, recording_name)
+
+
+def _validate_recording_map(recording_name: str) -> None:
+    """Require the active map name to appear in the trajectory CSV filename."""
+    map_name = str(getattr(Settings, "MAP_NAME", "") or "")
+    if not map_name:
+        return
+    basename = os.path.basename(recording_name)
+    if map_name not in basename:
+        raise ValueError(
+            f"Virtual opponent recording '{basename}' does not match current map "
+            f"'{map_name}'. The map name must appear in the CSV filename."
+        )
 
 
 def load_trajectory_from_recording(

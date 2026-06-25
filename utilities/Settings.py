@@ -68,7 +68,11 @@ class Settings():
     # Per-opponent arrays must match NUMBER_OF_VIRTUAL_OPPONENTS.
     NUMBER_OF_VIRTUAL_OPPONENTS = 2
     VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
-    VIRTUAL_OPPONENT_RECORDINGS = ["sac_opponent_trajectory.csv", "sac_opponent_trajectory.csv"]
+    # CSV filenames must contain Settings.MAP_NAME (e.g. sac_opponent_trajectory_RCA1.csv).
+    VIRTUAL_OPPONENT_RECORDINGS = [
+        "sac_opponent_trajectory_RCA1.csv",
+        "sac_opponent_trajectory_RCA1.csv",
+    ]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 50]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
     VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5]
