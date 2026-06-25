@@ -289,6 +289,8 @@ class RacingSimulation:
         experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.SIMULATION_LENGTH
         for self.sim_index in trange(experiment_length):
             self.simulation_step()
+            if getattr(self.drivers[0], "lap_limit_reached", False):
+                break
 
         self.on_simulation_end(collision=False)
 

@@ -60,9 +60,28 @@ class Settings():
     # Oponents
     NUMBER_OF_OPPONENTS = 0
     OPPONENTS_CONTROLLER = 'pp'
-    OPPONENTS_VEL_FACTOR = 0.3
+    OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
     OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
+
+    # Virtual opponents: lightweight lidar occluders replaying recorded trajectories (no physics).
+    NUMBER_OF_VIRTUAL_OPPONENTS = 0
+    VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
+    VIRTUAL_OPPONENT_RECORDING = "sac_opponent_trajectory.csv"  # Default in TRAJECTORY_FOLDER, else RECORDING_FOLDER.
+    VIRTUAL_OPPONENT_RECORDINGS = []  # One CSV per opponent; falls back to VIRTUAL_OPPONENT_RECORDING.
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = []  # Per opponent: waypoints ahead of ego on track.
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_DEFAULT = 30
+    VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
+    VIRTUAL_OPPONENT_SIZE = [0.9 , 0.9]  # [width, length] in meters; None uses ego car dimensions.
+    VIRTUAL_OPPONENT_VEL_FACTOR = 0.5  # Recording playback speed after spawn (1.0 = recording pace).
+    VIRTUAL_OPPONENT_VEL_FACTORS = []  # Optional per-opponent vel factor; falls back to VEL_FACTOR.
+    VIRTUAL_OPPONENT_START_OFFSET_S = []  # Optional extra recording-time offset at spawn.
+    VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
+    TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
+    
+    # Stop sim / recording after N completed laps (None = use SIMULATION_LENGTH only).
+    STOP_AFTER_N_LAPS = None
+    STOP_RECORDING_AFTER_N_LAPS = None
     
     # Head2Head Settings
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car

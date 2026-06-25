@@ -1115,6 +1115,7 @@ class WebEnvRenderer:
             "past_car_states_prior": 180,
             "past_car_states_prior_full": 220,
             "obstacles": 120,
+            "virtual_opponents": 8,
         }
         self._max_rollout_trajectories = 8
         self._max_rollout_points_per_trajectory = 24
@@ -1397,6 +1398,13 @@ class WebEnvRenderer:
             open_default = False
 
         show_sac_metrics = controller == "sac_agent" and metrics_enabled
+        opponent_length, opponent_width = 0.58, 0.31
+        try:
+            from utilities.virtual_opponents import get_virtual_opponent_dimensions
+
+            opponent_length, opponent_width = get_virtual_opponent_dimensions()
+        except Exception:
+            pass
         return {
             "controller": controller,
             "show_sac_metrics": show_sac_metrics,
@@ -1404,6 +1412,7 @@ class WebEnvRenderer:
             "metrics_panel_open_default": open_default and show_sac_metrics,
             "car_length": car_length,
             "car_width": car_width,
+            "virtual_opponent_size": [opponent_width, opponent_length],
             "replay_recording_enabled": replay_recording_enabled,
         }
 

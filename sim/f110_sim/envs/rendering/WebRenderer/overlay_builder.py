@@ -1,6 +1,24 @@
 import numpy as np
 
 from utilities.state_utilities import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, STEERING_ANGLE_IDX
+from utilities.virtual_opponents import get_virtual_opponent_dimensions
+
+
+def _to_pose_points(data):
+    """Convert Nx3 pose arrays [x, y, theta] for map rendering."""
+    if data is None:
+        return None
+    arr = np.asarray(data)
+    if arr.size == 0:
+        return None
+    if arr.ndim == 1:
+        if arr.size < 3:
+            return None
+        return [[float(arr[0]), float(arr[1]), float(arr[2])]]
+    flat = arr.reshape(-1, arr.shape[-1])
+    if flat.shape[1] < 3:
+        return None
+    return [[float(p[0]), float(p[1]), float(p[2])] for p in flat]
 
 
 def _to_xy_points(data, state_like=False):
@@ -77,6 +95,7 @@ def build_web_overlay(drivers):
 
     driver = drivers[0]
     force_plot_publish = bool((getattr(driver, "obs", None) or {}).get("done"))
+    virtual_opponent_poses = _to_pose_points(render_utils.virtual_opponents)
 
     overlay = {
         "waypoints": _to_xy_points(render_utils.waypoints),
@@ -89,6 +108,7 @@ def build_web_overlay(drivers):
         "largest_gap_middle_point": _to_xy_points(render_utils.largest_gap_middle_point),
         "target_point": _to_xy_points(render_utils.target_point),
         "obstacles": _to_xy_points(render_utils.obstacles),
+        "virtual_opponents": virtual_opponent_poses,
         "past_car_states_alternative": _to_xy_points(render_utils.past_car_states_alternative, state_like=True),
         "past_car_states_gt": _to_xy_points(render_utils.past_car_states_gt, state_like=True),
         "past_car_states_prior": _to_xy_points(render_utils.past_car_states_prior, state_like=True),
@@ -107,6 +127,7 @@ def build_web_overlay(drivers):
             "optimal": list(render_utils.optimal_trajectory_visualization_color),
             "target": list(render_utils.target_point_visualization_color),
             "obstacles": list(render_utils.obstacle_visualization_color),
+            "virtual_opponents": list(render_utils.virtual_opponent_visualization_color),
             "track_border": list(render_utils.track_border_visualization_color),
             "history_alt": [255, 255, 0],
             "history_gt": list(render_utils.gt_history_color),
@@ -114,6 +135,9 @@ def build_web_overlay(drivers):
             "history_prior_full": list(render_utils.prior_full_history_color),
         },
     }
+    if virtual_opponent_poses:
+        opponent_length, opponent_width = get_virtual_opponent_dimensions()
+        overlay["virtual_opponent_size"] = [opponent_width, opponent_length]
 
     slowdown = render_utils.emergency_slowdown_sprites
     if slowdown is not None:
