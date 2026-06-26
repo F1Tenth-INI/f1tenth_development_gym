@@ -1139,12 +1139,14 @@ class WebEnvRenderer:
         self._ui_config = self._build_ui_config()
 
         renderer = self
+        requested_port = int(self.port)
 
         class Handler(BaseHTTPRequestHandler):
             def _send_json(self, payload: Dict[str, Any], status: int = 200):
                 encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
@@ -1261,6 +1263,8 @@ class WebEnvRenderer:
         self._server = self._create_server_with_fallback(Handler)
         # If fallback happened, expose the effective port consistently.
         self.port = int(self._server.server_address[1])
+        self._ui_config["web_render_port"] = requested_port
+        self._ui_config["web_render_bind_port"] = self.port
         self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._server_thread.start()
         browser_url = self._browser_url()

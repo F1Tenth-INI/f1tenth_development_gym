@@ -477,6 +477,11 @@
     const MAX_INFLIGHT_FETCHES = 2;
     let inflightFetches = 0;
     let clientSessionId = null;
+    let consecutiveFetchFailures = 0;
+    let portDiscoveryInFlight = false;
+    const PORT_SCAN_FAILURE_THRESHOLD = 3;
+    const PORT_SCAN_RANGE = 25;
+    const PORT_PROBE_TIMEOUT_MS = 450;
     let zoom = 60.0; // pixels per meter
     let carLengthM = 0.58;
     let carWidthM = 0.31;
@@ -1854,6 +1859,7 @@
         const r = await fetch("/ui-config", { cache: "no-store" });
         if (!r.ok) return;
         const cfg = await r.json();
+        metricsUiConfig = cfg;
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
         if (typeof cfg.replay_recording_enabled === "boolean") {
@@ -1980,6 +1986,94 @@
       fetchArchiveBackfillTick();
     }
 
+    function getRendererPortScanBase() {
+      const cfgPort = Number(metricsUiConfig?.web_render_port);
+      if (Number.isFinite(cfgPort) && cfgPort > 0) return cfgPort;
+      const currentPort = Number(window.location.port);
+      if (Number.isFinite(currentPort) && currentPort > 0) return currentPort;
+      return 8765;
+    }
+
+    function handleServerSessionChange(serverSessionId) {
+      if (serverSessionId === null) return false;
+      if (clientSessionId === null) {
+        clientSessionId = serverSessionId;
+        return false;
+      }
+      if (serverSessionId === clientSessionId) return false;
+
+      frameBuffer = [];
+      experimentArchive = [];
+      experimentArchiveByFrameId = new Map();
+      latest = null;
+      latestSimulationTime = 0.0;
+      latestSimAtPoll = 0.0;
+      latestPollWallTimeS = 0.0;
+      prevPollSimTime = null;
+      prevPollWallTimeS = null;
+      simTimeRate = 1.0;
+      observedFetchIntervalS = 0.1;
+      lastFetchCompleteWallS = null;
+      lastFrameId = 0;
+      lastIngestedPlotFrameId = 0;
+      timeSeriesData = {};
+      playbackSimTime = null;
+      bufferPlaybackMode = "live";
+      manualPlaybackPlaying = false;
+      replayScrubbing = false;
+      lastDrawWallTimeS = null;
+      browserPositionHistory = [];
+      browserHistoryLastFrameId = 0;
+      clientSessionId = serverSessionId;
+      loadMap();
+      loadStaticOverlay();
+      statusEl.textContent = "Detected new experiment backend. Reconnected.";
+      return true;
+    }
+
+    function noteFetchSuccess() {
+      consecutiveFetchFailures = 0;
+    }
+
+    function noteFetchFailure() {
+      consecutiveFetchFailures += 1;
+      statusEl.textContent = "Waiting for simulation state...";
+      if (consecutiveFetchFailures >= PORT_SCAN_FAILURE_THRESHOLD && !portDiscoveryInFlight) {
+        portDiscoveryInFlight = true;
+        tryDiscoverRendererPort().finally(() => {
+          portDiscoveryInFlight = false;
+        });
+      }
+    }
+
+    async function tryDiscoverRendererPort() {
+      const host = window.location.hostname || "127.0.0.1";
+      const currentPort = Number(window.location.port) || getRendererPortScanBase();
+      const basePort = getRendererPortScanBase();
+      for (let offset = 0; offset < PORT_SCAN_RANGE; offset += 1) {
+        const port = basePort + offset;
+        if (port === currentPort) continue;
+        const probeUrl = `http://${host}:${port}/viewer-heartbeat?viewer_id=${encodeURIComponent(viewerId)}`;
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), PORT_PROBE_TIMEOUT_MS);
+          const r = await fetch(probeUrl, { cache: "no-store", signal: controller.signal });
+          clearTimeout(timer);
+          if (!r.ok) continue;
+          const payload = await r.json();
+          if (!payload || payload.ok !== true) continue;
+          const target = `http://${host}:${port}/`;
+          if (window.location.href !== target) {
+            window.location.replace(target);
+          }
+          return true;
+        } catch (e) {
+          // Try the next candidate port.
+        }
+      }
+      return false;
+    }
+
     async function fetchStateTick() {
       if (inflightFetches >= MAX_INFLIGHT_FETCHES) {
         return;
@@ -1988,6 +2082,7 @@
       try {
         const r = await fetch("/state", { cache: "no-store" });
         const state = await r.json();
+        noteFetchSuccess();
         if (typeof state.replay_recording_enabled === "boolean") {
           if (state.replay_recording_enabled !== replayRecordingEnabled) {
             replayRecordingEnabled = state.replay_recording_enabled;
@@ -1996,6 +2091,7 @@
             return;
           }
         }
+        handleServerSessionChange(state.session_id || null);
         const frameId = Number(state.frame_id || 0);
         if (!Number.isFinite(frameId) || frameId <= lastFrameId) {
           return;
@@ -2010,7 +2106,7 @@
         };
         await processStatePollPayload(payload, history);
       } catch (e) {
-        statusEl.textContent = "Waiting for simulation state...";
+        noteFetchFailure();
       } finally {
         const now = performance.now() / 1000.0;
         if (lastFetchCompleteWallS !== null) {
@@ -2029,37 +2125,7 @@
         applyReplayRecordingUi();
       }
       const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
-      if (serverSessionId !== null && clientSessionId !== null && serverSessionId !== clientSessionId) {
-        frameBuffer = [];
-        experimentArchive = [];
-        experimentArchiveByFrameId = new Map();
-        latest = null;
-        latestSimulationTime = 0.0;
-        latestSimAtPoll = 0.0;
-        latestPollWallTimeS = 0.0;
-        prevPollSimTime = null;
-        prevPollWallTimeS = null;
-        simTimeRate = 1.0;
-        observedFetchIntervalS = 0.1;
-        lastFetchCompleteWallS = null;
-        lastFrameId = 0;
-        lastIngestedPlotFrameId = 0;
-        timeSeriesData = {};
-        playbackSimTime = null;
-        bufferPlaybackMode = "live";
-        manualPlaybackPlaying = false;
-        replayScrubbing = false;
-        lastDrawWallTimeS = null;
-        browserPositionHistory = [];
-        browserHistoryLastFrameId = 0;
-        clientSessionId = serverSessionId;
-        loadMap();
-        loadStaticOverlay();
-        statusEl.textContent = "Detected new experiment backend. Reconnected.";
-      }
-      if (clientSessionId === null && serverSessionId !== null) {
-        clientSessionId = serverSessionId;
-      }
+      handleServerSessionChange(serverSessionId);
       appendHistorySamples(history);
       if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
         return;
@@ -2136,6 +2202,7 @@
         const since = Math.max(0, lastFrameId - REQUEST_OVERLAP_FRAMES);
         const r = await fetch(`/state-history?since=${since}`);
         const payload = await r.json();
+        noteFetchSuccess();
         const history = Array.isArray(payload.history) ? payload.history : [];
         if (typeof payload.replay_recording_enabled === "boolean") {
           if (payload.replay_recording_enabled !== replayRecordingEnabled) {
@@ -2147,7 +2214,7 @@
         }
         await processStatePollPayload(payload, history);
       } catch (e) {
-        statusEl.textContent = "Waiting for simulation state...";
+        noteFetchFailure();
       } finally {
         const now = performance.now() / 1000.0;
         if (lastFetchCompleteWallS !== null) {
@@ -2350,9 +2417,16 @@
 
     async function sendViewerHeartbeat() {
       try {
-        await fetch(`/viewer-heartbeat?viewer_id=${encodeURIComponent(viewerId)}`, { cache: "no-store" });
+        const r = await fetch(`/viewer-heartbeat?viewer_id=${encodeURIComponent(viewerId)}`, { cache: "no-store" });
+        if (!r.ok) {
+          noteFetchFailure();
+          return;
+        }
+        const payload = await r.json();
+        noteFetchSuccess();
+        handleServerSessionChange(payload.session_id || null);
       } catch (e) {
-        // Ignore transient heartbeat errors; polling loop will retry.
+        noteFetchFailure();
       }
     }
 
