@@ -19,9 +19,20 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
     next_waypoints = super_obs["next_waypoints"].astype(np.float32)
     state_history_len = 1
     state_history = super_obs["state_history"].astype(np.float32)
-    state_features = state_history[
-        -state_history_len:, [LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX, STEERING_ANGLE_IDX]
-    ].reshape(-1).astype(np.float32)
+    state_indices = [
+        LINEAR_VEL_X_IDX,
+        LINEAR_VEL_Y_IDX,
+        ANGULAR_VEL_Z_IDX,
+        STEERING_ANGLE_IDX,
+    ]
+    state_slice = state_history[-state_history_len:, state_indices]
+    if state_slice.shape[0] < state_history_len:
+        pad = np.zeros(
+            (state_history_len - state_slice.shape[0], len(state_indices)),
+            dtype=np.float32,
+        )
+        state_slice = np.concatenate([pad, state_slice], axis=0)
+    state_features = state_slice.reshape(-1).astype(np.float32)
     last_actions = super_obs["last_actions"].astype(np.float32)
 
     curvatures = super_obs["next_waypoints"][:, WP_KAPPA_IDX].astype(np.float32)
@@ -42,6 +53,29 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
 
     pp_action = super_obs["pp_action"].astype(np.float32)
 
+    lidar_history_len = 3
+    lidar_history_stride = 5  # 1 = consecutive frames; m>1 = latest, m steps ago, 2m ago, ...
+    # stride = 4, len = 5 → scans at 16, 12, 8, 4, 0 steps back from lates
+    
+    lidar_history = super_obs["lidar_history"].astype(np.float32)
+    n_rows, n_beams = lidar_history.shape
+    lidar_frames = []
+    for i in range(lidar_history_len):
+        steps_back = (lidar_history_len - 1 - i) * lidar_history_stride
+        idx = n_rows - 1 - steps_back
+        if idx >= 0:
+            lidar_frames.append(lidar_history[idx])
+        else:
+            lidar_frames.append(np.zeros(n_beams, dtype=np.float32))
+    lidar_features = np.stack(lidar_frames, axis=0).reshape(-1).astype(np.float32)
+
+    motor_angular_velocity = np.asarray(
+        super_obs["motor_sensors"]["motor_angular_velocity"], dtype=np.float32
+    ).reshape(-1)
+    imu_x = np.asarray(super_obs["imu"]["imu_a_x"], dtype=np.float32).reshape(-1)
+    imu_y = np.asarray(super_obs["imu"]["imu_a_y"], dtype=np.float32).reshape(-1)
+
+
     obs = np.concatenate(
         [
             np.tile(np.array([0.1, 1.0, 0.3, 2.5], dtype=np.float32), state_history_len) * state_features,
@@ -51,8 +85,11 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
             [1.0, 0.1] * pp_action,
+            # 0.1 * lidar_features,
+            # 1/10000 * motor_angular_velocity,
+            0.2 * imu_x,
+            0.2 * imu_y,
         ]
     ).astype(np.float32)
 
     return obs
-

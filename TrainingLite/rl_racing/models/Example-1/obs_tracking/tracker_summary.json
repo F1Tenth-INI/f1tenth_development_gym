@@ -1,11 +1,11 @@
 {
-  "obs_seen": 149977,
-  "obs_dim": 90,
+  "obs_seen": 149987,
+  "obs_dim": 92,
   "obs_hist_sample_count": 20000,
   "obs_hist_bins": 40,
   "obs_hist_max_dims": 256,
-  "reward_seen": 149977,
-  "reward_min": -28.147311134731698,
-  "reward_max": 1.0149817815946778,
-  "reward_mean": 0.07471564544711283
+  "reward_seen": 149987,
+  "reward_min": -32.476419005539526,
+  "reward_max": 0.9165711432695389,
+  "reward_mean": 0.07335055430407662
 }

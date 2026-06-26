@@ -4,15 +4,15 @@ python TrainingLite/rl_racing/run_training.py \
   --auto-start-client \
   --CONTROLLER sac_agent \
   --SAVE_RECORDINGS False \
-  --MAP_NAME TheTrack1 \
+  --MAP_NAME TheTrack2 \
   --SAC_TARGET_UTD 1.0 \
-  --batch-size 64 \
+  --batch-size 512 \
   --SAC_CHECKPOINT_FREQUENCY 50000 \
-  --SIMULATION_LENGTH 200000 \
+  --SIMULATION_LENGTH 250000 \
   --MAX_SIM_FREQUENCY 250 \
   --RANDOM_WAYPOINT_VEL_FACTOR True \
   --save_replay_buffer False \
-  --save-model-name Physical-42
+  --save-model-name Physical-51
 
 
 # # finetune model in different car dynamics

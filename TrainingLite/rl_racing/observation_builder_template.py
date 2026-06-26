@@ -85,7 +85,7 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             1.0 * np.concatenate([d, e]),
             0.1 * target_speeds,
             [1.0, 0.1] * pp_action,
-            0.1 * lidar_features,
+            # 0.1 * lidar_features,
             # 1/10000 * motor_angular_velocity,
             0.2 * imu_x,
             0.2 * imu_y,
