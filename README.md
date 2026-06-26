@@ -1,5 +1,9 @@
 [![CI](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml/badge.svg)](https://github.com/F1Tenth-INI/f1tenth_development_gym/actions/workflows/ci.yml)
 
+F1TENTH development gym: physics simulation, classical controllers (MPC, Pure Pursuit, …), neural predictors (SI Toolkit), and reinforcement learning (TrainingLite). The same car-driver abstraction runs in sim and on the physical car via the ROS bridge.
+
+**Contents:** [Setup](#setup) · [Run](#run) · [Architecture & Observations](#architecture) · [Car Models](#car-models) · [Develop](#develop) · [SI Toolkit](#si-toolkit) · [TrainingLite / RL](#traininglite) · [RaceTuner](#racetuner)
+
 ## Setup
 
 (Tested on Ubuntu20, MacOS at 2024-06-25)
@@ -20,7 +24,7 @@ conda activate f1t
 
 And now you can install the gym package.
 
-```bash\
+```bash
 pip install --user -e sim/
 ```
 
@@ -126,7 +130,7 @@ Implementation notes:
 - Browser client: `sim/f110_sim/envs/WebRenderer/index.html`
 - Web overlay builder: `sim/f110_sim/envs/rendering/WebRenderer/overlay_builder.py`
 
-All settings from [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) can be overridden this way.
+All settings from [Settings.py](utilities/Settings.py) can be overridden this way.
 
 If you are running from terminal, please run all python scripts from the project's root folder. You might want to export the Python Path env variable:
 
@@ -136,7 +140,7 @@ export PYTHONPATH=./
 
 ### Settings
 
-Have a look at the Settings file: [Settings.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/Settings.py) This file gives you an idea of what can be adjusted at the GYM.
+Have a look at the Settings file: [Settings.py](utilities/Settings.py). This file gives you an idea of what can be adjusted in the gym.
 
 Let's go through the most important ones:
 
@@ -144,87 +148,201 @@ Let's go through the most important ones:
 - CONTROLLER: We have implemented multiple controllers (again from easy to complicated). If you are new with F1TGym, checkout 'ftg' (Follow the Gap) first, then the 'pp' (Pure Pursuit) controller. There are a lot of Tutorials about how these controllers work online.
 - SAVE_RECORDINGS: IF set to true, a Recording will be created (in the folder ExperimentRecordings), which contains all the information about the car state and sensory inputs during the simulation. Recordings can also be raplayed.
 
-# Wording & Conventions
+# Architecture
 
-## Environment
+The codebase is organized in layers. Each layer adds information or logic on top of the one below.
 
-Have a look at [run_simulations.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/run.py). This file represents the world. You can add one or multiple instances of car_system classes to the drivers array:
+```mermaid
+flowchart TB
+    subgraph sim_pkg["sim/ — physics & rendering"]
+        RC[RaceCar agents]
+        WS[Simulator / world_sim]
+        RC --> WS
+    end
 
-```python
-drivers = [planner1,planner2]
+    subgraph race["run/run_simulation.py — RacingSimulation"]
+        RS[Sensor simulation: LiDAR, IMU, motor]
+        RS --> DO[driver_observation]
+    end
+
+    subgraph car["utilities/car_system.py — CarSystem"]
+        WP[Waypoints & Frenet]
+        LID[Lidar processing]
+        WP --> CO[controller_observation]
+        LID --> CO
+    end
+
+    subgraph planner["Control_Toolkit_ASF — Planner / Controller"]
+        PL[process_observation]
+        PL --> CTRL[steering + accel]
+    end
+
+    WS --> RS
+    DO --> WP
+    CO --> PL
 ```
 
-## Car System
+| Layer | Main files | Responsibility |
+|-------|------------|----------------|
+| **sim → world** | `sim/f110_sim/envs/base_classes.py` | Low-level F1TENTH gym: `RaceCar` dynamics, `Simulator` multi-agent physics step, collision checks |
+| **run_simulation → Race** | `run/run_simulation.py`, `run.py` | `RacingSimulation` orchestrates the race: loads map, runs physics substeps, simulates sensors, calls drivers, renders |
+| **car_system → car driver** | `utilities/car_system.py` | Everything a physical car has in common: waypoints, lidar helpers, recording, reward, episode termination, planner instance |
+| **planner / controller** | `Control_Toolkit_ASF/Controllers/` | Algorithm-specific logic: MPC, Pure Pursuit, SAC agent, neural imitator, … |
 
-Have a look at [car_system.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/car_system.py).
-This is a representation of the physical car. A car system fetches information and sensor data from the environment and will deliver it to the Planner.
-The car system consists of everything that all cars (independent of the planner/controller) have in common. Features of the Car System are the following:
+`run.py` is the entry point. It parses CLI overrides for `Settings.py` and starts `RacingSimulation.run_experiments()`.
 
-- Perceive the car's state
-- Load global Waypoints
-- Determine Local waypoints (dep. on position)
-- Render data ( Lidar, Position history etc.)
-- Record data from experiments
-- An instance of a planner
-- process_observation function that receives lidar data and returns a control command
+The main car and opponents are all `CarSystem` instances in the `drivers` array:
 
-Note that every feature of the Car System is also implemented on the Physical car in the f1tenth_gym_bridge.
+```python
+drivers = [main_car] + opponents  # see RacingSimulation.init_drivers()
+```
 
-## Planner
+The same layering is mirrored on the physical car via the ROS bridge: `driver_observation` matches what the real sensors publish.
 
-The next layer of abstraction is the planner. The planner is still system specific (resp. designed for the car/car environment) but it handles features that not all controllers have in common.
+## Observations
 
-- process_observation function that receives lidar data and returns a control command
+Observations are built in stages. Raw physics outputs are enriched at each layer until a planner (or RL policy) sees the features it needs.
 
-- (Optional) A controller
-  - If we use a system agnostic controller from the [Control Toolkit](https://github.com/SensorsINI/Control_Toolkit/tree/7398fdf5c7c5a6d8615e68b9dc153b116d52564b), we use the planner to gather data to deliver it to the controller in the right format. See [mpc_planner.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/Controllers/MPC/mpc_planner.py)
-  - If we use car specific controllers, the controller might already be implemented in the planner instance -> See [pp_planner.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/Controllers/PurePursuit/pp_planner.py)
-- Everything else the controller needs ( fe. a cost function )
+### 1. Driver observation (`driver_observation`)
 
-## Controller
+Built in `RacingSimulation.build_driver_observation()` from the physics world. This is the **raw sensor packet** — the same structure used on the real car.
 
-A controller is system agnostic. That means it does not know (and care) about which system is controlled. It will only try to fullfil the objective delivere by the planner.
-That's why [Control Toolkit](https://github.com/SensorsINI/Control_Toolkit/tree/7398fdf5c7c5a6d8615e68b9dc153b116d52564b) is a sub repository. In fact the same code will run to control the Car and also the CartPole f.e..
-It you think of a PID controller, it only gets an objective (error) and will try to reach it (error -> 0) but has no information about the system.
+| Field | Description |
+|-------|-------------|
+| `car_state` | 10-element state vector (see [Car State](#car-state)) |
+| `scans` | Raw LiDAR ranges (1080 beams, 360°) |
+| `sensors.imu` | Simulated IMU accelerations |
+| `sensors.motor_sensors` | Motor angular velocity, ERPM, current, … |
+| `env` | `time`, `sim_index`, `surface_friction` |
+| `env_state` | Full-environment snapshot (all car states, controls, sim outputs) |
+| `collision`, `terminated`, `interrupted`, `done` | Episode flags |
+
+Sensors are derived from physics state history (`IMUSimulator`, `MotorSensorSimulator`, `LidarSimulator`), not from noisy odometry.
+
+### 2. Controller observation (`controller_observation`)
+
+Built in `CarSystem._build_controller_observation()` after waypoints and lidar have been updated. This is what every planner's `process_observation()` receives.
+
+Adds on top of `driver_observation`:
+
+| Field | Description |
+|-------|-------------|
+| `next_waypoints` | Look-ahead raceline window (s, x, y, ψ, κ, v, a, borders, …) |
+| `state_history` | Recent `car_state` snapshots |
+| `control_history` | Recent applied controls `[steering, accel]` |
+| `frenet_coordinates` | `(s, d, e, ψ)` — progress, lateral offset, heading error |
+| `processed_ranges` | Filtered/downsampled LiDAR used by controllers |
+| `lidar_points` | LiDAR hit points in map coordinates |
+| `imu`, `motor_sensors` | Flattened copies of sensor dicts |
+| `virtual_opponent_*` | Opponent poses / clearance (when virtual opponents enabled) |
+
+Enrichment steps inside `CarSystem.process_observation()`:
+
+1. Update car state and sensors from `driver_observation`
+2. Refresh nearest waypoint and look-ahead window
+3. Process LiDAR (optionally inject virtual-opponent hits into the scan)
+4. Run obstacle checks and raceline selection
+5. Compute Frenet coordinates
+6. Pass `controller_observation` to the planner
+
+After the physics substep, `on_step_end()` adds reward, episode-termination info, and calls `planner.on_step_end()` for transition logging (RL).
+
+### 3. Super observation (`super_obs`) — RL only
+
+For the SAC agent (`sac_agent` controller), `RLAgentPlanner._build_super_observation()` collects everything available for feature engineering:
+
+- `car_state`, `state_history`, `imu`, `motor_sensors`
+- `next_waypoints`, `border_points` (track bounds relative to waypoints)
+- `lidar_ranges`, `lidar_history` (multi-frame LiDAR buffer)
+- `last_actions` (last 3 normalized actions)
+- `frenet_coordinates`, `global_waypoint_vel_factor`
+- `pp_action` — Pure Pursuit fallback used during warmup
+- `env_state`
+
+### 4. Policy observation — RL feature vector
+
+The actual SAC input is built by `build_observation(super_obs)` in:
+
+`TrainingLite/rl_racing/observation_builder_template.py`
+
+At training start the learner server copies this template into `TrainingLite/rl_racing/models/<model_name>/client/observation_builder.py`. The default builder concatenates (with manual scaling):
+
+- State history (velocities, yaw rate, steering)
+- Waypoint curvatures
+- Downsampled track border points
+- Last actions
+- Frenet `(d, e)`
+- Downsampled target speeds
+- Pure Pursuit fallback action
+- Multi-frame downsampled LiDAR
+- IMU accelerations
+
+Edit the template to change the policy input. **Start a new model name** if you change feature order, dimension, or scaling — old checkpoints are tied to the schema.
+
+See also `TrainingLite/rl_racing/Readme.md` for the full async SAC pipeline.
+
+## Planner vs Controller
+
+**Planner** (`Control_Toolkit_ASF/Controllers/`): car-environment specific. Gathers and formats data, may embed a controller (Pure Pursuit) or wrap a system-agnostic one (MPC + Control Toolkit).
+
+**Controller** ([Control Toolkit](https://github.com/SensorsINI/Control_Toolkit) submodule): system agnostic. Receives objectives (errors, references) and outputs control — the same MPC core runs on the F1TENTH car and on CartPole.
 
 ## Car State
 
-We have implemented different car models. But within the environment_gym, we basically stick to the following definition for a car state. It is an array of 9 variables:
+The car state is a fixed-order array defined in `utilities/state_utilities.py` (indices are alphabetical by name):
 
-- angular_vel_z: yaw rate
-- linear_vel_x: velocity in x direction
-- pose_theta: yaw angle
-- pose_theta_cos- pose_theta_sin- pose_x: x position in global coordinates
-- pose_y: y position in global coordinates
-- slip_angle: slip angle at vehicle center
-- steering_angle: steering angle of front wheels
+| Variable | Description |
+|----------|-------------|
+| `angular_vel_z` | Yaw rate |
+| `linear_vel_x`, `linear_vel_y` | Body-frame velocities |
+| `pose_theta`, `pose_theta_cos`, `pose_theta_sin` | Yaw angle and trig helpers |
+| `pose_x`, `pose_y` | Global position |
+| `slip_angle` | Slip angle at vehicle center (deprecated, kept for compatibility) |
+| `steering_angle` | Front wheel steering angle |
 
-Check the [TUM CommonRoad Vehiclemodels](https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/blob/master/vehicleModels_commonRoad.pdf?ref_type=heads) for further information. Attention: The state variable indices are not the same in our system, we sort the alphabetically!
+Always index by name, e.g. `s[POSE_X_IDX]`. See [TUM CommonRoad vehicle models](https://gitlab.lrz.de/tum-cps/commonroad-vehicle-models/-/blob/master/vehicleModels_commonRoad.pdf?ref_type=heads) for background — our index order differs.
 
-Please access the state variables only by name, for example:
-pos_x = s[POSE_X_IDX]
-You can import the index names from utilities/[state_utilities.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/state_utilities.py)
+# Car Models
+
+Vehicle dynamics and geometry are configured via YAML files in `utilities/car_files/`.
+
+| Setting | Purpose |
+|---------|---------|
+| `ENV_CAR_PARAMETER_FILE` | Parameters for the **simulated** car (physics, geometry, tire model) |
+| `CONTROLLER_CAR_PARAMETER_FILE` | Parameters the **controller / predictor** assumes — can differ to simulate model mismatch |
+| `SIM_ODE_IMPLEMENTATION` | Which dynamics backend `RaceCar` uses |
+
+Available parameter files include `gym_car_parameters.yml`, `yokomo1_car_parameters.yml`, `ini_car_parameters.yml`, `mpc_car_parameters.yml`, and `gym_car_parameters_finetune.yml`.
+
+### Dynamics backends (`SIM_ODE_IMPLEMENTATION`)
+
+| Value | Description |
+|-------|-------------|
+| `jax_pacejka` | Fast JAX Pacejka tire model (default for simulation) |
+| `pacejka` / `std` | NumPy implementations |
+| `ODE_TF` | SI Toolkit batch model — same dynamics used inside MPC predictors |
+| `residual` | Pacejka + learned residual correction (`TrainingLite/dynamic_residual_jax`) |
+
+Key parameters in the YAML files: wheelbase (`l_wb`, `lf`, `lr`), mass and inertia (`m`, `I_z`), Pacejka coefficients (`C_Pf`, `C_Pr`), steering/accel limits, friction (`mu`), and sensor mount positions for IMU simulation.
+
+The dynamics code lives in `sim/f110_sim/envs/` and `SI_Toolkit_ASF/car_model.py` (for `ODE_TF`).
 
 ## Waypoint
 
-A waypoint is defined as an array of the following properties:
+A waypoint is an array with indices defined in `utilities/waypoint_utils.py`:
 
-- Distance since start
-- Position x
-- Position y
-- Absolute angle of vector connecting to next wp
-- Relative angle
-- Suggested velocity
-- Suggested acceleration
+| Index | Field | Description |
+|-------|-------|-------------|
+| `WP_S_IDX` | s | Curvilinear distance along raceline |
+| `WP_X_IDX`, `WP_Y_IDX` | x, y | Position |
+| `WP_PSI_IDX` | ψ | Heading |
+| `WP_KAPPA_IDX` | κ | Curvature |
+| `WP_VX_IDX`, `WP_A_X_IDX` | v, a | Target speed and acceleration |
+| `WP_D_LEFT_IDX`, `WP_D_RIGHT_IDX` | borders | Distance to track bounds |
 
-Every waypoint describes a desired position, desired velocity and other features, that the car has to follow.
-The waypoints are saved in the map folder under map_name_wp.csv
-Please access the waypoint properties only by name, for example:
-pos_x = wp[WP_S_IDX]
+Waypoints are stored per map as `<MAP_NAME>_wp.yaml`. Access by name, e.g. `wp[WP_X_IDX]`.
 
-You can import the index names from utilities/[waypoint_utils.py](https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/utilities/waypoint_utils.py)
-
-For a new map, you can either calculate the waypoints with "minimum curvature optimization" (fast-driving) or with "draw by hand" (uncompliated)
+For a new map, generate waypoints via minimum-curvature optimization (fast driving) or draw-by-hand (simple).
 
 ## Map
 
@@ -246,74 +364,48 @@ A map called [ExampleMap] consist of a folder at utilities/maps/ExampleMap/` con
 # Develop
 
 Please work on your own branches and do pull requests to the main branch.
-If possible, seperate your code into your own folders.
+If possible, separate your code into your own folders.
 
-Every driver class must have the function process_observation, with the following arguments:
+Every planner must implement `process_observation(self, controller_observation)` and return `(angular_control, translational_control)`. The observation is the enriched `controller_observation` dict described above — not the legacy raw lidar/odom interface.
 
 ```python
-def process_observation(self, ranges=None, ego_odom=None):
-      """
-      gives actuation given observation
-      @ranges: an array of 1080 distances (ranges) detected by the LiDAR scanner. As the LiDAR scanner takes readings for the full 360°, the angle between each range is 2π/1080 (in radians).
-      @ ego_odom: A dict with following indices:
-      {
-          'pose_x': float,
-          'pose_y': float,
-          'pose_theta': float,
-          'linear_vel_x': float,
-          'linear_vel_y': float,
-          'angular_vel_z': float,
-      }
-      """
-      desired_speed = 0
-      desired_angle = 0
-
-      return desired_speed, desired_angle
-
+def process_observation(self, controller_observation):
+    car_state = controller_observation["car_state"]
+    next_waypoints = controller_observation["next_waypoints"]
+    # ...
+    return angular_control, translational_control
 ```
-
-The function should return the desired speed and the desired angle
 
 ## Control Toolkit
 
-Control Toolkit is a system agnostic sub-repository, which provides the cores of the most important controllers.
-It is used on multiple projects (f.e. [CartPole](https://github.com/SensorsINI/CartPoleSimulation)).
+[Control Toolkit](https://github.com/SensorsINI/Control_Toolkit) is a system-agnostic submodule with the cores of MPC, MPPI, RPGD, and other controllers. Application-specific wrappers for this gym live in `Control_Toolkit_ASF/`.
 
-In the gym we have implemented controllers from the Control Toolkit. Every **Application Specific File** (which are specifically meant for controlling the car in the GYM environment) are in the folder Control_Toolkit_ASF
+Config files:
 
-The Control Toolkit's config files are called
-
-- [config_controllers.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_controllers.yml),
-- [config_optimizers.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_optimizers.yml)
-- [config_cost_function.yml]([https://github.com/F1Tenth-INI/f1tenth_development_gym/blob/main/Control_Toolkit_ASF/config_cost_function.yml)
-
-Have a look at them and see how the controllers can be tuned.
+- `Control_Toolkit_ASF/config_controllers.yml`
+- `Control_Toolkit_ASF/config_optimizers.yml`
+- `Control_Toolkit_ASF/config_cost_function.yml`
 
 ### MPC Controller
 
-The MPC controller is implemented in the GYM with two optimizers:
+MPC is available with two optimizers: **MPPI** and **RPGD**. Cost functions are in `Control_Toolkit_ASF/Cost_Functions/` (template: `f1t_cost_function.py`).
 
-- MPPI
-- RPGD
+# SI Toolkit
 
-#### Cost functions
+[SI Toolkit](https://github.com/SensorsINI/SI_Toolkit) (`SI_Toolkit/` submodule) provides neural system identification, predictors, Brunton plotting, and online learning. Application-specific files for this project are in `SI_Toolkit_ASF/`.
 
-The cost functions are in [Control_Toolkit_ASF/CostFunctions](Control_Toolkit_ASF/Cost_Functions).
-The cost function properties are in cost function template: [f1t_cost_function.py](Control_Toolkit_ASF/Cost_Functions/f1t_cost_function.py), lines 63-72.
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| Car dynamics model | `SI_Toolkit_ASF/car_model.py` | Kinematic, Pacejka, and neural dynamics used by MPC (`ODE_TF`) |
+| Training config | `SI_Toolkit_ASF/config_training.yml` | Network architecture, data paths, hyperparameters |
+| Testing config | `SI_Toolkit_ASF/config_testing.yml` | Brunton test reference recordings and models |
+| Predictors config | `SI_Toolkit_ASF/config_predictors.yml` | Predictor selection for controllers |
+| Online learning | `SI_Toolkit_ASF/config_onlinelearning.yml` | Adapt predictor weights during driving |
+| Run scripts | `SI_Toolkit_ASF/run/` | Data generation, preprocessing, training, Brunton test |
 
-## SI Toolkit
+Install during setup: `pip install --user -e ./SI_Toolkit`
 
-Control Toolkit is a system agnostic sub-repository, which provides the cores for neural system identification and brunton plotting.
-Like Control Toolkit, is used on multiple projects (f.e. [CartPole](https://github.com/SensorsINI/CartPoleSimulation)).
-Every **Application Specific File** related to the SI Toolkit is in the folder SI_Toolkit_ASF.
-
-On the controller side, these structure are at [SI_Toolkit_ASF/car_model.py](SI_Toolkit_ASF/car_model.py), lines 113-190.
-
-<!-- For an arbitrary choise of controller, I removed the built-in PID controller from the base_class.py, such that the environment takes the actual motor inputs instead of the desired speed/angle. -->
-
-# Neural Imitator
-
-## Training
+## Neural Imitator (INItator)
 
 Collect experiment recordings with a controller of choise (fe. MPC - MPPI).
 
@@ -373,9 +465,9 @@ CONTROL_AVERAGE_WINDOW = (1, 1)
 
 - Make sure that the control_inputs in config_training.yml and nni_planner.py match. (Otherwise correct them in nni_planner)
 - Run experiment
-  Enjoy your realtime neural network MPPI imipator ( or how we call it: the INItator ).
+  Enjoy your realtime neural network MPPI imitator (or how we call it: the INItator).
 
-# Brunton Test
+## Brunton Test
 
 Check config_testting.yml:
 
@@ -383,10 +475,10 @@ Check config_testting.yml:
 - Select the network you want to test
 
 ```bash
-python SI_Toolkit_ASF/run/Run_Brunton_Test.py
+python SI_Toolkit_ASF/run/A3_Run_Brunton_Test.py
 ```
 
-# Neural Predictor
+## Neural Predictor
 
 ## Data Generation
 
@@ -433,7 +525,119 @@ Then run the training:
 To check that your predictor works, run the Brunton test using:
 
 - Settings: `SI_Toolkit_ASF/config_testing.py`
-- Run: `python3 -m SI_Toolkit_ASF.run.Run_Brunton_Test``
+- Run: `python3 -m SI_Toolkit_ASF.run.Run_Brunton_Test`
+
+# TrainingLite
+
+`TrainingLite/` contains lightweight ML modules that extend the gym without pulling in the full SI Toolkit training stack.
+
+| Module | Path | Purpose |
+|--------|------|---------|
+| **RL Racing** | `TrainingLite/rl_racing/` | Async SAC learner server + actor client for end-to-end RL |
+| **Dynamic residual (JAX)** | `TrainingLite/dynamic_residual_jax/` | Learned residual on top of Pacejka dynamics (`SIM_ODE_IMPLEMENTATION = residual`) |
+| **MPC imitator** | `TrainingLite/mpc_immitator_mu/` | PyTorch GRU imitator for MPC control sequences |
+| **Slip prediction** | `TrainingLite/slip_prediction/` | Slip-angle predictor |
+| **Visualization** | `TrainingLite/Visualization/` | Web-based training / experiment visualization |
+
+## RL Training with Learner Server
+
+RL uses an **async SAC** setup: a **learner server** trains on a replay buffer while one or more **actors** (simulation clients) collect transitions over TCP. See `TrainingLite/rl_racing/Readme.md` for full details.
+
+```
+[ Simulator + sac_agent ]  ──TCP──►  [ Learner Server (SAC) ]
+        actor                              replay buffer + GPU training
+```
+
+### Quick start (recommended)
+
+Start server and simulation together:
+
+```bash
+python TrainingLite/rl_racing/run_training.py \
+  --auto-start-client \
+  --CONTROLLER sac_agent \
+  --SIMULATION_LENGTH 200000 \
+  --save-model-name MyModel-1
+```
+
+The server waits for the actor, ingests `(obs, action, reward, next_obs, done)` episodes, trains SAC periodically, and broadcasts updated weights back to the actor.
+
+### Hyperparameter sweeps
+
+`TrainingLite/rl_racing/run_experiments.sh` shows batch experiment commands. Example pattern:
+
+```bash
+python TrainingLite/rl_racing/run_training.py \
+  --auto-start-client \
+  --batch-size 1024 \
+  --learning-rate 3e-4 \
+  --discount-factor 0.97 \
+  --SAC_TARGET_UTD None \
+  --SAVE_RECORDINGS False \
+  --SAC_CHECKPOINT_FREQUENCY 500000 \
+  --CONTROLLER sac_agent \
+  --SIMULATION_LENGTH 200000 \
+  --save-model-name Sweep-gamma_97-a
+```
+
+Common flags:
+
+| Flag | Description |
+|------|-------------|
+| `--save-model-name` | New model directory under `TrainingLite/rl_racing/models/` |
+| `--load-model-name` | Continue from an existing checkpoint |
+| `--auto-start-client` | Launch `run.py` automatically as the actor |
+| `--batch-size` | SAC minibatch size (overrides `SAC_BATCH_SIZE` for one run) |
+| `--discount-factor` | SAC γ |
+| `--SAC_CHECKPOINT_FREQUENCY` | Save checkpoint every N actor timesteps |
+| `--SAC_TARGET_UTD` | Target update-to-data ratio (training steps per sample) |
+| `--MAX_SIM_FREQUENCY` | Cap sim speed (useful when GPU training is the bottleneck) |
+
+Physical-car oriented base training is in `TrainingLite/rl_racing/scripts/train_base_for_physical.sh`:
+
+```bash
+python TrainingLite/rl_racing/run_training.py \
+  --auto-start-client \
+  --CONTROLLER sac_agent \
+  --MAP_NAME TheTrack2 \
+  --SAC_TARGET_UTD 1.0 \
+  --batch-size 512 \
+  --SAC_CHECKPOINT_FREQUENCY 50000 \
+  --SIMULATION_LENGTH 250000 \
+  --MAX_SIM_FREQUENCY 250 \
+  --RANDOM_WAYPOINT_VEL_FACTOR True \
+  --save-model-name Physical-51
+```
+
+### Manual two-terminal setup
+
+Terminal 1 — learner server:
+
+```bash
+python TrainingLite/rl_racing/run_training.py --SIMULATION_LENGTH 300000 --save-model-name MyModel-1
+```
+
+Terminal 2 — actor (simulation):
+
+```bash
+python run.py --CONTROLLER sac_agent
+```
+
+### Inference
+
+Evaluate a trained policy without the server:
+
+```bash
+python run.py \
+  --CONTROLLER sac_agent \
+  --SAC_INFERENCE_MODEL_NAME MyModel-1 \
+  --RENDER_MODE human_fast \
+  --SIMULATION_LENGTH 2000
+```
+
+### Custom observations
+
+Edit `TrainingLite/rl_racing/observation_builder_template.py`, then start training with a **new** `--save-model-name`. The server copies the template into the model's `client/` folder.
 
 # Generate miminum Curvature Waypoints
 

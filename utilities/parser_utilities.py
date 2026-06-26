@@ -34,6 +34,29 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
+try:
+    import argcomplete
+    ARGCOMPLETE_AVAILABLE = True
+except ImportError:
+    ARGCOMPLETE_AVAILABLE = False
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_CONTROLLER_CHOICES = [
+    "manual",
+    "mpc",
+    "ftg",
+    "neural",
+    "pp",
+    "stanley",
+    "mppi-lite",
+    "mppi-lite-jax",
+    "mppi-c",
+    "rpgd-lite-jax",
+    "example",
+    "sac_agent",
+]
+
 
 def convert_value(value_str: str, target_type: type, original_value) -> Any:
     """Convert string value to appropriate type based on target type."""
@@ -76,6 +99,27 @@ def convert_value(value_str: str, target_type: type, original_value) -> Any:
             return parsed
         except (ValueError, SyntaxError):
             return value_str
+
+
+def _list_subdirectory_names(directory: Path) -> list[str]:
+    if not directory.is_dir():
+        return []
+    return sorted(
+        entry.name
+        for entry in directory.iterdir()
+        if entry.is_dir() and not entry.name.startswith(".")
+    )
+
+
+def get_setting_choices(attr_name: str) -> Optional[list[str]]:
+    """Return tab-completion choices for well-known Settings attributes."""
+    if attr_name == "CONTROLLER":
+        return _CONTROLLER_CHOICES
+    if attr_name == "MAP_NAME":
+        return _list_subdirectory_names(_REPO_ROOT / "utilities" / "maps")
+    if attr_name == "SAC_INFERENCE_MODEL_NAME":
+        return _list_subdirectory_names(_REPO_ROOT / "TrainingLite" / "rl_racing" / "models")
+    return None
 
 
 def get_settings_attributes(Settings):
@@ -236,8 +280,15 @@ def parse_settings_args(description: Optional[str] = None, verbose: bool = True,
         help_text = f'Override Settings.{attr_name} (default: {attr_value}, type: {attr_type.__name__})'
         
         # Add argument
-        parser.add_argument(arg_name, type=str, default=None, help=help_text)
-    
+        arg_kwargs = {"type": str, "default": None, "help": help_text}
+        choices = get_setting_choices(attr_name)
+        if choices:
+            arg_kwargs["choices"] = choices
+        parser.add_argument(arg_name, **arg_kwargs)
+
+    if ARGCOMPLETE_AVAILABLE:
+        argcomplete.autocomplete(parser)
+
     # Parse arguments
     args = parser.parse_args()
     

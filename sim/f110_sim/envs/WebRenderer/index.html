@@ -1792,6 +1792,27 @@
       ctx.fill();
     }
 
+    function drawVirtualOpponents(poses, color, cx, cy, size) {
+      if (!Array.isArray(poses)) return;
+      const widthM = Array.isArray(size) && size.length >= 1 && Number.isFinite(size[0])
+        ? size[0] : carWidthM;
+      const lengthM = Array.isArray(size) && size.length >= 2 && Number.isFinite(size[1])
+        ? size[1] : carLengthM;
+      for (const p of poses) {
+        if (!Array.isArray(p) || p.length < 3) continue;
+        const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+        const heading = p[2];
+        const carLen = lengthM * zoom;
+        const carWid = widthM * zoom;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(-heading);
+        ctx.fillStyle = color;
+        ctx.fillRect(-carLen / 2, -carWid / 2, carLen, carWid);
+        ctx.restore();
+      }
+    }
+
     function drawLine(points, color, lineWidth, cx, cy) {
       if (!Array.isArray(points) || points.length < 2) return;
       ctx.strokeStyle = color;
@@ -2201,6 +2222,13 @@
           }
         }
         drawPoints(overlay.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
+        drawVirtualOpponents(
+          overlay.virtual_opponents,
+          rgb(colors.virtual_opponents, "rgb(255,140,0)"),
+          cx,
+          cy,
+          overlay.virtual_opponent_size
+        );
 
         // Histories
         if (showPositionHistory) {

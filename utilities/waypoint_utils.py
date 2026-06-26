@@ -421,6 +421,10 @@ class WaypointUtils:
 
     def check_if_obstacle_on_my_raceline(self, lidar_points):
         if Settings.SLOW_DOWN_IF_OBSTACLE_ON_RACELINE or Settings.ALLOW_ALTERNATIVE_RACELINE:
+            if lidar_points is None or self.next_waypoint_positions is None or len(self.next_waypoint_positions) == 0:
+                self.obstacle_on_raceline = False
+                self.obstacle_position = None
+                return
             self.obstacle_on_raceline, self.obstacle_position = check_if_obstacle_on_raceline(lidar_points, self.next_waypoint_positions)
             self.scale_down_velocity_for_trailing_obstacle(self.obstacle_position)
 

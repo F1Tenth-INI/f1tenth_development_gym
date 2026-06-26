@@ -102,6 +102,7 @@ class RenderUtils:
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
+        self.virtual_opponent_visualization_color = (255, 140, 0)
         self.track_border_visualization_color = (255, 0, 0)
 
         self.gt_history_color = (0, 128, 255)      # blue-ish
@@ -122,6 +123,7 @@ class RenderUtils:
         self.target_point = None
         self.car_state = None
         self.obstacles = None
+        self.virtual_opponents = None
         self.track_border_points: Optional[np.ndarray] = None
         # cache PointSizeGroup instances to avoid creating new groups each frame
         self._point_size_groups = {}
@@ -150,6 +152,8 @@ class RenderUtils:
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
         self.obstacle_vertices = None
+        self.virtual_opponent_vertices = None
+        self.virtual_opponent_lines = []
         self.emergency_slowdown_lines = []
         self.lidar_vertices = None
         self.track_border_vertices = None
@@ -192,6 +196,7 @@ class RenderUtils:
                 gt_past_car_states=None,
                prior_past_car_states=None,
                prior_full_past_car_states=None,
+               virtual_opponents=None,
                ):
     
         if Settings.RENDER_MODE is None:
@@ -221,6 +226,8 @@ class RenderUtils:
             self.past_car_states_alternative = past_car_states_alternative
         if track_border_points is not None:
             self.track_border_points = track_border_points
+        if virtual_opponents is not None:
+            self.virtual_opponents = virtual_opponents
 
    
         if Settings.RENDER_MODE is None: return
@@ -540,7 +547,38 @@ class RenderUtils:
             self.obstacle_vertices = e.batch.add(howmany, GL_POINTS, None, ('v2f/stream', scaled_points_flat),
                                             ('c3B', self.obstacle_visualization_color * howmany))
 
-        # Render the emergency slowdown boundary lines if they are available.
+        if self.virtual_opponents is not None and len(self.virtual_opponents) > 0:
+            from f110_sim.envs.collision_models import get_vertices
+            from utilities.virtual_opponents import get_virtual_opponent_dimensions
+
+            opponent_length, opponent_width = get_virtual_opponent_dimensions()
+            opponent_vertices = []
+            for pose in np.asarray(self.virtual_opponents):
+                verts = get_vertices(
+                    np.asarray(pose[:3], dtype=np.float64),
+                    opponent_length,
+                    opponent_width,
+                )
+                scaled = RenderUtils.get_scaled_points(verts)
+                opponent_vertices.append(scaled.flatten())
+            if opponent_vertices:
+                if hasattr(self, "virtual_opponent_lines"):
+                    for line in self.virtual_opponent_lines:
+                        line.delete()
+                self.virtual_opponent_lines = []
+                gl.glLineWidth(2)
+                for verts_flat in opponent_vertices:
+                    loop = np.append(verts_flat, verts_flat[:2])
+                    self.virtual_opponent_lines.append(
+                        e.batch.add(
+                            5,
+                            GL_LINES,
+                            None,
+                            ("v2f/stream", loop),
+                            ("c3B", self.virtual_opponent_visualization_color * 5),
+                        )
+                    )
+
         # Render the emergency slowdown boundary lines if they are available.
         if self.emergency_slowdown_sprites is not None:
             # Convert the line endpoints to scaled points for rendering.

@@ -78,6 +78,7 @@ Datasets/
 !TrainingLite/dynamic_residual_jax/models/0_example/
 
 AnalyseData/Desperate/*
+AnalyseData/RewardPlotting
 
 scripts/EulerCluster/out/*
 

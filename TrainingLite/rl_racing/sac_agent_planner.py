@@ -68,7 +68,7 @@ torch.set_num_interop_threads(1)  # inter-op parallelism
 # ------------------------
 class RLAgentPlanner(template_planner):
     HISTORY_LEN = 10
-    LIDAR_HISTORY_LEN = 1
+    LIDAR_HISTORY_LEN = 32
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
@@ -235,14 +235,12 @@ class RLAgentPlanner(template_planner):
         self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
         action = self._select_action(raw_obs)
-
-        # scale to simulator units
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
 
         # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
-        self.prev_action  = action
+        self.prev_action = action
 
         # Apply lowpass filter to control outputs
         # filtered = alpha * new_value + (1 - alpha) * previous_value

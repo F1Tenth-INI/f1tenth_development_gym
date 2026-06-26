@@ -41,6 +41,7 @@ except ModuleNotFoundError:
 
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
+from utilities.episode_termination import EpisodeTerminator
 
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
@@ -126,9 +127,18 @@ class CarSystem:
         if self.lightweight_mode:
             self.obstacle_detector = None
             self.reward_calculator = None
+            self.episode_terminator = None
+            self.virtual_opponents = None
         else:
             self.obstacle_detector = ObstacleDetector()
             self.reward_calculator = RewardCalculator()
+            self.episode_terminator = EpisodeTerminator()
+            if int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0)) > 0:
+                from utilities.virtual_opponents import VirtualOpponents
+
+                self.virtual_opponents = VirtualOpponents.from_settings()
+            else:
+                self.virtual_opponents = None
         self.reward = 0
         self.reward_components = {}
 
@@ -201,18 +211,23 @@ class CarSystem:
         self.imu = IMUUtilities.zeros_dict()
         self.motor_sensors = {}
         self.laptimes = []
+        self.lap_limit_reached = False
+        self._virtual_opponent_collision = False
 
         self.control_index = 0
-
         self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
         self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
         self.lidar_utils.reset()
         self.waypoint_utils.reset()
         if self.reward_calculator is not None:
             self.reward_calculator.reset()
+        if self.episode_terminator is not None:
+            self.episode_terminator.reset()
         if self.lap_analyzer is not None:
             self.lap_analyzer.reset()
         self.render_utils.reset()
+        if self.virtual_opponents is not None:
+            self.virtual_opponents.reset()
         self.planner.reset()
         self.waypoint_utils.reset_frenet_progress()
         # self.waypoint_utils.get_frenet_coordinates(self.car_state)
@@ -245,6 +260,8 @@ class CarSystem:
         if self.lightweight_mode:
             return
         ranges = np.array(ranges)
+        if self.virtual_opponents is not None and self.car_state is not None:
+            ranges = self.virtual_opponents.apply_to_scan(self.car_state, ranges)
         self.lidar_utils.update_ranges(ranges, self.car_state)
 
     def set_sensors(self, sensors):
@@ -262,9 +279,16 @@ class CarSystem:
         scans = observation["scans"]
         sensors = observation["sensors"]
         self.set_car_state(observation["car_state"])
-        self.set_scans(scans)
         self.set_sensors(sensors)
-        self.set_waypoints()
+        self._update_waypoint_indices()
+        if self.virtual_opponents is not None:
+            env_time = observation.get("env", {}).get("time", 0.0)
+            self.virtual_opponents.set_state(
+                self.waypoint_utils.nearest_waypoint_index,
+                float(env_time),
+            )
+        self.set_scans(scans)
+        self._finalize_waypoints_for_control()
 
     def _build_planner_step_end_observation(self, observation: dict[str, Any]) -> dict[str, Any]:
         """Build post-step controller observation for planner transition logging."""
@@ -287,12 +311,28 @@ class CarSystem:
             "frenet_coordinates": np.asarray(
                 self.waypoint_utils.frenet_coordinates, dtype=np.float32
             ),
+            # Flatten sensors for planners / observation builders (also under driver_obs["sensors"]).
+            "imu": self.imu,
+            "motor_sensors": self.motor_sensors,
         }
         if not self.lightweight_mode:
             controller_observation["processed_ranges"] = np.asarray(
                 self.lidar_utils.processed_ranges, dtype=np.float32
             )
             controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
+            if self.virtual_opponents is not None:
+                from utilities.virtual_opponents import get_ego_car_dimensions
+
+                ego_length, ego_width = get_ego_car_dimensions()
+                controller_observation["virtual_opponent_poses"] = self.virtual_opponents.get_poses()
+                controller_observation["min_virtual_opponent_distance"] = (
+                    self.virtual_opponents.min_clearance_to_ego(
+                        self.car_state, ego_length, ego_width
+                    )
+                )
+                controller_observation["virtual_opponent_collision"] = bool(
+                    getattr(self, "_virtual_opponent_collision", False)
+                )
         return controller_observation
 
     def process_observation(self, driver_observation):
@@ -342,13 +382,35 @@ class CarSystem:
 
         self._apply_observation(observation)
         self._append_car_state_history()
+
+        virtual_opponent_collision = False
+        if (
+            self.virtual_opponents is not None
+            and self.car_state is not None
+            and bool(getattr(Settings, "TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION", False))
+        ):
+            from utilities.virtual_opponents import get_ego_car_dimensions
+
+            ego_length, ego_width = get_ego_car_dimensions()
+            virtual_opponent_collision = self.virtual_opponents.collides_with_ego(
+                self.car_state, ego_length, ego_width
+            )
+        self._virtual_opponent_collision = virtual_opponent_collision
+        if virtual_opponent_collision:
+            observation["collision"] = True
         
         if self.lightweight_mode:
+            done = (
+                observation['terminated']
+                or observation['collision']
+                or observation['interrupted']
+                or observation['done']
+            )
             observation.update({
                 "reward": 0.0,
                 "info": {},
                 "truncated": observation['collision'],
-                "done": observation['terminated'] or observation['collision'] or observation['interrupted'] or observation['done'],
+                "done": done,
             })
             if self.planner is not None and hasattr(self.planner, 'on_step_end'):
                 step_end_observation = self._build_planner_step_end_observation(observation)
@@ -356,28 +418,30 @@ class CarSystem:
             return
 
         # TODO: Recording
-        info = {
-            # Snapshot current lap history to avoid sharing a mutable list
-            # reference across stored transitions.
-            "lap_times": list(self.laptimes),
-            "truncated": self.reward_calculator.truncated or observation['collision'] or observation['interrupted'],
-            "terminated": observation['terminated'],
-            "collision": observation['collision']
-            # "reward_difficulty": self.reward_calculator.difficulty
-        }
-
         controller_observation = self._build_controller_observation(observation)
+        episode_termination = self.episode_terminator.evaluate(
+            controller_observation, observation
+        )
+        controller_observation["episode_termination"] = episode_termination
+
         reward_result = self.reward_calculator._calculate_reward(controller_observation)
         self.reward = float(reward_result["total_reward"])
         self.reward_components = dict(reward_result.get("components") or {})
 
+        info = {
+            # Snapshot current lap history to avoid sharing a mutable list
+            # reference across stored transitions.
+            "lap_times": list(self.laptimes),
+            **episode_termination,
+        }
+
         observation.update({
             "reward": self.reward,
             "info": info,
-            "truncated": self.reward_calculator.truncated or observation['collision'],
-            "done": self.reward_calculator.truncated or observation['terminated'] or observation['collision'] or observation['interrupted'] or observation['done'],
+            "truncated": bool(episode_termination["truncated"]),
+            "done": bool(episode_termination["done"]),
+            "episode_termination": episode_termination,
         })
-
         if self.render_utils is not None and not self.lightweight_mode:
             self.update_render_utils()
 
@@ -391,38 +455,35 @@ class CarSystem:
 
 
 
-    '''
-    Update waypoints, check for obstacles and adjust waypoints / suggested speed
-    '''
-    def set_waypoints(self):
-
+    def _update_waypoint_indices(self):
+        """Refresh nearest waypoint and look-ahead windows from the current car pose."""
         car_state = self.car_state
-        # # Obstacle (opponent) detection: only when opponents are present
-        # if Settings.NUMBER_OF_OPPONENTS > 0 and self.lidar_utils.all_lidar_ranges is not None:
-        #     try:
-        #         obstacles = self.obstacle_detector.get_obstacles(self.lidar_utils.all_lidar_ranges, car_state)
-        #         if len(obstacles) > 0:
-        #             print(f"Obstacle spotted: {len(obstacles)} at relative positions {obstacles}")
-        #     except FileNotFoundError:
-        #         pass
-        # Update waypoints
         self.waypoint_utils.update_next_waypoints(car_state)
+        if self.waypoint_utils_alternative is not None:
+            self.waypoint_utils_alternative.update_next_waypoints(car_state)
+
+    def _finalize_waypoints_for_control(self):
+        """Obstacle checks and raceline selection (requires up-to-date lidar)."""
         if self.lightweight_mode:
             self.waypoints_for_controller = self.waypoint_utils.next_waypoints
             return
-        self.waypoint_utils.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
+
+        lidar_points = self.lidar_utils.processed_points_map_coordinates
+        self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points)
         if self.waypoint_utils_alternative is not None:
-            self.waypoint_utils_alternative.update_next_waypoints(self.car_state)
-            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(self.lidar_utils.processed_points_map_coordinates)
-        
-        # Adjust waypoints
+            self.waypoint_utils_alternative.check_if_obstacle_on_my_raceline(lidar_points)
+
         if self.use_waypoints_from_mpc:
             self.waypoints_for_controller = self.get_mpc_waypoints_from_mpc()
         else:
             self.waypoints_for_controller = self.chose_raceline_from_wpts()
-        self.handle_emergency_slowdown() # overwrite self.waypoint_utils.next_waypoints if necessary
-
+        self.handle_emergency_slowdown()
         self.waypoint_utils.get_frenet_coordinates(self.car_state)
+
+    def set_waypoints(self):
+        """Backward-compatible entry point for waypoint refresh."""
+        self._update_waypoint_indices()
+        self._finalize_waypoints_for_control()
 
         
         
@@ -448,13 +509,19 @@ class CarSystem:
             label_dict[f'reward: {name}'] = float(value)
         label_dict['reward: total'] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
+        virtual_opponent_poses = (
+            self.virtual_opponents.get_poses()
+            if self.virtual_opponents is not None
+            else None
+        )
         self.render_utils.update(
             lidar_points= self.lidar_utils.processed_points_map_coordinates,
             # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
             next_waypoints= self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
             next_waypoints_alternative=self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)] if self.waypoint_utils_alternative is not None else None,
             car_state = car_state,
-            track_border_points = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.next_waypoints)
+            track_border_points = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.next_waypoints),
+            virtual_opponents=virtual_opponent_poses,
         )
         # self.render_utils.update_obstacles(obstacles)
 
@@ -477,32 +544,54 @@ class CarSystem:
         return angular_control, translational_control
         
     # Decide between primary and alternative raceline
+    def _primary_raceline_blocked(self) -> bool:
+        if self.waypoint_utils.obstacle_on_raceline:
+            return True
+        if self.virtual_opponents is None or self.car_state is None:
+            return False
+        from utilities.virtual_opponents import get_ego_car_dimensions
+
+        ego_length, ego_width = get_ego_car_dimensions()
+        clearance = self.virtual_opponents.min_clearance_to_ego(
+            self.car_state, ego_length, ego_width
+        )
+        return clearance < 4.0
+
     def chose_raceline_from_wpts(self) -> np.ndarray:
-        if(not self.alternative_raceline and self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150 and self.waypoint_utils_alternative is not None):
-            # Check distance of raceline to alternative raceline
-            distance_to_alternative_raceline = self.waypoint_utils_alternative.current_distance_to_raceline
-            if(distance_to_alternative_raceline < 0.3):
-                self.alternative_raceline = True
-                self.timesteps_on_current_raceline = 0
-                print('Switching to alternative raceline')
+        alt = self.waypoint_utils_alternative
+        min_dwell_steps = 50  # ~1 s at 50 Hz; avoids raceline chatter
 
-        if(self.alternative_raceline and not self.waypoint_utils.obstacle_on_raceline and self.timesteps_on_current_raceline > 150):
-            # Check distance of raceline to alternative raceline
-            distance_to_raceline = self.waypoint_utils.current_distance_to_raceline
-            if(distance_to_raceline < 0.3):
-                self.alternative_raceline = False
-                self.timesteps_on_current_raceline = 0
-                print('Switching to primary raceline')
+        primary_blocked = self._primary_raceline_blocked()
+        alt_blocked = alt.obstacle_on_raceline if alt is not None else False
 
+        if (
+            not self.alternative_raceline
+            and alt is not None
+            and primary_blocked
+            and not alt_blocked
+            and self.timesteps_on_current_raceline > min_dwell_steps
+        ):
+            self.alternative_raceline = True
+            self.timesteps_on_current_raceline = 0
+            print('Switching to alternative raceline')
 
-        # Decide which raceline to use
-        if(not self.alternative_raceline or self.waypoint_utils_alternative is None): #Primary raceline
+        if (
+            self.alternative_raceline
+            and not primary_blocked
+            and self.timesteps_on_current_raceline > min_dwell_steps
+            and self.waypoint_utils.current_distance_to_raceline < 0.3
+        ):
+            self.alternative_raceline = False
+            self.timesteps_on_current_raceline = 0
+            print('Switching to primary raceline')
+
+        if not self.alternative_raceline or alt is None:
             waypoints_for_controller = self.waypoint_utils.next_waypoints
         else:
-            waypoints_for_controller = self.waypoint_utils_alternative.next_waypoints
+            waypoints_for_controller = alt.next_waypoints
 
         self.timesteps_on_current_raceline += 1
-        
+
         return waypoints_for_controller
 
     # Get waypoints from MPC in case they are generated with it
@@ -606,9 +695,21 @@ class CarSystem:
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
         self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
-        # if(lap_time < 21.00):
-        #     print(f"Fast laptime reached.")
-        #     exit()
+
+        stop_recording_after = getattr(Settings, "STOP_RECORDING_AFTER_N_LAPS", None)
+        if (
+            stop_recording_after is not None
+            and len(self.laptimes) >= int(stop_recording_after)
+            and self.recorder is not None
+            and self.recorder.recording_running
+        ):
+            print(f"Stopping recording after {len(self.laptimes)} lap(s).")
+            self.recorder.finish_csv_recording()
+
+        stop_after = getattr(Settings, "STOP_AFTER_N_LAPS", None)
+        if stop_after is not None and len(self.laptimes) >= int(stop_after):
+            print(f"Stopping simulation after {len(self.laptimes)} lap(s).")
+            self.lap_limit_reached = True
      
     
     '''
