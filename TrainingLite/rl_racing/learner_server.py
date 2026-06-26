@@ -15,6 +15,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
 from gymnasium import spaces
 from stable_baselines3.common.logger import configure
+from stable_baselines3.common.utils import get_schedule_fn
 import time
 import csv
 
@@ -248,6 +249,15 @@ class LearnerServer:
         except Exception as e:
             print(f"[server] Failed to prepare client observation builder: {e}")
 
+    def _apply_learning_rate(self, learning_rate: float) -> None:
+        """Apply CLI learning rate to a scratch or loaded SAC model."""
+        if self.model is None:
+            return
+        self.model.learning_rate = float(learning_rate)
+        self.model.lr_schedule = get_schedule_fn(self.model.learning_rate)
+        if not self.init_from_scratch:
+            print(f"[server] Overrode loaded model learning_rate -> {self.model.learning_rate}")
+
     def _load_base_model(self, obs_dim: int):
         """
         Initialize the model + replay buffer.
@@ -287,6 +297,7 @@ class LearnerServer:
 
         self.model.batch_size = self.batch_size
         self.model.gradient_steps = self.grad_steps
+        self._apply_learning_rate(self.learning_rate)
         self.model._logger = configure(folder=None, format_strings=[])
 
         # Fresh replay buffer

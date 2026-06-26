@@ -15,7 +15,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'pp' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'mpc' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'mppi-c', 'rpgd-lite-jax', 'example'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -66,19 +66,19 @@ class Settings():
 
     # Virtual opponents: lightweight lidar occluders replaying recorded trajectories (no physics).
     # Per-opponent arrays must match NUMBER_OF_VIRTUAL_OPPONENTS.
-    NUMBER_OF_VIRTUAL_OPPONENTS = 2
+    NUMBER_OF_VIRTUAL_OPPONENTS = 0
     VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
     # CSV filenames must contain Settings.MAP_NAME (e.g. sac_opponent_trajectory_RCA1.csv).
     VIRTUAL_OPPONENT_RECORDINGS = [
         "sac_opponent_trajectory_RCA1.csv",
         "sac_opponent_trajectory_RCA1.csv",
     ]
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 50]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
     VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5]
     VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
-    VIRTUAL_OPPONENT_SIZE = [0.9, 0.9]  # [width, length] in meters; None uses ego car dimensions.
+    VIRTUAL_OPPONENT_SIZE = [0.35, 0.5]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
     
@@ -215,7 +215,7 @@ class Settings():
     ## SAC Agent planner
     ACTOR_ID = 0                         # RL actor index (TCP learner + web renderer port offset)
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
-    SAC_INFERENCE_MODEL_NAME = "Physical-42d"  # Model name to be used for inference. If None, the agent will be in training mode
+    # SAC_INFERENCE_MODEL_NAME = 'Example-3b'  # Model name to be used for inference. If None, the agent will be in training mode
     # If set (seconds), training actor sends learner terminate once at least two completed laps
     # are strictly faster than this (so metrics can include the first sub-threshold lap).
     SAC_TERMINATE_BELOW_LAPTIME = None
@@ -277,7 +277,7 @@ class Settings():
     # SAC_METRICS_PLOT_INTERVAL_S > 0: refresh every N seconds (wall clock).
     # SAC_METRICS_PLOT_EVERY (when interval is 0): positive int = every N CSV rows; "end" = only when training stops.
     SAC_METRICS_PLOT_INTERVAL_S = 10.0
-    SAC_METRICS_PLOT_EVERY = "end"
+    SAC_METRICS_PLOT_EVERY = 1000
     # Live metrics dashboard (GET /api/metrics on learner HTTP port).
     LEARNER_METRICS_HTTP_ENABLED = True
     LEARNER_METRICS_HTTP_PORT = 5556

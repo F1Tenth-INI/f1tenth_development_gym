@@ -15,6 +15,7 @@ from utilities.waypoint_utils import *
 class RewardCalculator:
     # Cap history to avoid unbounded growth → GC pauses and FPS drops after 100k+ steps
     REWARD_HISTORY_CAP = 10_000
+    PROXIMITY_THRESHOLD_M = 0.8
 
     def __init__(self):
         
@@ -31,6 +32,7 @@ class RewardCalculator:
         self.w_d_steering = 1.5
         self.w_d_acceleration = 0.1
         self.w_speed_cap = 0.0 # 0.3
+        self.w_proximity = 2.0
 
         if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
             self.w_speed_cap = 0.3
@@ -72,6 +74,7 @@ class RewardCalculator:
         reward = 0
 
         crash = controller_obs.get('collision', False)
+        virtual_opponent_collision = controller_obs.get('virtual_opponent_collision', False)
         interruption = controller_obs.get('interrupted', False)
 
         speed = math.sqrt(car_state[LINEAR_VEL_X_IDX]**2 + car_state[LINEAR_VEL_Y_IDX]**2)
@@ -83,7 +86,7 @@ class RewardCalculator:
         wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
         leave_bounds = d < -wp_distances_r or d > wp_distances_l
-        if interruption:
+        if leave_bounds or crash or virtual_opponent_collision or interruption:
             crash_penalty = -self.w_crash
             crash_penalty -= 1.5 * speed
             reward += crash_penalty
@@ -134,8 +137,22 @@ class RewardCalculator:
         if(speed > suggested_speed):
             speed_cap_penalty = - self.w_speed_cap * (speed - suggested_speed) ** 2
         reward += speed_cap_penalty
-        
-        
+
+        # Quadratic proximity penalty from min lidar distance and virtual opponents.
+        proximity_penalty = 0.0
+        min_dist = float("inf")
+        processed_ranges = controller_obs.get("processed_ranges")
+        if processed_ranges is not None and len(processed_ranges) > 0:
+            min_dist = float(np.min(processed_ranges))
+        vo_dist = controller_obs.get("min_virtual_opponent_distance")
+        if vo_dist is not None and np.isfinite(vo_dist):
+            min_dist = min(min_dist, float(vo_dist))
+        if np.isfinite(min_dist) and min_dist < self.PROXIMITY_THRESHOLD_M:
+            proximity_value = (
+                (self.PROXIMITY_THRESHOLD_M - min_dist) / self.PROXIMITY_THRESHOLD_M
+            ) ** 2
+            proximity_penalty = -self.w_proximity * proximity_value
+        reward += proximity_penalty
 
         # Spinning reward Penalize Spinning (Fixing Instability)
         spin_reward = 0.0
@@ -150,7 +167,7 @@ class RewardCalculator:
 
         # Penalize Being Stuck
         stuck_reward = 0.0
-        if speed < 1.0:
+        if speed < 0.3:
             self.stuck_counter += 1
             stuck_reward = -0.05
             if self.stuck_counter >= 50:
@@ -172,6 +189,7 @@ class RewardCalculator:
             "wp_distance_penalty": float(wp_distance_penalty),
             "d_action_penality": float(d_action_penality),
             "speed_cap_penalty": float(speed_cap_penalty),
+            "proximity_penalty": float(proximity_penalty),
             "stuck_reward": float(stuck_reward),
             "spin_reward": float(spin_reward),
         }
@@ -229,6 +247,7 @@ class RewardCalculator:
             # "acceleration_penalty",
             "wp_distance_penalty",
             "d_action_penality",
+            "proximity_penalty",
             "stuck_reward",
             "spin_reward",
             "difficulty",

@@ -45,6 +45,7 @@ class _SpacesOnlyEnv(gym.Env):
 
         
 class SacUtilities:
+    CONTROL_ACTION_DIM = 2
 
     # --- define spaces ---
     obs_low  = np.array(
@@ -69,7 +70,11 @@ class SacUtilities:
         + [0] * 2
         ,dtype=np.float32)
     obs_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
-    act_space = spaces.Box(low=np.array([-1, -1], dtype=np.float32), high=np.array([ 1,  1], dtype=np.float32), dtype=np.float32)
+    act_space = spaces.Box(
+        low=np.array([-1, -1], dtype=np.float32),
+        high=np.array([1, 1], dtype=np.float32),
+        dtype=np.float32,
+    )
 
     @staticmethod
     def make_obs_space_from_dim(obs_dim: int, low: float = -1.0, high: float = 1.0) -> spaces.Box:
@@ -112,7 +117,7 @@ class SacUtilities:
                      batch_size=256,
                      train_freq=1
                      ) -> SAC:
-        policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        policy_kwargs = dict(net_arch=[512, 256, 128], activation_fn=torch.nn.Tanh)
         # policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.ReLU)
 
         #  log_std_init=-3.5
