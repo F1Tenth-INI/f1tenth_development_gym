@@ -41,6 +41,7 @@ except ModuleNotFoundError:
 
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
+from utilities.episode_termination import EpisodeTerminator
 
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
@@ -126,10 +127,12 @@ class CarSystem:
         if self.lightweight_mode:
             self.obstacle_detector = None
             self.reward_calculator = None
+            self.episode_terminator = None
             self.virtual_opponents = None
         else:
             self.obstacle_detector = ObstacleDetector()
             self.reward_calculator = RewardCalculator()
+            self.episode_terminator = EpisodeTerminator()
             if int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0)) > 0:
                 from utilities.virtual_opponents import VirtualOpponents
 
@@ -218,6 +221,8 @@ class CarSystem:
         self.waypoint_utils.reset()
         if self.reward_calculator is not None:
             self.reward_calculator.reset()
+        if self.episode_terminator is not None:
+            self.episode_terminator.reset()
         if self.lap_analyzer is not None:
             self.lap_analyzer.reset()
         self.render_utils.reset()
@@ -413,39 +418,29 @@ class CarSystem:
             return
 
         # TODO: Recording
-        info = {
-            # Snapshot current lap history to avoid sharing a mutable list
-            # reference across stored transitions.
-            "lap_times": list(self.laptimes),
-            "truncated": (
-                self.reward_calculator.truncated
-                or observation["collision"]
-                or observation.get("interrupted", False)
-            ),
-            "terminated": observation["terminated"],
-            "collision": observation["collision"],
-            "virtual_opponent_collision": virtual_opponent_collision,
-            # "reward_difficulty": self.reward_calculator.difficulty
-        }
-
         controller_observation = self._build_controller_observation(observation)
+        episode_termination = self.episode_terminator.evaluate(
+            controller_observation, observation
+        )
+        controller_observation["episode_termination"] = episode_termination
+
         reward_result = self.reward_calculator._calculate_reward(controller_observation)
         self.reward = float(reward_result["total_reward"])
         self.reward_components = dict(reward_result.get("components") or {})
 
+        info = {
+            # Snapshot current lap history to avoid sharing a mutable list
+            # reference across stored transitions.
+            "lap_times": list(self.laptimes),
+            **episode_termination,
+        }
+
         observation.update({
             "reward": self.reward,
             "info": info,
-            "truncated": (
-                self.reward_calculator.truncated or observation["collision"]
-            ),
-            "done": (
-                self.reward_calculator.truncated
-                or observation["terminated"]
-                or observation["collision"]
-                or observation.get("interrupted", False)
-                or observation.get("done", False)
-            ),
+            "truncated": bool(episode_termination["truncated"]),
+            "done": bool(episode_termination["done"]),
+            "episode_termination": episode_termination,
         })
         if self.render_utils is not None and not self.lightweight_mode:
             self.update_render_utils()

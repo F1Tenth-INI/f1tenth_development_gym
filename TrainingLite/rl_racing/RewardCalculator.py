@@ -16,6 +16,7 @@ class RewardCalculator:
     # Cap history to avoid unbounded growth → GC pauses and FPS drops after 100k+ steps
     REWARD_HISTORY_CAP = 10_000
     PROXIMITY_THRESHOLD_M = 0.8
+    STUCK_MIN_SPEED = 0.3
 
     def __init__(self):
         
@@ -56,10 +57,7 @@ class RewardCalculator:
         self.time = 0
         self.last_progress : float = 0
         self.last_progress_time : float = 0
-        self.spin_counter = 0
-        self.stuck_counter = 0
         self.last_wp_index = 0
-        self.truncated = False
         self.last_s = None
         self.last_action = None
         self.reward = 0
@@ -73,30 +71,25 @@ class RewardCalculator:
         frenet_coordinates = np.asarray(controller_obs["frenet_coordinates"])
         reward = 0
 
-        crash = controller_obs.get('collision', False)
-        virtual_opponent_collision = controller_obs.get('virtual_opponent_collision', False)
-        interruption = controller_obs.get('interrupted', False)
+        termination = controller_obs.get("episode_termination", {})
+        leave_track = bool(termination.get("leave_track", False))
+        collision = bool(termination.get("collision", False))
+        virtual_opponent_collision = bool(
+            termination.get("virtual_opponent_collision", False)
+        )
+        interrupted = bool(termination.get("interrupted", False))
+        spinning = bool(termination.get("spinning", False))
+        stuck = bool(termination.get("stuck", False))
 
         speed = math.sqrt(car_state[LINEAR_VEL_X_IDX]**2 + car_state[LINEAR_VEL_Y_IDX]**2)
         s, d, e, k = frenet_coordinates
 
-        # Crash / Leave virtual track penalty 
+        # Crash / leave track / interruption penalties (termination decided in CarSystem).
         crash_penalty = 0
-
-        wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
-        wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
-        leave_bounds = d < -wp_distances_r or d > wp_distances_l
-        if leave_bounds or crash or virtual_opponent_collision or interruption:
+        if leave_track or collision or virtual_opponent_collision or interrupted:
             crash_penalty = -self.w_crash
             crash_penalty -= 1.5 * speed
             reward += crash_penalty
-            self.truncated = True
-        elif (leave_bounds or crash) and not self.truncated:
-            crash_penalty = -self.w_crash
-            crash_penalty -= 1.5 * speed
-            reward += crash_penalty
-            if Settings.TRUNCATE_ON_LEAVE_TRACK:
-                self.truncated = True
 
 
         # Progress along the raceline ( Frenet s coordinate ) [meters]
@@ -154,27 +147,17 @@ class RewardCalculator:
             proximity_penalty = -self.w_proximity * proximity_value
         reward += proximity_penalty
 
-        # Spinning reward Penalize Spinning (Fixing Instability)
+        # Spin / stuck penalties when EpisodeTerminator flags termination this step.
         spin_reward = 0.0
-        if abs(car_state[ANGULAR_VEL_Z_IDX]) > 15.0:
-            self.spin_counter += 1
-            if self.spin_counter >= 50:
-                spin_reward = -self.w_crash 
-                self.truncated = True
-        else:
-            self.spin_counter = 0
+        if spinning:
+            spin_reward = -self.w_crash
         reward += spin_reward
 
-        # Penalize Being Stuck
         stuck_reward = 0.0
-        if speed < 0.3:
-            self.stuck_counter += 1
+        if speed < self.STUCK_MIN_SPEED:
             stuck_reward = -0.05
-            if self.stuck_counter >= 50:
-                stuck_reward = -self.w_crash 
-                self.truncated = True
-        else:
-            self.stuck_counter = 0
+        if stuck:
+            stuck_reward = -self.w_crash
         reward += stuck_reward
 
         # Update State
