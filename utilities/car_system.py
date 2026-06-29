@@ -53,7 +53,7 @@ if Settings.FORGE_HISTORY: # will import TF
 
 class CarSystem:
     
-    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}, lightweight_mode=False):
+    def __init__(self, controller=None, save_recording = Settings.SAVE_RECORDINGS, recorder_dict={}):
 
         self.time = 0.0
         self.time_increment = Settings.TIMESTEP_CONTROL
@@ -64,7 +64,6 @@ class CarSystem:
         self.save_recordings = save_recording
         self.lidar_visualization_color = (255, 0, 255)
         self.lidar_utils = LidarHelper()
-        self.lightweight_mode = lightweight_mode
         self.laptimes = []
 
         # Pure control without noise
@@ -126,26 +125,19 @@ class CarSystem:
             self.waypoints_planner.waypoint_utils = self.waypoint_utils
 
     
-        if self.lightweight_mode:
-            self.obstacle_detector = None
-            self.reward_calculator = None
-            self.episode_terminator = None
-            self.virtual_opponents = None
-            self.opponent_tracker = None
-        else:
-            self.obstacle_detector = ObstacleDetector()
-            self.reward_calculator = RewardCalculator()
-            self.episode_terminator = EpisodeTerminator()
-            if int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0)) > 0:
-                from utilities.virtual_opponents import VirtualOpponents
+        self.obstacle_detector = ObstacleDetector()
+        self.reward_calculator = RewardCalculator()
+        self.episode_terminator = EpisodeTerminator()
+        if int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0)) > 0:
+            from utilities.virtual_opponents import VirtualOpponents
 
-                self.virtual_opponents = VirtualOpponents.from_settings()
-            else:
-                self.virtual_opponents = None
-            if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):
-                self.opponent_tracker = OpponentTracker.from_settings()
-            else:
-                self.opponent_tracker = None
+            self.virtual_opponents = VirtualOpponents.from_settings()
+        else:
+            self.virtual_opponents = None
+        if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):
+            self.opponent_tracker = OpponentTracker.from_settings()
+        else:
+            self.opponent_tracker = None
         self.reward = 0
         self.reward_components = {}
 
@@ -156,7 +148,7 @@ class CarSystem:
 
         # Other utilities
         self.tuner_connector = None  # Initialize before potential assignment
-        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR and not self.lightweight_mode:
+        if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
             self.launch_tuner_connector()
 
         if Settings.FRICTION_FOR_CONTROLLER is not None:
@@ -174,20 +166,15 @@ class CarSystem:
 
         self.emergency_slowdown = EmergencySlowdown()
 
-        if self.lightweight_mode:
-            self.config_onlinelearning = {'activated': False}
-            self.online_learning_activated = False
-            self.lap_analyzer = None
-        else:
-            self.config_onlinelearning = yaml.load(
-                    open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
-                    Loader=yaml.FullLoader
-                )
-            self.online_learning_activated = self.config_onlinelearning.get('activated', False)
-            self.lap_analyzer = LapAnalyzer(
-                total_waypoints=len(self.waypoint_utils.waypoints),
-                lap_finished_callback=self.lap_complete_cb
+        self.config_onlinelearning = yaml.load(
+                open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
+                Loader=yaml.FullLoader
             )
+        self.online_learning_activated = self.config_onlinelearning.get('activated', False)
+        self.lap_analyzer = LapAnalyzer(
+            total_waypoints=len(self.waypoint_utils.waypoints),
+            lap_finished_callback=self.lap_complete_cb
+        )
 
         if self.online_learning_activated:
             from SI_Toolkit.Training.OnlineLearning import OnlineLearning
@@ -197,7 +184,7 @@ class CarSystem:
                     
             self.online_learning = OnlineLearning(self.predictor, Settings.TIMESTEP_CONTROL, self.config_onlinelearning)
 
-        if Settings.FORGE_HISTORY and not self.lightweight_mode:
+        if Settings.FORGE_HISTORY:
             self.history_forger = HistoryForger()
 
        
@@ -266,8 +253,6 @@ class CarSystem:
         self.car_state_history.append(np.asarray(car_state, dtype=np.float32).copy())
 
     def set_scans(self, ranges):
-        if self.lightweight_mode:
-            return
         ranges = np.array(ranges)
         if self.virtual_opponents is not None and self.car_state is not None:
             ranges = self.virtual_opponents.apply_to_scan(self.car_state, ranges)
@@ -324,29 +309,28 @@ class CarSystem:
             "imu": self.imu,
             "motor_sensors": self.motor_sensors,
         }
-        if not self.lightweight_mode:
-            controller_observation["processed_ranges"] = np.asarray(
-                self.lidar_utils.processed_ranges, dtype=np.float32
-            )
-            controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
-            if self.virtual_opponents is not None:
-                from utilities.virtual_opponents import get_ego_car_dimensions
+        controller_observation["processed_ranges"] = np.asarray(
+            self.lidar_utils.processed_ranges, dtype=np.float32
+        )
+        controller_observation["lidar_points"] = self.lidar_utils.processed_points_map_coordinates
+        if self.virtual_opponents is not None:
+            from utilities.virtual_opponents import get_ego_car_dimensions
 
-                ego_length, ego_width = get_ego_car_dimensions()
-                controller_observation["virtual_opponent_poses"] = self.virtual_opponents.get_poses()
-                controller_observation["min_virtual_opponent_distance"] = (
-                    self.virtual_opponents.min_clearance_to_ego(
-                        self.car_state, ego_length, ego_width
-                    )
+            ego_length, ego_width = get_ego_car_dimensions()
+            controller_observation["virtual_opponent_poses"] = self.virtual_opponents.get_poses()
+            controller_observation["min_virtual_opponent_distance"] = (
+                self.virtual_opponents.min_clearance_to_ego(
+                    self.car_state, ego_length, ego_width
                 )
-                controller_observation["virtual_opponent_collision"] = bool(
-                    getattr(self, "_virtual_opponent_collision", False)
-                )
-            controller_observation.update(
-                self.opponent_tracker.to_controller_observation(self.car_state)
-                if self.opponent_tracker is not None
-                else OpponentTracker.empty_controller_observation()
             )
+            controller_observation["virtual_opponent_collision"] = bool(
+                getattr(self, "_virtual_opponent_collision", False)
+            )
+        controller_observation.update(
+            self.opponent_tracker.to_controller_observation(self.car_state)
+            if self.opponent_tracker is not None
+            else OpponentTracker.empty_controller_observation()
+        )
         return controller_observation
 
     def process_observation(self, driver_observation):
@@ -414,24 +398,6 @@ class CarSystem:
         if virtual_opponent_collision:
             observation["collision"] = True
         
-        if self.lightweight_mode:
-            done = (
-                observation['terminated']
-                or observation['collision']
-                or observation['interrupted']
-                or observation['done']
-            )
-            observation.update({
-                "reward": 0.0,
-                "info": {},
-                "truncated": observation['collision'],
-                "done": done,
-            })
-            if self.planner is not None and hasattr(self.planner, 'on_step_end'):
-                step_end_observation = self._build_planner_step_end_observation(observation)
-                self.planner.on_step_end(step_end_observation)
-            return
-
         # TODO: Recording
         controller_observation = self._build_controller_observation(observation)
         episode_termination = self.episode_terminator.evaluate(
@@ -457,7 +423,7 @@ class CarSystem:
             "done": bool(episode_termination["done"]),
             "episode_termination": episode_termination,
         })
-        if self.render_utils is not None and not self.lightweight_mode:
+        if self.render_utils is not None:
             self.update_render_utils()
 
         if self.planner is not None and hasattr(self.planner, 'on_step_end'):
@@ -479,10 +445,6 @@ class CarSystem:
 
     def _finalize_waypoints_for_control(self):
         """Obstacle checks and raceline selection (requires up-to-date lidar)."""
-        if self.lightweight_mode:
-            self.waypoints_for_controller = self.waypoint_utils.next_waypoints
-            return
-
         lidar_points = self.lidar_utils.processed_points_map_coordinates
         self.waypoint_utils.check_if_obstacle_on_my_raceline(lidar_points)
         if self.waypoint_utils_alternative is not None:
@@ -670,8 +632,6 @@ class CarSystem:
             )
     
     def process_data_post_control(self):
-        if self.lightweight_mode:
-            return
         # Update data post control
         if self.render_utils is not None:
             self.update_render_utils()

@@ -241,11 +241,9 @@ class RacingSimulation:
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
         for _ in range(Settings.NUMBER_OF_OPPONENTS):
-            lightweight_opponent = Settings.OPPONENTS_CONTROLLER == 'pp'
             opponent = CarSystem(
                 Settings.OPPONENTS_CONTROLLER,
                 save_recording=False,
-                lightweight_mode=lightweight_opponent,
             )
             opponent.planner.waypoint_velocity_factor = waypoint_velocity_factor
             opponent.save_recordings = False
@@ -560,11 +558,8 @@ class RacingSimulation:
                 )
             else:
                 car_state_clean = self.world_sim.agents[index].state
-                if getattr(driver, "lightweight_mode", False):
-                    car_state = car_state_clean
-                else:
-                    car_state = self.add_state_noise(car_state_clean)
-                    driver.sim_obs = self.sim_obs
+                car_state = self.add_state_noise(car_state_clean)
+                driver.sim_obs = self.sim_obs
                 driver.car_state_noiseless = car_state_clean
 
             observation = self.build_driver_observation(index, car_state=car_state)
