@@ -650,7 +650,11 @@ class LearnerServer:
             done = bool(t["done"])
             obs = self._normalize_obs(obs)
             next_obs = self._normalize_obs(next_obs)
-            self.obs_tracker.track(obs, reward)
+            info = t.get("info", {}) or {}
+            reward_components = info.get("reward_components")
+            if not isinstance(reward_components, dict):
+                reward_components = None
+            self.obs_tracker.track(obs, reward, reward_components=reward_components)
             self.replay_buffer.add(
                 obs=obs,
                 next_obs=next_obs,

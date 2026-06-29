@@ -1091,6 +1091,8 @@ class WebEnvRenderer:
         # Full experiment archive for scrub/replay when Settings.REPLAY_RECORDING = True.
         self._state_history_max = 24000
         self._history_chunk_size = 200
+        self._replay_archive_preloaded = False
+        self._replay_total_time = 0.0
         self._publish_rate_hz = 50.0
         self._last_published_sim_time: Optional[float] = None
         self._frame_id = 0
@@ -1116,6 +1118,7 @@ class WebEnvRenderer:
             "past_car_states_prior_full": 220,
             "obstacles": 120,
             "virtual_opponents": 8,
+            "detected_opponents": 32,
         }
         self._max_rollout_trajectories = 8
         self._max_rollout_points_per_trajectory = 24
@@ -1137,6 +1140,19 @@ class WebEnvRenderer:
         self._auto_open_startup_grace_s = 5.0
         self._created_at_s = time.time()
         self._ui_config = self._build_ui_config()
+        if self._replay_recording_enabled:
+            self._preload_recording_archive_from_csv()
+            self._ui_config["replay_total_time"] = float(self._replay_total_time)
+            self._ui_config["replay_archive_preloaded"] = bool(self._replay_archive_preloaded)
+            try:
+                from utilities.car_system import load_recording_laptimes
+                from utilities.Settings import Settings
+
+                self._ui_config["replay_lap_times"] = load_recording_laptimes(
+                    Settings.RECORDING_PATH
+                )
+            except Exception:
+                self._ui_config["replay_lap_times"] = []
 
         renderer = self
         requested_port = int(self.port)
@@ -1175,6 +1191,23 @@ class WebEnvRenderer:
                     self._send_json(payload)
                     return
 
+                if path == "/replay-archive":
+                    renderer._note_client_activity()
+                    with renderer._lock:
+                        payload = {
+                            "history": list(renderer._state_history),
+                            "latest_simulation_time": float(
+                                renderer._state.get("simulation_time", renderer._replay_total_time)
+                            ),
+                            "latest_frame_id": int(renderer._state.get("frame_id", 0)),
+                            "replay_total_time": float(renderer._replay_total_time),
+                            "archive_preloaded": bool(renderer._replay_archive_preloaded),
+                            "session_id": renderer._session_id,
+                            "replay_recording_enabled": renderer._replay_recording_enabled,
+                        }
+                    self._send_json(payload)
+                    return
+
                 if path == "/state-history":
                     renderer._note_client_activity()
                     since_raw = query.get("since", ["0"])[0]
@@ -1189,8 +1222,9 @@ class WebEnvRenderer:
                                 for s in renderer._state_history
                                 if int(s.get("frame_id", 0)) > since_id
                             ]
-                            if len(history) > renderer._history_chunk_size:
-                                history = history[-renderer._history_chunk_size :]
+                            chunk_size = max(renderer._history_chunk_size, 2000)
+                            if len(history) > chunk_size:
+                                history = history[-chunk_size :]
                         else:
                             # Live view only: no server archive; expose at most the latest frame.
                             state = dict(renderer._state)
@@ -1379,6 +1413,89 @@ class WebEnvRenderer:
         except Exception:
             return False
 
+    def _preload_recording_archive_from_csv(self) -> None:
+        """Build the full scrubbable archive from the CSV before the sim loop starts."""
+        try:
+            from utilities.Settings import Settings
+
+            csv_path = getattr(Settings, "RECORDING_PATH", None)
+            if not csv_path or not os.path.isfile(csv_path):
+                return
+
+            import pandas as pd
+
+            from utilities.car_system import (
+                load_virtual_opponent_replay_poses,
+                next_waypoints_from_recording_row,
+            )
+
+            df = pd.read_csv(csv_path, comment="#")
+            required = ("time", "pose_x", "pose_y", "pose_theta")
+            missing = [col for col in required if col not in df.columns]
+            if missing:
+                print(f"Web renderer: recording missing columns for replay archive: {missing}")
+                return
+
+            vo_poses = load_virtual_opponent_replay_poses(csv_path)
+            opponent_size = self._ui_config.get("virtual_opponent_size")
+
+            frames = []
+            for i, (_, row) in enumerate(df.iterrows()):
+                sim_time = float(row["time"])
+                ego_pose = [
+                    float(row["pose_x"]),
+                    float(row["pose_y"]),
+                    WebEnvRenderer._wrap_angle_rad(float(row["pose_theta"])),
+                ]
+                overlay: Dict[str, Any] = {}
+                if vo_poses is not None and i < len(vo_poses):
+                    vo_list = []
+                    for slot_idx in range(vo_poses.shape[1]):
+                        slot_pose = vo_poses[i, slot_idx]
+                        if not np.isfinite(slot_pose[0]):
+                            continue
+                        vo_list.append(
+                            [
+                                float(slot_pose[0]),
+                                float(slot_pose[1]),
+                                WebEnvRenderer._wrap_angle_rad(float(slot_pose[2])),
+                            ]
+                        )
+                    if vo_list:
+                        overlay["virtual_opponents"] = vo_list
+                        if opponent_size:
+                            overlay["virtual_opponent_size"] = opponent_size
+
+                next_waypoints = next_waypoints_from_recording_row(row)
+                if next_waypoints is not None:
+                    overlay["next_waypoints"] = next_waypoints.tolist()
+
+                frames.append(
+                    {
+                        "frame_id": i + 1,
+                        "ego_idx": 0,
+                        "simulation_time": round(sim_time, self._float_precision_digits),
+                        "poses": self._round_floats([ego_pose], self._float_precision_digits),
+                        "web_overlay": overlay,
+                    }
+                )
+
+            if not frames:
+                return
+
+            self._state_history = frames[-self._state_history_max :]
+            self._frame_id = int(self._state_history[0]["frame_id"])
+            self._state = dict(self._state_history[0])
+            self._replay_total_time = float(self._state_history[-1]["simulation_time"])
+            self._replay_archive_preloaded = True
+            self._last_published_sim_time = None
+            print(
+                f"Web renderer: preloaded {len(self._state_history)} replay frames "
+                f"({self._replay_total_time:.2f}s) from {csv_path}"
+            )
+        except Exception as exc:
+            print(f"Web renderer: replay archive preload skipped: {exc}")
+
     @staticmethod
     def _build_ui_config() -> Dict[str, Any]:
         car_length = 0.58
@@ -1409,6 +1526,19 @@ class WebEnvRenderer:
             opponent_length, opponent_width = get_virtual_opponent_dimensions()
         except Exception:
             pass
+        replay_total_time = 0.0
+        replay_archive_preloaded = False
+        replay_default_speed = 1.0
+        if replay_recording_enabled:
+            try:
+                from utilities.Settings import Settings
+
+                replay_default_speed = float(
+                    getattr(Settings, "REPLAY_PLAYBACK_SPEED", 1.0)
+                )
+            except (TypeError, ValueError):
+                replay_default_speed = 1.0
+
         return {
             "controller": controller,
             "show_sac_metrics": show_sac_metrics,
@@ -1418,6 +1548,9 @@ class WebEnvRenderer:
             "car_width": car_width,
             "virtual_opponent_size": [opponent_width, opponent_length],
             "replay_recording_enabled": replay_recording_enabled,
+            "replay_total_time": replay_total_time,
+            "replay_archive_preloaded": replay_archive_preloaded,
+            "replay_default_speed": replay_default_speed,
         }
 
     def _load_html_page(self) -> str:
@@ -1571,6 +1704,7 @@ class WebEnvRenderer:
             if (
                 not terminal_step
                 and self._last_published_sim_time is not None
+                and not (self._replay_recording_enabled and self._replay_archive_preloaded)
             ):
                 min_dt = 1.0 / self._publish_rate_hz
                 if (simulation_time - self._last_published_sim_time) < min_dt:
@@ -1586,7 +1720,7 @@ class WebEnvRenderer:
             }
             # Full frame archive only when Settings.REPLAY_RECORDING = True.
             # Live view uses latest _state; the browser keeps a short local buffer for smooth playback.
-            if self._replay_recording_enabled:
+            if self._replay_recording_enabled and not self._replay_archive_preloaded:
                 self._state_history.append(self._state)
                 if len(self._state_history) > self._state_history_max:
                     self._state_history = self._state_history[-self._state_history_max :]

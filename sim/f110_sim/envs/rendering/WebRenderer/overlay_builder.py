@@ -109,6 +109,7 @@ def build_web_overlay(drivers):
         "target_point": _to_xy_points(render_utils.target_point),
         "obstacles": _to_xy_points(render_utils.obstacles),
         "virtual_opponents": virtual_opponent_poses,
+        "detected_opponents": _to_xy_points(getattr(render_utils, "detected_opponents", None)),
         "past_car_states_alternative": _to_xy_points(render_utils.past_car_states_alternative, state_like=True),
         "past_car_states_gt": _to_xy_points(render_utils.past_car_states_gt, state_like=True),
         "past_car_states_prior": _to_xy_points(render_utils.past_car_states_prior, state_like=True),
@@ -128,6 +129,9 @@ def build_web_overlay(drivers):
             "target": list(render_utils.target_point_visualization_color),
             "obstacles": list(render_utils.obstacle_visualization_color),
             "virtual_opponents": list(render_utils.virtual_opponent_visualization_color),
+            "detected_opponents": list(
+                getattr(render_utils, "detected_opponent_visualization_color", (0, 255, 128))
+            ),
             "track_border": list(render_utils.track_border_visualization_color),
             "history_alt": [255, 255, 0],
             "history_gt": list(render_utils.gt_history_color),

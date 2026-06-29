@@ -324,6 +324,23 @@
       opacity: 0.45;
       cursor: not-allowed;
     }
+    .replay-speed-control select {
+      padding: 4px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 12px;
+    }
+    .replay-speed-control select:focus {
+      outline: none;
+      border-color: #ac61b9;
+      background: rgba(255, 255, 255, 0.16);
+    }
+    .replay-speed-control select:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -379,15 +396,23 @@
       </section>
     </div>
   </aside>
-  <div id="replay-bar" aria-label="Buffer replay controls">
-    <button id="replay-play" type="button" title="Pause live view or play/pause buffer replay">Pause</button>
-    <button id="replay-live" type="button" class="active" title="Resume delayed live stream">Live</button>
-    <label class="replay-speed-control" title="Replay speed multiplier (1.0 = real-time sim)">
+  <div id="replay-bar" aria-label="Recording replay controls">
+    <button id="replay-play" type="button" title="Play or pause recording replay">Play</button>
+    <button id="replay-live" type="button" title="Follow the running simulation (live tail)">Follow sim</button>
+    <label class="replay-speed-control" title="Replay speed multiplier (1.0 = real-time)">
       Speed
-      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4" aria-label="Replay speed multiplier" />
+      <select id="replay-speed-preset" aria-label="Replay speed preset">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+        <option value="8">8×</option>
+      </select>
+      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4" aria-label="Custom replay speed multiplier" />
       <span>×</span>
     </label>
-    <input id="replay-slider" type="range" min="0" max="1000" value="1000" step="1" aria-label="Scrub buffered simulation time" />
+    <input id="replay-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub recording time" />
     <span id="replay-time">—</span>
   </div>
   <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
@@ -436,6 +461,8 @@
     let plotsPanelOpen = false;
     let metricsPanelOpen = false;
     let replayRecordingEnabled = false;
+    let replayArchivePreloaded = false;
+    let replayPlayerInitialized = false;
     let mapMeta = null;
     let mapImg = null;
     let latest = null;
@@ -454,7 +481,8 @@
     let experimentArchive = [];
     let experimentArchiveByFrameId = new Map();
     let playbackSimTime = null;
-    let bufferPlaybackMode = "live"; // "live" | "manual"
+    let playbackFrameIndex = 0;
+    let bufferPlaybackMode = "manual"; // "live" | "manual"
     let manualPlaybackPlaying = false;
     let replayScrubbing = false;
     let replaySpeed = 1.0;
@@ -1512,6 +1540,35 @@
       };
     }
 
+    function archiveRecordingHz() {
+      if (experimentArchive.length < 2) return 25.0;
+      const span = Number(experimentArchive[experimentArchive.length - 1].simulation_time)
+        - Number(experimentArchive[0].simulation_time);
+      if (!Number.isFinite(span) || span <= 1e-6) return 25.0;
+      return (experimentArchive.length - 1) / span;
+    }
+
+    function archiveFrameIndexFromSimTime(simTime) {
+      if (experimentArchive.length === 0) return 0;
+      const range = getExperimentTimeRange();
+      if (!range) return 0;
+      const span = Math.max(1e-6, range.end - range.start);
+      const frac = clamp((Number(simTime) - range.start) / span, 0.0, 1.0);
+      return Math.round(frac * (experimentArchive.length - 1));
+    }
+
+    function simTimeFromArchiveIndex(frameIndex) {
+      if (experimentArchive.length === 0) return 0.0;
+      const idx = clamp(Math.round(frameIndex), 0, experimentArchive.length - 1);
+      return Number(experimentArchive[idx].simulation_time || 0.0);
+    }
+
+    function archiveFrameAtIndex(frameIndex) {
+      if (experimentArchive.length === 0) return null;
+      const idx = clamp(Math.round(frameIndex), 0, experimentArchive.length - 1);
+      return experimentArchive[idx];
+    }
+
     function getExperimentTimeRange() {
       const archiveEnd = experimentArchive.length > 0
         ? Number(experimentArchive[experimentArchive.length - 1].simulation_time)
@@ -1649,9 +1706,18 @@
 
     function syncReplaySpeedInput() {
       const el = document.getElementById("replay-speed");
-      if (!el) return;
-      el.value = replaySpeed.toFixed(1);
-      el.disabled = bufferPlaybackMode === "live";
+      const presetEl = document.getElementById("replay-speed-preset");
+      if (el) {
+        el.value = replaySpeed.toFixed(2).replace(/\.?0+$/, "");
+      }
+      if (presetEl) {
+        const hasPreset = Array.from(presetEl.options).some(
+          (opt) => Math.abs(parseFloat(opt.value) - replaySpeed) < 1e-6
+        );
+        if (hasPreset) {
+          presetEl.value = String(replaySpeed);
+        }
+      }
     }
 
     function applyReplaySpeedFromInput() {
@@ -1665,6 +1731,14 @@
       syncReplaySpeedInput();
     }
 
+    function applyReplaySpeedPreset() {
+      const presetEl = document.getElementById("replay-speed-preset");
+      const parsed = parseNumeric(presetEl?.value);
+      if (parsed === null) return;
+      replaySpeed = clamp(parsed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+      syncReplaySpeedInput();
+    }
+
     function getReplaySpeed() {
       return clamp(replaySpeed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
     }
@@ -1674,13 +1748,63 @@
       if (!btn) return;
       if (bufferPlaybackMode === "live") {
         btn.textContent = "Pause";
-        btn.title = "Pause live view and scrub the buffer";
+        btn.title = "Pause live follow and scrub the recording";
       } else if (manualPlaybackPlaying) {
         btn.textContent = "Pause";
-        btn.title = "Pause buffer replay";
+        btn.title = "Pause recording replay";
       } else {
         btn.textContent = "Play";
-        btn.title = "Play buffer replay";
+        btn.title = "Play recording replay";
+      }
+    }
+
+    function initializeReplayPlayer(startAtBeginning = true, autoPlay = true) {
+      if (!replayRecordingEnabled) return;
+      const range = getExperimentTimeRange();
+      if (!range || experimentArchive.length === 0) return;
+      bufferPlaybackMode = "manual";
+      manualPlaybackPlaying = autoPlay;
+      playbackFrameIndex = startAtBeginning ? 0 : (experimentArchive.length - 1);
+      playbackSimTime = simTimeFromArchiveIndex(playbackFrameIndex);
+      replayScrubbing = false;
+      lastDrawWallTimeS = performance.now() / 1000.0;
+      updateReplayBarUI();
+    }
+
+    async function fetchReplayArchive() {
+      if (!replayRecordingEnabled) return false;
+      try {
+        const r = await fetch("/replay-archive", { cache: "no-store" });
+        if (!r.ok) return false;
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        if (history.length === 0) return false;
+        mergeIntoExperimentArchive(history);
+        if (Number.isFinite(payload.latest_simulation_time)) {
+          latestSimulationTime = Math.max(
+            latestSimulationTime,
+            Number(payload.latest_simulation_time)
+          );
+        }
+        if (Number.isFinite(payload.replay_total_time)) {
+          latestSimulationTime = Math.max(latestSimulationTime, Number(payload.replay_total_time));
+        }
+        replayArchivePreloaded = Boolean(payload.archive_preloaded);
+        if (history.length > 0) {
+          lastFrameId = 0;
+          browserHistoryLastFrameId = 0;
+        }
+        if (!replayPlayerInitialized) {
+          initializeReplayPlayer(true, true);
+          replayPlayerInitialized = true;
+        } else if (experimentArchive.length > 0) {
+          initializeReplayPlayer(true, manualPlaybackPlaying);
+        }
+        updateReplayBarUI();
+        return true;
+      } catch (e) {
+        console.warn("Failed to load replay archive", e);
+        return false;
       }
     }
 
@@ -1699,29 +1823,33 @@
         if (bufferPlaybackMode === "live") {
           sliderEl.value = "1000";
         } else {
-          const t = playbackSimTime ?? range.end;
-          sliderEl.value = String(sliderValueFromSimTime(t));
+          playbackSimTime = simTimeFromArchiveIndex(playbackFrameIndex);
+          sliderEl.value = String(sliderValueFromSimTime(playbackSimTime));
         }
       }
       const shownT = bufferPlaybackMode === "live"
         ? range.end
-        : (playbackSimTime ?? range.end);
-      const modeLabel = bufferPlaybackMode === "live" ? "live" : (manualPlaybackPlaying ? "replay" : "paused");
+        : simTimeFromArchiveIndex(playbackFrameIndex);
+      const modeLabel = bufferPlaybackMode === "live"
+        ? "follow"
+        : (manualPlaybackPlaying ? "playing" : "paused");
       timeEl.textContent = `${shownT.toFixed(2)}s / ${range.end.toFixed(2)}s (${modeLabel})`;
-      if (liveBtn) liveBtn.classList.toggle("active", bufferPlaybackMode === "live");
+      if (liveBtn) {
+        liveBtn.classList.toggle("active", bufferPlaybackMode === "live");
+        liveBtn.textContent = "Follow sim";
+      }
       syncReplaySpeedInput();
       updateReplayPlayButton();
     }
 
     function enterManualPlayback() {
       bufferPlaybackMode = "manual";
-      manualPlaybackPlaying = false;
-      if (playbackSimTime === null) {
-        const range = getExperimentTimeRange();
-        playbackSimTime = range ? range.end : 0.0;
+      if (playbackSimTime === null && experimentArchive.length > 0) {
+        playbackFrameIndex = 0;
       }
       lastDrawWallTimeS = performance.now() / 1000.0;
       updateReplayBarUI();
+      startStatePolling();
     }
 
     function goLivePlayback() {
@@ -1729,8 +1857,12 @@
       manualPlaybackPlaying = false;
       replayScrubbing = false;
       playbackSimTime = null;
+      lastFrameId = 0;
+      browserHistoryLastFrameId = 0;
+      frameBuffer = [];
       lastDrawWallTimeS = null;
       updateReplayBarUI();
+      startStatePolling();
     }
 
     function toggleReplayPlayPause() {
@@ -1739,6 +1871,9 @@
       if (bufferPlaybackMode === "live") {
         syncLivePlaybackTime(performance.now() / 1000.0);
         enterManualPlayback();
+        manualPlaybackPlaying = true;
+        lastDrawWallTimeS = performance.now() / 1000.0;
+        updateReplayBarUI();
         return;
       }
       manualPlaybackPlaying = !manualPlaybackPlaying;
@@ -1749,10 +1884,28 @@
     function stateForRender() {
       const nowS = performance.now() / 1000.0;
 
+      if (replayRecordingEnabled && experimentArchive.length > 0 && bufferPlaybackMode === "manual") {
+        const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
+        lastDrawWallTimeS = nowS;
+        if (manualPlaybackPlaying) {
+          playbackFrameIndex += dtWall * archiveRecordingHz() * getReplaySpeed();
+          const maxIdx = experimentArchive.length - 1;
+          if (playbackFrameIndex >= maxIdx) {
+            playbackFrameIndex = maxIdx;
+            manualPlaybackPlaying = false;
+          }
+        }
+        if (replayScrubbing) {
+          playbackFrameIndex = archiveFrameIndexFromSimTime(playbackSimTime);
+        }
+        playbackSimTime = simTimeFromArchiveIndex(playbackFrameIndex);
+        return archiveFrameAtIndex(playbackFrameIndex);
+      }
+
       if (replayRecordingEnabled && bufferPlaybackMode === "manual") {
         const range = getExperimentTimeRange();
         if (!range) return null;
-        if (playbackSimTime === null) playbackSimTime = range.end;
+        if (playbackSimTime === null) playbackSimTime = range.start;
         const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
         lastDrawWallTimeS = nowS;
         if (manualPlaybackPlaying) {
@@ -1818,6 +1971,24 @@
       }
     }
 
+    function drawDetectedOpponents(points, color, cx, cy) {
+      if (!Array.isArray(points)) return;
+      for (const p of points) {
+        if (!Array.isArray(p) || p.length < 2) continue;
+        const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+        // Hollow ring + center dot so lidar-detected opponents stand out.
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 9.0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     function drawLine(points, color, lineWidth, cx, cy) {
       if (!Array.isArray(points) || points.length < 2) return;
       ctx.strokeStyle = color;
@@ -1850,8 +2021,21 @@
     function applyReplayRecordingUi() {
       const replayBarEl = document.getElementById("replay-bar");
       if (replayBarEl) {
-        replayBarEl.style.display = replayRecordingEnabled ? "" : "none";
+        replayBarEl.style.display = replayRecordingEnabled ? "flex" : "none";
       }
+    }
+
+    function applyReplayUiConfig(cfg) {
+      if (!cfg || typeof cfg !== "object") return;
+      if (typeof cfg.replay_recording_enabled === "boolean") {
+        replayRecordingEnabled = cfg.replay_recording_enabled;
+        applyReplayRecordingUi();
+      }
+      if (Number.isFinite(cfg.replay_default_speed)) {
+        replaySpeed = clamp(cfg.replay_default_speed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX);
+        syncReplaySpeedInput();
+      }
+      replayArchivePreloaded = Boolean(cfg.replay_archive_preloaded);
     }
 
     async function loadUiConfig() {
@@ -1862,9 +2046,13 @@
         metricsUiConfig = cfg;
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
-        if (typeof cfg.replay_recording_enabled === "boolean") {
-          replayRecordingEnabled = cfg.replay_recording_enabled;
-          applyReplayRecordingUi();
+        applyReplayUiConfig(cfg);
+        if (replayRecordingEnabled) {
+          const loaded = await fetchReplayArchive();
+          if (!loaded && Number.isFinite(cfg.replay_total_time) && cfg.replay_total_time > 0) {
+            latestSimulationTime = Math.max(latestSimulationTime, Number(cfg.replay_total_time));
+            updateReplayBarUI();
+          }
           startStatePolling();
         }
       } catch (e) {
@@ -2018,9 +2206,12 @@
       lastIngestedPlotFrameId = 0;
       timeSeriesData = {};
       playbackSimTime = null;
-      bufferPlaybackMode = "live";
+      playbackFrameIndex = 0;
+      bufferPlaybackMode = "manual";
       manualPlaybackPlaying = false;
       replayScrubbing = false;
+      replayPlayerInitialized = false;
+      replayArchivePreloaded = false;
       lastDrawWallTimeS = null;
       browserPositionHistory = [];
       browserHistoryLastFrameId = 0;
@@ -2121,8 +2312,13 @@
     async function processStatePollPayload(payload, history) {
       const serverSessionId = payload.session_id || null;
       if (typeof payload.replay_recording_enabled === "boolean") {
-        replayRecordingEnabled = payload.replay_recording_enabled;
-        applyReplayRecordingUi();
+        if (payload.replay_recording_enabled !== replayRecordingEnabled) {
+          replayRecordingEnabled = payload.replay_recording_enabled;
+          applyReplayRecordingUi();
+          if (replayRecordingEnabled) {
+            fetchReplayArchive();
+          }
+        }
       }
       const incomingLatestFrameId = Number(payload.latest_frame_id || 0);
       handleServerSessionChange(serverSessionId);
@@ -2148,6 +2344,10 @@
       if (replayRecordingEnabled) {
         mergeIntoExperimentArchive(history);
         scheduleArchiveBackfill();
+        if (!replayPlayerInitialized && experimentArchive.length > 0) {
+          initializeReplayPlayer(true);
+          replayPlayerInitialized = true;
+        }
       }
 
       const cutoff = latestSimulationTime - getLiveBufferWindowS();
@@ -2226,13 +2426,29 @@
       }
     }
 
+    function getStatePollTick() {
+      if (!replayRecordingEnabled) {
+        return fetchStateTick;
+      }
+      // Complete CSV archive: manual mode plays locally without polling.
+      if (replayArchivePreloaded && bufferPlaybackMode === "manual") {
+        return null;
+      }
+      // Preloaded CSV archive: live follow polls /state directly.
+      if (replayArchivePreloaded && bufferPlaybackMode === "live") {
+        return fetchStateTick;
+      }
+      return fetchStateHistoryTick;
+    }
+
     let statePollTimer = null;
     function startStatePolling() {
       if (statePollTimer !== null) {
         clearInterval(statePollTimer);
         statePollTimer = null;
       }
-      const tick = replayRecordingEnabled ? fetchStateHistoryTick : fetchStateTick;
+      const tick = getStatePollTick();
+      if (!tick) return;
       tick();
       statePollTimer = setInterval(tick, getStatePollIntervalMs());
     }
@@ -2295,6 +2511,12 @@
           cx,
           cy,
           overlay.virtual_opponent_size
+        );
+        drawDetectedOpponents(
+          overlay.detected_opponents,
+          rgb(colors.detected_opponents, "rgb(0,255,128)"),
+          cx,
+          cy
         );
 
         // Histories
@@ -2432,6 +2654,11 @@
 
     window.addEventListener("resize", resizeCanvas);
     window.addEventListener("keydown", (e) => {
+      if (replayRecordingEnabled && (e.code === "KeyK" || e.code === "KeyP")) {
+        e.preventDefault();
+        toggleReplayPlayPause();
+        return;
+      }
       if (e.code === "Space" || e.code === "KeyF") {
         e.preventDefault();
         toggleCameraFollow();
@@ -2547,8 +2774,9 @@
     });
     replaySliderEl.addEventListener("input", () => {
       playbackSimTime = simTimeFromSliderValue(replaySliderEl.value);
-      enterManualPlayback();
+      playbackFrameIndex = archiveFrameIndexFromSimTime(playbackSimTime);
       manualPlaybackPlaying = false;
+      lastDrawWallTimeS = performance.now() / 1000.0;
       updateReplayBarUI();
     });
     replaySpeedEl.addEventListener("change", applyReplaySpeedFromInput);
@@ -2560,6 +2788,10 @@
         replaySpeedEl.blur();
       }
     });
+    const replaySpeedPresetEl = document.getElementById("replay-speed-preset");
+    if (replaySpeedPresetEl) {
+      replaySpeedPresetEl.addEventListener("change", applyReplaySpeedPreset);
+    }
     toggleMapEl.addEventListener("change", () => {
       showMap = !!toggleMapEl.checked;
     });
@@ -2648,6 +2880,20 @@
       ro.observe(plotsPanelEl);
       ro.observe(metricsPanelEl);
     }
+    async function bootstrapViewer() {
+      applyReplayRecordingUi();
+      syncReplaySpeedInput();
+      updateReplayBarUI();
+      resizeCanvas();
+      await loadUiConfig();
+      loadMap();
+      loadStaticOverlay();
+      if (!replayRecordingEnabled) {
+        startHistoryPolling();
+      }
+      requestAnimationFrame(draw);
+    }
+
     syncPlotWindowInput();
     setPlotsPanelOpen(false);
     updateMetricsPanelChrome();
@@ -2656,15 +2902,7 @@
     sendViewerHeartbeat();
     setInterval(sendViewerHeartbeat, 2000);
     updateFollowButton();
-    applyReplayRecordingUi();
-    syncReplaySpeedInput();
-    updateReplayBarUI();
-    resizeCanvas();
-    loadUiConfig();
-    loadMap();
-    loadStaticOverlay();
-    startHistoryPolling();
-    requestAnimationFrame(draw);
+    bootstrapViewer();
   </script>
 </body>
 </html>
