@@ -24,6 +24,7 @@ from utilities.Exceptions import CarCrashException
 from utilities.screen_utils import ScreenUtils
 from utilities.imu_simulator import IMUSimulator
 from utilities.lidar_simulator import LidarSimulator
+from utilities.map_scale import scale_positions
 from utilities.motor_sensor_simulator import MotorSensorSimulator
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
@@ -646,6 +647,8 @@ class RacingSimulation:
         else:
             # print("No starting positions in INI.yaml. Taking value from settings.py")
             starting_positions = Settings.STARTING_POSITION
+
+        starting_positions = scale_positions(starting_positions)
 
         # Reverse direction of map initial positions
         if Settings.REVERSE_DIRECTION:

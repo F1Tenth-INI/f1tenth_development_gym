@@ -53,6 +53,7 @@ from PIL import Image
 
 from f110_sim.envs.collision_models import get_vertices
 from utilities.Settings import Settings
+from utilities.map_scale import scale_map_metadata
 from utilities.state_utilities import (
     LINEAR_VEL_X_IDX,
     POSE_THETA_IDX,
@@ -292,7 +293,7 @@ class EnvRenderer:
 
     def update_map(self, map_path, map_ext):
         with open(map_path + ".yaml", "r") as f:
-            metadata = yaml.safe_load(f)
+            metadata = scale_map_metadata(yaml.safe_load(f))
         res = float(metadata["resolution"])
         origin_x, origin_y = (float(metadata["origin"][0]), float(metadata["origin"][1]))
 

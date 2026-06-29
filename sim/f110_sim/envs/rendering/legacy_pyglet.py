@@ -41,6 +41,7 @@ import numpy as np
 from PIL import Image
 import yaml
 from utilities.Settings import Settings
+from utilities.map_scale import scale_map_metadata
 
 
 # helpers
@@ -156,7 +157,7 @@ class EnvRenderer(pyglet.window.Window):
         # load map metadata
         with open(map_path + '.yaml', 'r') as yaml_stream:
             try:
-                map_metadata = yaml.safe_load(yaml_stream)
+                map_metadata = scale_map_metadata(yaml.safe_load(yaml_stream))
                 map_resolution = map_metadata['resolution']
                 origin = map_metadata['origin']
                 origin_x = origin[0]

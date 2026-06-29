@@ -40,10 +40,14 @@ import timeit
 # Import Settings to check BLANK_MAP mode
 try:
     from utilities.Settings import Settings
+    from utilities.map_scale import scale_map_metadata
 except ImportError:
     # Fallback if Settings is not available
     class Settings:
         BLANK_MAP = False
+
+    def scale_map_metadata(metadata):
+        return metadata
 
 def get_dt(bitmap, resolution):
     """
@@ -449,7 +453,7 @@ class ScanSimulator2D(object):
         # load map yaml
         with open(map_path, 'r') as yaml_stream:
             try:
-                map_metadata = yaml.safe_load(yaml_stream)
+                map_metadata = scale_map_metadata(yaml.safe_load(yaml_stream))
                 self.map_resolution = map_metadata['resolution']
                 self.origin = map_metadata['origin']
             except yaml.YAMLError as ex:

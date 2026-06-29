@@ -13,6 +13,11 @@ import pandas as pd
 from f110_sim.envs.collision_models import collision, get_vertices
 from f110_sim.envs.laser_models import ray_cast
 from utilities.Settings import Settings
+from utilities.map_scale import (
+    processed_waypoint_count_at_scale,
+    remap_waypoint_indices,
+    scale_trajectory_poses,
+)
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.lidar_simulator import LidarSimulator
 from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
@@ -47,6 +52,7 @@ def load_trajectory_from_recording(
     csv_path: str,
     *,
     trim_to_single_lap: bool = True,
+    target_total_waypoints: Optional[int] = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load (poses[N,3], times[N], waypoint_indices[N]) from a recording CSV."""
     df = pd.read_csv(csv_path, comment="#")
@@ -74,10 +80,28 @@ def load_trajectory_from_recording(
     if len(times) < 2:
         raise ValueError(f"Recording {csv_path} must contain at least two rows.")
 
+    map_scale = float(getattr(Settings, "MAP_SCALE", 1.0))
+    unit_total_waypoints = None
+    if map_scale != 1.0 and target_total_waypoints is not None:
+        unit_total_waypoints = processed_waypoint_count_at_scale(1.0)
+
     if trim_to_single_lap:
         poses, times, waypoint_indices = trim_trajectory_to_single_lap(
-            poses, times, waypoint_indices
+            poses,
+            times,
+            waypoint_indices,
+            total_waypoints=unit_total_waypoints,
         )
+
+    poses = scale_trajectory_poses(poses)
+
+    if map_scale != 1.0 and target_total_waypoints is not None and unit_total_waypoints is not None:
+        waypoint_indices = remap_waypoint_indices(
+            waypoint_indices,
+            unit_total_waypoints,
+            target_total_waypoints,
+        )
+
     return poses, times, waypoint_indices
 
 
@@ -347,7 +371,8 @@ class VirtualOpponents:
 
         from utilities.waypoint_utils import WaypointUtils
 
-        total_waypoints = len(WaypointUtils().waypoints)
+        waypoint_utils = WaypointUtils()
+        total_waypoints = len(waypoint_utils.waypoints)
         length, width = get_virtual_opponent_dimensions()
 
         recordings = _require_per_opponent_array("VIRTUAL_OPPONENT_RECORDINGS", count)
@@ -371,6 +396,7 @@ class VirtualOpponents:
             poses, times, waypoint_indices = load_trajectory_from_recording(
                 csv_path,
                 trim_to_single_lap=trim_to_single_lap,
+                target_total_waypoints=total_waypoints,
             )
             opponents.append(
                 VirtualOpponent(

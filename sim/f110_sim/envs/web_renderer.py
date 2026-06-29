@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 import yaml
 from PIL import Image
+from utilities.map_scale import scale_map_metadata
 from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
 
 
@@ -1549,7 +1550,7 @@ class WebEnvRenderer:
         yaml_path = map_path + ".yaml"
         img_path = map_path + map_ext
         with open(yaml_path, "r", encoding="utf-8") as f:
-            metadata = yaml.safe_load(f)
+            metadata = scale_map_metadata(yaml.safe_load(f))
         img = np.array(Image.open(img_path).transpose(Image.FLIP_TOP_BOTTOM))
         with self._lock:
             self._map_meta = {

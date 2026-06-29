@@ -1,4 +1,5 @@
 from utilities.Settings import Settings
+from utilities.map_scale import median_waypoint_spacing, remap_sector_index, resample_waypoints_uniform
 from utilities.state_utilities import *
 
 import time
@@ -324,6 +325,21 @@ class WaypointUtils:
 
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
+
+        map_scale = Settings.MAP_SCALE
+        if map_scale != 1.0:
+            spacing = Settings.WAYPOINT_SPACING or median_waypoint_spacing(waypoints)
+            self._waypoint_count_before_resample = len(waypoints)
+            waypoints[:, WP_X_IDX] *= map_scale
+            waypoints[:, WP_Y_IDX] *= map_scale
+            waypoints[:, WP_S_IDX] *= map_scale
+            waypoints[:, WP_KAPPA_IDX] /= map_scale
+            waypoints[:, WP_D_RIGHT_IDX] *= map_scale
+            waypoints[:, WP_D_LEFT_IDX] *= map_scale
+            waypoints = resample_waypoints_uniform(waypoints, spacing)
+        else:
+            self._waypoint_count_before_resample = len(waypoints)
+
         return np.array(waypoints)
     
     def load_sectors(self):
@@ -338,6 +354,11 @@ class WaypointUtils:
 
 
         sector_csv = pd.read_csv(speed_scaling_file, comment='#', header=None).to_numpy()
+        if self.original_waypoints is None:
+            return None
+        n_new = len(self.original_waypoints)
+        n_old = getattr(self, "_waypoint_count_before_resample", n_new)
+        remap = Settings.MAP_SCALE != 1.0 and n_old != n_new
         result = []
         for i in range(len(sector_csv)):
             start_idx = int(sector_csv[i][0])
@@ -345,7 +366,10 @@ class WaypointUtils:
             if i < len(sector_csv) - 1:
                 end_idx = int(sector_csv[i + 1][0]) - 1
             else:
-                end_idx = len(self.original_waypoints)-1  # Use the index of the last waypoint
+                end_idx = n_old - 1
+            if remap:
+                start_idx = remap_sector_index(start_idx, n_old, n_new)
+                end_idx = remap_sector_index(end_idx, n_old, n_new)
             length_of_sector = end_idx - start_idx
             result.append([start_idx, end_idx, scaling, length_of_sector])
         return np.array(result)
