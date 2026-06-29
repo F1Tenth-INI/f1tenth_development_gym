@@ -81,7 +81,7 @@ class RacingSimulation:
         if Settings.REPLAY_RECORDING:
             import pandas as pd
 
-            from utilities.car_system import load_recording_laptimes
+            from utilities.recording_replay import load_recording_laptimes
 
             self.recording_df = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
             self.time_axis = self.recording_df['time'].to_numpy()
@@ -259,6 +259,9 @@ class RacingSimulation:
   
     def reset(self, poses = None):
         
+        # Random virtual opponent count each episode (0, 1, or 2).
+        Settings.NUMBER_OF_VIRTUAL_OPPONENTS = int(np.random.randint(0, 3))
+
         # Check if respawn is enabled and we have enough history
         if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
             self.respawn()
@@ -543,7 +546,7 @@ class RacingSimulation:
             driver : CarSystem = driver
 
             if Settings.REPLAY_RECORDING:
-                from utilities.car_system import apply_replay_recording_context
+                from utilities.recording_replay import apply_replay_recording_context
 
                 row_idx = min(self.sim_index, len(self.state_recording) - 1)
                 car_state = self.state_recording[row_idx]
@@ -614,7 +617,7 @@ class RacingSimulation:
             agent.state = recorded_state.copy()
             driver = self.drivers[index]
             driver.car_state_noiseless = recorded_state
-            from utilities.car_system import apply_replay_recording_context
+            from utilities.recording_replay import apply_replay_recording_context
 
             apply_replay_recording_context(
                 driver,

@@ -95,7 +95,7 @@ def build_web_overlay(drivers):
 
     driver = drivers[0]
     force_plot_publish = bool((getattr(driver, "obs", None) or {}).get("done"))
-    virtual_opponent_poses = _to_pose_points(render_utils.virtual_opponents)
+    virtual_opponent_poses = _to_pose_points(render_utils.virtual_opponents) or []
 
     overlay = {
         "waypoints": _to_xy_points(render_utils.waypoints),

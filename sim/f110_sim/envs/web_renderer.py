@@ -1145,7 +1145,7 @@ class WebEnvRenderer:
             self._ui_config["replay_total_time"] = float(self._replay_total_time)
             self._ui_config["replay_archive_preloaded"] = bool(self._replay_archive_preloaded)
             try:
-                from utilities.car_system import load_recording_laptimes
+                from utilities.recording_replay import load_recording_laptimes
                 from utilities.Settings import Settings
 
                 self._ui_config["replay_lap_times"] = load_recording_laptimes(
@@ -1424,7 +1424,7 @@ class WebEnvRenderer:
 
             import pandas as pd
 
-            from utilities.car_system import (
+            from utilities.recording_replay import (
                 load_virtual_opponent_replay_poses,
                 next_waypoints_from_recording_row,
             )

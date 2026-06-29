@@ -41,6 +41,7 @@ class Settings():
 
     ## Recordings ##
     REPLAY_RECORDING = False
+    REPLAY_PLAYBACK_SPEED = 1.0  # Default browser replay speed multiplier when REPLAY_RECORDING = True
 
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
