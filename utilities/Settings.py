@@ -65,18 +65,20 @@ class Settings():
     OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
 
     # Virtual opponents: lightweight lidar occluders replaying recorded trajectories (no physics).
-    # Per-opponent arrays must match NUMBER_OF_VIRTUAL_OPPONENTS.
+    # Per-opponent arrays may hold more entries than NUMBER_OF_VIRTUAL_OPPONENTS; the first N are used.
     NUMBER_OF_VIRTUAL_OPPONENTS = 0
     VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
     # CSV filenames must contain Settings.MAP_NAME (e.g. sac_opponent_trajectory_RCA1.csv).
     VIRTUAL_OPPONENT_RECORDINGS = [
         "sac_opponent_trajectory_RCA1.csv",
         "sac_opponent_trajectory_RCA1.csv",
+        "sac_opponent_trajectory_RCA1.csv",
+        "sac_opponent_trajectory_RCA1.csv",
     ]
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100, 170, 240]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
-    VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5]
-    VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0]
+    VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5, 0.5, 0.5]
+    VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0, 0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
     VIRTUAL_OPPONENT_SIZE = [0.35, 0.5]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.

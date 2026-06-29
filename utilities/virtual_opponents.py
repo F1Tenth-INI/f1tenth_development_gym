@@ -322,12 +322,12 @@ class VirtualOpponent:
 
 def _require_per_opponent_array(attr_name: str, count: int) -> list:
     values = list(getattr(Settings, attr_name, []) or [])
-    if len(values) != count:
+    if len(values) < count:
         raise ValueError(
-            f"Settings.{attr_name} must have length {count} "
+            f"Settings.{attr_name} must have at least length {count} "
             f"(NUMBER_OF_VIRTUAL_OPPONENTS), got {len(values)}"
         )
-    return values
+    return values[:count]
 
 
 class VirtualOpponents:
