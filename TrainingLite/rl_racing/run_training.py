@@ -62,6 +62,24 @@ def _model_dir_for_name(model_name: str) -> Path:
     return MODELS_ROOT / model_name
 
 
+def model_exists(model_name: str) -> bool:
+    """
+    Return True if a trained model with this name is already present on disk.
+    Checks both the local layout (models/{name}/{name}.zip) and the server
+    layout (models/{name}/server/{name}.zip).
+    """
+    if not model_name:
+        return False
+    model_dir = _model_dir_for_name(model_name)
+    if not model_dir.is_dir():
+        return False
+    candidates = (
+        model_dir / f"{model_name}.zip",
+        model_dir / "server" / f"{model_name}.zip",
+    )
+    return any(candidate.exists() for candidate in candidates)
+
+
 def backup_existing_model_if_present(save_model_name: str) -> Optional[Path]:
     """
     If models/{save_model_name} already exists with content, copy it to
@@ -198,12 +216,22 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
         action="store_true",
         help="Disable the HTTP metrics dashboard.",
     )
-    # Legacy model name (kept for backward compatibility).
-    parser.add_argument("--model-name", default="SAC_RCA1_0", help="(legacy) model name used as default save name if --save-model-name not provided")
+    # Convenience model name: sets BOTH load (if it already exists) and save
+    # names, so a single --model-name can train, retrain and finetune.
+    parser.add_argument(
+        "--model-name",
+        default="SAC_RCA1_0",
+        help=(
+            "Convenience model name. Used as the save name when --save-model-name "
+            "is not given, and also loaded as the training base when a model with "
+            "this name already exists and --load-model-name is not given. Lets you "
+            "train, retrain and finetune with a single argument."
+        ),
+    )
     parser.add_argument(
         "--load-model-name",
         default=None,
-        help=("Model name to load as a base for training. If omitted (None), the server will start training from scratch."),
+        help=("Model name to load as a base for training. If omitted (None), falls back to --model-name when that model already exists; otherwise training starts from scratch."),
     )
     parser.add_argument(
         "--save-model-name",
@@ -444,9 +472,29 @@ def main() -> None:
     setattr(run_args, "forwarded_settings_args", settings_args)
     setattr(run_args, "settings_namespace", settings_namespace)
 
-    # Backwards-compatible handling: if save_model_name not provided, fall back to legacy model_name
+    # Resolve model naming from --model-name convenience.
+    # --model-name sets BOTH the save name (when --save-model-name is omitted)
+    # and the load name (when --load-model-name is omitted *and* a model with
+    # that name already exists on disk). Explicit --load/--save names always
+    # take precedence. This lets a single --model-name train, retrain and
+    # finetune the same model.
+    model_name = getattr(run_args, "model_name", None)
+
     if getattr(run_args, "save_model_name", None) is None:
-        run_args.save_model_name = run_args.model_name
+        run_args.save_model_name = model_name
+
+    if run_args.load_model_name is None and model_name is not None:
+        if model_exists(model_name):
+            run_args.load_model_name = model_name
+            print(
+                f"[run_training] --model-name '{model_name}' already exists -> "
+                f"loading it as the training base and saving back to the same name"
+            )
+        else:
+            print(
+                f"[run_training] --model-name '{model_name}' not found -> "
+                f"training from scratch and saving to '{run_args.save_model_name}'"
+            )
 
     # SAC training minibatch (replay sample size per grad step), not SAC_STREAM_BATCH_SIZE.
     if run_args.batch_size is not None:

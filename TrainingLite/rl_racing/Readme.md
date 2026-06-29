@@ -11,11 +11,18 @@ The learner periodically trains on the replay buffer and **broadcasts updated ac
 ### Option 1: Server Only (Manual Client Launch)
 
 Run the learner server and let it create a new model by setting a model name that does not yet exist.
-You can also continue training an existing model by providing a `--model-name` of a pretrained model.
+You can also continue training (retrain / finetune) an existing model by providing a `--model-name` of a pretrained model.
 
 ```bash
 python TrainingLite/rl_racing/run_training.py --SIMULATION_LENGTH 300000 --model-name OriginalReward1
 ```
+
+`--model-name` is all you need for the full lifecycle:
+
+- If a model with that name **does not exist**, training starts from scratch and saves to that name.
+- If a model with that name **already exists**, it is loaded as the training base and saved back to the same name (retrain / finetune).
+
+You can still split load and save explicitly with `--load-model-name` / `--save-model-name` (both override the `--model-name` defaults).
 
 The server will now wait for an agent to connect and provide observations.
 In another terminal, run the simulation with the SAC agent:
@@ -136,7 +143,9 @@ When a model name is provided via `--SAC_INFERENCE_MODEL_NAME`, the SAC planner:
 
 Server-specific arguments:
 
-- `--model-name`: Name of the model (required)
+- `--model-name`: Convenience model name. Used as the save name, and also loaded as the training base when a model with this name already exists. Lets you train, retrain and finetune with a single argument.
+- `--load-model-name`: Explicit model to load as the training base (overrides `--model-name`). If omitted, falls back to `--model-name` when that model exists; otherwise trains from scratch.
+- `--save-model-name`: Explicit model name to save to (overrides `--model-name`).
 - `--host`: Server host address (default: `0.0.0.0`)
 - `--port`: Server port (default: `5555`)
 - `--device`: Training device (`cpu` or `cuda`)
