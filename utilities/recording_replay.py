@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-
-from utilities.Settings import Settings
 
 if TYPE_CHECKING:
     from utilities.car_system import CarSystem
@@ -86,6 +85,58 @@ def load_recording_laptimes(csv_path: str, recording_df=None) -> list[float]:
     return _infer_lap_times_from_recording(recording_df)
 
 
+def resolve_recording_csv_path(csv_arg: str | None = None) -> str:
+    """Resolve a recording CSV from a full path, filename, or Settings default."""
+    from utilities.Settings import Settings
+
+    if not csv_arg:
+        return os.path.abspath(Settings.RECORDING_PATH)
+
+    if os.path.isfile(csv_arg):
+        return os.path.abspath(csv_arg)
+
+    candidates: list[str] = []
+    if not os.path.dirname(csv_arg):
+        candidates.append(os.path.join(Settings.RECORDING_FOLDER, csv_arg))
+    candidates.append(csv_arg)
+
+    for candidate in candidates:
+        resolved = os.path.abspath(candidate)
+        if os.path.isfile(resolved):
+            return resolved
+
+    return os.path.abspath(csv_arg)
+
+
+def resolve_map_for_recording(csv_path: str, map_override: str | None = None) -> tuple[str, str]:
+    """Resolve map render path and name for replay (CSV header, then Settings)."""
+    from pathlib import Path
+
+    from utilities.ExperimentAnalyzer import (
+        _extract_metadata_from_csv_header,
+        _resolve_map_dir_from_metadata,
+    )
+    from utilities.Settings import Settings
+
+    if map_override:
+        map_name = map_override
+        map_render_path = os.path.join(Settings.MAP_PATH, map_name)
+        return map_render_path, map_name
+
+    metadata = _extract_metadata_from_csv_header(Path(csv_path))
+    map_dir, map_name = _resolve_map_dir_from_metadata(metadata)
+    if map_dir is not None and map_name:
+        return os.path.join(str(map_dir), map_name), map_name
+
+    map_name = metadata.get("map name") or Settings.MAP_NAME
+    map_path_meta = metadata.get("map path")
+    if map_path_meta:
+        map_render_path = os.path.join(map_path_meta, map_name)
+    else:
+        map_render_path = os.path.join(Settings.MAP_PATH, map_name)
+    return map_render_path, map_name
+
+
 def next_waypoints_from_recording_row(row) -> Optional[np.ndarray]:
     """Rebuild look-ahead waypoint polyline from WYPT_X/Y columns in one CSV row."""
     x_cols = sorted(
@@ -129,23 +180,7 @@ def apply_replay_recording_context(
 
 
 def get_virtual_opponent_poses_for_render(driver: "CarSystem") -> Optional[np.ndarray]:
-    """Virtual opponent poses for the renderer (live sim or CSV replay)."""
-    if Settings.REPLAY_RECORDING:
-        poses = getattr(driver, "_virtual_opponent_replay_poses", None)
-        if poses is None:
-            poses = load_virtual_opponent_replay_poses(Settings.RECORDING_PATH)
-            driver._virtual_opponent_replay_poses = poses
-        if poses is not None:
-            row = max(0, driver.control_index - 1)
-            if row >= len(poses):
-                row = len(poses) - 1
-            slot_poses = np.asarray(poses[row], dtype=np.float32)
-            if slot_poses.size == 0:
-                return None
-            valid_mask = ~np.isnan(slot_poses[:, 0])
-            if np.any(valid_mask):
-                return slot_poses[valid_mask]
-
+    """Virtual opponent poses for the renderer during live simulation."""
     if driver.virtual_opponents is not None:
         poses = driver.virtual_opponents.get_poses()
         return poses if len(poses) > 0 else None

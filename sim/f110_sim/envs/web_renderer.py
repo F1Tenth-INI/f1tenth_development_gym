@@ -1071,6 +1071,8 @@ class WebEnvRenderer:
         port: int = 8765,
         actor_id: int = 0,
         auto_open_browser: bool = True,
+        recording_csv_path: Optional[str] = None,
+        recording_playback_speed: float = 1.0,
     ):
         self.host = host
         self.port = port
@@ -1084,11 +1086,11 @@ class WebEnvRenderer:
             "poses": [],
         }
         self._session_id = f"{int(time.time() * 1000)}-{os.getpid()}"
-        # Full frame archive for browser replay/scrubbing. Disabled by default;
-        # enable via Settings.REPLAY_RECORDING = True.
-        self._replay_recording_enabled = self._read_replay_recording_setting()
+        self._recording_csv_path = recording_csv_path
+        self._recording_playback_speed = float(recording_playback_speed)
+        # Full frame archive for browser replay/scrubbing (standalone CSV viewer).
+        self._replay_recording_enabled = bool(recording_csv_path)
         self._state_history = []
-        # Full experiment archive for scrub/replay when Settings.REPLAY_RECORDING = True.
         self._state_history_max = 24000
         self._history_chunk_size = 200
         self._replay_archive_preloaded = False
@@ -1139,17 +1141,19 @@ class WebEnvRenderer:
         self._last_auto_open_attempt_s = 0.0
         self._auto_open_startup_grace_s = 5.0
         self._created_at_s = time.time()
-        self._ui_config = self._build_ui_config()
+        self._ui_config = self._build_ui_config(
+            replay_recording_enabled=self._replay_recording_enabled,
+            replay_default_speed=self._recording_playback_speed,
+        )
         if self._replay_recording_enabled:
             self._preload_recording_archive_from_csv()
             self._ui_config["replay_total_time"] = float(self._replay_total_time)
             self._ui_config["replay_archive_preloaded"] = bool(self._replay_archive_preloaded)
             try:
                 from utilities.recording_replay import load_recording_laptimes
-                from utilities.Settings import Settings
 
                 self._ui_config["replay_lap_times"] = load_recording_laptimes(
-                    Settings.RECORDING_PATH
+                    self._recording_csv_path
                 )
             except Exception:
                 self._ui_config["replay_lap_times"] = []
@@ -1404,21 +1408,10 @@ class WebEnvRenderer:
         self._maybe_autolaunch_browser()
         self._auto_open_done = True
 
-    @staticmethod
-    def _read_replay_recording_setting() -> bool:
-        try:
-            from utilities.Settings import Settings
-
-            return bool(getattr(Settings, "REPLAY_RECORDING", False))
-        except Exception:
-            return False
-
     def _preload_recording_archive_from_csv(self) -> None:
         """Build the full scrubbable archive from the CSV before the sim loop starts."""
         try:
-            from utilities.Settings import Settings
-
-            csv_path = getattr(Settings, "RECORDING_PATH", None)
+            csv_path = self._recording_csv_path
             if not csv_path or not os.path.isfile(csv_path):
                 return
 
@@ -1497,10 +1490,12 @@ class WebEnvRenderer:
             print(f"Web renderer: replay archive preload skipped: {exc}")
 
     @staticmethod
-    def _build_ui_config() -> Dict[str, Any]:
+    def _build_ui_config(
+        replay_recording_enabled: bool = False,
+        replay_default_speed: float = 1.0,
+    ) -> Dict[str, Any]:
         car_length = 0.58
         car_width = 0.31
-        replay_recording_enabled = WebEnvRenderer._read_replay_recording_setting()
         try:
             from utilities.Settings import Settings
             from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -1528,16 +1523,6 @@ class WebEnvRenderer:
             pass
         replay_total_time = 0.0
         replay_archive_preloaded = False
-        replay_default_speed = 1.0
-        if replay_recording_enabled:
-            try:
-                from utilities.Settings import Settings
-
-                replay_default_speed = float(
-                    getattr(Settings, "REPLAY_PLAYBACK_SPEED", 1.0)
-                )
-            except (TypeError, ValueError):
-                replay_default_speed = 1.0
 
         return {
             "controller": controller,
@@ -1718,7 +1703,7 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
-            # Full frame archive only when Settings.REPLAY_RECORDING = True.
+            # Full frame archive only when a CSV recording was preloaded for replay.
             # Live view uses latest _state; the browser keeps a short local buffer for smooth playback.
             if self._replay_recording_enabled and not self._replay_archive_preloaded:
                 self._state_history.append(self._state)

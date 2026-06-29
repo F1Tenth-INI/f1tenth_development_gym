@@ -75,28 +75,6 @@ class RacingSimulation:
         self.vehicle_parameters_instance = VehicleParameters( param_file_name = Settings.CONTROLLER_CAR_PARAMETER_FILE)
         self.env_car_parameters = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
 
-        self.state_recording = None
-        self.recording_df = None
-        self._replay_laptimes: list[float] = []
-        if Settings.REPLAY_RECORDING:
-            import pandas as pd
-
-            from utilities.recording_replay import load_recording_laptimes
-
-            self.recording_df = pd.read_csv(Settings.RECORDING_PATH, delimiter=',', comment='#')
-            self.time_axis = self.recording_df['time'].to_numpy()
-            self.state_recording = self.recording_df[STATE_VARIABLES].to_numpy()
-            self._replay_laptimes = load_recording_laptimes(
-                Settings.RECORDING_PATH, self.recording_df
-            )
-            if self._replay_laptimes:
-                print(f"Replay lap times from recording: {self._replay_laptimes}")
-            else:
-                print(
-                    "Replay lap times: none found in CSV header; "
-                    "could not infer from nearest_wpt_idx."
-                )
-        
         # State history for respawn functionality
         self.state_history = []  # Store last N timesteps of simulation state
         self.control_history = []  # Store last N timesteps of control inputs
@@ -301,7 +279,7 @@ class RacingSimulation:
         self.reset()
     
         # Main loop
-        experiment_length = len(self.state_recording) if Settings.REPLAY_RECORDING else Settings.SIMULATION_LENGTH
+        experiment_length = Settings.SIMULATION_LENGTH
         for self.sim_index in trange(experiment_length):
             self.simulation_step()
             if getattr(self.drivers[0], "lap_limit_reached", False):
@@ -379,25 +357,15 @@ class RacingSimulation:
         agent_controls = self.get_agent_controls()
 
         intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
-        if Settings.REPLAY_RECORDING:
-            row_idx = min(self.sim_index, len(self.time_axis) - 1)
-            self.sim_time = float(self.time_axis[row_idx])
-            for _ in range(intermediate_steps):
-                self.control_delay_buffer.append(agent_controls)
-                agent_controls_execute = self.control_delay_buffer.pop(0)
-                self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
-                self.episode_index += 1
-            self._apply_replay_state_to_agents()
-        else:
-            for _ in range(intermediate_steps):
+        for _ in range(intermediate_steps):
 
-                # Control delay buffer
-                self.control_delay_buffer.append(agent_controls)        
-                agent_controls_execute  = self.control_delay_buffer.pop(0)
+            # Control delay buffer
+            self.control_delay_buffer.append(agent_controls)        
+            agent_controls_execute  = self.control_delay_buffer.pop(0)
 
-                self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
-                self.sim_time += Settings.TIMESTEP_SIM
-                self.episode_index += 1
+            self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
+            self.sim_time += Settings.TIMESTEP_SIM
+            self.episode_index += 1
 
         # Reward/labels are computed in on_step_end; render after so plots include crash penalties.
         self.on_step_end()
@@ -543,34 +511,13 @@ class RacingSimulation:
         for index, driver in enumerate(self.drivers):
             driver : CarSystem = driver
 
-            if Settings.REPLAY_RECORDING:
-                from utilities.recording_replay import apply_replay_recording_context
-
-                row_idx = min(self.sim_index, len(self.state_recording) - 1)
-                car_state = self.state_recording[row_idx]
-                self.world_sim.agents[index].state = car_state
-                driver.car_state_noiseless = car_state
-                apply_replay_recording_context(
-                    driver,
-                    row_idx,
-                    self.recording_df,
-                    self._replay_laptimes,
-                )
-            else:
-                car_state_clean = self.world_sim.agents[index].state
-                car_state = self.add_state_noise(car_state_clean)
-                driver.sim_obs = self.sim_obs
-                driver.car_state_noiseless = car_state_clean
+            car_state_clean = self.world_sim.agents[index].state
+            car_state = self.add_state_noise(car_state_clean)
+            driver.sim_obs = self.sim_obs
+            driver.car_state_noiseless = car_state_clean
 
             observation = self.build_driver_observation(index, car_state=car_state)
             angular_control, translational_control = driver.process_observation(observation)
-            if Settings.REPLAY_RECORDING:
-                apply_replay_recording_context(
-                    driver,
-                    row_idx,
-                    self.recording_df,
-                    self._replay_laptimes,
-                )
             self.agent_controls.append([angular_control, translational_control ])
 
         self.get_state_for_history_forger()
@@ -598,28 +545,7 @@ class RacingSimulation:
             driver : CarSystem = self.drivers[i]
             driver.on_step_end(self.build_driver_observation(i, env_state=post_step_env))
         
-
     
-    def _apply_replay_state_to_agents(self):
-        """Physics steps drift away from the logged pose; snap back before render."""
-        if not Settings.REPLAY_RECORDING or self.state_recording is None:
-            return
-        row_idx = min(self.sim_index, len(self.state_recording) - 1)
-        for index, agent in enumerate(self.world_sim.agents):
-            if index >= len(self.drivers):
-                continue
-            recorded_state = self.state_recording[row_idx]
-            agent.state = recorded_state.copy()
-            driver = self.drivers[index]
-            driver.car_state_noiseless = recorded_state
-            from utilities.recording_replay import apply_replay_recording_context
-
-            apply_replay_recording_context(
-                driver,
-                row_idx,
-                self.recording_df,
-                self._replay_laptimes,
-            )
 
     def _build_renderer_obs(self):
         """Merge world-sim car states with latest sim_obs for render backends."""
@@ -841,20 +767,7 @@ class RacingSimulation:
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
         if self.renderer is not None:
-            if Settings.REPLAY_RECORDING:
-                print(
-                    "Replay simulation finished. Web renderer stays open — "
-                    "use the browser controls to scrub/play the recording. "
-                    "Press Ctrl+C to exit."
-                )
-                try:
-                    while True:
-                        time.sleep(1.0)
-                except KeyboardInterrupt:
-                    print("Closing web renderer.")
-                    self.renderer.close()
-            else:
-                self.renderer.close()
+            self.renderer.close()
 
     
    

@@ -40,9 +40,6 @@ class Settings():
     APPLY_SPEED_SCALING_FROM_CSV = False # Speed scaling from speed_scaling.yaml are multiplied with GLOBAL_WAYPOINT_VEL_FACTOR
 
     ## Recordings ##
-    REPLAY_RECORDING = False
-    REPLAY_PLAYBACK_SPEED = 1.0  # Default browser replay speed multiplier when REPLAY_RECORDING = True
-
     SAVE_RECORDINGS = True
     SAVE_PLOTS = True # Only possible when SAVE_RECORDINGS is True
     SAVE_REWARDS = True
