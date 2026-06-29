@@ -42,6 +42,8 @@ except ModuleNotFoundError:
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.episode_termination import EpisodeTerminator
+from utilities.opponent_tracker import OpponentTracker
+from utilities.recording_replay import get_virtual_opponent_poses_for_render
 
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
@@ -129,6 +131,7 @@ class CarSystem:
             self.reward_calculator = None
             self.episode_terminator = None
             self.virtual_opponents = None
+            self.opponent_tracker = None
         else:
             self.obstacle_detector = ObstacleDetector()
             self.reward_calculator = RewardCalculator()
@@ -139,6 +142,10 @@ class CarSystem:
                 self.virtual_opponents = VirtualOpponents.from_settings()
             else:
                 self.virtual_opponents = None
+            if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):
+                self.opponent_tracker = OpponentTracker.from_settings()
+            else:
+                self.opponent_tracker = None
         self.reward = 0
         self.reward_components = {}
 
@@ -228,6 +235,8 @@ class CarSystem:
         self.render_utils.reset()
         if self.virtual_opponents is not None:
             self.virtual_opponents.reset()
+        if self.opponent_tracker is not None:
+            self.opponent_tracker.reset()
         self.planner.reset()
         self.waypoint_utils.reset_frenet_progress()
         # self.waypoint_utils.get_frenet_coordinates(self.car_state)
@@ -333,6 +342,11 @@ class CarSystem:
                 controller_observation["virtual_opponent_collision"] = bool(
                     getattr(self, "_virtual_opponent_collision", False)
                 )
+            controller_observation.update(
+                self.opponent_tracker.to_controller_observation(self.car_state)
+                if self.opponent_tracker is not None
+                else OpponentTracker.empty_controller_observation()
+            )
         return controller_observation
 
     def process_observation(self, driver_observation):
@@ -342,6 +356,7 @@ class CarSystem:
         # env_state (optional): full-environment snapshot in driver_observation for multi-agent sim.
         self.env_state = driver_observation.get("env_state")
         self._apply_observation(driver_observation)
+        self._update_opponent_tracker()
         if not self.car_state_history:
             self._append_car_state_history()
 
@@ -480,13 +495,22 @@ class CarSystem:
         self.handle_emergency_slowdown()
         self.waypoint_utils.get_frenet_coordinates(self.car_state)
 
+    def _update_opponent_tracker(self):
+        """Detect/track opponents from the ego lidar (once per control step)."""
+        if self.opponent_tracker is None or self.car_state is None:
+            return
+        self.opponent_tracker.update(
+            self.car_state,
+            self.lidar_utils.all_lidar_ranges,
+            self.lidar_utils.all_angles_rad,
+            self.waypoint_utils.get_corridor_waypoints(self.opponent_tracker.max_range),
+        )
+
     def set_waypoints(self):
         """Backward-compatible entry point for waypoint refresh."""
         self._update_waypoint_indices()
         self._finalize_waypoints_for_control()
 
-        
-        
     def update_render_utils(self):
 
         car_state = self.car_state
@@ -509,11 +533,9 @@ class CarSystem:
             label_dict[f'reward: {name}'] = float(value)
         label_dict['reward: total'] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
-        virtual_opponent_poses = (
-            self.virtual_opponents.get_poses()
-            if self.virtual_opponents is not None
-            else None
-        )
+        virtual_opponent_poses = get_virtual_opponent_poses_for_render(self)
+        if virtual_opponent_poses is None:
+            virtual_opponent_poses = np.empty((0, 3), dtype=np.float32)
         self.render_utils.update(
             lidar_points= self.lidar_utils.processed_points_map_coordinates,
             # next_waypoints= self.waypoints_for_controller[:, (WP_X_IDX, WP_Y_IDX)], # Might be more convenient to see what the controller actually gets
@@ -522,6 +544,11 @@ class CarSystem:
             car_state = car_state,
             track_border_points = self.waypoint_utils.get_track_border_positions(self.waypoint_utils.next_waypoints),
             virtual_opponents=virtual_opponent_poses,
+            detected_opponents=(
+                self.opponent_tracker.get_render_points()
+                if self.opponent_tracker is not None
+                else None
+            ),
         )
         # self.render_utils.update_obstacles(obstacles)
 
@@ -730,6 +757,15 @@ class CarSystem:
             )
             # Add data from outside the car stysem
             self.recorder.dict_data_to_save_basic.update(recorder_dict)
+
+            if self.virtual_opponents is not None:
+                from utilities.recording_replay import get_virtual_opponent_recording_dict
+
+                self.recorder.dict_data_to_save_basic.update(
+                    get_virtual_opponent_recording_dict(
+                        self, len(self.virtual_opponents.opponents)
+                    )
+                )
        
             if Settings.FORGE_HISTORY and hasattr(self, 'history_forger'):
                 self.recorder.dict_data_to_save_basic.update(

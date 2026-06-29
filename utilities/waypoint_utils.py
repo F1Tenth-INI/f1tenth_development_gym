@@ -217,6 +217,39 @@ class WaypointUtils:
         
         self.update_distance_to_raceline()
 
+    def get_corridor_waypoints(self, max_range: float, margin: float = 3.0) -> np.ndarray:
+        """Local waypoint slice for corridor / wall-removal geometry around the ego.
+
+        Takes roughly ``max_range + margin`` of track in both directions from the
+        nearest waypoint, then drops waypoints outside that Euclidean radius of
+        the car (avoids using the far side of the track on tight corners).
+        """
+        if self.waypoints is None or len(self.waypoints) == 0:
+            return np.zeros((0, 10), dtype=np.float32)
+        if self.nearest_waypoint_index is None or self.car_state is None:
+            return self.next_waypoints
+
+        n = len(self.waypoints)
+        idx = int(self.nearest_waypoint_index)
+        radius = float(max_range) + float(margin)
+
+        i0 = idx % n
+        i1 = (idx + 1) % n
+        ds = abs(float(self.waypoints[i1, WP_S_IDX]) - float(self.waypoints[i0, WP_S_IDX]))
+        if ds < 1e-4:
+            dx = float(self.waypoints[i1, WP_X_IDX] - self.waypoints[i0, WP_X_IDX])
+            dy = float(self.waypoints[i1, WP_Y_IDX] - self.waypoints[i0, WP_Y_IDX])
+            ds = max((dx * dx + dy * dy) ** 0.5, 0.05)
+        half_steps = int(radius / ds) + 5
+
+        indices = (idx + np.arange(-half_steps, half_steps + 1)) % n
+        local = self.waypoints[indices]
+
+        car_x = float(self.car_state[POSE_X_IDX])
+        car_y = float(self.car_state[POSE_Y_IDX])
+        d2 = (local[:, WP_X_IDX] - car_x) ** 2 + (local[:, WP_Y_IDX] - car_y) ** 2
+        return local[d2 < radius * radius]
+
     def update_distance_to_raceline(self):
         
         car_position = np.array([self.car_state[POSE_X_IDX], self.car_state[POSE_Y_IDX]])

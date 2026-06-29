@@ -103,6 +103,7 @@ class RenderUtils:
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
         self.virtual_opponent_visualization_color = (255, 140, 0)
+        self.detected_opponent_visualization_color = (0, 255, 128)
         self.track_border_visualization_color = (255, 0, 0)
 
         self.gt_history_color = (0, 128, 255)      # blue-ish
@@ -124,6 +125,7 @@ class RenderUtils:
         self.car_state = None
         self.obstacles = None
         self.virtual_opponents = None
+        self.detected_opponents = None
         self.track_border_points: Optional[np.ndarray] = None
         # cache PointSizeGroup instances to avoid creating new groups each frame
         self._point_size_groups = {}
@@ -152,8 +154,10 @@ class RenderUtils:
         self.optimal_trajectory_vertices = None
         self.target_vertex = None
         self.obstacle_vertices = None
+        self.virtual_opponents = None
         self.virtual_opponent_vertices = None
         self.virtual_opponent_lines = []
+        self.detected_opponent_vertices = None
         self.emergency_slowdown_lines = []
         self.lidar_vertices = None
         self.track_border_vertices = None
@@ -197,6 +201,7 @@ class RenderUtils:
                prior_past_car_states=None,
                prior_full_past_car_states=None,
                virtual_opponents=None,
+               detected_opponents=None,
                ):
     
         if Settings.RENDER_MODE is None:
@@ -227,7 +232,10 @@ class RenderUtils:
         if track_border_points is not None:
             self.track_border_points = track_border_points
         if virtual_opponents is not None:
-            self.virtual_opponents = virtual_opponents
+            arr = np.asarray(virtual_opponents)
+            self.virtual_opponents = virtual_opponents if arr.size > 0 else None
+        if detected_opponents is not None:
+            self.detected_opponents = detected_opponents
 
    
         if Settings.RENDER_MODE is None: return
@@ -578,6 +586,27 @@ class RenderUtils:
                             ("c3B", self.virtual_opponent_visualization_color * 5),
                         )
                     )
+        elif hasattr(self, "virtual_opponent_lines") and self.virtual_opponent_lines:
+            for line in self.virtual_opponent_lines:
+                line.delete()
+            self.virtual_opponent_lines = []
+
+        # Detected opponents (from the lidar-based OpponentTracker): big markers.
+        detected_pts = _normalize_points(self.detected_opponents)
+        if detected_pts is not None:
+            scaled_points = RenderUtils.get_scaled_points(detected_pts)
+            howmany = scaled_points.shape[0]
+            scaled_points_flat = scaled_points.flatten()
+            if self.detected_opponent_vertices is not None:
+                self.detected_opponent_vertices.delete()
+            self.detected_opponent_vertices = e.batch.add(
+                howmany, GL_POINTS, PointSizeGroup(14),
+                ('v2f/stream', scaled_points_flat),
+                ('c3B', self.detected_opponent_visualization_color * howmany),
+            )
+        elif self.detected_opponent_vertices is not None:
+            self.detected_opponent_vertices.delete()
+            self.detected_opponent_vertices = None
 
         # Render the emergency slowdown boundary lines if they are available.
         if self.emergency_slowdown_sprites is not None:

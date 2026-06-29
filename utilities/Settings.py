@@ -83,6 +83,21 @@ class Settings():
     VIRTUAL_OPPONENT_SIZE = [0.35, 0.5]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
+
+    # Opponent tracker: detect/track opponents (real or virtual) from the ego lidar.
+    # Lidar returns inside the track corridor (walls removed via waypoint borders)
+    # are clustered into opponent bodies and tracked frame-to-frame for rel. pos/vel.
+    OPPONENT_TRACKER_ENABLED = True
+    OPPONENT_TRACKER_WALL_MARGIN = 0.30       # m inside the border still counted as wall
+    OPPONENT_TRACKER_MAX_RANGE = 8.0          # m, ignore lidar hits beyond this for opponents
+    OPPONENT_TRACKER_CLUSTER_GAP = 0.40       # m, max gap between adjacent points in one cluster
+    OPPONENT_TRACKER_CLUSTER_ANGULAR_GAP_DEG = 3.0  # deg, max angular gap between beams in one cluster
+    OPPONENT_TRACKER_MIN_POINTS = 2           # min lidar points to accept an opponent cluster
+    OPPONENT_TRACKER_MIN_SIZE = 0.25          # m, min cluster extent (typical opponent body)
+    OPPONENT_TRACKER_MAX_SIZE = 1.5           # m, max cluster extent (rejects wall fragments)
+    OPPONENT_TRACKER_GATING_DISTANCE = 1.5    # m, max frame-to-frame association distance
+    OPPONENT_TRACKER_MAX_MISSED = 5           # drop a track after this many missed updates
+    OPPONENT_TRACKER_HISTORY_LEN = 5          # closest-opponent frames remembered for the policy
     
     # Stop sim / recording after N completed laps (None = use SIMULATION_LENGTH only).
     STOP_AFTER_N_LAPS = None
