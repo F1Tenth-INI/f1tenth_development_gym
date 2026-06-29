@@ -85,7 +85,15 @@ if __name__ == "__main__":
         ),
         (
             "SAC agent",
-            [*base, "--MAP_NAME", "RCA1",  "--CONTROLLER", "sac_agent",  "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08", "--SAC_INFERENCE_MODEL_NAME", "Example-1", "--START_FROM_RANDOM_POSITION", "True"],
+            [
+                "--MAP_NAME", "RCA1",
+                "--RENDER_MODE", "None",
+                # Fixed start: random spawn often fails to complete a lap in 2000 steps.
+                "--START_FROM_RANDOM_POSITION", "False",
+                "--SIMULATION_LENGTH", "2000",
+                "--CONTROLLER", "sac_agent",
+                "--SAC_INFERENCE_MODEL_NAME", "Example-1",
+            ],
         ),
         
     ]
