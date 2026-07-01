@@ -307,6 +307,18 @@ def parse_settings_args(description: Optional[str] = None, verbose: bool = True,
                     target_type = bool
                 else:
                     try:
+                        parsed_literal = ast.literal_eval(arg_value)
+                    except (ValueError, SyntaxError):
+                        parsed_literal = None
+                    if isinstance(parsed_literal, (list, tuple, dict)):
+                        setattr(Settings, attr_name, parsed_literal)
+                        if verbose:
+                            print(
+                                f"Overriding Settings.{attr_name} = {parsed_literal} "
+                                f"(was {original_value})"
+                            )
+                        continue
+                    try:
                         int(arg_value)
                         target_type = int
                     except ValueError:

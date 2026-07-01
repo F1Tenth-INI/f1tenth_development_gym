@@ -220,12 +220,13 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
     # names, so a single --model-name can train, retrain and finetune.
     parser.add_argument(
         "--model-name",
-        default="SAC_RCA1_0",
+        default=None,
         help=(
             "Convenience model name. Used as the save name when --save-model-name "
             "is not given, and also loaded as the training base when a model with "
             "this name already exists and --load-model-name is not given. Lets you "
-            "train, retrain and finetune with a single argument."
+            "train, retrain and finetune with a single argument. No default: pass "
+            "this or --save-model-name explicitly."
         ),
     )
     parser.add_argument(
@@ -495,6 +496,14 @@ def main() -> None:
                 f"[run_training] --model-name '{model_name}' not found -> "
                 f"training from scratch and saving to '{run_args.save_model_name}'"
             )
+
+    if run_args.save_model_name is None:
+        print(
+            "[run_training] Error: no model save name given. "
+            "Pass --save-model-name NAME or --model-name NAME.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     # SAC training minibatch (replay sample size per grad step), not SAC_STREAM_BATCH_SIZE.
     if run_args.batch_size is not None:

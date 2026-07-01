@@ -121,8 +121,8 @@ HTML_PAGE = """<!doctype html>
     let cameraFollowEgo = true;
     let cameraCenter = null;
     const BUFFER_WINDOW_S = 2.5;
-    const TARGET_BUFFER_DELAY_S = 1.8;
-    const MIN_BUFFER_DELAY_S = 1.2;
+    const TARGET_BUFFER_DELAY_S = 0.5;
+    const MIN_BUFFER_DELAY_S = 0.35;
     const HISTORY_POLL_MS = 100;
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
@@ -1093,6 +1093,7 @@ class WebEnvRenderer:
         self._replay_recording_enabled = bool(recording_csv_path)
         self._state_history = []
         self._state_history_max = 24000
+        self._live_history_max_s = 3.0
         self._history_chunk_size = 200
         self._replay_archive_preloaded = False
         self._replay_total_time = 0.0
@@ -1231,10 +1232,18 @@ class WebEnvRenderer:
                             if len(history) > chunk_size:
                                 history = history[-chunk_size :]
                         else:
-                            # Live view only: no server archive; expose at most the latest frame.
-                            state = dict(renderer._state)
-                            frame_id = int(state.get("frame_id", 0))
-                            history = [state] if frame_id > since_id else []
+                            history = [
+                                s
+                                for s in renderer._state_history
+                                if int(s.get("frame_id", 0)) > since_id
+                            ]
+                            chunk_size = max(renderer._history_chunk_size, 500)
+                            if len(history) > chunk_size:
+                                history = history[-chunk_size:]
+                            if not history:
+                                state = dict(renderer._state)
+                                frame_id = int(state.get("frame_id", 0))
+                                history = [state] if frame_id > since_id else []
                         payload = {
                             "history": history,
                             "latest_simulation_time": float(renderer._state.get("simulation_time", 0.0)),
@@ -1704,12 +1713,17 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
-            # Full frame archive only when a CSV recording was preloaded for replay.
-            # Live view uses latest _state; the browser keeps a short local buffer for smooth playback.
-            if self._replay_recording_enabled and not self._replay_archive_preloaded:
+            if self._replay_archive_preloaded:
+                pass
+            elif self._replay_recording_enabled:
                 self._state_history.append(self._state)
                 if len(self._state_history) > self._state_history_max:
                     self._state_history = self._state_history[-self._state_history_max :]
+            else:
+                self._state_history.append(self._state)
+                live_max = max(50, int(self._publish_rate_hz * self._live_history_max_s))
+                if len(self._state_history) > live_max:
+                    self._state_history = self._state_history[-live_max:]
 
     def close(self):
         self._server.shutdown()

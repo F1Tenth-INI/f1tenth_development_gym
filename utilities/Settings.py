@@ -35,6 +35,7 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
+    
     RANDOM_WAYPOINT_VEL_FACTOR = False
 
     
@@ -77,27 +78,27 @@ class Settings():
     ]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100, 170, 240]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
-    VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.5, 0.5, 0.5]
+    VIRTUAL_OPPONENT_VEL_FACTORS = [0.6, 0.6, 0.6, 0.6]
     VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0, 0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
-    VIRTUAL_OPPONENT_SIZE = [0.35, 0.5]  # [width, length] in meters; None uses ego car dimensions.
+    VIRTUAL_OPPONENT_SIZE = [0.40, 0.55]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
 
     # Opponent tracker: detect/track opponents (real or virtual) from the ego lidar.
     # Lidar returns inside the track corridor (walls removed via waypoint borders)
     # are clustered into opponent bodies and tracked frame-to-frame for rel. pos/vel.
-    OPPONENT_TRACKER_ENABLED = True
+    OPPONENT_TRACKER_ENABLED = False
     OPPONENT_TRACKER_WALL_MARGIN = 0.30       # m inside the border still counted as wall
     OPPONENT_TRACKER_MAX_RANGE = 8.0          # m, ignore lidar hits beyond this for opponents
     OPPONENT_TRACKER_CLUSTER_GAP = 0.40       # m, max gap between adjacent points in one cluster
     OPPONENT_TRACKER_CLUSTER_ANGULAR_GAP_DEG = 3.0  # deg, max angular gap between beams in one cluster
-    OPPONENT_TRACKER_MIN_POINTS = 2           # min lidar points to accept an opponent cluster
+    OPPONENT_TRACKER_MIN_POINTS = 1           # min lidar points to accept an opponent cluster
     OPPONENT_TRACKER_MIN_SIZE = 0.25          # m, min cluster extent (typical opponent body)
     OPPONENT_TRACKER_MAX_SIZE = 1.5           # m, max cluster extent (rejects wall fragments)
     OPPONENT_TRACKER_GATING_DISTANCE = 1.5    # m, max frame-to-frame association distance
-    OPPONENT_TRACKER_MAX_MISSED = 5           # drop a track after this many missed updates
-    OPPONENT_TRACKER_HISTORY_LEN = 5          # closest-opponent frames remembered for the policy
+    OPPONENT_TRACKER_MAX_MISSED = 12          # drop a track after this many missed updates
+    OPPONENT_TRACKER_HISTORY_LEN = 25         # closest-opponent frames remembered for the policy
     
     # Stop sim / recording after N completed laps (None = use SIMULATION_LENGTH only).
     STOP_AFTER_N_LAPS = None
@@ -323,7 +324,12 @@ class Settings():
 
     ## Friction ##
     SURFACE_FRICTION = None # Surface friction coefficient
-    
+
+    ## Per-episode domain randomization (see utilities/episode_randomization.py) ##
+    EPISODE_RANDOMIZATION_FILE = None # YAML spec; sampled values applied on each episode reset
+    # EPISODE_RANDOMIZATION_FILE = "utilities/episode_randomization.yaml"  # YAML spec; sampled values applied on each episode reset
+    EPISODE_RANDOMIZATION_VERBOSE = True  # Print sampled values at each episode reset
+
     # Deprecated
     AVERAGE_WINDOW = 200  # Window for avg filter [friction]
     WALL_CLOCK_LAPTIMES = True

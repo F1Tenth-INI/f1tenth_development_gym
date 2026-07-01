@@ -20,7 +20,7 @@ import time
 import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker, IngestStatsTracker
+from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker, IngestStatsTracker, EpisodeLogTracker
 from metrics_http import MetricsHttpServer
 
 from utilities.Settings import Settings
@@ -169,6 +169,8 @@ class LearnerServer:
         self.trainingLogHelper = TrainingLogHelper(self.save_model_name, self.model_dir)
         self.ingest_stats_csv_path = os.path.join(self.model_dir, "ingest_metrics.csv")
         self.ingest_stats = IngestStatsTracker(self.ingest_stats_csv_path)
+        self.episode_log_csv_path = os.path.join(self.model_dir, "episodes.csv")
+        self.episode_log = EpisodeLogTracker(self.episode_log_csv_path)
         self.obs_tracker = ObsRewardTracker(
             model_dir=self.model_dir,
             enabled=bool(getattr(Settings, "SAC_OBS_TRACKING_ENABLED", True)),
@@ -1393,6 +1395,11 @@ class LearnerServer:
                         ep_id = int(completed_episode[0].get("episode_id", episode_id))
                         self._finalize_stream_batches_for_episode(ep_actor, ep_id)
                         self.episode_buffer.add_episode(completed_episode)
+                        self.episode_log.record_episode(
+                            completed_episode,
+                            total_timesteps=self.total_actor_timesteps,
+                            training_time_s=time.time() - self.trainingLogHelper.start_time,
+                        )
 
                     replay_size = int(self.replay_buffer.size() if self.replay_buffer is not None else 0)
                     self.ingest_stats.record_batch(
@@ -1528,6 +1535,7 @@ class LearnerServer:
                 model_name=self.save_model_name,
                 poll_hint_s=float(getattr(Settings, "LEARNER_METRICS_HTTP_POLL_S", 2.0)),
                 ingest_csv_path=self.ingest_stats_csv_path,
+                model_dir=self.model_dir,
             )
             await metrics_http.start()
 

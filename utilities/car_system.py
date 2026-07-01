@@ -44,6 +44,7 @@ from utilities.LapAnalyzer import LapAnalyzer
 from utilities.episode_termination import EpisodeTerminator
 from utilities.opponent_tracker import OpponentTracker
 from utilities.recording_replay import get_virtual_opponent_poses_for_render
+from utilities.virtual_opponents import VirtualOpponents
 
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
@@ -128,12 +129,7 @@ class CarSystem:
         self.obstacle_detector = ObstacleDetector()
         self.reward_calculator = RewardCalculator()
         self.episode_terminator = EpisodeTerminator()
-        if int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0)) > 0:
-            from utilities.virtual_opponents import VirtualOpponents
-
-            self.virtual_opponents = VirtualOpponents.from_settings()
-        else:
-            self.virtual_opponents = None
+        self.virtual_opponents = VirtualOpponents.from_settings()
         if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):
             self.opponent_tracker = OpponentTracker.from_settings()
         else:
@@ -207,6 +203,7 @@ class CarSystem:
         self.laptimes = []
         self.lap_limit_reached = False
         self._virtual_opponent_collision = False
+        self.virtual_opponents = VirtualOpponents.from_settings()
 
         self.control_index = 0
         self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
@@ -340,7 +337,7 @@ class CarSystem:
         # env_state (optional): full-environment snapshot in driver_observation for multi-agent sim.
         self.env_state = driver_observation.get("env_state")
         self._apply_observation(driver_observation)
-        self._update_opponent_tracker()
+        # self._update_opponent_tracker() // done on_step_end
         if not self.car_state_history:
             self._append_car_state_history()
 
@@ -380,6 +377,7 @@ class CarSystem:
             return
 
         self._apply_observation(observation)
+        self._update_opponent_tracker()
         self._append_car_state_history()
 
         virtual_opponent_collision = False
@@ -413,6 +411,7 @@ class CarSystem:
             # Snapshot current lap history to avoid sharing a mutable list
             # reference across stored transitions.
             "lap_times": list(self.laptimes),
+            "reward_components": dict(self.reward_components),
             **episode_termination,
         }
 
@@ -818,15 +817,6 @@ class CarSystem:
             path_to_plots = None
             if Settings.SAVE_PLOTS:
                 path_to_plots = save_experiment_data(self.recorder.csv_filepath)
-
-                if (
-                    Settings.SAVE_REWARDS
-                    and self.reward_calculator is not None
-                    and len(self.reward_calculator.reward_components_history) > 0
-                ):
-                    self.reward_calculator.plot_history(
-                        save_path=experiment_analysis_path(self.recorder.csv_filepath)
-                    )
 
             if collision:
                 index = min(len(self.car_state_history), 200)

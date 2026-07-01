@@ -26,6 +26,7 @@ from utilities.imu_simulator import IMUSimulator
 from utilities.lidar_simulator import LidarSimulator
 from utilities.map_scale import scale_positions
 from utilities.motor_sensor_simulator import MotorSensorSimulator
+from utilities.episode_randomization import apply_episode_randomization
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -235,9 +236,7 @@ class RacingSimulation:
        
   
     def reset(self, poses = None):
-        
-        # Random virtual opponent count each episode (0, 1, or 2).
-        Settings.NUMBER_OF_VIRTUAL_OPPONENTS = int(np.random.randint(0, 3))
+        self._last_episode_randomization = apply_episode_randomization(self)
 
         # Check if respawn is enabled and we have enough history
         if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
@@ -246,11 +245,6 @@ class RacingSimulation:
         
         # Normal reset
         self.episode_index = 0
-
-
-        # Random Global Waypoint Velocity Factor
-        if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
-            Settings.GLOBAL_WAYPOINT_VEL_FACTOR = np.random.uniform(0.3, 1.3)
 
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)

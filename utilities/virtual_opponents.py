@@ -232,7 +232,7 @@ class VirtualOpponent:
 
         self._anchor_sim_time: Optional[float] = None
         self._anchor_recording_time: Optional[float] = None
-        self._current_pose: Optional[np.ndarray] = None
+        self._current_pose: Optional[np.ndarray] = None # [x, y, theta]
 
     def _roll_distance_ahead_waypoints(self) -> None:
         if self._distance_ahead_random_max > 0:

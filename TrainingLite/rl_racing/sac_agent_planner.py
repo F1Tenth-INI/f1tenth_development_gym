@@ -399,6 +399,7 @@ class RLAgentPlanner(template_planner):
         sensors = controller_observation.get("sensors") or {}
         imu = controller_observation.get("imu", sensors.get("imu", {}))
         motor_sensors = controller_observation.get("motor_sensors", sensors.get("motor_sensors", {}))
+
         return {
             "car_state": car_state,
             "state_history": state_history,

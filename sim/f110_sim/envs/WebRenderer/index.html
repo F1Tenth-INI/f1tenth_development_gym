@@ -208,6 +208,65 @@
       margin: 0;
       cursor: pointer;
     }
+    .reward-tab-bar {
+      display: inline-flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .reward-tab {
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.82);
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: none;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .reward-tab.active {
+      background: #5c4d7a;
+      border-color: #b8a9d9;
+      color: #fff;
+    }
+    .reward-tab-pane {
+      display: none;
+    }
+    .reward-tab-pane.active {
+      display: block;
+    }
+    .reward-components-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px 4px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(13, 47, 123, 0.2);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      flex-wrap: wrap;
+    }
+    .reward-components-controls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 180px;
+    }
+    .reward-components-controls input[type="range"] {
+      flex: 1;
+      min-width: 120px;
+      accent-color: #ac61b9;
+      cursor: pointer;
+    }
+    #reward-components-status {
+      width: 100%;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.55);
+    }
     .plot-section canvas {
       width: 100%;
       display: block;
@@ -386,13 +445,32 @@
       </section>
       <section class="plot-section" id="reward-plots-section" aria-label="Reward plots">
         <div class="plot-section-title-row">
-          <span>Reward</span>
-          <label class="plot-section-option" title="Plot per-episode cumulative sums instead of per-step values">
-            <input id="toggle-integrated-rewards" type="checkbox" />
-            Integrate components
-          </label>
+          <div class="reward-tab-bar" role="tablist" aria-label="Reward plot views">
+            <button type="button" class="reward-tab active" data-reward-tab="live" role="tab" aria-selected="true">Live</button>
+            <button type="button" class="reward-tab" data-reward-tab="components" role="tab" aria-selected="false">Reward Components</button>
+          </div>
         </div>
-        <canvas id="reward-plot-canvas"></canvas>
+        <div id="reward-live-pane" class="reward-tab-pane active" role="tabpanel">
+          <div class="plot-section-title-row">
+            <span>Reward</span>
+            <label class="plot-section-option" title="Plot per-episode cumulative sums instead of per-step values">
+              <input id="toggle-integrated-rewards" type="checkbox" />
+              Integrate components
+            </label>
+          </div>
+          <canvas id="reward-plot-canvas"></canvas>
+        </div>
+        <div id="reward-components-pane" class="reward-tab-pane" role="tabpanel" hidden>
+          <div class="reward-components-controls">
+            <label title="Training checkpoint (actor timesteps)">
+              Checkpoint
+              <input id="reward-components-slider" type="range" min="0" max="0" value="0" step="1" disabled />
+            </label>
+            <span id="reward-components-slider-label">Waiting for checkpoints…</span>
+            <span id="reward-components-status">Model: Example-2</span>
+          </div>
+          <canvas id="reward-components-plot-canvas"></canvas>
+        </div>
       </section>
     </div>
   </aside>
@@ -436,10 +514,18 @@
     const statePlotCanvas = document.getElementById("state-plot-canvas");
     const imuPlotCanvas = document.getElementById("imu-plot-canvas");
     const rewardPlotCanvas = document.getElementById("reward-plot-canvas");
+    const rewardComponentsPlotCanvas = document.getElementById("reward-components-plot-canvas");
+    const rewardComponentsSliderEl = document.getElementById("reward-components-slider");
+    const rewardComponentsSliderLabelEl = document.getElementById("reward-components-slider-label");
+    const rewardComponentsStatusEl = document.getElementById("reward-components-status");
+    const rewardTabButtons = Array.from(document.querySelectorAll(".reward-tab"));
+    const rewardLivePaneEl = document.getElementById("reward-live-pane");
+    const rewardComponentsPaneEl = document.getElementById("reward-components-pane");
     const controlPlotCtx = controlPlotCanvas.getContext("2d");
     const statePlotCtx = statePlotCanvas.getContext("2d");
     const imuPlotCtx = imuPlotCanvas.getContext("2d");
     const rewardPlotCtx = rewardPlotCanvas.getContext("2d");
+    const rewardComponentsPlotCtx = rewardComponentsPlotCanvas.getContext("2d");
     const plotsPanelResizeHandleEl = document.getElementById("plots-panel-resize-handle");
     const plotWindowInputEl = document.getElementById("plot-window-s");
     const toggleIntegratedRewardsEl = document.getElementById("toggle-integrated-rewards");
@@ -491,13 +577,13 @@
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const LIVE_BUFFER_WINDOW_S = 1.0;
-    const REPLAY_BUFFER_WINDOW_S = 2.5;
+    const LIVE_BUFFER_WINDOW_S = 2.5;
+    const REPLAY_BUFFER_WINDOW_S = 4.0;
     const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
-    const LIVE_TARGET_DELAY_S = 0.15;   // live view: tiny delay for interpolation only
-    const REPLAY_TARGET_DELAY_S = 1.5;  // replay/scrub mode
-    const LIVE_MIN_BUFFER_DELAY_S = 0.08;
-    const REPLAY_MIN_BUFFER_DELAY_S = 1.0;
+    const LIVE_TARGET_DELAY_S = 0.5;    // live view: playback trails sim for smoother interpolation
+    const REPLAY_TARGET_DELAY_S = 2.0;  // replay/scrub mode
+    const LIVE_MIN_BUFFER_DELAY_S = 0.35;
+    const REPLAY_MIN_BUFFER_DELAY_S = 1.5;
     const LIVE_POLL_MS = 40;            // ~25 Hz; matches typical control rate better than 10 Hz
     const REPLAY_POLL_MS = 100;
     const HISTORY_POLL_MS = 100; // legacy default; live/replay use getStatePollIntervalMs()
@@ -600,6 +686,33 @@
     let statePlotLayoutCache = null;
     let imuPlotLayoutCache = null;
     let rewardPlotLayoutCache = null;
+    let rewardComponentsLayoutCache = null;
+    let rewardPlotTab = "live";
+    let rewardComponentsCheckpoints = [];
+    let rewardComponentsSliderIndex = 0;
+    let rewardComponentsPollTimer = null;
+    let rewardComponentsLastFetchKey = "";
+    const REWARD_COMPONENTS_MODEL_NAME = "Example-2";
+    const REWARD_COMPONENT_KEYS = [
+      "progress",
+      "crash_reward",
+      "wp_distance_penalty",
+      "d_action_penality",
+      "speed_cap_penalty",
+      "proximity_penalty",
+      "stuck_reward",
+      "spin_reward",
+    ];
+    const REWARD_COMPONENT_COLORS = {
+      progress: "#4C78A8",
+      crash_reward: "#E45756",
+      wp_distance_penalty: "#72B7B2",
+      d_action_penality: "#F58518",
+      speed_cap_penalty: "#54A24B",
+      proximity_penalty: "#B279A2",
+      stuck_reward: "#EECA3B",
+      spin_reward: "#9D755D",
+    };
     let plotHover = null;
     let plotHoverCanvas = null;
 
@@ -701,6 +814,20 @@
         lastRewardPlotLayoutKey = rewardKey;
         resizeSectionPlotCanvas(rewardPlotCanvas, rewardPlotCtx, rewardPlotKeys);
       }
+      if (force || rewardPlotTab === "components") {
+        resizeRewardComponentsPlotCanvas();
+      }
+    }
+
+    function resizeRewardComponentsPlotCanvas() {
+      const layoutHeight = 280;
+      rewardComponentsPlotCanvas.style.height = `${layoutHeight}px`;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = rewardComponentsPlotCanvas.getBoundingClientRect();
+      rewardComponentsPlotCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      rewardComponentsPlotCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      rewardComponentsPlotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      rewardComponentsLayoutCache = null;
     }
 
     function startPlotsPanelResize(clientX) {
@@ -1449,6 +1576,278 @@
         "Waiting for reward telemetry...",
         "reward"
       );
+      if (rewardPlotTab === "components") {
+        drawRewardComponentsPlot();
+      }
+    }
+
+    function setRewardPlotTab(tabName) {
+      const nextTab = tabName === "components" ? "components" : "live";
+      rewardPlotTab = nextTab;
+      for (const btn of rewardTabButtons) {
+        const active = btn.dataset.rewardTab === nextTab;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+      }
+      rewardLivePaneEl.classList.toggle("active", nextTab === "live");
+      rewardLivePaneEl.hidden = nextTab !== "live";
+      rewardComponentsPaneEl.classList.toggle("active", nextTab === "components");
+      rewardComponentsPaneEl.hidden = nextTab !== "components";
+      if (nextTab === "components") {
+        maybeResizePlotCanvases(true);
+        drawRewardComponentsPlot();
+        startRewardComponentsPolling();
+      } else {
+        stopRewardComponentsPolling();
+      }
+    }
+
+    function rewardComponentsMetricsUrl() {
+      const port = Number(metricsUiConfig?.metrics_port) || 5556;
+      return `${metricsBaseUrl(port)}/api/reward-components`;
+    }
+
+    function formatCheckpointLabel(checkpoint) {
+      if (!checkpoint) return "—";
+      if (checkpoint.is_live || checkpoint.timesteps === null || checkpoint.timesteps === undefined) {
+        const steps = Number(checkpoint.total_steps) || 0;
+        return `Live (${steps.toLocaleString()} steps)`;
+      }
+      return `${Number(checkpoint.timesteps).toLocaleString()} steps`;
+    }
+
+    function rewardComponentsFetchKey(payload) {
+      const checkpoints = Array.isArray(payload?.checkpoints) ? payload.checkpoints : [];
+      if (checkpoints.length === 0) return "empty";
+      const last = checkpoints[checkpoints.length - 1];
+      return [
+        checkpoints.length,
+        last?.timesteps ?? "live",
+        last?.total_steps ?? 0,
+        last?.last_episode_steps ?? 0,
+      ].join(":");
+    }
+
+    function applyRewardComponentsPayload(payload) {
+      const checkpoints = Array.isArray(payload?.checkpoints) ? payload.checkpoints : [];
+      const fetchKey = rewardComponentsFetchKey(payload);
+      const count = checkpoints.length;
+      const hadCheckpoints = rewardComponentsCheckpoints.length > 0;
+      const prevIndex = rewardComponentsSliderIndex;
+      const prevTimesteps = rewardComponentsCheckpoints[prevIndex]?.timesteps ?? null;
+
+      rewardComponentsCheckpoints = checkpoints;
+      rewardComponentsLastFetchKey = fetchKey;
+
+      if (rewardComponentsStatusEl) {
+        const modelName = payload?.model_name || REWARD_COMPONENTS_MODEL_NAME;
+        rewardComponentsStatusEl.textContent = `Model: ${modelName} · ${count} checkpoint(s)`;
+      }
+
+      if (count === 0) {
+        rewardComponentsSliderEl.disabled = true;
+        rewardComponentsSliderEl.min = "0";
+        rewardComponentsSliderEl.max = "0";
+        rewardComponentsSliderEl.value = "0";
+        if (rewardComponentsSliderLabelEl) {
+          rewardComponentsSliderLabelEl.textContent = "No checkpoint data yet";
+        }
+        drawRewardComponentsPlot();
+        return;
+      }
+
+      rewardComponentsSliderEl.disabled = false;
+      rewardComponentsSliderEl.min = "0";
+      rewardComponentsSliderEl.max = String(count - 1);
+
+      let nextIndex = count - 1;
+      if (hadCheckpoints && prevTimesteps !== null) {
+        const matched = checkpoints.findIndex(
+          (item) => item?.timesteps === prevTimesteps
+        );
+        if (matched >= 0) nextIndex = matched;
+      } else if (hadCheckpoints && prevIndex < count) {
+        nextIndex = prevIndex;
+      }
+
+      rewardComponentsSliderIndex = nextIndex;
+      rewardComponentsSliderEl.value = String(nextIndex);
+      if (rewardComponentsSliderLabelEl) {
+        rewardComponentsSliderLabelEl.textContent = formatCheckpointLabel(
+          checkpoints[nextIndex]
+        );
+      }
+      drawRewardComponentsPlot();
+    }
+
+    async function fetchRewardComponentsData() {
+      const url = rewardComponentsMetricsUrl();
+      try {
+        const res = await fetch(url, { cache: "no-store", mode: "cors" });
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (payload?.model_name && payload.model_name !== REWARD_COMPONENTS_MODEL_NAME) {
+          // Hardcoded for now: only show Example-2 snapshots.
+          if (rewardComponentsStatusEl) {
+            rewardComponentsStatusEl.textContent =
+              `Model: ${REWARD_COMPONENTS_MODEL_NAME} (server: ${payload.model_name})`;
+          }
+        }
+        const fetchKey = rewardComponentsFetchKey(payload);
+        if (fetchKey !== rewardComponentsLastFetchKey || rewardComponentsCheckpoints.length === 0) {
+          applyRewardComponentsPayload(payload);
+        }
+      } catch (e) {
+        if (rewardComponentsStatusEl && rewardPlotTab === "components") {
+          rewardComponentsStatusEl.textContent =
+            `Model: ${REWARD_COMPONENTS_MODEL_NAME} · waiting for metrics server…`;
+        }
+      }
+    }
+
+    function startRewardComponentsPolling() {
+      stopRewardComponentsPolling();
+      fetchRewardComponentsData();
+      const pollS = Number(metricsUiConfig?.metrics_poll_s) || 2.0;
+      rewardComponentsPollTimer = setInterval(
+        fetchRewardComponentsData,
+        Math.max(1000, pollS * 1000)
+      );
+    }
+
+    function stopRewardComponentsPolling() {
+      if (rewardComponentsPollTimer !== null) {
+        clearInterval(rewardComponentsPollTimer);
+        rewardComponentsPollTimer = null;
+      }
+    }
+
+    function componentValuesFromCheckpoint(checkpoint, fieldName) {
+      const values = [];
+      const bag = checkpoint?.[fieldName] || {};
+      for (const key of REWARD_COMPONENT_KEYS) {
+        values.push(Number(bag[key]) || 0.0);
+      }
+      return values;
+    }
+
+    function drawRewardComponentBars(
+      plotCtx,
+      bounds,
+      keys,
+      values,
+      title,
+      yLabel
+    ) {
+      const { x0, y0, width, height } = bounds;
+      const padLeft = 42;
+      const padRight = 8;
+      const padTop = 28;
+      const padBottom = 54;
+      const plotW = Math.max(1, width - padLeft - padRight);
+      const plotH = Math.max(1, height - padTop - padBottom);
+      const minV = Math.min(0, ...values);
+      const maxV = Math.max(0, ...values);
+      const span = Math.max(1e-6, maxV - minV);
+      const barW = Math.max(4, (plotW / Math.max(1, keys.length)) * 0.72);
+      const zeroY = y0 + padTop + ((maxV - 0) / span) * plotH;
+
+      plotCtx.save();
+      plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
+      plotCtx.font = "bold 11px sans-serif";
+      plotCtx.fillText(title, x0 + padLeft + 4, y0 + 14);
+      plotCtx.font = "10px sans-serif";
+      plotCtx.fillStyle = "rgba(255, 255, 255, 0.55)";
+      plotCtx.fillText(yLabel, x0 + 4, y0 + padTop + plotH * 0.5);
+
+      plotCtx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      plotCtx.lineWidth = 1;
+      plotCtx.strokeRect(x0 + padLeft, y0 + padTop, plotW, plotH);
+      plotCtx.beginPath();
+      plotCtx.moveTo(x0 + padLeft, zeroY);
+      plotCtx.lineTo(x0 + padLeft + plotW, zeroY);
+      plotCtx.stroke();
+
+      for (let i = 0; i < keys.length; i++) {
+        const v = values[i];
+        const color = REWARD_COMPONENT_COLORS[keys[i]] || "#888888";
+        const cx = x0 + padLeft + ((i + 0.5) / keys.length) * plotW;
+        const barTopVal = Math.max(v, 0);
+        const barBottomVal = Math.min(v, 0);
+        const yTop = y0 + padTop + ((maxV - barTopVal) / span) * plotH;
+        const yBottom = y0 + padTop + ((maxV - barBottomVal) / span) * plotH;
+        const barH = Math.max(1, Math.abs(yBottom - yTop));
+        plotCtx.fillStyle = color;
+        plotCtx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+        plotCtx.lineWidth = 0.4;
+        plotCtx.fillRect(cx - barW / 2, Math.min(yTop, yBottom), barW, barH);
+        plotCtx.strokeRect(cx - barW / 2, Math.min(yTop, yBottom), barW, barH);
+
+        plotCtx.save();
+        plotCtx.translate(cx, y0 + padTop + plotH + 8);
+        plotCtx.rotate(-0.62);
+        plotCtx.fillStyle = "rgba(255, 255, 255, 0.78)";
+        plotCtx.font = "9px sans-serif";
+        plotCtx.textAlign = "right";
+        plotCtx.fillText(keys[i], 0, 0);
+        plotCtx.restore();
+      }
+      plotCtx.restore();
+    }
+
+    function drawRewardComponentsPlot() {
+      const rect = rewardComponentsPlotCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      rewardComponentsPlotCtx.clearRect(0, 0, w, h);
+      rewardComponentsPlotCtx.fillStyle = "rgba(4, 12, 38, 0.95)";
+      rewardComponentsPlotCtx.fillRect(0, 0, w, h);
+
+      const checkpoint = rewardComponentsCheckpoints[rewardComponentsSliderIndex];
+      if (!checkpoint) {
+        rewardComponentsPlotCtx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        rewardComponentsPlotCtx.font = "12px sans-serif";
+        rewardComponentsPlotCtx.fillText(
+          "Waiting for reward-component checkpoints from training…",
+          14,
+          28
+        );
+        return;
+      }
+
+      const gap = 10;
+      const panelW = Math.max(1, (w - gap) / 2);
+      const totalValues = componentValuesFromCheckpoint(checkpoint, "total_accumulated");
+      const episodeValues = componentValuesFromCheckpoint(
+        checkpoint,
+        "last_episode_accumulated"
+      );
+      const totalSteps = Number(checkpoint.total_steps) || 0;
+      const episodeSteps = Number(checkpoint.last_episode_steps) || 0;
+      const checkpointLabel = formatCheckpointLabel(checkpoint);
+
+      drawRewardComponentBars(
+        rewardComponentsPlotCtx,
+        { x0: 0, y0: 0, width: panelW, height: h },
+        REWARD_COMPONENT_KEYS,
+        totalValues,
+        `Total accumulated (n=${totalSteps.toLocaleString()} steps)`,
+        "Accumulated"
+      );
+      drawRewardComponentBars(
+        rewardComponentsPlotCtx,
+        { x0: panelW + gap, y0: 0, width: panelW - gap, height: h },
+        REWARD_COMPONENT_KEYS,
+        episodeValues,
+        episodeSteps > 0
+          ? `Last episode (n=${episodeSteps.toLocaleString()} steps)`
+          : "Last episode (no completed episode yet)",
+        "Accumulated"
+      );
+
+      rewardComponentsPlotCtx.fillStyle = "rgba(255, 255, 255, 0.72)";
+      rewardComponentsPlotCtx.font = "11px sans-serif";
+      rewardComponentsPlotCtx.fillText(`Checkpoint: ${checkpointLabel}`, 12, h - 8);
     }
 
     function normalizeAngle(a) {
@@ -2428,7 +2827,7 @@
 
     function getStatePollTick() {
       if (!replayRecordingEnabled) {
-        return fetchStateTick;
+        return fetchStateHistoryTick;
       }
       // Complete CSV archive: manual mode plays locally without polling.
       if (replayArchivePreloaded && bufferPlaybackMode === "manual") {
@@ -2850,6 +3249,22 @@
         resetEpisodeRewardAccumulators();
         clearRewardTimeSeries();
         lastIngestedPlotFrameId = 0;
+      });
+    }
+    for (const btn of rewardTabButtons) {
+      btn.addEventListener("click", () => {
+        setRewardPlotTab(btn.dataset.rewardTab || "live");
+      });
+    }
+    if (rewardComponentsSliderEl) {
+      rewardComponentsSliderEl.addEventListener("input", () => {
+        rewardComponentsSliderIndex = Number(rewardComponentsSliderEl.value) || 0;
+        if (rewardComponentsSliderLabelEl) {
+          rewardComponentsSliderLabelEl.textContent = formatCheckpointLabel(
+            rewardComponentsCheckpoints[rewardComponentsSliderIndex]
+          );
+        }
+        drawRewardComponentsPlot();
       });
     }
     plotWindowInputEl.addEventListener("change", applyPlotWindowFromInput);

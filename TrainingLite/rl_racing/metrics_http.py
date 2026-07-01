@@ -80,6 +80,124 @@ def _is_array_like_column(series: pd.Series) -> bool:
     return False
 
 
+def _reward_component_keys() -> List[str]:
+    return [
+        "progress",
+        "crash_reward",
+        "wp_distance_penalty",
+        "d_action_penality",
+        "speed_cap_penalty",
+        "proximity_penalty",
+        "stuck_reward",
+        "spin_reward",
+    ]
+
+
+def _load_reward_components_live_from_stats(model_dir: str) -> Optional[Dict[str, Any]]:
+    stats_path = Path(model_dir) / "obs_tracking" / "reward_components_stats.csv"
+    summary_path = Path(model_dir) / "obs_tracking" / "tracker_summary.json"
+    if not stats_path.is_file():
+        return None
+    try:
+        df = pd.read_csv(stats_path)
+    except Exception:
+        return None
+    if df.empty or "component" not in df.columns or "accumulated" not in df.columns:
+        return None
+
+    keys = _reward_component_keys()
+    total_accumulated = {key: 0.0 for key in keys}
+    for _, row in df.iterrows():
+        component = str(row.get("component", "")).strip()
+        if component in total_accumulated:
+            try:
+                total_accumulated[component] = float(row.get("accumulated", 0.0))
+            except (TypeError, ValueError):
+                total_accumulated[component] = 0.0
+
+    total_steps = 0
+    if summary_path.is_file():
+        try:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                summary = json.load(f)
+            total_steps = int(summary.get("reward_components_seen") or 0)
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            total_steps = 0
+    if total_steps <= 0 and "count" in df.columns:
+        try:
+            total_steps = int(df["count"].max())
+        except (TypeError, ValueError):
+            total_steps = 0
+
+    return {
+        "timesteps": None,
+        "total_steps": total_steps,
+        "last_episode_steps": 0,
+        "components": keys,
+        "total_accumulated": total_accumulated,
+        "last_episode_accumulated": {key: 0.0 for key in keys},
+        "is_live": True,
+        "source": "reward_components_stats.csv",
+    }
+
+
+def load_reward_components_payload(model_dir: str, model_name: str) -> Dict[str, Any]:
+    """Load checkpoint + live reward-component snapshots for the metrics dashboard."""
+    history_dir = Path(model_dir) / "obs_tracking" / "reward_components"
+    checkpoints: List[Dict[str, Any]] = []
+    if history_dir.is_dir():
+        for json_path in sorted(history_dir.glob("checkpoint_*.json")):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            timesteps = payload.get("timesteps")
+            try:
+                timesteps_int = int(timesteps)
+            except (TypeError, ValueError):
+                continue
+            payload["timesteps"] = timesteps_int
+            checkpoints.append(payload)
+
+        checkpoints.sort(key=lambda item: int(item.get("timesteps", 0)))
+
+        live_path = history_dir / "live.json"
+        live_payload: Optional[Dict[str, Any]] = None
+        if live_path.is_file():
+            try:
+                with open(live_path, "r", encoding="utf-8") as f:
+                    live_payload = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                live_payload = None
+
+        if not isinstance(live_payload, dict):
+            live_payload = _load_reward_components_live_from_stats(model_dir)
+
+        if isinstance(live_payload, dict):
+            live_steps = int(live_payload.get("total_steps") or 0)
+            latest_checkpoint_steps = (
+                int(checkpoints[-1].get("total_steps") or 0) if checkpoints else 0
+            )
+            if live_steps >= latest_checkpoint_steps:
+                live_payload = dict(live_payload)
+                live_payload["timesteps"] = None
+                live_payload["is_live"] = True
+                if checkpoints and live_steps == latest_checkpoint_steps:
+                    checkpoints[-1] = live_payload
+                else:
+                    checkpoints.append(live_payload)
+
+    return {
+        "model_name": model_name,
+        "model_dir": model_dir,
+        "checkpoints": checkpoints,
+        "checkpoint_count": len(checkpoints),
+    }
+
+
 def load_metrics_payload(
     csv_path: str,
     model_name: str,
@@ -260,12 +378,14 @@ class MetricsHttpServer:
         model_name: str,
         poll_hint_s: float = 2.0,
         ingest_csv_path: Optional[str] = None,
+        model_dir: Optional[str] = None,
     ):
         self.host = host
         self.port = int(port)
         self.csv_path = csv_path
         self.ingest_csv_path = ingest_csv_path
         self.model_name = model_name
+        self.model_dir = model_dir or str(Path(csv_path).resolve().parent)
         self.poll_hint_s = float(poll_hint_s)
         self._server: Optional[asyncio.AbstractServer] = None
 
@@ -307,6 +427,14 @@ class MetricsHttpServer:
                     self.csv_path,
                     self.model_name,
                     self.ingest_csv_path,
+                )
+                payload["poll_interval_s"] = self.poll_hint_s
+                writer.write(_json_response(payload))
+            elif path in ("/api/reward-components", "/reward-components"):
+                payload = await asyncio.to_thread(
+                    load_reward_components_payload,
+                    self.model_dir,
+                    self.model_name,
                 )
                 payload["poll_interval_s"] = self.poll_hint_s
                 writer.write(_json_response(payload))

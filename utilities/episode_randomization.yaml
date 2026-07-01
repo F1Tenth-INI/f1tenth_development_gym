@@ -1,0 +1,6 @@
+# Per-episode randomization (Settings.EPISODE_RANDOMIZATION_FILE)
+
+NUMBER_OF_VIRTUAL_OPPONENTS: [0, 1, 2]
+GLOBAL_WAYPOINT_VEL_FACTOR: uniform(0.5, 0.7)
+
+# SURFACE_FRICTION: uniform(0.5, 1.0)

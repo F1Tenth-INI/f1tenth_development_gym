@@ -185,6 +185,17 @@ class SacUtilities:
                     zipf.write(file_path, arcname=arcname)
         return zip_path
 class ObsRewardTracker:
+    REWARD_COMPONENT_KEYS = (
+        "progress",
+        "crash_reward",
+        "wp_distance_penalty",
+        "d_action_penality",
+        "speed_cap_penalty",
+        "proximity_penalty",
+        "stuck_reward",
+        "spin_reward",
+    )
+
     def __init__(
         self,
         model_dir: str,
@@ -207,7 +218,12 @@ class ObsRewardTracker:
         self.obs_hist_png_path = os.path.join(self.obs_tracking_dir, "obs_histograms.png")
         self.reward_stats_path = os.path.join(self.obs_tracking_dir, "reward_stats.csv")
         self.reward_hist_csv_path = os.path.join(self.obs_tracking_dir, "reward_histogram.csv")
-        self.reward_hist_png_path = os.path.join(self.obs_tracking_dir, "reward_histogram.png")
+        self.reward_components_stats_path = os.path.join(
+            self.obs_tracking_dir, "reward_components_stats.csv"
+        )
+        self.reward_components_hist_csv_path = os.path.join(
+            self.obs_tracking_dir, "reward_components_histogram.csv"
+        )
         self.summary_path = os.path.join(self.obs_tracking_dir, "tracker_summary.json")
 
         self._obs_seen = 0
@@ -226,6 +242,11 @@ class ObsRewardTracker:
         self._rew_min = float("inf")
         self._rew_max = float("-inf")
         self._rew_samples: list[float] = []
+        self._rew_reservoir: Optional[np.ndarray] = None
+        self._comp_seen = 0
+        self._comp_stats: Dict[str, Dict[str, float]] = {}
+        self._comp_reservoir: Dict[str, np.ndarray] = {}
+        self._comp_reservoir_fill = 0
 
     def _maybe_init(self, obs_dim: int) -> None:
         if self._obs_dim is not None:
@@ -237,7 +258,59 @@ class ObsRewardTracker:
         self._obs_max = np.full(self._obs_dim, -np.inf, dtype=np.float64)
         self._obs_reservoir = np.zeros((self.hist_sample_cap, self._obs_dim), dtype=np.float32)
 
-    def track(self, obs: np.ndarray, reward: float) -> None:
+    def _ensure_comp_reservoir(self) -> None:
+        if self._comp_reservoir:
+            return
+        self._rew_reservoir = np.zeros(self.hist_sample_cap, dtype=np.float32)
+        for key in self.REWARD_COMPONENT_KEYS:
+            self._comp_reservoir[key] = np.zeros(self.hist_sample_cap, dtype=np.float32)
+            self._comp_stats[key] = {
+                "seen": 0,
+                "mean": 0.0,
+                "m2": 0.0,
+                "min": float("inf"),
+                "max": float("-inf"),
+                "mean_abs": 0.0,
+            }
+
+    def _reservoir_index(self) -> Optional[int]:
+        if self._comp_reservoir_fill < self.hist_sample_cap:
+            idx = self._comp_reservoir_fill
+            self._comp_reservoir_fill += 1
+            return idx
+        j = np.random.randint(0, self._rew_seen)
+        if j < self.hist_sample_cap:
+            return j
+        return None
+
+    def _store_aligned_sample(self, reward: float, components: Dict[str, float]) -> None:
+        self._ensure_comp_reservoir()
+        idx = self._reservoir_index()
+        if idx is None or self._rew_reservoir is None:
+            return
+        self._rew_reservoir[idx] = float(reward)
+        for key in self.REWARD_COMPONENT_KEYS:
+            self._comp_reservoir[key][idx] = float(components.get(key, 0.0))
+
+    def _track_component(self, key: str, value: float) -> None:
+        stats = self._comp_stats[key]
+        stats["seen"] += 1
+        n = stats["seen"]
+        delta = value - stats["mean"]
+        stats["mean"] += delta / n
+        delta2 = value - stats["mean"]
+        stats["m2"] += delta * delta2
+        stats["min"] = min(stats["min"], value)
+        stats["max"] = max(stats["max"], value)
+        abs_delta = abs(value) - stats["mean_abs"]
+        stats["mean_abs"] += abs_delta / n
+
+    def track(
+        self,
+        obs: np.ndarray,
+        reward: float,
+        reward_components: Optional[Dict[str, float]] = None,
+    ) -> None:
         if not self.enabled:
             return
         flat_obs = np.asarray(obs, dtype=np.float32).reshape(-1)
@@ -275,12 +348,86 @@ class ObsRewardTracker:
         self._rew_m2 += rew_delta * rew_delta2
         self._rew_min = min(self._rew_min, r)
         self._rew_max = max(self._rew_max, r)
-        if len(self._rew_samples) < self.hist_sample_cap:
-            self._rew_samples.append(r)
+
+        if isinstance(reward_components, dict) and reward_components:
+            self._ensure_comp_reservoir()
+            self._comp_seen += 1
+            for key in self.REWARD_COMPONENT_KEYS:
+                comp_val = float(reward_components.get(key, 0.0))
+                self._track_component(key, comp_val)
+            self._store_aligned_sample(r, reward_components)
         else:
-            j = np.random.randint(0, self._rew_seen)
-            if j < self.hist_sample_cap:
-                self._rew_samples[j] = r
+            if len(self._rew_samples) < self.hist_sample_cap:
+                self._rew_samples.append(r)
+            else:
+                j = np.random.randint(0, self._rew_seen)
+                if j < self.hist_sample_cap:
+                    self._rew_samples[j] = r
+
+    def _component_accumulated(self, key: str) -> float:
+        stats = self._comp_stats.get(key)
+        if not stats or stats["seen"] <= 0:
+            return 0.0
+        return float(stats["mean"]) * float(stats["seen"])
+
+    def _write_reward_component_stats(self) -> None:
+        if self._comp_seen <= 0:
+            return
+        rows = []
+        mean_abs_vals = []
+        for key in self.REWARD_COMPONENT_KEYS:
+            stats = self._comp_stats.get(key)
+            if not stats or stats["seen"] <= 0:
+                continue
+            var = stats["m2"] / max(1, stats["seen"] - 1)
+            std = float(np.sqrt(max(var, 0.0)))
+            mean_abs = float(stats["mean_abs"])
+            mean_abs_vals.append(mean_abs)
+            accumulated = self._component_accumulated(key)
+            rows.append(
+                {
+                    "component": key,
+                    "count": stats["seen"],
+                    "accumulated": accumulated,
+                    "mean": float(stats["mean"]),
+                    "std": std,
+                    "min": float(stats["min"]),
+                    "max": float(stats["max"]),
+                    "mean_abs": mean_abs,
+                }
+            )
+        total_abs = float(sum(mean_abs_vals)) or 1.0
+        for row in rows:
+            row["rel_share"] = row["mean_abs"] / total_abs
+        with open(self.reward_components_stats_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "component",
+                    "count",
+                    "accumulated",
+                    "mean",
+                    "std",
+                    "min",
+                    "max",
+                    "mean_abs",
+                    "rel_share",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def _write_reward_component_histogram_csv(self) -> None:
+        if self._comp_seen <= 0:
+            return
+        with open(self.reward_components_hist_csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["component", "accumulated", "count"])
+            for key in self.REWARD_COMPONENT_KEYS:
+                stats = self._comp_stats.get(key)
+                if not stats or stats["seen"] <= 0:
+                    continue
+                writer.writerow([key, self._component_accumulated(key), stats["seen"]])
 
     def should_flush(self) -> bool:
         if not self.enabled:
@@ -348,34 +495,60 @@ class ObsRewardTracker:
             writer.writerow(["count", "mean", "std", "min", "max"])
             writer.writerow([self._rew_seen, float(self._rew_mean), rew_std, float(self._rew_min if self._rew_seen > 0 else 0.0), float(self._rew_max if self._rew_seen > 0 else 0.0)])
 
-        if len(self._rew_samples) > 0:
-            rew_arr = np.asarray(self._rew_samples, dtype=np.float32)
-            r_min = float(np.min(rew_arr))
-            r_max = float(np.max(rew_arr))
-            if r_max <= r_min:
-                r_max = r_min + 1e-6
-            r_counts, r_edges = np.histogram(rew_arr, bins=self.hist_bins, range=(r_min, r_max))
-            with open(self.reward_hist_csv_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["bin_left", "bin_right", "count"])
-                for i in range(len(r_counts)):
-                    writer.writerow([float(r_edges[i]), float(r_edges[i + 1]), int(r_counts[i])])
+        self._write_reward_component_stats()
 
-            if render_png:
-                try:
-                    centers = 0.5 * (r_edges[:-1] + r_edges[1:])
-                    widths = (r_edges[1:] - r_edges[:-1]) * 0.95
-                    fig, ax = plt.subplots(figsize=(10, 4))
-                    ax.bar(centers, r_counts, width=widths, align="center", color="#4C78A8", edgecolor="black", linewidth=0.3)
-                    ax.set_title("Reward Histogram")
-                    ax.set_xlabel("Reward")
-                    ax.set_ylabel("Count")
-                    ax.grid(axis="y", alpha=0.25)
-                    plt.tight_layout()
-                    fig.savefig(self.reward_hist_png_path, dpi=160)
-                    plt.close(fig)
-                except Exception as e:
-                    print(f"[tracker] Failed to render reward histogram PNG: {e}")
+        if len(self._rew_samples) > 0 or self._comp_reservoir_fill > 0:
+            has_components = self._comp_reservoir_fill > 0 and bool(self._comp_reservoir)
+            if has_components and self._rew_reservoir is not None:
+                n = int(self._comp_reservoir_fill)
+                rew_arr = self._rew_reservoir[:n].astype(np.float32)
+            elif len(self._rew_samples) > 0:
+                rew_arr = np.asarray(self._rew_samples, dtype=np.float32)
+                has_components = False
+            else:
+                rew_arr = np.array([], dtype=np.float32)
+
+            if rew_arr.size > 0:
+                r_min = float(np.min(rew_arr))
+                r_max = float(np.max(rew_arr))
+                if r_max <= r_min:
+                    r_max = r_min + 1e-6
+                r_counts, r_edges = np.histogram(rew_arr, bins=self.hist_bins, range=(r_min, r_max))
+                with open(self.reward_hist_csv_path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["bin_left", "bin_right", "count"])
+                    for i in range(len(r_counts)):
+                        writer.writerow([float(r_edges[i]), float(r_edges[i + 1]), int(r_counts[i])])
+
+                if self._comp_seen > 0:
+                    self._write_reward_component_histogram_csv()
+
+                if render_png and self._comp_seen <= 0 and rew_arr.size > 0:
+                    try:
+                        centers = 0.5 * (r_edges[:-1] + r_edges[1:])
+                        widths = (r_edges[1:] - r_edges[:-1]) * 0.95
+                        fig, ax = plt.subplots(figsize=(10, 4))
+                        ax.bar(
+                            centers,
+                            r_counts,
+                            width=widths,
+                            align="center",
+                            color="#4C78A8",
+                            edgecolor="black",
+                            linewidth=0.3,
+                        )
+                        ax.set_title("Reward Histogram (total only; no components in stream)")
+                        ax.set_xlabel("Reward")
+                        ax.set_ylabel("Count")
+                        ax.grid(axis="y", alpha=0.25)
+                        plt.tight_layout()
+                        fig.savefig(
+                            os.path.join(self.obs_tracking_dir, "reward_histogram.png"),
+                            dpi=160,
+                        )
+                        plt.close(fig)
+                    except Exception as e:
+                        print(f"[tracker] Failed to render reward histogram PNG: {e}")
 
         summary = {
             "obs_seen": int(self._obs_seen),
@@ -384,6 +557,10 @@ class ObsRewardTracker:
             "obs_hist_bins": int(self.hist_bins),
             "obs_hist_max_dims": int(self.hist_max_dims),
             "reward_seen": int(self._rew_seen),
+            "reward_components_seen": int(self._comp_seen),
+            "reward_hist_sample_count": int(
+                self._comp_reservoir_fill if self._comp_reservoir_fill > 0 else len(self._rew_samples)
+            ),
             "reward_min": float(self._rew_min if self._rew_seen > 0 else 0.0),
             "reward_max": float(self._rew_max if self._rew_seen > 0 else 0.0),
             "reward_mean": float(self._rew_mean if self._rew_seen > 0 else 0.0),
@@ -461,6 +638,125 @@ class IngestStatsTracker:
                 f"done={row['batch_done_count']} replay={row['replay_buffer_size']} "
                 f"episodes_total={row['episodes_completed_total']}"
             )
+
+
+class EpisodeLogTracker:
+    """Append-only log of completed training episodes (one row per episode)."""
+
+    COMPONENT_KEYS = ObsRewardTracker.REWARD_COMPONENT_KEYS
+
+    def __init__(self, csv_path: str):
+        self.csv_path = csv_path
+        self._next_episode_index = 0
+        target_dir = os.path.dirname(csv_path)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
+        if os.path.isfile(csv_path):
+            self._resume_from_csv()
+        else:
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                csv.DictWriter(f, fieldnames=self._fieldnames()).writeheader()
+
+    def _fieldnames(self) -> List[str]:
+        return [
+            "episode_index",
+            "timestamp",
+            "time_s",
+            "actor_id",
+            "episode_id",
+            "length",
+            "total_reward",
+            "mean_reward",
+            "total_timesteps",
+            "lap_times",
+            "reward_difficulty",
+            "difficulty",
+            *[f"comp_{key}" for key in self.COMPONENT_KEYS],
+        ]
+
+    def _resume_from_csv(self) -> None:
+        try:
+            with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            if rows:
+                self._next_episode_index = int(rows[-1].get("episode_index", -1)) + 1
+        except Exception as exc:
+            print(f"[EpisodeLogTracker] Could not resume from {self.csv_path}: {exc}")
+            self._next_episode_index = 0
+
+    @staticmethod
+    def _extract_lap_times(episode: List[dict]) -> List[float]:
+        for transition in reversed(episode):
+            info = transition.get("info", {}) or {}
+            candidate = info.get("lap_times")
+            if candidate is None:
+                continue
+            if isinstance(candidate, (list, tuple)) and len(candidate) == 0:
+                continue
+            if isinstance(candidate, (list, tuple)):
+                out: List[float] = []
+                for item in candidate:
+                    try:
+                        out.append(float(item))
+                    except (TypeError, ValueError):
+                        continue
+                return out
+        return []
+
+    @staticmethod
+    def _summarize_reward_components(episode: List[dict]) -> Dict[str, float]:
+        totals = {key: 0.0 for key in EpisodeLogTracker.COMPONENT_KEYS}
+        for transition in episode:
+            info = transition.get("info", {}) or {}
+            components = info.get("reward_components")
+            if not isinstance(components, dict):
+                continue
+            for key in EpisodeLogTracker.COMPONENT_KEYS:
+                try:
+                    totals[key] += float(components.get(key, 0.0))
+                except (TypeError, ValueError):
+                    continue
+        return totals
+
+    def record_episode(
+        self,
+        episode: List[dict],
+        *,
+        total_timesteps: int,
+        training_time_s: float,
+    ) -> None:
+        if not episode:
+            return
+
+        rewards = [float(t.get("reward", 0.0)) for t in episode]
+        total_reward = float(sum(rewards))
+        mean_reward = float(total_reward / max(1, len(rewards)))
+        actor_id = int(episode[0].get("actor_id", 0))
+        episode_id = int(episode[0].get("episode_id", 0))
+        last_info = episode[-1].get("info", {}) or {}
+        component_totals = self._summarize_reward_components(episode)
+        lap_times = self._extract_lap_times(episode)
+
+        row = {
+            "episode_index": self._next_episode_index,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "time_s": round(float(training_time_s), 3),
+            "actor_id": actor_id,
+            "episode_id": episode_id,
+            "length": len(episode),
+            "total_reward": total_reward,
+            "mean_reward": mean_reward,
+            "total_timesteps": int(total_timesteps),
+            "lap_times": json.dumps(lap_times),
+            "reward_difficulty": last_info.get("reward_difficulty"),
+            "difficulty": last_info.get("difficulty"),
+        }
+        for key in self.COMPONENT_KEYS:
+            row[f"comp_{key}"] = float(component_totals.get(key, 0.0))
+
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
+            csv.DictWriter(f, fieldnames=self._fieldnames()).writerow(row)
+        self._next_episode_index += 1
 
 
 class TrainingLogHelper():
