@@ -22,6 +22,7 @@ import csv
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
 from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker, IngestStatsTracker, EpisodeLogTracker
 from metrics_http import MetricsHttpServer
+from RewardPlotter.plotter_utils import install_reward_plotter
 
 from utilities.Settings import Settings
 
@@ -153,6 +154,7 @@ class LearnerServer:
         self.client_model_dir = os.path.join(self.model_dir, "client")
         self.replay_buffer_csv_path = os.path.join(self.model_dir, "replay_buffer.csv")
         os.makedirs(self.client_model_dir, exist_ok=True)
+        install_reward_plotter(self.model_dir)
         self.save_model_path = os.path.join(self.model_dir, self.save_model_name)
 
         # resolve load path if different
