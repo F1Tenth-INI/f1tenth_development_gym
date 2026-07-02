@@ -294,12 +294,15 @@ class Settings():
     # Metrics PNG (training_metrics.png):
     # SAC_METRICS_PLOT_INTERVAL_S > 0: refresh every N seconds (wall clock).
     # SAC_METRICS_PLOT_EVERY (when interval is 0): positive int = every N CSV rows; "end" = only when training stops.
-    SAC_METRICS_PLOT_INTERVAL_S = 10.0
-    SAC_METRICS_PLOT_EVERY = 1000
-    # Live metrics dashboard (GET /api/metrics on learner HTTP port).
+    SAC_METRICS_PLOT_INTERVAL_S = 0
+    SAC_METRICS_PLOT_EVERY = "end"
+    # TrainingPlot dashboard (run TrainingPlot/run_training_plot.py separately).
+    TRAINING_PLOT_PORT = 8070
+    TRAINING_PLOT_POLL_S = 2.0
+    # Legacy aliases kept for older scripts / web renderer configs.
     LEARNER_METRICS_HTTP_ENABLED = True
-    LEARNER_METRICS_HTTP_PORT = 5556
-    LEARNER_METRICS_HTTP_POLL_S = 2.0
+    LEARNER_METRICS_HTTP_PORT = TRAINING_PLOT_PORT
+    LEARNER_METRICS_HTTP_POLL_S = TRAINING_PLOT_POLL_S
     # Open SAC metrics side panel in the web renderer on load (sac_agent only).
     SAC_METRICS_PANEL_OPEN_DEFAULT = False
     # Matplotlib PNG (training_metrics.png) written to the model directory.
