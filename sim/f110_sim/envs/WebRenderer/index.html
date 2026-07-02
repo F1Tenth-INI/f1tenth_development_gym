@@ -500,8 +500,8 @@
       <button id="metrics-panel-close" class="side-panel-close" type="button" title="Collapse panel">Hide</button>
     </div>
     <div id="metrics-panel-body">
-      <div id="metrics-status">Waiting for learner metrics server…</div>
-      <iframe id="metrics-frame" title="SAC training metrics" src="about:blank"></iframe>
+      <div id="metrics-status">Waiting for TrainingPlot…</div>
+      <iframe id="metrics-frame" title="TrainingPlot" src="about:blank"></iframe>
     </div>
   </aside>
   <script>
@@ -1603,7 +1603,7 @@
     }
 
     function rewardComponentsMetricsUrl() {
-      const port = Number(metricsUiConfig?.metrics_port) || 5556;
+      const port = Number(metricsUiConfig?.metrics_port) || 8070;
       return `${metricsBaseUrl(port)}/api/reward-components`;
     }
 
@@ -2490,12 +2490,12 @@
 
     function ensureMetricsFrameLoaded(force = false) {
       if (!sacMetricsAvailable || !metricsUiConfig) return;
-      const port = Number(metricsUiConfig.metrics_port) || 5556;
+      const port = Number(metricsUiConfig.metrics_port) || 8070;
       const base = metricsBaseUrl(port);
       const currentSrc = metricsFrameEl.getAttribute("src") || "";
       if (!force && metricsServerConnected && currentSrc.startsWith(base)) return;
       if (!metricsServerConnected && !force) return;
-      metricsFrameEl.src = `${base}/?_=${Date.now()}`;
+      metricsFrameEl.src = `${base}/?tab=metrics&_=${Date.now()}`;
     }
 
     async function pollTelemetry() {
@@ -2517,13 +2517,13 @@
           return;
         }
 
-        const port = Number(cfg.metrics_port) || 5556;
+        const port = Number(cfg.metrics_port) || 8070;
         const healthUrl = `${metricsBaseUrl(port)}/api/health`;
         try {
           const hr = await fetch(healthUrl, { cache: "no-store", mode: "cors" });
           if (!hr.ok) {
             metricsServerConnected = false;
-            metricsStatusEl.textContent = "Waiting for learner metrics server…";
+            metricsStatusEl.textContent = "Waiting for TrainingPlot…";
             return;
           }
           const wasConnected = metricsServerConnected;
@@ -2534,7 +2534,7 @@
           }
         } catch (e) {
           metricsServerConnected = false;
-          metricsStatusEl.textContent = "Waiting for learner metrics server…";
+          metricsStatusEl.textContent = "Waiting for TrainingPlot…";
         }
       } catch (e) {
         // Renderer ui-config unavailable; retry on next poll.

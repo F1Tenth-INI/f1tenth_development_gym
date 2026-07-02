@@ -1512,7 +1512,10 @@ class WebEnvRenderer:
 
             controller = str(getattr(Settings, "CONTROLLER", "") or "")
             metrics_enabled = bool(getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True))
-            metrics_port = int(getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 5556))
+            metrics_port = int(
+                getattr(Settings, "TRAINING_PLOT_PORT", None)
+                or getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 8070)
+            )
             open_default = bool(getattr(Settings, "SAC_METRICS_PANEL_OPEN_DEFAULT", False))
             car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
             car_length = float(car_params.length)
@@ -1520,7 +1523,7 @@ class WebEnvRenderer:
         except Exception:
             controller = ""
             metrics_enabled = False
-            metrics_port = 5556
+            metrics_port = 8070
             open_default = False
 
         show_sac_metrics = controller == "sac_agent" and metrics_enabled

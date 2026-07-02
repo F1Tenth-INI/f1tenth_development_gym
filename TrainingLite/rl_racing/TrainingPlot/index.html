@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrainingPlot</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-top">
+      <h1>TrainingPlot</h1>
+      <div class="model-picker">
+        <label title="Training model directory">
+          Model
+          <select id="model-select" disabled>
+            <option value="">Loading models…</option>
+          </select>
+        </label>
+      </div>
+      <div id="global-status" class="global-status" aria-live="polite"></div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="TrainingPlot views">
+      <button type="button" class="tab active" data-tab="metrics" role="tab" aria-selected="true" aria-controls="tab-metrics">
+        Training metrics
+      </button>
+      <button type="button" class="tab" data-tab="reward" role="tab" aria-selected="false" aria-controls="tab-reward">
+        Reward plotter
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="tab-metrics" class="tab-panel active" role="tabpanel">
+      <div class="panel-header">
+        <div id="metrics-meta" class="meta-line">Waiting for data…</div>
+        <div id="metrics-status" class="inline-status">connecting</div>
+      </div>
+      <div id="metrics-chart" class="metrics-chart"></div>
+      <div id="metrics-empty" class="empty" hidden>No metrics yet — training logs will appear here.</div>
+    </section>
+
+    <section id="tab-reward" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel-header">
+        <p id="reward-meta-line" class="meta-line">Loading episodes.csv…</p>
+        <div class="controls">
+          <label title="Training episode index (0 = first completed episode)">
+            Episode
+            <input type="range" id="episode-slider" min="0" max="0" value="0" step="1" disabled>
+          </label>
+          <output id="episode-slider-value" for="episode-slider">—</output>
+          <button type="button" id="episode-play" class="secondary-btn" disabled>Play</button>
+          <label title="Episode playback speed">
+            Speed [ep/s]
+            <input type="number" id="episode-play-hz" min="0.1" max="60" step="0.5" value="2">
+          </label>
+          <span id="episode-meta" class="inline-meta">—</span>
+        </div>
+      </div>
+      <div id="plot-reward-components" class="plot"></div>
+      <p id="reward-status" class="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script src="main.js"></script>
+  <script src="metrics_tab.js"></script>
+  <script src="reward_tab.js"></script>
+</body>
+</html>

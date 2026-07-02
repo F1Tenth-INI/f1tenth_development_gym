@@ -205,17 +205,6 @@ def parse_args(argv: list[str] | None = None) -> Tuple[argparse.Namespace, list[
 
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument(
-        "--metrics-http-port",
-        type=int,
-        default=None,
-        help="Port for live metrics dashboard (default: Settings.LEARNER_METRICS_HTTP_PORT).",
-    )
-    parser.add_argument(
-        "--no-metrics-http",
-        action="store_true",
-        help="Disable the HTTP metrics dashboard.",
-    )
     # Convenience model name: sets BOTH load (if it already exists) and save
     # names, so a single --model-name can train, retrain and finetune.
     parser.add_argument(
@@ -514,11 +503,6 @@ def main() -> None:
     # Only reset the save-model directory when not loading a checkpoint.
     if run_args.load_model_name is None:
         backup_existing_model_if_present(str(run_args.save_model_name))
-
-    if run_args.no_metrics_http:
-        Settings.LEARNER_METRICS_HTTP_ENABLED = False
-    if run_args.metrics_http_port is not None:
-        Settings.LEARNER_METRICS_HTTP_PORT = int(run_args.metrics_http_port)
 
     combined_status = CombinedTrainingStatus() if run_args.auto_start_client else None
     server = LearnerServer(

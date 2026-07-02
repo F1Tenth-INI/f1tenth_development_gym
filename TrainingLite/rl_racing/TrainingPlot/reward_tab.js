@@ -1,7 +1,5 @@
 const EPISODES_API = "/api/episodes.csv";
-const MODELS_API = "/api/models";
 const POLL_INTERVAL_MS = 2000;
-const MODEL_LIST_POLL_INTERVAL_MS = 10000;
 
 const REWARD_COMPONENT_KEYS = [
   "progress",
@@ -27,7 +25,7 @@ const REWARD_COMPONENT_COLORS = {
 
 const PLOT_FONT_FAMILY = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
-const state = {
+const rewardState = {
   payload: null,
   episodeIndex: 0,
   pollId: null,
@@ -37,13 +35,12 @@ const state = {
   playPosition: 0,
   renderedIndex: -1,
   scrubbing: false,
-  models: [],
-  selectedModel: null,
-  lastModelRefreshTs: 0,
+  active: false,
 };
 
-function setStatus(message, isError = false) {
-  const el = document.getElementById("status");
+function setRewardStatus(message, isError = false) {
+  const el = document.getElementById("reward-status");
+  if (!el) return;
   el.textContent = message;
   el.classList.toggle("error", isError);
 }
@@ -160,8 +157,9 @@ function episodesPayloadFromCsv(text, csvMtime = 0) {
     };
   });
 
+  const modelName = window.TrainingPlot?.getSelectedModel?.();
   return {
-    csv_path: state.selectedModel ? `${state.selectedModel}/episodes.csv` : "episodes.csv",
+    csv_path: modelName ? `${modelName}/episodes.csv` : "episodes.csv",
     csv_mtime: csvMtime,
     episodes,
     episode_count: episodes.length,
@@ -206,7 +204,7 @@ function updateSliderUi() {
   const slider = document.getElementById("episode-slider");
   const output = document.getElementById("episode-slider-value");
   const meta = document.getElementById("episode-meta");
-  const episodes = state.payload?.episodes || [];
+  const episodes = rewardState.payload?.episodes || [];
   const count = episodes.length;
 
   if (meta) {
@@ -229,15 +227,15 @@ function updateSliderUi() {
   slider.disabled = false;
   slider.min = "0";
   slider.max = String(count - 1);
-  const index = Math.max(0, Math.min(count - 1, state.episodeIndex));
-  state.episodeIndex = index;
-  if (!state.playing) {
-    state.playPosition = index;
-    state.renderedIndex = index;
+  const index = Math.max(0, Math.min(count - 1, rewardState.episodeIndex));
+  rewardState.episodeIndex = index;
+  if (!rewardState.playing) {
+    rewardState.playPosition = index;
+    rewardState.renderedIndex = index;
   }
-  if (!state.scrubbing) {
-    slider.step = state.playing ? "any" : "1";
-    slider.value = state.playing ? String(state.playPosition) : String(index);
+  if (!rewardState.scrubbing) {
+    slider.step = rewardState.playing ? "any" : "1";
+    slider.value = rewardState.playing ? String(rewardState.playPosition) : String(index);
   }
   if (output) {
     output.textContent = formatEpisodeLabel(episodes[index]);
@@ -245,10 +243,10 @@ function updateSliderUi() {
 }
 
 async function renderPlot() {
-  const episodes = state.payload?.episodes || [];
-  const episode = episodes[state.episodeIndex];
+  const episodes = rewardState.payload?.episodes || [];
+  const episode = episodes[rewardState.episodeIndex];
   const plotId = "plot-reward-components";
-  const keys = state.payload?.component_keys || REWARD_COMPONENT_KEYS;
+  const keys = rewardState.payload?.component_keys || REWARD_COMPONENT_KEYS;
 
   if (!episode) {
     Plotly.react(
@@ -370,180 +368,95 @@ async function renderPlot() {
 }
 
 function episodesUrl() {
-  if (!state.selectedModel) {
+  const modelName = window.TrainingPlot?.getSelectedModel?.();
+  if (!modelName) {
     throw new Error("No model selected");
   }
-  const params = new URLSearchParams({ model: state.selectedModel });
+  const params = new URLSearchParams({ model: modelName });
   return `${EPISODES_API}?${params.toString()}`;
 }
 
-function modelsFetchKey(models) {
-  return (models || [])
-    .map((model) => `${model.name}:${model.mtime}:${model.has_episodes}`)
-    .join("|");
-}
-
-function updateModelSelectUi() {
-  const select = document.getElementById("model-select");
-  if (!select) {
-    return;
-  }
-
-  const previous = state.selectedModel;
-  select.replaceChildren();
-  for (const model of state.models) {
-    const option = document.createElement("option");
-    option.value = model.name;
-    option.textContent = model.has_episodes ? model.name : `${model.name} (no episodes.csv)`;
-    select.appendChild(option);
-  }
-
-  if (state.models.length === 0) {
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No models found";
-    select.appendChild(option);
-    select.disabled = true;
-    return;
-  }
-
-  select.disabled = false;
-  const hasPrevious = state.models.some((model) => model.name === previous);
-  state.selectedModel = hasPrevious ? previous : state.models[0].name;
-  select.value = state.selectedModel;
-}
-
-async function loadModels({ preserveSelection = false } = {}) {
-  const response = await fetch(MODELS_API, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Failed to load models: HTTP ${response.status}`);
-  }
-  const payload = await response.json();
-  const nextModels = Array.isArray(payload?.models) ? payload.models : [];
-  const prevKey = modelsFetchKey(state.models);
-  const nextKey = modelsFetchKey(nextModels);
-  const previous = state.selectedModel;
-
-  state.models = nextModels;
-  if (!state.selectedModel && payload?.default) {
-    state.selectedModel = payload.default;
-  } else if (
-    preserveSelection
-    && previous
-    && nextModels.some((model) => model.name === previous)
-  ) {
-    state.selectedModel = previous;
-  } else if (!nextModels.some((model) => model.name === state.selectedModel)) {
-    state.selectedModel = payload?.default || nextModels[0]?.name || null;
-  }
-
-  updateModelSelectUi();
-  return {
-    changed: prevKey !== nextKey,
-    selectionChanged: previous !== state.selectedModel,
-  };
-}
-
-async function refreshModels() {
-  const { changed, selectionChanged } = await loadModels({ preserveSelection: true });
-  if (!changed) {
-    return;
-  }
-  if (selectionChanged) {
-    stopPlay();
-    state.episodeIndex = 0;
-    state.playPosition = 0;
-    state.renderedIndex = -1;
-    await loadEpisodes({ preserveIndex: false });
-    setStatus(`Switched to ${state.selectedModel}`);
-    return;
-  }
-  const model = state.models.find((entry) => entry.name === state.selectedModel);
-  if (model) {
-    const suffix = model.has_episodes ? "" : " (waiting for episodes.csv)";
-    setStatus(`Model folder updated · ${state.selectedModel}${suffix}`);
-  }
-}
-
 async function loadEpisodes({ preserveIndex = true } = {}) {
-  if (!state.selectedModel) {
-    state.payload = episodesPayloadFromCsv("");
+  const modelName = window.TrainingPlot?.getSelectedModel?.();
+  const metaLine = document.getElementById("reward-meta-line");
+
+  if (!modelName) {
+    rewardState.payload = episodesPayloadFromCsv("");
+    if (metaLine) metaLine.textContent = "Select a model to view reward components.";
     updateSliderUi();
     await renderPlot();
     return;
   }
 
-  const response = await fetch(episodesUrl(), { cache: "no-store" });
-  if (!response.ok) {
-    if (response.status === 404) {
-      state.payload = episodesPayloadFromCsv("");
-      updateSliderUi();
-      await renderPlot();
-      return;
-    }
-    throw new Error(`Failed to load episodes.csv: HTTP ${response.status}`);
-  }
-
-  const text = await response.text();
-  const lastModified = response.headers.get("Last-Modified");
-  const csvMtime = lastModified ? Date.parse(lastModified) : Date.now();
-  const payload = episodesPayloadFromCsv(text, csvMtime);
-  const fetchKey = payloadFetchKey(payload);
-  const prevKey = payloadFetchKey(state.payload);
-  const prevEpisodeIndex = state.payload?.episodes?.[state.episodeIndex]?.episode_index ?? null;
-
-  state.payload = payload;
-
-  const episodes = payload.episodes || [];
-  if (episodes.length === 0) {
-    state.episodeIndex = 0;
-    state.playPosition = 0;
-  } else if (state.playing) {
-    const maxIndex = episodes.length - 1;
-    state.playPosition = Math.max(0, Math.min(maxIndex, state.playPosition));
-    state.episodeIndex = Math.round(state.playPosition);
-  } else if (!preserveIndex || fetchKey !== prevKey) {
-    let nextIndex = episodes.length - 1;
-    if (preserveIndex && prevEpisodeIndex !== null) {
-      const matched = episodes.findIndex((item) => item?.episode_index === prevEpisodeIndex);
-      if (matched >= 0) {
-        nextIndex = matched;
+  try {
+    const response = await fetch(episodesUrl(), { cache: "no-store" });
+    if (!response.ok) {
+      if (response.status === 404) {
+        rewardState.payload = episodesPayloadFromCsv("");
+        if (metaLine) metaLine.textContent = `${modelName}/episodes.csv · waiting for data`;
+        updateSliderUi();
+        await renderPlot();
+        return;
       }
-    } else if (preserveIndex && state.episodeIndex < episodes.length) {
-      nextIndex = state.episodeIndex;
+      throw new Error(`Failed to load episodes.csv: HTTP ${response.status}`);
     }
-    state.episodeIndex = nextIndex;
-  }
 
-  document.getElementById("meta-line").textContent =
-    `${state.selectedModel}/episodes.csv · ${episodes.length} episode(s)`;
+    const text = await response.text();
+    const lastModified = response.headers.get("Last-Modified");
+    const csvMtime = lastModified ? Date.parse(lastModified) : Date.now();
+    const payload = episodesPayloadFromCsv(text, csvMtime);
+    const fetchKey = payloadFetchKey(payload);
+    const prevKey = payloadFetchKey(rewardState.payload);
+    const prevEpisodeIndex = rewardState.payload?.episodes?.[rewardState.episodeIndex]?.episode_index ?? null;
 
-  updateSliderUi();
-  if (!state.scrubbing) {
-    await renderPlot();
+    rewardState.payload = payload;
+
+    const episodes = payload.episodes || [];
+    if (episodes.length === 0) {
+      rewardState.episodeIndex = 0;
+      rewardState.playPosition = 0;
+    } else if (rewardState.playing) {
+      const maxIndex = episodes.length - 1;
+      rewardState.playPosition = Math.max(0, Math.min(maxIndex, rewardState.playPosition));
+      rewardState.episodeIndex = Math.round(rewardState.playPosition);
+    } else if (!preserveIndex || fetchKey !== prevKey) {
+      let nextIndex = episodes.length - 1;
+      if (preserveIndex && prevEpisodeIndex !== null) {
+        const matched = episodes.findIndex((item) => item?.episode_index === prevEpisodeIndex);
+        if (matched >= 0) {
+          nextIndex = matched;
+        }
+      } else if (preserveIndex && rewardState.episodeIndex < episodes.length) {
+        nextIndex = rewardState.episodeIndex;
+      }
+      rewardState.episodeIndex = nextIndex;
+    }
+
+    if (metaLine) {
+      metaLine.textContent = `${modelName}/episodes.csv · ${episodes.length} episode(s)`;
+    }
+
+    updateSliderUi();
+    if (!rewardState.scrubbing) {
+      await renderPlot();
+    }
+  } catch (error) {
+    setRewardStatus(error.message, true);
   }
 }
 
-function stopPolling() {
-  if (state.pollId !== null) {
-    window.clearInterval(state.pollId);
-    state.pollId = null;
+function stopRewardPolling() {
+  if (rewardState.pollId !== null) {
+    window.clearInterval(rewardState.pollId);
+    rewardState.pollId = null;
   }
 }
 
-function startPolling() {
-  stopPolling();
-  state.lastModelRefreshTs = Date.now();
-  state.pollId = window.setInterval(() => {
-    const now = Date.now();
-    if (now - state.lastModelRefreshTs >= MODEL_LIST_POLL_INTERVAL_MS) {
-      state.lastModelRefreshTs = now;
-      void refreshModels().catch((error) => {
-        setStatus(error.message, true);
-      });
-    }
+function startRewardPolling() {
+  stopRewardPolling();
+  rewardState.pollId = window.setInterval(() => {
     void loadEpisodes({ preserveIndex: true }).catch((error) => {
-      setStatus(error.message, true);
+      setRewardStatus(error.message, true);
     });
   }, POLL_INTERVAL_MS);
 }
@@ -566,36 +479,34 @@ function readSliderIndex(slider = document.getElementById("episode-slider")) {
 
 function updatePlayButton() {
   const button = document.getElementById("episode-play");
-  if (!button) {
-    return;
-  }
-  button.textContent = state.playing ? "Pause" : "Play";
-  button.classList.toggle("playing", state.playing);
-  button.setAttribute("aria-pressed", state.playing ? "true" : "false");
+  if (!button) return;
+  button.textContent = rewardState.playing ? "Pause" : "Play";
+  button.classList.toggle("playing", rewardState.playing);
+  button.setAttribute("aria-pressed", rewardState.playing ? "true" : "false");
 }
 
 function stopPlay({ preservePosition = false } = {}) {
-  state.playing = false;
-  if (state.playRafId !== null) {
-    window.cancelAnimationFrame(state.playRafId);
-    state.playRafId = null;
+  rewardState.playing = false;
+  if (rewardState.playRafId !== null) {
+    window.cancelAnimationFrame(rewardState.playRafId);
+    rewardState.playRafId = null;
   }
-  state.playLastTs = null;
+  rewardState.playLastTs = null;
   const slider = document.getElementById("episode-slider");
   if (slider) {
     slider.step = "1";
     if (preservePosition) {
       const index = readSliderIndex(slider);
-      state.episodeIndex = index;
-      state.playPosition = index;
+      rewardState.episodeIndex = index;
+      rewardState.playPosition = index;
       slider.value = String(index);
     } else {
       const snapped = Math.max(
         0,
-        Math.min(Number.parseInt(slider.max, 10) || 0, Math.round(state.playPosition)),
+        Math.min(Number.parseInt(slider.max, 10) || 0, Math.round(rewardState.playPosition)),
       );
-      state.episodeIndex = snapped;
-      state.playPosition = snapped;
+      rewardState.episodeIndex = snapped;
+      rewardState.playPosition = snapped;
       slider.value = String(snapped);
       updateSliderUi();
     }
@@ -605,48 +516,48 @@ function stopPlay({ preservePosition = false } = {}) {
 
 async function setEpisodeIndex(index, { render = true } = {}) {
   const slider = document.getElementById("episode-slider");
-  const episodes = state.payload?.episodes || [];
+  const episodes = rewardState.payload?.episodes || [];
   const maxIndex = Math.max(0, episodes.length - 1);
   const clamped = Math.max(0, Math.min(maxIndex, index));
-  state.episodeIndex = clamped;
-  state.playPosition = clamped;
+  rewardState.episodeIndex = clamped;
+  rewardState.playPosition = clamped;
   if (slider) {
     slider.value = String(clamped);
   }
   updateSliderUi();
-  if (render && clamped !== state.renderedIndex) {
-    state.renderedIndex = clamped;
+  if (render && clamped !== rewardState.renderedIndex) {
+    rewardState.renderedIndex = clamped;
     await renderPlot();
   }
 }
 
 function playFrame(timestamp) {
-  if (!state.playing || state.scrubbing) {
-    if (state.playing && state.scrubbing) {
-      state.playRafId = window.requestAnimationFrame(playFrame);
+  if (!rewardState.playing || rewardState.scrubbing) {
+    if (rewardState.playing && rewardState.scrubbing) {
+      rewardState.playRafId = window.requestAnimationFrame(playFrame);
     }
     return;
   }
 
-  const episodes = state.payload?.episodes || [];
+  const episodes = rewardState.payload?.episodes || [];
   const maxIndex = Math.max(0, episodes.length - 1);
   if (maxIndex <= 0) {
     stopPlay();
     return;
   }
 
-  if (state.playLastTs === null) {
-    state.playLastTs = timestamp;
+  if (rewardState.playLastTs === null) {
+    rewardState.playLastTs = timestamp;
   }
-  const dt = Math.max(0, (timestamp - state.playLastTs) / 1000);
-  state.playLastTs = timestamp;
+  const dt = Math.max(0, (timestamp - rewardState.playLastTs) / 1000);
+  rewardState.playLastTs = timestamp;
 
-  let nextPos = state.playPosition + dt * readPlayHz();
-  const crossedEnd = state.playPosition < maxIndex && nextPos >= maxIndex;
+  let nextPos = rewardState.playPosition + dt * readPlayHz();
+  const crossedEnd = rewardState.playPosition < maxIndex && nextPos >= maxIndex;
   if (nextPos >= maxIndex) {
     nextPos = maxIndex;
   }
-  state.playPosition = nextPos;
+  rewardState.playPosition = nextPos;
 
   const slider = document.getElementById("episode-slider");
   if (slider) {
@@ -656,118 +567,99 @@ function playFrame(timestamp) {
 
   const output = document.getElementById("episode-slider-value");
   const previewIndex = Math.min(maxIndex, Math.max(0, Math.round(nextPos)));
-  state.episodeIndex = previewIndex;
+  rewardState.episodeIndex = previewIndex;
   if (output) {
     output.textContent = formatEpisodeLabel(episodes[previewIndex]);
   }
 
   const roundedIndex = Math.round(nextPos);
-  if (roundedIndex !== state.renderedIndex && roundedIndex >= 0 && roundedIndex <= maxIndex) {
-    state.renderedIndex = roundedIndex;
+  if (roundedIndex !== rewardState.renderedIndex && roundedIndex >= 0 && roundedIndex <= maxIndex) {
+    rewardState.renderedIndex = roundedIndex;
     void renderPlot();
   }
 
   if (crossedEnd) {
     stopPlay();
-    setStatus(`${formatEpisodeLabel(episodes[maxIndex])} (end)`);
+    setRewardStatus(`${formatEpisodeLabel(episodes[maxIndex])} (end)`);
     return;
   }
 
-  state.playRafId = window.requestAnimationFrame(playFrame);
+  rewardState.playRafId = window.requestAnimationFrame(playFrame);
 }
 
 function startPlay() {
-  const episodes = state.payload?.episodes || [];
+  const episodes = rewardState.payload?.episodes || [];
   if (episodes.length === 0) {
     return;
   }
   readPlayHz();
   const maxIndex = Math.max(0, episodes.length - 1);
-  if (state.episodeIndex >= maxIndex) {
-    setStatus(`${formatEpisodeLabel(episodes[maxIndex])} (end)`);
+  if (rewardState.episodeIndex >= maxIndex) {
+    setRewardStatus(`${formatEpisodeLabel(episodes[maxIndex])} (end)`);
     return;
   }
-  state.playing = true;
-  state.playLastTs = null;
-  state.playPosition = state.episodeIndex;
-  state.renderedIndex = state.episodeIndex;
+  rewardState.playing = true;
+  rewardState.playLastTs = null;
+  rewardState.playPosition = rewardState.episodeIndex;
+  rewardState.renderedIndex = rewardState.episodeIndex;
   updatePlayButton();
-  if (state.playRafId !== null) {
-    window.cancelAnimationFrame(state.playRafId);
+  if (rewardState.playRafId !== null) {
+    window.cancelAnimationFrame(rewardState.playRafId);
   }
-  state.playRafId = window.requestAnimationFrame(playFrame);
+  rewardState.playRafId = window.requestAnimationFrame(playFrame);
 }
 
 function togglePlay() {
-  if (state.playing) {
+  if (rewardState.playing) {
     stopPlay();
-    setStatus(formatEpisodeLabel(state.payload?.episodes?.[state.episodeIndex]));
+    setRewardStatus(formatEpisodeLabel(rewardState.payload?.episodes?.[rewardState.episodeIndex]));
     return;
   }
   try {
     startPlay();
-    setStatus(`Playing episodes at ${readPlayHz()} ep/s`);
+    setRewardStatus(`Playing episodes at ${readPlayHz()} ep/s`);
   } catch (error) {
     stopPlay();
-    setStatus(error.message, true);
+    setRewardStatus(error.message, true);
   }
 }
 
-function bindUi() {
-  document.getElementById("model-select")?.addEventListener("change", async (event) => {
-    const nextModel = event.target.value;
-    if (!nextModel || nextModel === state.selectedModel) {
-      return;
-    }
-    stopPlay();
-    state.selectedModel = nextModel;
-    state.episodeIndex = 0;
-    state.playPosition = 0;
-    state.renderedIndex = -1;
-    setStatus(`Loading ${nextModel}/episodes.csv…`);
-    try {
-      await loadEpisodes({ preserveIndex: false });
-      setStatus(`Ready · ${formatEpisodeLabel(state.payload?.episodes?.[state.episodeIndex])}`);
-    } catch (error) {
-      setStatus(error.message, true);
-    }
-  });
-
+function bindRewardUi() {
   const slider = document.getElementById("episode-slider");
-  slider.addEventListener("pointerdown", () => {
-    state.scrubbing = true;
+  slider?.addEventListener("pointerdown", () => {
+    rewardState.scrubbing = true;
     stopPlay({ preservePosition: true });
   });
-  slider.addEventListener("pointerup", () => {
-    state.scrubbing = false;
+  slider?.addEventListener("pointerup", () => {
+    rewardState.scrubbing = false;
   });
-  slider.addEventListener("pointercancel", () => {
-    state.scrubbing = false;
+  slider?.addEventListener("pointercancel", () => {
+    rewardState.scrubbing = false;
   });
-  slider.addEventListener("input", () => {
+  slider?.addEventListener("input", () => {
     const index = readSliderIndex(slider);
     stopPlay({ preservePosition: true });
-    state.episodeIndex = index;
-    state.playPosition = index;
-    state.renderedIndex = index;
+    rewardState.episodeIndex = index;
+    rewardState.playPosition = index;
+    rewardState.renderedIndex = index;
     slider.step = "1";
     slider.value = String(index);
     const output = document.getElementById("episode-slider-value");
-    const episode = state.payload?.episodes?.[index];
+    const episode = rewardState.payload?.episodes?.[index];
     if (output) {
       output.textContent = formatEpisodeLabel(episode);
     }
     void renderPlot();
   });
-  slider.addEventListener("change", async () => {
+  slider?.addEventListener("change", async () => {
     try {
-      state.scrubbing = false;
+      rewardState.scrubbing = false;
       const index = readSliderIndex(slider);
       stopPlay({ preservePosition: true });
       await setEpisodeIndex(index);
-      setStatus(formatEpisodeLabel(state.payload?.episodes?.[state.episodeIndex]));
+      setRewardStatus(formatEpisodeLabel(rewardState.payload?.episodes?.[rewardState.episodeIndex]));
     } catch (error) {
-      setStatus(error.message, true);
+      setRewardStatus(error.message, true);
     }
   });
 
@@ -776,25 +668,45 @@ function bindUi() {
   });
 }
 
-async function init() {
-  bindUi();
-  updatePlayButton();
-  setStatus("Loading models…");
-  try {
-    await loadModels();
-    await loadEpisodes({ preserveIndex: false });
-    startPolling();
-    setStatus(`Ready · ${formatEpisodeLabel(state.payload?.episodes?.[state.episodeIndex])}`);
-  } catch (error) {
-    if (window.location.protocol === "file:") {
-      setStatus(
-        "Cannot load data via file://. Run: python TrainingLite/rl_racing/RewardPlotter/run_viewer.py",
-        true,
-      );
-    } else {
-      setStatus(error.message, true);
-    }
+function onModelChanged() {
+  stopPlay();
+  rewardState.episodeIndex = 0;
+  rewardState.playPosition = 0;
+  rewardState.renderedIndex = -1;
+  if (rewardState.active) {
+    void loadEpisodes({ preserveIndex: false }).then(() => {
+      setRewardStatus(`Ready · ${formatEpisodeLabel(rewardState.payload?.episodes?.[rewardState.episodeIndex])}`);
+    });
   }
 }
 
-init();
+function startRewardTab() {
+  rewardState.active = true;
+  void loadEpisodes({ preserveIndex: false }).then(() => {
+    setRewardStatus(`Ready · ${formatEpisodeLabel(rewardState.payload?.episodes?.[rewardState.episodeIndex])}`);
+  });
+  startRewardPolling();
+}
+
+function stopRewardTab() {
+  rewardState.active = false;
+  stopPlay();
+  stopRewardPolling();
+}
+
+function onTabChanged(tabName) {
+  if (tabName === "reward") {
+    startRewardTab();
+  } else {
+    stopRewardTab();
+  }
+}
+
+bindRewardUi();
+updatePlayButton();
+window.TrainingPlot?.onModelChange(onModelChanged);
+window.TrainingPlot?.onTabChange(onTabChanged);
+
+if (window.TrainingPlot?.getActiveTab?.() === "reward") {
+  startRewardTab();
+}

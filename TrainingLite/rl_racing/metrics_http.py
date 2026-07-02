@@ -35,8 +35,8 @@ _ARRAY_LIKE_COLS = frozenset(
     }
 )
 
-_STATIC_DIR = Path(__file__).resolve().parent / "static"
-_DASHBOARD_PATH = _STATIC_DIR / "metrics_dashboard.html"
+_STATIC_DIR = Path(__file__).resolve().parent / "TrainingPlot"
+_DASHBOARD_PATH = _STATIC_DIR / "index.html"
 
 
 def _parse_array_like(value: Any) -> List[float]:
