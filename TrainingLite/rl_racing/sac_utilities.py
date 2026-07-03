@@ -117,7 +117,11 @@ class SacUtilities:
                      batch_size=256,
                      train_freq=1
                      ) -> SAC:
-        policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+
+        # policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        # policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.Tanh, log_std_init=-3.5)
+
         # policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.ReLU)
 
         #  log_std_init=-3.5
@@ -185,17 +189,6 @@ class SacUtilities:
                     zipf.write(file_path, arcname=arcname)
         return zip_path
 class ObsRewardTracker:
-    REWARD_COMPONENT_KEYS = (
-        "progress",
-        "crash_reward",
-        "wp_distance_penalty",
-        "d_action_penality",
-        "speed_cap_penalty",
-        "proximity_penalty",
-        "stuck_reward",
-        "spin_reward",
-    )
-
     def __init__(
         self,
         model_dir: str,
@@ -258,20 +251,26 @@ class ObsRewardTracker:
         self._obs_max = np.full(self._obs_dim, -np.inf, dtype=np.float64)
         self._obs_reservoir = np.zeros((self.hist_sample_cap, self._obs_dim), dtype=np.float32)
 
-    def _ensure_comp_reservoir(self) -> None:
-        if self._comp_reservoir:
+    def _ensure_rew_reservoir(self) -> None:
+        if self._rew_reservoir is None:
+            self._rew_reservoir = np.zeros(self.hist_sample_cap, dtype=np.float32)
+
+    def _init_component_key(self, key: str) -> None:
+        self._ensure_rew_reservoir()
+        if key in self._comp_stats:
             return
-        self._rew_reservoir = np.zeros(self.hist_sample_cap, dtype=np.float32)
-        for key in self.REWARD_COMPONENT_KEYS:
-            self._comp_reservoir[key] = np.zeros(self.hist_sample_cap, dtype=np.float32)
-            self._comp_stats[key] = {
-                "seen": 0,
-                "mean": 0.0,
-                "m2": 0.0,
-                "min": float("inf"),
-                "max": float("-inf"),
-                "mean_abs": 0.0,
-            }
+        self._comp_reservoir[key] = np.zeros(self.hist_sample_cap, dtype=np.float32)
+        self._comp_stats[key] = {
+            "seen": 0,
+            "mean": 0.0,
+            "m2": 0.0,
+            "min": float("inf"),
+            "max": float("-inf"),
+            "mean_abs": 0.0,
+        }
+
+    def _component_keys(self) -> List[str]:
+        return sorted(self._comp_stats.keys())
 
     def _reservoir_index(self) -> Optional[int]:
         if self._comp_reservoir_fill < self.hist_sample_cap:
@@ -284,12 +283,11 @@ class ObsRewardTracker:
         return None
 
     def _store_aligned_sample(self, reward: float, components: Dict[str, float]) -> None:
-        self._ensure_comp_reservoir()
         idx = self._reservoir_index()
         if idx is None or self._rew_reservoir is None:
             return
         self._rew_reservoir[idx] = float(reward)
-        for key in self.REWARD_COMPONENT_KEYS:
+        for key in self._component_keys():
             self._comp_reservoir[key][idx] = float(components.get(key, 0.0))
 
     def _track_component(self, key: str, value: float) -> None:
@@ -350,11 +348,11 @@ class ObsRewardTracker:
         self._rew_max = max(self._rew_max, r)
 
         if isinstance(reward_components, dict) and reward_components:
-            self._ensure_comp_reservoir()
             self._comp_seen += 1
-            for key in self.REWARD_COMPONENT_KEYS:
-                comp_val = float(reward_components.get(key, 0.0))
-                self._track_component(key, comp_val)
+            for key, raw_val in reward_components.items():
+                comp_key = str(key)
+                self._init_component_key(comp_key)
+                self._track_component(comp_key, float(raw_val))
             self._store_aligned_sample(r, reward_components)
         else:
             if len(self._rew_samples) < self.hist_sample_cap:
@@ -375,9 +373,9 @@ class ObsRewardTracker:
             return
         rows = []
         mean_abs_vals = []
-        for key in self.REWARD_COMPONENT_KEYS:
-            stats = self._comp_stats.get(key)
-            if not stats or stats["seen"] <= 0:
+        for key in self._component_keys():
+            stats = self._comp_stats[key]
+            if stats["seen"] <= 0:
                 continue
             var = stats["m2"] / max(1, stats["seen"] - 1)
             std = float(np.sqrt(max(var, 0.0)))
@@ -423,9 +421,9 @@ class ObsRewardTracker:
         with open(self.reward_components_hist_csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["component", "accumulated", "count"])
-            for key in self.REWARD_COMPONENT_KEYS:
-                stats = self._comp_stats.get(key)
-                if not stats or stats["seen"] <= 0:
+            for key in self._component_keys():
+                stats = self._comp_stats[key]
+                if stats["seen"] <= 0:
                     continue
                 writer.writerow([key, self._component_accumulated(key), stats["seen"]])
 
@@ -643,46 +641,88 @@ class IngestStatsTracker:
 class EpisodeLogTracker:
     """Append-only log of completed training episodes (one row per episode)."""
 
-    COMPONENT_KEYS = ObsRewardTracker.REWARD_COMPONENT_KEYS
+    BASE_FIELDS = [
+        "episode_index",
+        "timestamp",
+        "time_s",
+        "actor_id",
+        "episode_id",
+        "length",
+        "total_reward",
+        "mean_reward",
+        "total_timesteps",
+        "lap_times",
+        "reward_difficulty",
+        "difficulty",
+    ]
 
     def __init__(self, csv_path: str):
         self.csv_path = csv_path
         self._next_episode_index = 0
+        self._component_keys: set[str] = set()
         target_dir = os.path.dirname(csv_path)
         if target_dir:
             os.makedirs(target_dir, exist_ok=True)
         if os.path.isfile(csv_path):
             self._resume_from_csv()
         else:
-            with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                csv.DictWriter(f, fieldnames=self._fieldnames()).writeheader()
+            self._write_header()
 
     def _fieldnames(self) -> List[str]:
-        return [
-            "episode_index",
-            "timestamp",
-            "time_s",
-            "actor_id",
-            "episode_id",
-            "length",
-            "total_reward",
-            "mean_reward",
-            "total_timesteps",
-            "lap_times",
-            "reward_difficulty",
-            "difficulty",
-            *[f"comp_{key}" for key in self.COMPONENT_KEYS],
-        ]
+        return [*self.BASE_FIELDS, *[f"comp_{key}" for key in sorted(self._component_keys)]]
+
+    def _write_header(self) -> None:
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as f:
+            csv.DictWriter(f, fieldnames=self._fieldnames()).writeheader()
+
+    @staticmethod
+    def _component_keys_from_fieldnames(fieldnames: Optional[List[str]]) -> set[str]:
+        if not fieldnames:
+            return set()
+        return {
+            field[5:]
+            for field in fieldnames
+            if isinstance(field, str) and field.startswith("comp_")
+        }
+
+    def _expand_schema_if_needed(self, new_keys: set[str]) -> None:
+        added = new_keys - self._component_keys
+        if not added:
+            return
+        self._component_keys |= new_keys
+        if not os.path.isfile(self.csv_path):
+            return
+        try:
+            with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+        except Exception as exc:
+            print(f"[EpisodeLogTracker] Could not expand schema for {self.csv_path}: {exc}")
+            return
+        fieldnames = self._fieldnames()
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                migrated = {name: row.get(name, "") for name in fieldnames}
+                for key in self._component_keys:
+                    col = f"comp_{key}"
+                    if migrated.get(col, "") == "":
+                        migrated[col] = 0.0
+                writer.writerow(migrated)
 
     def _resume_from_csv(self) -> None:
         try:
             with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
-                rows = list(csv.DictReader(f))
+                reader = csv.DictReader(f)
+                self._component_keys = self._component_keys_from_fieldnames(reader.fieldnames)
+                rows = list(reader)
             if rows:
                 self._next_episode_index = int(rows[-1].get("episode_index", -1)) + 1
         except Exception as exc:
             print(f"[EpisodeLogTracker] Could not resume from {self.csv_path}: {exc}")
             self._next_episode_index = 0
+            self._component_keys = set()
 
     @staticmethod
     def _extract_lap_times(episode: List[dict]) -> List[float]:
@@ -705,15 +745,16 @@ class EpisodeLogTracker:
 
     @staticmethod
     def _summarize_reward_components(episode: List[dict]) -> Dict[str, float]:
-        totals = {key: 0.0 for key in EpisodeLogTracker.COMPONENT_KEYS}
+        totals: Dict[str, float] = {}
         for transition in episode:
             info = transition.get("info", {}) or {}
             components = info.get("reward_components")
             if not isinstance(components, dict):
                 continue
-            for key in EpisodeLogTracker.COMPONENT_KEYS:
+            for key, raw_val in components.items():
+                comp_key = str(key)
                 try:
-                    totals[key] += float(components.get(key, 0.0))
+                    totals[comp_key] = totals.get(comp_key, 0.0) + float(raw_val)
                 except (TypeError, ValueError):
                     continue
         return totals
@@ -735,6 +776,7 @@ class EpisodeLogTracker:
         episode_id = int(episode[0].get("episode_id", 0))
         last_info = episode[-1].get("info", {}) or {}
         component_totals = self._summarize_reward_components(episode)
+        self._expand_schema_if_needed(set(component_totals.keys()))
         lap_times = self._extract_lap_times(episode)
 
         row = {
@@ -751,7 +793,7 @@ class EpisodeLogTracker:
             "reward_difficulty": last_info.get("reward_difficulty"),
             "difficulty": last_info.get("difficulty"),
         }
-        for key in self.COMPONENT_KEYS:
+        for key in self._component_keys:
             row[f"comp_{key}"] = float(component_totals.get(key, 0.0))
 
         with open(self.csv_path, "a", newline="", encoding="utf-8") as f:

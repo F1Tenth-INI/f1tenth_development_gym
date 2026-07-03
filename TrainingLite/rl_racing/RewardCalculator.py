@@ -12,11 +12,15 @@ from utilities.Settings import Settings
 from utilities.state_utilities import *
 from utilities.waypoint_utils import *
 
+
 class RewardCalculator:
     # Cap history to avoid unbounded growth → GC pauses and FPS drops after 100k+ steps
     REWARD_HISTORY_CAP = 10_000
-    PROXIMITY_THRESHOLD_M = 0.8
+    PROXIMITY_THRESHOLD_M = 0.5
     STUCK_MIN_SPEED = 0.3
+    FAST_LAP_TIME_THRESHOLD_S = 25.0
+    LAP_FINISHED_REWARD = 100.0
+    FAST_LAP_REWARD = 200.0
 
     def __init__(self):
         
@@ -116,7 +120,7 @@ class RewardCalculator:
             action = np.asarray(control_history[-1], dtype=np.float64)
         else:
             action = np.zeros(2, dtype=np.float64)
-        if(self.last_action is None):
+        if self.last_action is None:
             self.last_action = action
         d_action = self.last_action - action
 
@@ -160,6 +164,16 @@ class RewardCalculator:
             stuck_reward = -self.w_crash
         reward += stuck_reward
 
+        lap_finished_reward = 0.0
+        fast_lap_reward = 0.0
+        # if bool(controller_obs.get("lap_finished")):
+        #     lap_finished_reward = self.LAP_FINISHED_REWARD
+        #     reward += lap_finished_reward
+
+        #     laptime = float(controller_obs.get("lap_time"))
+        #     fast_lap_reward = 10 * (self.FAST_LAP_TIME_THRESHOLD_S - laptime) if laptime < self.FAST_LAP_TIME_THRESHOLD_S else 0.0
+        #     reward += fast_lap_reward
+
         # Update State
         self.last_s = s
         self.last_action = action
@@ -175,6 +189,8 @@ class RewardCalculator:
             "proximity_penalty": float(proximity_penalty),
             "stuck_reward": float(stuck_reward),
             "spin_reward": float(spin_reward),
+            "lap_finished_reward": float(lap_finished_reward),
+            "fast_lap_reward": float(fast_lap_reward),
         }
         self.last_reward_components = components
 
@@ -223,18 +239,16 @@ class RewardCalculator:
 
         # Extract reward components
         steps = range(len(reward_components_history))
+        component_keys = sorted({
+            key
+            for comp in reward_components_history
+            for key in comp
+            if key not in ("total_reward", "difficulty")
+        })
         reward_labels = [
-            "progress",
-            "crash_reward",
-            # "steering_penalty",
-            # "acceleration_penalty",
-            "wp_distance_penalty",
-            "d_action_penality",
-            "proximity_penalty",
-            "stuck_reward",
-            "spin_reward",
+            *component_keys,
             "difficulty",
-            "total_reward"
+            "total_reward",
         ]
         reward_colors = ["blue"] * len(reward_labels)
 

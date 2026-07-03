@@ -1,28 +1,6 @@
 const EPISODES_API = "/api/episodes.csv";
 const POLL_INTERVAL_MS = 2000;
 
-const REWARD_COMPONENT_KEYS = [
-  "progress",
-  "crash_reward",
-  "wp_distance_penalty",
-  "d_action_penality",
-  "speed_cap_penalty",
-  "proximity_penalty",
-  "stuck_reward",
-  "spin_reward",
-];
-
-const REWARD_COMPONENT_COLORS = {
-  progress: "#4C78A8",
-  crash_reward: "#E45756",
-  wp_distance_penalty: "#72B7B2",
-  d_action_penality: "#F58518",
-  speed_cap_penalty: "#54A24B",
-  proximity_penalty: "#B279A2",
-  stuck_reward: "#EECA3B",
-  spin_reward: "#9D755D",
-};
-
 const PLOT_FONT_FAMILY = "system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
 
 const rewardState = {
@@ -108,10 +86,10 @@ function parseCsvLine(line) {
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length === 0) {
-    return [];
+    return { headers: [], rows: [] };
   }
   const headers = parseCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
+  const rows = lines.slice(1).map((line) => {
     const values = parseCsvLine(line);
     const row = {};
     headers.forEach((header, index) => {
@@ -119,6 +97,22 @@ function parseCsv(text) {
     });
     return row;
   });
+  return { headers, rows };
+}
+
+function rewardComponentKeysFromHeaders(headers) {
+  return headers
+    .filter((header) => header.startsWith("comp_"))
+    .map((header) => header.slice("comp_".length))
+    .sort();
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash * 31) + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 function toFloat(value, fallback = 0) {
@@ -132,11 +126,12 @@ function toInt(value, fallback = 0) {
 }
 
 function episodesPayloadFromCsv(text, csvMtime = 0) {
-  const rows = parseCsv(text);
-  const cumulative = Object.fromEntries(REWARD_COMPONENT_KEYS.map((key) => [key, 0]));
+  const { headers, rows } = parseCsv(text);
+  const componentKeys = rewardComponentKeysFromHeaders(headers);
+  const cumulative = Object.fromEntries(componentKeys.map((key) => [key, 0]));
   const episodes = rows.map((row, rowIndex) => {
     const episodeAccumulated = {};
-    for (const key of REWARD_COMPONENT_KEYS) {
+    for (const key of componentKeys) {
       const value = toFloat(row[`comp_${key}`], 0);
       episodeAccumulated[key] = value;
       cumulative[key] += value;
@@ -158,13 +153,16 @@ function episodesPayloadFromCsv(text, csvMtime = 0) {
   });
 
   const modelName = window.TrainingPlot?.getSelectedModel?.();
+  const componentColors = Object.fromEntries(
+    componentKeys.map((key) => [key, componentColor(key)]),
+  );
   return {
     csv_path: modelName ? `${modelName}/episodes.csv` : "episodes.csv",
     csv_mtime: csvMtime,
     episodes,
     episode_count: episodes.length,
-    component_keys: [...REWARD_COMPONENT_KEYS],
-    component_colors: { ...REWARD_COMPONENT_COLORS },
+    component_keys: [...componentKeys],
+    component_colors: componentColors,
   };
 }
 
@@ -192,8 +190,13 @@ function formatEpisodeLabel(episode) {
   return `Episode ${idx} · ${length} steps · ${timesteps.toLocaleString()} actor steps`;
 }
 
+function componentColor(key) {
+  const hue = hashString(key) % 360;
+  return `hsl(${hue}, 65%, 55%)`;
+}
+
 function componentColors(keys) {
-  return keys.map((key) => REWARD_COMPONENT_COLORS[key] || "#888888");
+  return keys.map((key) => componentColor(key));
 }
 
 function componentValuesFromBag(bag, keys) {
@@ -246,7 +249,7 @@ async function renderPlot() {
   const episodes = rewardState.payload?.episodes || [];
   const episode = episodes[rewardState.episodeIndex];
   const plotId = "plot-reward-components";
-  const keys = rewardState.payload?.component_keys || REWARD_COMPONENT_KEYS;
+  const keys = rewardState.payload?.component_keys || [];
 
   if (!episode) {
     Plotly.react(

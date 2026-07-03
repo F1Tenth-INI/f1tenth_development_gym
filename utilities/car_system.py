@@ -15,7 +15,7 @@ from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX # 35MB
+from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX, WP_S_IDX # 35MB
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
@@ -66,6 +66,8 @@ class CarSystem:
         self.lidar_visualization_color = (255, 0, 255)
         self.lidar_utils = LidarHelper()
         self.laptimes = []
+        self._lap_finished = False
+        self._last_lap_time = 0.0
 
         # Pure control without noise
         self.angular_control_calculated = 0
@@ -201,6 +203,8 @@ class CarSystem:
         self.imu = IMUUtilities.zeros_dict()
         self.motor_sensors = {}
         self.laptimes = []
+        self._lap_finished = False
+        self._last_lap_time = 0.0
         self.lap_limit_reached = False
         self._virtual_opponent_collision = False
         self.virtual_opponents = VirtualOpponents.from_settings()
@@ -294,6 +298,36 @@ class CarSystem:
 
     def _build_controller_observation(self, driver_observation: dict[str, Any]) -> dict[str, Any]:
         """Enrich raw driver observation with CarSystem-computed planner fields."""
+        frenet = self.waypoint_utils.frenet_coordinates
+        along_track_s = float(frenet[0]) if frenet is not None else 0.0
+        waypoints = self.waypoint_utils.waypoints
+        if waypoints is not None and len(waypoints) > 0:
+            track_length = float(waypoints[-1][WP_S_IDX])
+            if track_length > 0.0:
+                wrapped_s = along_track_s % track_length
+                if wrapped_s < 0.0:
+                    wrapped_s += track_length
+                along_track_progress = wrapped_s / track_length
+            else:
+                along_track_progress = 0.0
+        else:
+            along_track_progress = 0.0
+        lap_fraction = float(self.waypoint_utils.cumulative_progress % 1.0)
+
+        lap_finished = bool(self._lap_finished)
+        if lap_finished:
+            lap_time = float(self._last_lap_time)
+        elif (
+            self.lap_analyzer is not None
+            and self.lap_analyzer.single_measurement_point_time is not None
+        ):
+            lap_time = float(self.time - self.lap_analyzer.single_measurement_point_time)
+        else:
+            lap_time = 0.0
+
+        # print("Lap fraction: ", lap_fraction)
+        # print("along_track_progress: ", along_track_progress)
+
         controller_observation = {
             **driver_observation,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
@@ -302,6 +336,11 @@ class CarSystem:
             "frenet_coordinates": np.asarray(
                 self.waypoint_utils.frenet_coordinates, dtype=np.float32
             ),
+            "along_track_progress": along_track_progress,
+            "lap_fraction": lap_fraction,
+            "lap_finished": lap_finished,
+            "lap_time": lap_time,
+            "lap_count": len(self.laptimes),
             # Flatten sensors for planners / observation builders (also under driver_obs["sensors"]).
             "imu": self.imu,
             "motor_sensors": self.motor_sensors,
@@ -331,7 +370,9 @@ class CarSystem:
         return controller_observation
 
     def process_observation(self, driver_observation):
-                
+        # Clear lap-finished pulse from the previous control step (already delivered via on_step_end).
+        self._lap_finished = False
+
         # Control step
         # observation: car_state, scans/lidar, sensors (imu + drivetrain), from sim or ROS bridge.
         # env_state (optional): full-environment snapshot in driver_observation for multi-agent sim.
@@ -455,6 +496,7 @@ class CarSystem:
             self.waypoints_for_controller = self.chose_raceline_from_wpts()
         self.handle_emergency_slowdown()
         self.waypoint_utils.get_frenet_coordinates(self.car_state)
+        self.waypoint_utils.get_cumulative_lap_progress()
 
     def _update_opponent_tracker(self):
         """Detect/track opponents from the ego lidar (once per control step)."""
@@ -679,6 +721,8 @@ class CarSystem:
     Called by LapAnalyser when a lap is completed
     '''
     def lap_complete_cb(self,lap_time, mean_distance, std_distance, max_distance):
+        self._lap_finished = True
+        self._last_lap_time = float(lap_time)
         self.laptimes.append(lap_time)
         print(f"Lap time: {lap_time}, Error: Mean: {mean_distance}, std: {std_distance}, max: {max_distance}")
 

@@ -138,7 +138,15 @@ class RLAgentPlanner(template_planner):
         self.prev_obs_raw: Optional[np.ndarray] = None
         self.prev_action: Optional[np.ndarray] = None
 
-        self.action_denormalization_array = self.ACTION_DENORM.copy()
+        # self.action_denormalization_array = vehicle_params.to_action_denorm()
+        self.action_denormalization_array = np.array([0.4, 3.0], dtype=np.float32)
+
+        print(
+            f"[RLAgentPlanner] action denorm (±1 -> physical): "
+            f"steer=±{self.action_denormalization_array[0]:.4f} rad, "
+            f"long=±{self.action_denormalization_array[1]:.4f} "
+            f"{'m/s' if Settings.MOTOR_PID_IN_CAR_MODEL else 'm/s²'}"
+        )
 
         # episode accumulation
         self._episode: list[dict] = []
@@ -280,6 +288,7 @@ class RLAgentPlanner(template_planner):
             return  # first step guard
 
         self._append_lidar_history(driver_obs)
+        # self._append_virtual_opponent_pose_relative_history(driver_obs)
         next_obs = self._build_observation(driver_obs)
 
         reward = float(driver_obs.get("reward", 0.0))
@@ -374,8 +383,7 @@ class RLAgentPlanner(template_planner):
             controller_observation = getattr(self, "_controller_observation", None)
         fallback_control = self.fallback_planner.process_observation(controller_observation)
         fallback_action = fallback_control / self.action_denormalization_array
-        # return [0., 0.]
-        return fallback_action
+        return np.clip(fallback_action, -1.0, 1.0).astype(np.float32)
 
 
     def _build_super_observation(self, controller_observation: Dict[str, Any]) -> Dict[str, np.ndarray]:
@@ -399,8 +407,8 @@ class RLAgentPlanner(template_planner):
         sensors = controller_observation.get("sensors") or {}
         imu = controller_observation.get("imu", sensors.get("imu", {}))
         motor_sensors = controller_observation.get("motor_sensors", sensors.get("motor_sensors", {}))
-
         return {
+            **controller_observation,
             "car_state": car_state,
             "state_history": state_history,
             "imu": imu,

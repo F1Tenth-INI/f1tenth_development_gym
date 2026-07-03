@@ -75,6 +75,10 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
     imu_x = np.asarray(super_obs["imu"]["imu_a_x"], dtype=np.float32).reshape(-1)
     imu_y = np.asarray(super_obs["imu"]["imu_a_y"], dtype=np.float32).reshape(-1)
 
+    lap_fraction = float(super_obs["lap_fraction"])
+    along_track_progress = float(super_obs["along_track_progress"])
+    lap_finished = float(super_obs["lap_finished"])
+    lap_time_s = float(super_obs["lap_time"])
 
     obs = np.concatenate(
         [
@@ -89,6 +93,10 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             # 1/10000 * motor_angular_velocity,
             0.2 * imu_x,
             0.2 * imu_y,
+            # [1.0 * lap_fraction],
+            # [1.0 * along_track_progress],
+            # [1.0 * lap_finished],
+            # [0.01 * lap_time_s],
         ]
     ).astype(np.float32)
 
