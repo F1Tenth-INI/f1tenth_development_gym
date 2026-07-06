@@ -81,17 +81,15 @@ def _is_array_like_column(series: pd.Series) -> bool:
     return False
 
 
-def _reward_component_keys() -> List[str]:
-    return [
-        "progress",
-        "crash_reward",
-        "wp_distance_penalty",
-        "d_action_penality",
-        "speed_cap_penalty",
-        "proximity_penalty",
-        "stuck_reward",
-        "spin_reward",
-    ]
+def _reward_component_keys_from_stats_df(df: pd.DataFrame) -> List[str]:
+    if df.empty or "component" not in df.columns:
+        return []
+    keys = []
+    for component in df["component"].tolist():
+        name = str(component).strip()
+        if name:
+            keys.append(name)
+    return sorted(set(keys))
 
 
 def _load_reward_components_live_from_stats(model_dir: str) -> Optional[Dict[str, Any]]:
@@ -106,7 +104,9 @@ def _load_reward_components_live_from_stats(model_dir: str) -> Optional[Dict[str
     if df.empty or "component" not in df.columns or "accumulated" not in df.columns:
         return None
 
-    keys = _reward_component_keys()
+    keys = _reward_component_keys_from_stats_df(df)
+    if not keys:
+        return None
     total_accumulated = {key: 0.0 for key in keys}
     for _, row in df.iterrows():
         component = str(row.get("component", "")).strip()
