@@ -119,6 +119,9 @@ function setActiveTab(tabName) {
   });
 
   notifyTabChange();
+  if (tabName === "observations") {
+    window.ObsTab?.start?.();
+  }
 }
 
 function bindTabs() {
@@ -130,7 +133,7 @@ function bindTabs() {
 
   const params = new URLSearchParams(window.location.search);
   const requestedTab = params.get("tab");
-  if (requestedTab === "reward" || requestedTab === "metrics") {
+  if (requestedTab === "reward" || requestedTab === "metrics" || requestedTab === "observations") {
     setActiveTab(requestedTab);
   }
 }
@@ -168,6 +171,9 @@ async function initMain() {
     setGlobalStatus(appState.selectedModel ? `Model: ${appState.selectedModel}` : "No models");
     notifyModelChange();
     notifyTabChange();
+    if (appState.activeTab === "observations") {
+      window.ObsTab?.start?.();
+    }
     window.setInterval(() => {
       void loadModels({ preserveSelection: true }).then(({ changed, selectionChanged }) => {
         if (selectionChanged) {

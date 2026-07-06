@@ -218,6 +218,8 @@ class ObsRewardTracker:
             self.obs_tracking_dir, "reward_components_histogram.csv"
         )
         self.summary_path = os.path.join(self.obs_tracking_dir, "tracker_summary.json")
+        self.obs_history_dir = os.path.join(self.obs_tracking_dir, "history")
+        self.obs_history_manifest_path = os.path.join(self.obs_history_dir, "manifest.json")
 
         self._obs_seen = 0
         self._obs_last_flush_seen = 0
@@ -432,6 +434,100 @@ class ObsRewardTracker:
             return False
         return (self._obs_seen - self._obs_last_flush_seen) >= self.flush_every
 
+    def _write_obs_history_snapshot(
+        self,
+        hist_payload: Dict[str, np.ndarray],
+        obs_std: np.ndarray,
+    ) -> None:
+        if self._obs_dim is None or self._obs_mean is None or self._obs_min is None or self._obs_max is None:
+            return
+        os.makedirs(self.obs_history_dir, exist_ok=True)
+        dim_limit = min(self._obs_dim, self.hist_max_dims)
+        dims: List[Dict[str, Any]] = []
+        for i in range(dim_limit):
+            counts = hist_payload.get(f"obs_{i}_counts")
+            edges = hist_payload.get(f"obs_{i}_edges")
+            if counts is None or edges is None:
+                continue
+            dims.append(
+                {
+                    "idx": i,
+                    "mean": float(self._obs_mean[i]),
+                    "std": float(obs_std[i]),
+                    "min": float(self._obs_min[i]),
+                    "max": float(self._obs_max[i]),
+                    "counts": counts.astype(int).tolist(),
+                    "edges": edges.astype(float).tolist(),
+                }
+            )
+        snapshot = {
+            "obs_seen": int(self._obs_seen),
+            "obs_dim": int(self._obs_dim),
+            "hist_bins": int(self.hist_bins),
+            "hist_sample_count": int(self._obs_reservoir_fill),
+            "dims": dims,
+        }
+        snapshot_path = os.path.join(self.obs_history_dir, f"snapshot_{self._obs_seen}.json")
+        if os.path.isfile(snapshot_path):
+            return
+        with open(snapshot_path, "w", encoding="utf-8") as f:
+            json.dump(snapshot, f, separators=(",", ":"))
+
+        manifest: List[Dict[str, Any]] = []
+        if os.path.isfile(self.obs_history_manifest_path):
+            try:
+                with open(self.obs_history_manifest_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, list):
+                    manifest = loaded
+            except (OSError, json.JSONDecodeError):
+                manifest = []
+        manifest = [entry for entry in manifest if int(entry.get("obs_seen", -1)) != int(self._obs_seen)]
+        manifest.append(
+            {
+                "obs_seen": int(self._obs_seen),
+                "obs_dim": int(self._obs_dim),
+                "hist_sample_count": int(self._obs_reservoir_fill),
+                "path": os.path.basename(snapshot_path),
+            }
+        )
+        manifest.sort(key=lambda item: int(item.get("obs_seen", 0)))
+        with open(self.obs_history_manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+
+    def _append_obs_stats_history(self, obs_std: np.ndarray) -> None:
+        if self._obs_dim is None or self._obs_mean is None or self._obs_min is None or self._obs_max is None:
+            return
+        history_csv = os.path.join(self.obs_tracking_dir, "obs_stats_history.csv")
+        if os.path.isfile(history_csv):
+            try:
+                with open(history_csv, "r", encoding="utf-8") as f:
+                    last_line = ""
+                    for last_line in f:
+                        pass
+                if last_line and not last_line.startswith("obs_seen"):
+                    last_seen = int(last_line.split(",", 1)[0])
+                    if last_seen == int(self._obs_seen):
+                        return
+            except (OSError, ValueError, IndexError):
+                pass
+        write_header = not os.path.isfile(history_csv)
+        with open(history_csv, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(["obs_seen", "obs_idx", "mean", "std", "min", "max"])
+            for i in range(self._obs_dim):
+                writer.writerow(
+                    [
+                        int(self._obs_seen),
+                        i,
+                        float(self._obs_mean[i]),
+                        float(obs_std[i]),
+                        float(self._obs_min[i]),
+                        float(self._obs_max[i]),
+                    ]
+                )
+
     def flush(self, render_png: bool = False) -> None:
         if not self.enabled:
             return
@@ -448,6 +544,8 @@ class ObsRewardTracker:
             for i in range(self._obs_dim):
                 writer.writerow([i, self._obs_seen, float(self._obs_mean[i]), float(obs_std[i]), float(self._obs_min[i]), float(self._obs_max[i])])
 
+        self._append_obs_stats_history(obs_std)
+
         if self._obs_reservoir is not None and self._obs_reservoir_fill > 0:
             sample = self._obs_reservoir[: self._obs_reservoir_fill, :]
             dim_limit = min(self._obs_dim, self.hist_max_dims)
@@ -462,6 +560,7 @@ class ObsRewardTracker:
                 hist_payload[f"obs_{i}_counts"] = counts.astype(np.int64)
                 hist_payload[f"obs_{i}_edges"] = edges.astype(np.float32)
             np.savez_compressed(self.obs_hist_npz_path, **hist_payload)
+            self._write_obs_history_snapshot(hist_payload, obs_std)
 
             if render_png:
                 try:

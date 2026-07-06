@@ -238,3 +238,18 @@ body.touch-scroll .metrics-chart .main-svg {
   flex-direction: column;
   align-items: stretch;
 }
+
+#tab-observations .panel-header {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.obs-plot {
+  min-height: 48vh;
+  padding-bottom: 0.5rem;
+}
+
+.obs-evolution-plot {
+  min-height: 32vh;
+  padding-top: 0;
+}

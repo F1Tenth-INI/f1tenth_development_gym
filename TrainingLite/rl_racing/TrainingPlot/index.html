@@ -29,6 +29,9 @@
       <button type="button" class="tab" data-tab="reward" role="tab" aria-selected="false" aria-controls="tab-reward">
         Reward plotter
       </button>
+      <button type="button" class="tab" data-tab="observations" role="tab" aria-selected="false" aria-controls="tab-observations">
+        Observations
+      </button>
     </nav>
   </header>
 
@@ -62,10 +65,40 @@
       <div id="plot-reward-components" class="plot"></div>
       <p id="reward-status" class="status" aria-live="polite"></p>
     </section>
+
+    <section id="tab-observations" class="tab-panel" role="tabpanel" hidden>
+      <div class="panel-header">
+        <p id="obs-meta-line" class="meta-line">Loading obs_tracking data…</p>
+        <div class="controls">
+          <label title="Tracker flush snapshot (observations seen)">
+            Training progress
+            <input type="range" id="obs-snapshot-slider" min="0" max="0" value="0" step="1" disabled>
+          </label>
+          <output id="obs-snapshot-value" for="obs-snapshot-slider">—</output>
+          <label title="Observation dimension index">
+            Dimension
+            <select id="obs-dim-select" disabled>
+              <option value="0">obs[0]</option>
+            </select>
+          </label>
+          <label title="Histogram layout">
+            View
+            <select id="obs-view-mode">
+              <option value="single">Single dimension</option>
+              <option value="grid">All dimensions (grid)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div id="plot-obs-distributions" class="plot obs-plot"></div>
+      <div id="plot-obs-evolution" class="plot obs-evolution-plot"></div>
+      <p id="obs-status" class="status" aria-live="polite"></p>
+    </section>
   </main>
 
-  <script src="main.js"></script>
-  <script src="metrics_tab.js"></script>
-  <script src="reward_tab.js"></script>
+  <script src="main.js?v=4"></script>
+  <script src="metrics_tab.js?v=4"></script>
+  <script src="reward_tab.js?v=4"></script>
+  <script src="obs_tab.js?v=5"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ from pathlib import Path
 
 TRAINING_PLOT_DIR = Path(__file__).resolve().parent
 MODELS_ROOT = TRAINING_PLOT_DIR.parent / "models"
-STATIC_FILES = ("index.html", "styles.css", "main.js", "metrics_tab.js", "reward_tab.js")
+STATIC_FILES = ("index.html", "styles.css", "main.js", "metrics_tab.js", "reward_tab.js", "obs_tab.js")
 EPISODES_CSV = "episodes.csv"
 LEARNING_METRICS_CSV = "learning_metrics.csv"
 

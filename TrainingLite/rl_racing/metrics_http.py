@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import pandas as pd
@@ -196,6 +197,242 @@ def load_reward_components_payload(model_dir: str, model_name: str) -> Dict[str,
         "checkpoints": checkpoints,
         "checkpoint_count": len(checkpoints),
     }
+
+
+def _load_obs_tracker_summary(model_dir: str) -> Dict[str, Any]:
+    summary_path = Path(model_dir) / "obs_tracking" / "tracker_summary.json"
+    if not summary_path.is_file():
+        return {}
+    try:
+        with open(summary_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _obs_snapshot_from_live_files(model_dir: str) -> Optional[Dict[str, Any]]:
+    """Build a snapshot payload from the latest obs_stats.csv + obs_histograms.npz."""
+    tracking_dir = Path(model_dir) / "obs_tracking"
+    stats_path = tracking_dir / "obs_stats.csv"
+    npz_path = tracking_dir / "obs_histograms.npz"
+    if not stats_path.is_file() or not npz_path.is_file():
+        return None
+    try:
+        stats_df = pd.read_csv(stats_path)
+    except Exception:
+        return None
+    if stats_df.empty or "obs_idx" not in stats_df.columns:
+        return None
+
+    summary = _load_obs_tracker_summary(model_dir)
+    obs_seen = int(summary.get("obs_seen") or stats_df["count"].iloc[0] or 0)
+    obs_dim = int(summary.get("obs_dim") or len(stats_df))
+    hist_bins = int(summary.get("obs_hist_bins") or 40)
+    hist_sample_count = int(summary.get("obs_hist_sample_count") or 0)
+
+    dims: List[Dict[str, Any]] = []
+    try:
+        npz = np.load(npz_path)
+    except Exception:
+        npz = None
+
+    for _, row in stats_df.iterrows():
+        idx = int(row["obs_idx"])
+        dim_entry: Dict[str, Any] = {
+            "idx": idx,
+            "mean": float(row.get("mean", 0.0)),
+            "std": float(row.get("std", 0.0)),
+            "min": float(row.get("min", 0.0)),
+            "max": float(row.get("max", 0.0)),
+        }
+        if npz is not None:
+            counts_key = f"obs_{idx}_counts"
+            edges_key = f"obs_{idx}_edges"
+            if counts_key in npz.files and edges_key in npz.files:
+                dim_entry["counts"] = np.asarray(npz[counts_key], dtype=int).tolist()
+                dim_entry["edges"] = np.asarray(npz[edges_key], dtype=float).tolist()
+        dims.append(dim_entry)
+
+    return {
+        "obs_seen": obs_seen,
+        "obs_dim": obs_dim,
+        "hist_bins": hist_bins,
+        "hist_sample_count": hist_sample_count,
+        "dims": dims,
+        "is_live": True,
+        "source": "obs_histograms.npz",
+    }
+
+
+def _load_obs_history_manifest(model_dir: str) -> List[Dict[str, Any]]:
+    manifest_path = Path(model_dir) / "obs_tracking" / "history" / "manifest.json"
+    entries: List[Dict[str, Any]] = []
+    if manifest_path.is_file():
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                entries = [entry for entry in loaded if isinstance(entry, dict)]
+        except (OSError, json.JSONDecodeError):
+            entries = []
+
+    if entries:
+        return sorted(entries, key=lambda item: int(item.get("obs_seen", 0)))
+
+    history_dir = Path(model_dir) / "obs_tracking" / "history"
+    if not history_dir.is_dir():
+        return []
+    for json_path in sorted(history_dir.glob("snapshot_*.json")):
+        try:
+            obs_seen = int(json_path.stem.split("_", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        entries.append({"obs_seen": obs_seen, "path": json_path.name})
+    return sorted(entries, key=lambda item: int(item.get("obs_seen", 0)))
+
+
+def _load_obs_snapshot_by_seen(model_dir: str, obs_seen: int) -> Optional[Dict[str, Any]]:
+    history_dir = Path(model_dir) / "obs_tracking" / "history"
+    snapshot_path = history_dir / f"snapshot_{obs_seen}.json"
+    if snapshot_path.is_file():
+        try:
+            with open(snapshot_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                payload["is_live"] = False
+                payload["source"] = snapshot_path.name
+                return payload
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    live = _obs_snapshot_from_live_files(model_dir)
+    if live is not None and int(live.get("obs_seen", -1)) == int(obs_seen):
+        return live
+    return None
+
+
+def _load_obs_stats_history(model_dir: str) -> List[Dict[str, Any]]:
+    history_path = Path(model_dir) / "obs_tracking" / "obs_stats_history.csv"
+    rows: List[Dict[str, Any]] = []
+    if history_path.is_file():
+        try:
+            df = pd.read_csv(history_path)
+        except Exception:
+            df = pd.DataFrame()
+        if not df.empty and "obs_seen" in df.columns and "obs_idx" in df.columns:
+            for _, row in df.iterrows():
+                try:
+                    rows.append(
+                        {
+                            "obs_seen": int(row["obs_seen"]),
+                            "obs_idx": int(row["obs_idx"]),
+                            "mean": float(row.get("mean", 0.0)),
+                            "std": float(row.get("std", 0.0)),
+                            "min": float(row.get("min", 0.0)),
+                            "max": float(row.get("max", 0.0)),
+                        }
+                    )
+                except (TypeError, ValueError):
+                    continue
+    if rows:
+        return rows
+
+    stats_path = Path(model_dir) / "obs_tracking" / "obs_stats.csv"
+    if not stats_path.is_file():
+        return []
+    summary = _load_obs_tracker_summary(model_dir)
+    try:
+        obs_seen = int(summary.get("obs_seen") or 0)
+        stats_df = pd.read_csv(stats_path)
+    except Exception:
+        return []
+    if stats_df.empty or obs_seen <= 0:
+        return []
+    fallback_rows: List[Dict[str, Any]] = []
+    for _, row in stats_df.iterrows():
+        try:
+            fallback_rows.append(
+                {
+                    "obs_seen": obs_seen,
+                    "obs_idx": int(row["obs_idx"]),
+                    "mean": float(row.get("mean", 0.0)),
+                    "std": float(row.get("std", 0.0)),
+                    "min": float(row.get("min", 0.0)),
+                    "max": float(row.get("max", 0.0)),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    return fallback_rows
+
+
+def load_obs_tracking_payload(
+    model_dir: str,
+    model_name: str,
+    *,
+    obs_seen: Optional[int] = None,
+    include_stats: bool = False,
+) -> Dict[str, Any]:
+    """Load observation tracking manifest and optionally one snapshot's histograms."""
+    summary = _load_obs_tracker_summary(model_dir)
+    manifest = _load_obs_history_manifest(model_dir)
+    live = _obs_snapshot_from_live_files(model_dir)
+
+    snapshots_meta: List[Dict[str, Any]] = []
+    seen_values = set()
+    for entry in manifest:
+        try:
+            steps = int(entry.get("obs_seen", 0))
+        except (TypeError, ValueError):
+            continue
+        seen_values.add(steps)
+        snapshots_meta.append(
+            {
+                "obs_seen": steps,
+                "obs_dim": int(entry.get("obs_dim") or summary.get("obs_dim") or 0),
+                "hist_sample_count": int(entry.get("hist_sample_count") or 0),
+                "is_live": False,
+            }
+        )
+
+    if isinstance(live, dict):
+        live_steps = int(live.get("obs_seen") or 0)
+        if live_steps > 0:
+            live_meta = {
+                "obs_seen": live_steps,
+                "obs_dim": int(live.get("obs_dim") or 0),
+                "hist_sample_count": int(live.get("hist_sample_count") or 0),
+                "is_live": True,
+            }
+            if live_steps in seen_values:
+                snapshots_meta = [
+                    live_meta if item["obs_seen"] == live_steps else item for item in snapshots_meta
+                ]
+            else:
+                snapshots_meta.append(live_meta)
+            snapshots_meta.sort(key=lambda item: int(item.get("obs_seen", 0)))
+
+    payload: Dict[str, Any] = {
+        "model_name": model_name,
+        "model_dir": model_dir,
+        "summary": summary,
+        "snapshots": snapshots_meta,
+        "snapshot_count": len(snapshots_meta),
+    }
+    if include_stats:
+        payload["stats_history"] = _load_obs_stats_history(model_dir)
+
+    if obs_seen is not None:
+        snapshot = _load_obs_snapshot_by_seen(model_dir, int(obs_seen))
+        if snapshot is None and isinstance(live, dict):
+            if int(live.get("obs_seen", -1)) == int(obs_seen):
+                snapshot = live
+        payload["snapshot"] = snapshot
+        if snapshot is None:
+            payload["error"] = f"snapshot not found for obs_seen={obs_seen}"
+
+    return payload
 
 
 def load_metrics_payload(
@@ -435,6 +672,23 @@ class MetricsHttpServer:
                     load_reward_components_payload,
                     self.model_dir,
                     self.model_name,
+                )
+                payload["poll_interval_s"] = self.poll_hint_s
+                writer.write(_json_response(payload))
+            elif path.startswith("/api/obs-tracking"):
+                first_line = request_header.split("\r\n", 1)[0]
+                raw_path = first_line.split()[1] if len(first_line.split()) >= 2 else "/"
+                query = parse_qs(urlparse(raw_path).query)
+                obs_seen_raw = query.get("obs_seen", [None])[0]
+                obs_seen = int(obs_seen_raw) if obs_seen_raw not in (None, "") else None
+                stats_raw = query.get("stats", ["0"])[0]
+                include_stats = str(stats_raw).lower() in ("1", "true", "yes")
+                payload = await asyncio.to_thread(
+                    load_obs_tracking_payload,
+                    self.model_dir,
+                    self.model_name,
+                    obs_seen=obs_seen,
+                    include_stats=include_stats,
                 )
                 payload["poll_interval_s"] = self.poll_hint_s
                 writer.write(_json_response(payload))

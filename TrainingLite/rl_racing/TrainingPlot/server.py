@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from metrics_http import load_metrics_payload, load_reward_components_payload
+from metrics_http import load_metrics_payload, load_reward_components_payload, load_obs_tracking_payload
 
 from TrainingPlot.plotter_utils import (
     EPISODES_CSV,
@@ -50,6 +50,9 @@ class TrainingPlotHandler(http.server.BaseHTTPRequestHandler):
             return
         if parsed.path in ("/api/reward-components", "/reward-components"):
             self._handle_reward_components_api(query)
+            return
+        if parsed.path in ("/api/obs-tracking", "/obs-tracking"):
+            self._handle_obs_tracking_api(query)
             return
         if parsed.path in ("/api/health", "/health"):
             self._handle_health_api(query)
@@ -179,6 +182,41 @@ class TrainingPlotHandler(http.server.BaseHTTPRequestHandler):
         payload["poll_interval_s"] = self.poll_hint_s
         self._send_json(payload)
 
+    def _handle_obs_tracking_api(self, query: dict[str, list[str]]) -> None:
+        model_name = self._resolve_model_name(query)
+        model_dir = self._resolve_model_dir(model_name)
+        if model_dir is None or not model_name:
+            self._send_json(
+                {
+                    "model_name": model_name,
+                    "snapshots": [],
+                    "snapshot_count": 0,
+                    "poll_interval_s": self.poll_hint_s,
+                    "error": "model not found",
+                },
+                status=404,
+            )
+            return
+
+        obs_seen_raw = query.get("obs_seen", [None])[0]
+        obs_seen: int | None = None
+        if obs_seen_raw not in (None, ""):
+            try:
+                obs_seen = int(obs_seen_raw)
+            except ValueError:
+                obs_seen = None
+        stats_raw = query.get("stats", ["0"])[0]
+        include_stats = str(stats_raw).lower() in ("1", "true", "yes")
+
+        payload = load_obs_tracking_payload(
+            str(model_dir),
+            model_name,
+            obs_seen=obs_seen,
+            include_stats=include_stats,
+        )
+        payload["poll_interval_s"] = self.poll_hint_s
+        self._send_json(payload)
+
     def _handle_health_api(self, query: dict[str, list[str]]) -> None:
         model_name = self._resolve_model_name(query)
         self._send_json({"ok": True, "model_name": model_name})
@@ -204,6 +242,7 @@ class TrainingPlotHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
