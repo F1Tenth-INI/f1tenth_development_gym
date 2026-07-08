@@ -15,7 +15,7 @@ from utilities.state_utilities import *
 from utilities.obstacle_detector import ObstacleDetector
 from utilities.lidar_utils import LidarHelper
 
-from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX, WP_S_IDX # 35MB
+from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX, WP_KAPPA_IDX, WP_S_IDX # 35MB
 from utilities.render_utilities import RenderUtils
 from utilities.waypoint_utils import WaypointUtils
 
@@ -40,6 +40,7 @@ except ModuleNotFoundError:
 # from TrainingLite.slip_prediction import predict
 
 from utilities.EmergencySlowdown import EmergencySlowdown
+from utilities.cbf_safety_filter import CBFSafetyFilter
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.episode_termination import EpisodeTerminator
 from utilities.opponent_tracker import OpponentTracker
@@ -164,6 +165,12 @@ class CarSystem:
 
         self.emergency_slowdown = EmergencySlowdown()
 
+        # Controller-agnostic CBF-QP safety filter (opt-in via Settings).
+        self.cbf_safety_filter = (
+            CBFSafetyFilter() if getattr(Settings, "CBF_SAFETY_FILTER", False) else None
+        )
+        self.cbf_info = None
+
         self.config_onlinelearning = yaml.load(
                 open(os.path.join("SI_Toolkit_ASF", "config_onlinelearning.yml")),
                 Loader=yaml.FullLoader
@@ -210,6 +217,7 @@ class CarSystem:
         self.virtual_opponents = VirtualOpponents.from_settings()
 
         self.control_index = 0
+        self.cbf_info = None
         self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
         self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
         self.lidar_utils.reset()
@@ -341,9 +349,15 @@ class CarSystem:
             "lap_finished": lap_finished,
             "lap_time": lap_time,
             "lap_count": len(self.laptimes),
+            "control_index": int(self.control_index),
             # Flatten sensors for planners / observation builders (also under driver_obs["sensors"]).
             "imu": self.imu,
             "motor_sensors": self.motor_sensors,
+            "virtual_opponents_poses": (
+                self.virtual_opponents.get_poses()
+                if self.virtual_opponents is not None
+                else np.zeros((0, 3), dtype=np.float32)
+            ),
         }
         controller_observation["processed_ranges"] = np.asarray(
             self.lidar_utils.processed_ranges, dtype=np.float32
@@ -391,11 +405,19 @@ class CarSystem:
             # MPC delay compensation: only when a control sequence exists (not during startup ramp).
             if getattr(self.planner, 'optimal_control_sequence', None) is not None:
                 self.angular_control, self.translational_control = self.extract_control_from_control_sequence()
-            
+
+            # Controller-agnostic CBF-QP safety filter: minimally adjust the command so the
+            # car stays inside the track and below the lateral-grip limit.
+            if self.cbf_safety_filter is not None:
+                u_safe, self.cbf_info = self.cbf_safety_filter.filter_from_observation(
+                    np.array([self.angular_control, self.translational_control], dtype=np.float64),
+                    controller_observation,
+                )
+                self.angular_control, self.translational_control = float(u_safe[0]), float(u_safe[1])
+
         else: # planner == None
             self.angular_control = 0
             self.translational_control = 0
-        
 
         self.angular_control_calculated = self.angular_control
         self.translational_control_calculated = self.translational_control
@@ -443,6 +465,13 @@ class CarSystem:
             controller_observation, observation
         )
         controller_observation["episode_termination"] = episode_termination
+
+        if self.planner is not None:
+            policy_action = getattr(self.planner, "prev_action", None)
+            if policy_action is not None:
+                controller_observation["policy_action"] = np.asarray(
+                    policy_action, dtype=np.float32
+                )
 
         reward_result = self.reward_calculator._calculate_reward(controller_observation)
         self.reward = float(reward_result["total_reward"])
@@ -532,6 +561,13 @@ class CarSystem:
             'Wp_idx': self.waypoint_utils.nearest_waypoint_index,
         }
         label_dict.update(IMUUtilities.overlay_label_dict(self.imu))
+        if self.cbf_info is not None:
+            label_dict['CBF active'] = self.cbf_info.get('active', False)
+            label_dict['CBF intervention'] = self.cbf_info.get('intervention', 0.0)
+            label_dict['CBF h_left'] = self.cbf_info.get('h_left', float('inf'))
+            label_dict['CBF h_right'] = self.cbf_info.get('h_right', float('inf'))
+            label_dict['CBF h_speed'] = self.cbf_info.get('h_speed', float('inf'))
+            label_dict['CBF kappa_eff'] = self.cbf_info.get('kappa_ahead', float('nan'))
         for name, value in (self.reward_components or {}).items():
             label_dict[f'reward: {name}'] = float(value)
         label_dict['reward: total'] = float(self.reward)
@@ -758,6 +794,28 @@ class CarSystem:
                     'reward': lambda: self.reward,
                 }
             )
+
+            if self.cbf_safety_filter is not None:
+                self.recorder.dict_data_to_save_basic.update(
+                    {
+                        'cbf_active': lambda: float((self.cbf_info or {}).get('active', False)),
+                        'cbf_intervention': lambda: float((self.cbf_info or {}).get('intervention', 0.0)),
+                        'cbf_slack': lambda: float((self.cbf_info or {}).get('slack', 0.0)),
+                        'cbf_h_left': lambda: float((self.cbf_info or {}).get('h_left', float('inf'))),
+                        'cbf_h_right': lambda: float((self.cbf_info or {}).get('h_right', float('inf'))),
+                        'cbf_h_speed': lambda: float((self.cbf_info or {}).get('h_speed', float('inf'))),
+                        'cbf_kappa_ahead': lambda: float((self.cbf_info or {}).get('kappa_ahead', float('nan'))),
+                        'cbf_delta_nom': lambda: float((self.cbf_info or {}).get('delta_nom', float('nan'))),
+                        'cbf_delta_safe': lambda: float((self.cbf_info or {}).get('delta_safe', float('nan'))),
+                        'cbf_delta_correction': lambda: float((self.cbf_info or {}).get('delta_safe', float('nan')))
+                        - float((self.cbf_info or {}).get('delta_nom', float('nan'))),
+                        'cbf_accel_nom': lambda: float((self.cbf_info or {}).get('accel_nom', float('nan'))),
+                        'cbf_accel_safe': lambda: float((self.cbf_info or {}).get('accel_safe', float('nan'))),
+                        'cbf_accel_correction': lambda: float((self.cbf_info or {}).get('accel_safe', float('nan')))
+                        - float((self.cbf_info or {}).get('accel_nom', float('nan'))),
+                    }
+                )
+
             # Add data from outside the car stysem
             self.recorder.dict_data_to_save_basic.update(recorder_dict)
 

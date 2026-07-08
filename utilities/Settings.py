@@ -78,10 +78,10 @@ class Settings():
     ]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100, 170, 240]
     VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
-    VIRTUAL_OPPONENT_VEL_FACTORS = [0.6, 0.6, 0.6, 0.6]
+    VIRTUAL_OPPONENT_VEL_FACTORS = [0.85, 0.1, 0.1, 0.1]
     VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0, 0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
-    VIRTUAL_OPPONENT_SIZE = [0.40, 0.55]  # [width, length] in meters; None uses ego car dimensions.
+    VIRTUAL_OPPONENT_SIZE = [0.25, 0.38]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
 
@@ -108,7 +108,24 @@ class Settings():
     STOP_IF_OBSTACLE_IN_FRONT = False # Stop if obstacle is immediately in front of the car
     SLOW_DOWN_IF_OBSTACLE_ON_RACELINE = False # Slow down if obstacle is close to the next waypoints
     ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
-    
+
+    # CBF-QP safety filter (controller-agnostic, applied in CarSystem after the planner).
+    # Keeps the car inside the track (boundary HOCBF) and below the lateral-grip limit
+    # (friction-circle speed CBF). See utilities/cbf_safety_filter.py.
+    CBF_SAFETY_FILTER = True         # Master switch for the safety filter
+    CBF_BOUNDARY_MARGIN = 0.20       # [m] shrink corridor by this (>= half car width)
+    CBF_ALPHA_1 = 2.5                # HOCBF class-K gain 1 (boundary), [1/s]
+    CBF_ALPHA_2 = 2.5                # HOCBF class-K gain 2 (boundary), [1/s]
+    CBF_ALPHA_V = 2.0                # Speed CBF class-K gain, [1/s]
+    CBF_GRIP_FACTOR = 0.9            # Physical fraction of mu*g usable as lateral accel (<= 1)
+    CBF_SPEED_MARGIN = 1.0           # Extra headroom on a_lat_max for tuning (1.0 = no extra)
+    CBF_KAPPA_DISCOUNT = 0.975        # Per-waypoint decay for discount-weighted kappa (0, 1]
+    CBF_KAPPA_MAX_STEPS = 0          # If > 0, only first N look-ahead wps for kappa; 0 = all
+    CBF_ENABLE_SPEED_BARRIER = True  # Add the friction-circle/speed barrier (accel channel)
+    CBF_WEIGHT_STEERING = 1.0        # Relative cost of deviating steering from nominal
+    CBF_WEIGHT_ACCEL = 10.0           # Relative cost of deviating acceleration from nominal
+    CBF_SLACK_PENALTY = 1.0e4        # Soft-constraint penalty (keeps the QP always feasible)
+
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
     DELETE_MAP_WITH_OBSTACLES_IF_CRASHED = False
@@ -122,7 +139,7 @@ class Settings():
 
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
-    EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
+    EXPERIMENT_MAX_LENGTH = 80000  # In sim timesteps: Length until the simulation is reset
     SIMULATION_LENGTH = 2000 # In sim timesteps: Length until the simulation is terminated
     MAX_EPISODE_LENGTH = 2048 
 

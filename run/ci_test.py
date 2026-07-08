@@ -64,6 +64,10 @@ if __name__ == "__main__":
             [*base, "--CONTROLLER", "pp", "--GLOBAL_WAYPOINT_VEL_FACTOR", "0.5", "--CONTROL_DELAY", "0.0"],
         ),
         (
+            "pp_safety_filter",
+            [*base, "--CONTROLLER", "pp", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.0"],
+        ),
+        (
             "mpc",
             [
                 *base,

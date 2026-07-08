@@ -1,5 +1,5 @@
 {
-  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/AnalyseData/mINITank/2026-05-11/2026-05-11_09-32-27_MPC_quik.csv",
+  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/ExperimentRecordings/2026-07-08_10-31-54_.csv",
   "start_index": 500,
   "end_index": 1000,
   "horizon_steps": 35,
@@ -8,11 +8,18 @@
   "enable_comparison": true,
   "show_controls": false,
   "show_delta_state": false,
+  "show_motor_sensors": false,
   "show_all_comparisons": true,
   "sync_scales": true,
   "show_metrics": true,
-  "state_name": "pose_x",
-  "selected_other_data": [],
+  "state_name": "",
+  "selected_other_data": [
+    "cbf_active",
+    "cbf_accel_nom",
+    "cbf_accel_safe",
+    "cbf_accel_correction",
+    "angular_vel_z"
+  ],
   "comparison_start_index": 500,
   "default_car_model": "Pure Pacejka Model",
   "default_car_parameters": "yokomo1_car_parameters.yml",
