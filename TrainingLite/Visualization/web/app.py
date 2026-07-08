@@ -48,6 +48,7 @@ class SettingsUpdate(BaseModel):
     enable_comparison: Optional[bool] = None
     show_controls: Optional[bool] = None
     show_delta_state: Optional[bool] = None
+    show_motor_sensors: Optional[bool] = None
     show_all_comparisons: Optional[bool] = None
     sync_scales: Optional[bool] = None
     show_metrics: Optional[bool] = None
@@ -65,6 +66,17 @@ class CsvLoadRequest(BaseModel):
 
 class SingleComparisonRequest(BaseModel):
     start_index: Optional[int] = None
+
+
+class ReplaySnapshotRequest(BaseModel):
+    index: int
+    half_window: int = 150
+    columns: Optional[List[str]] = None
+
+
+class ReplayFrameRequest(BaseModel):
+    index: int
+    include_heavy: bool = True
 
 
 def _handle(exc: Exception) -> HTTPException:
@@ -181,6 +193,55 @@ def plot_bundle() -> Dict[str, Any]:
 @app.get("/api/metrics")
 def metrics() -> Optional[Dict[str, float]]:
     return service.get_metrics()
+
+
+@app.get("/api/replay/ui-config")
+def replay_ui_config() -> Dict[str, Any]:
+    try:
+        return service.get_replay_ui_config()
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.get("/api/replay/map")
+def replay_map() -> Dict[str, Any]:
+    try:
+        return service.get_replay_map_info()
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.get("/api/replay/map-image")
+def replay_map_image():
+    try:
+        return FileResponse(service.get_replay_map_image_path())
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.get("/api/replay/track")
+def replay_track(columns: Optional[str] = None) -> Dict[str, Any]:
+    try:
+        cols = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+        return service.get_replay_track(cols)
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.post("/api/replay/frame")
+def replay_frame(req: ReplayFrameRequest) -> Dict[str, Any]:
+    try:
+        return service.get_replay_frame(req.index, include_heavy=req.include_heavy)
+    except Exception as exc:
+        raise _handle(exc)
+
+
+@app.post("/api/replay/snapshot")
+def replay_snapshot(req: ReplaySnapshotRequest) -> Dict[str, Any]:
+    try:
+        return service.get_replay_snapshot(req.index, req.half_window, req.columns)
+    except Exception as exc:
+        raise _handle(exc)
 
 
 @app.get("/")

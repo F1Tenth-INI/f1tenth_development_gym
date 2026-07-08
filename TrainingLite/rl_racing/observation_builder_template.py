@@ -93,8 +93,8 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
             # 1/10000 * motor_angular_velocity,
             0.2 * imu_x,
             0.2 * imu_y,
-            # [1.0 * lap_fraction],
-            # [1.0 * along_track_progress],
+            [1.0 * lap_fraction],
+            [1.0 * along_track_progress],
             # [1.0 * lap_finished],
             # [0.01 * lap_time_s],
         ]

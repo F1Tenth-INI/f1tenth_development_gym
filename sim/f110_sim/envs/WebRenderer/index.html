@@ -557,7 +557,9 @@
     let latestPollWallTimeS = 0.0;
     let prevPollSimTime = null;
     let prevPollWallTimeS = null;
-    let simTimeRate = 1.0; // simulated seconds per wall second
+    let simTimeRate = 1.0; // sim seconds per wall second (from backend)
+    let nominalControlHz = 25.0;
+    let nominalSimStepDt = 0.04;
     let observedFetchIntervalS = 0.1;
     let lastFetchCompleteWallS = null;
     let lastFrameId = 0;
@@ -567,6 +569,10 @@
     let experimentArchive = [];
     let experimentArchiveByFrameId = new Map();
     let playbackSimTime = null;
+    let livePrevFrame = null;
+    let liveNextFrame = null;
+    let liveNextWallS = 0.0;
+    let lastStatusUpdateS = 0.0;
     let playbackFrameIndex = 0;
     let bufferPlaybackMode = "manual"; // "live" | "manual"
     let manualPlaybackPlaying = false;
@@ -577,18 +583,32 @@
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const LIVE_BUFFER_WINDOW_S = 2.5;
+    const LIVE_BUFFER_WINDOW_S = 8.0;
     const REPLAY_BUFFER_WINDOW_S = 4.0;
     const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
-    const LIVE_TARGET_DELAY_S = 0.5;    // live view: playback trails sim for smoother interpolation
+    const LIVE_TARGET_DELAY_S = 0.35;   // stay slightly behind newest sample for interpolation
     const REPLAY_TARGET_DELAY_S = 2.0;  // replay/scrub mode
     const LIVE_MIN_BUFFER_DELAY_S = 0.35;
+    const LIVE_EXTRAPOLATE_MAX_S = 0.8;   // smooth coast through poll gaps (game netcode style)
     const REPLAY_MIN_BUFFER_DELAY_S = 1.5;
-    const LIVE_POLL_MS = 40;            // ~25 Hz; matches typical control rate better than 10 Hz
+    const LIVE_POLL_MS = 16;            // poll as fast as server allows; render is rAF-driven
+    const TELEMETRY_POLL_MS = 8000;
+    const VIEWER_HEARTBEAT_MS = 5000;
     const REPLAY_POLL_MS = 100;
-    const HISTORY_POLL_MS = 100; // legacy default; live/replay use getStatePollIntervalMs()
+    const HISTORY_POLL_MS = 100;
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
+    let livePollActive = false;
+    let liveSocket = null;
+    let liveSocketConnected = false;
+    let liveSocketWanted = true;
+    let liveSocketReconnectMs = 500;
+    let liveSocketFallbackTimer = null;
+    let liveSocketConnectFallbackToken = null;
+    let pendingWsPayload = null;
+    let wsParseWorker = null;
+    let canvasCssW = 0;
+    let canvasCssH = 0;
     let inflightFetches = 0;
     let clientSessionId = null;
     let consecutiveFetchFailures = 0;
@@ -768,6 +788,8 @@
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
+      canvasCssW = rect.width;
+      canvasCssH = rect.height;
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1157,12 +1179,7 @@
       const timeS = Number(frame.simulation_time || 0.0);
       if (!Number.isFinite(timeS)) return;
 
-      const terminalEpisodeStep =
-        !!frame.web_overlay?.force_plot_publish ||
-        (() => {
-          const stepTotalReward = parseNumeric(labels["reward: total"]);
-          return stepTotalReward !== null && stepTotalReward <= -3.0;
-        })();
+      const terminalEpisodeStep = isTerminalFrame(frame);
 
       for (const key of Object.keys(labels)) {
         if (!isIntegratableRewardComponentKey(key)) continue;
@@ -1915,7 +1932,7 @@
       const dt = Math.max(1e-6, last.simulation_time - prev.simulation_time);
       const extra = Math.max(0.0, targetTime - last.simulation_time);
       // Short extrapolation only; beyond this we prefer holding last sample.
-      const extraClamped = Math.min(extra, 0.15);
+      const extraClamped = Math.min(extra, LIVE_EXTRAPOLATE_MAX_S);
 
       const poses = [];
       const n = Math.min(prev.poses?.length || 0, last.poses?.length || 0);
@@ -2039,40 +2056,362 @@
       return replayRecordingEnabled ? REPLAY_POLL_MS : LIVE_POLL_MS;
     }
 
-    function syncLivePlaybackTime(nowS) {
-      if (frameBuffer.length === 0) return;
-      const oldestT = frameBuffer[0].simulation_time;
-      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
-      const targetDelay = getTargetBufferDelayS();
-      const minHorizon = getMinBufferDelayS();
-      if (playbackSimTime === null) {
-        playbackSimTime = newestT - targetDelay;
-        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
-        lastDrawWallTimeS = nowS;
+    function getWebSocketUrl() {
+      const host = window.location.hostname || "127.0.0.1";
+      const cfgPort = Number(metricsUiConfig?.web_render_ws_port);
+      const pagePort = Number(window.location.port);
+      const wsPort = Number.isFinite(cfgPort) && cfgPort > 0
+        ? cfgPort
+        : (Number.isFinite(pagePort) && pagePort > 0 ? pagePort + 1 : 8766);
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${host}:${wsPort}`;
+    }
+
+    function processWebSocketPayload(payload) {
+      if (!payload || typeof payload !== "object") return;
+      if (typeof payload.replay_recording_enabled === "boolean") {
+        if (payload.replay_recording_enabled !== replayRecordingEnabled) {
+          replayRecordingEnabled = payload.replay_recording_enabled;
+          applyReplayRecordingUi();
+        }
+      }
+      applySimTimingFromPayload(payload);
+      handleServerSessionChange(payload.session_id || null);
+
+      if (payload.type === "hello") {
+        noteFetchSuccess();
+        if (payload.frame) {
+          processWebSocketFrame(payload.frame, payload);
+        }
         return;
       }
-      const dtWall = Math.max(0.0, Math.min(0.1, nowS - (lastDrawWallTimeS ?? nowS)));
-      lastDrawWallTimeS = nowS;
-      const currentHorizon = newestT - playbackSimTime;
-      const horizonError = currentHorizon - targetDelay;
-      const correction = Math.max(-0.08, Math.min(0.08, 0.04 * horizonError));
-      const playbackRate = Math.max(0.2, simTimeRate * (1.0 + correction));
-      if (currentHorizon > minHorizon) {
-        playbackSimTime += dtWall * playbackRate;
+      if (payload.type === "frame" && payload.frame) {
+        noteFetchSuccess();
+        processWebSocketFrame(payload.frame, payload);
       }
-      playbackSimTime = Math.max(playbackSimTime, oldestT);
-      playbackSimTime = Math.min(playbackSimTime, newestT);
+    }
+
+    function ensureWsParseWorker() {
+      if (wsParseWorker) return;
+      const workerSrc = `
+        self.onmessage = (event) => {
+          try {
+            self.postMessage({ ok: true, payload: JSON.parse(event.data) });
+          } catch (err) {
+            self.postMessage({ ok: false });
+          }
+        };
+      `;
+      wsParseWorker = new Worker(
+        URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" }))
+      );
+      wsParseWorker.onmessage = (event) => {
+        const msg = event.data;
+        if (msg && msg.ok) pendingWsPayload = msg.payload;
+      };
+    }
+
+    function flushPendingWebSocketMessage() {
+      if (pendingWsPayload === null) return;
+      const payload = pendingWsPayload;
+      pendingWsPayload = null;
+      processWebSocketPayload(payload);
+    }
+
+    function processWebSocketFrame(frame, payload) {
+      const incomingLatestFrameId = Number(
+        payload?.latest_frame_id || frame.frame_id || 0
+      );
+      if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
+        return;
+      }
+      const s = frame;
+      if (showPositionHistory) {
+        appendHistorySamples([sanitizeFramePoses(frame)]);
+      }
+      latestSimulationTime = Number(
+        payload?.latest_simulation_time || frame.simulation_time || 0.0
+      );
+      lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
+      latestSimAtPoll = latestSimulationTime;
+      latestPollWallTimeS = performance.now() / 1000.0;
+      // WebSocket path: keep only prev/next anchors (no frameBuffer growth).
+      noteLiveFrameAnchors(s);
+      latest = s;
+      if (plotsPanelOpen) {
+        ingestPlotFrames([s]);
+      }
+      const nowWall = performance.now() / 1000.0;
+      const labels = latest?.web_overlay?.label_dict || {};
+      const labelText = showCarStateInfo && Object.keys(labels).length > 0
+        ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
+        : "";
+      const camMode = cameraFollowEgo ? "follow-car" : "free";
+      const simHzText = Number.isFinite(simTimeRate) ? ` | sim: ${simTimeRate.toFixed(2)}x` : "";
+      const transport = liveSocketConnected ? " | ws" : "";
+      if (nowWall - lastStatusUpdateS >= 0.25) {
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${transport}${labelText}`;
+        lastStatusUpdateS = nowWall;
+      }
+    }
+
+    function scheduleHttpFallbackPolling() {
+      if (liveSocketFallbackTimer !== null) {
+        clearTimeout(liveSocketFallbackTimer);
+        liveSocketFallbackTimer = null;
+      }
+      if (replayRecordingEnabled || !liveSocketWanted) {
+        return;
+      }
+      liveSocketFallbackTimer = setTimeout(async () => {
+        liveSocketFallbackTimer = null;
+        if (liveSocketConnected || replayRecordingEnabled) {
+          return;
+        }
+        await prefetchLiveBuffer();
+        startHistoryPolling();
+      }, 900);
+    }
+
+    function connectLiveWebSocket() {
+      if (!liveSocketWanted || replayRecordingEnabled) return;
+      if (
+        liveSocket
+        && (liveSocket.readyState === WebSocket.OPEN
+          || liveSocket.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+      const url = getWebSocketUrl();
+      try {
+        liveSocket = new WebSocket(url);
+      } catch (e) {
+        scheduleHttpFallbackPolling();
+        return;
+      }
+      const connectFallbackToken = {};
+      liveSocketConnectFallbackToken = connectFallbackToken;
+      setTimeout(() => {
+        if (liveSocketConnectFallbackToken !== connectFallbackToken) return;
+        if (!liveSocketConnected && liveSocketWanted && !replayRecordingEnabled) {
+          scheduleHttpFallbackPolling();
+        }
+      }, 900);
+
+      liveSocket.onopen = () => {
+        liveSocketConnected = true;
+        liveSocketReconnectMs = 500;
+        consecutiveFetchFailures = 0;
+        liveSocketConnectFallbackToken = null;
+        stopStatePolling();
+        if (liveSocketFallbackTimer !== null) {
+          clearTimeout(liveSocketFallbackTimer);
+          liveSocketFallbackTimer = null;
+        }
+      };
+      liveSocket.onmessage = (event) => {
+        // Parse off main thread; apply at most once per animation frame.
+        ensureWsParseWorker();
+        wsParseWorker.postMessage(event.data);
+      };
+      liveSocket.onerror = () => {
+        // onclose handles reconnect / fallback.
+      };
+      liveSocket.onclose = () => {
+        const wasConnected = liveSocketConnected;
+        liveSocketConnected = false;
+        liveSocket = null;
+        pendingWsPayload = null;
+        liveSocketConnectFallbackToken = null;
+        if (!liveSocketWanted || replayRecordingEnabled) {
+          return;
+        }
+        if (!wasConnected) {
+          scheduleHttpFallbackPolling();
+        }
+        setTimeout(() => {
+          if (liveSocketWanted && !replayRecordingEnabled && !liveSocketConnected) {
+            connectLiveWebSocket();
+          }
+        }, liveSocketReconnectMs);
+        liveSocketReconnectMs = Math.min(5000, Math.round(liveSocketReconnectMs * 1.6));
+      };
+    }
+
+    function disconnectLiveWebSocket() {
+      liveSocketWanted = false;
+      if (liveSocketFallbackTimer !== null) {
+        clearTimeout(liveSocketFallbackTimer);
+        liveSocketFallbackTimer = null;
+      }
+      if (liveSocket) {
+        try {
+          liveSocket.close();
+        } catch (e) {
+          // Ignore close errors.
+        }
+      }
+      liveSocket = null;
+      liveSocketConnected = false;
+    }
+
+    function applySimTimingFromPayload(payload) {
+      if (!payload || typeof payload !== "object") return;
+      if (Number.isFinite(payload.sim_time_rate) && payload.sim_time_rate > 0) {
+        simTimeRate = payload.sim_time_rate;
+        return;
+      }
+      if (Number.isFinite(payload.expected_sim_time_rate) && payload.expected_sim_time_rate > 0) {
+        simTimeRate = payload.expected_sim_time_rate;
+      }
+    }
+
+    function applySimTimingFromUiConfig(cfg) {
+      if (!cfg || typeof cfg !== "object") return;
+      if (Number.isFinite(cfg.control_hz) && cfg.control_hz > 0) {
+        nominalControlHz = cfg.control_hz;
+      }
+      if (Number.isFinite(cfg.sim_step_dt) && cfg.sim_step_dt > 0) {
+        nominalSimStepDt = cfg.sim_step_dt;
+      }
+      if (Number.isFinite(cfg.expected_sim_time_rate) && cfg.expected_sim_time_rate > 0) {
+        simTimeRate = cfg.expected_sim_time_rate;
+      } else if (Number.isFinite(cfg.control_hz) && Number.isFinite(cfg.sim_step_dt)) {
+        simTimeRate = cfg.control_hz * cfg.sim_step_dt;
+      }
+    }
+
+    function resetLiveRenderAnchors() {
+      livePrevFrame = null;
+      liveNextFrame = null;
+      liveNextWallS = 0.0;
+    }
+
+    function syncLiveRenderAnchorsFromBuffer() {
+      if (frameBuffer.length === 0) {
+        resetLiveRenderAnchors();
+        return;
+      }
+      if (frameBuffer.length === 1) {
+        livePrevFrame = null;
+        liveNextFrame = frameBuffer[0];
+        liveNextWallS = performance.now() / 1000.0;
+        return;
+      }
+      livePrevFrame = frameBuffer[frameBuffer.length - 2];
+      liveNextFrame = frameBuffer[frameBuffer.length - 1];
+      liveNextWallS = performance.now() / 1000.0;
+    }
+
+    function isTerminalFrame(frame) {
+      if (!frame) return false;
+      if (frame.web_overlay?.force_plot_publish) return true;
+      const stepTotalReward = parseNumeric(frame.web_overlay?.label_dict?.["reward: total"]);
+      return stepTotalReward !== null && stepTotalReward <= -3.0;
+    }
+
+    function isEpisodeReset(prevFrame, nextFrame) {
+      if (!prevFrame || !nextFrame) return false;
+      const prevT = Number(prevFrame.simulation_time);
+      const nextT = Number(nextFrame.simulation_time);
+      if (Number.isFinite(prevT) && Number.isFinite(nextT) && nextT + 0.25 < prevT) {
+        return true;
+      }
+      if (isTerminalFrame(prevFrame)) {
+        return true;
+      }
+      const prevEgo = prevFrame.poses?.[prevFrame.ego_idx || 0];
+      const nextEgo = nextFrame.poses?.[nextFrame.ego_idx || 0];
+      if (!prevEgo || !nextEgo) return false;
+      const dist = Math.hypot(
+        Number(nextEgo[0]) - Number(prevEgo[0]),
+        Number(nextEgo[1]) - Number(prevEgo[1])
+      );
+      return dist > 4.0;
+    }
+
+    function noteLiveFrameAnchors(frame) {
+      if (!frame) return;
+      if (liveNextFrame) {
+        if (isEpisodeReset(liveNextFrame, frame)) {
+          livePrevFrame = null;
+          liveNextFrame = frame;
+          liveNextWallS = performance.now() / 1000.0;
+          return;
+        }
+        livePrevFrame = liveNextFrame;
+      }
+      liveNextFrame = frame;
+      liveNextWallS = performance.now() / 1000.0;
+    }
+
+    // Game-style live render: rAF interpolates between received samples.
+    // Hold at terminal frames (crash/done); never extrapolate past episode end.
+    function liveRenderState(nowS) {
+      if (!liveNextFrame) {
+        if (frameBuffer.length > 0) {
+          return sanitizeFramePoses(frameBuffer[frameBuffer.length - 1]);
+        }
+        return null;
+      }
+      if (!livePrevFrame) {
+        return sanitizeFramePoses(liveNextFrame);
+      }
+      const prevT = Number(livePrevFrame.simulation_time);
+      const nextT = Number(liveNextFrame.simulation_time);
+      const simDt = Math.max(1e-6, nextT - prevT);
+      const wallFrameDt = Math.max(0.008, simDt / Math.max(0.05, simTimeRate));
+      const elapsed = Math.max(0.0, nowS - liveNextWallS);
+      const t = elapsed / wallFrameDt;
+      if (t <= 1.0) {
+        return interpolateState(livePrevFrame, liveNextFrame, t);
+      }
+      if (isTerminalFrame(liveNextFrame)) {
+        return sanitizeFramePoses(liveNextFrame);
+      }
+      const extraSim = Math.min(LIVE_EXTRAPOLATE_MAX_S, (t - 1.0) * simDt);
+      return extrapolateState(livePrevFrame, liveNextFrame, nextT + extraSim);
+    }
+
+    function appendLiveFrames(samples) {
+      if (!Array.isArray(samples) || samples.length === 0) return;
+      const sorted = [...samples].sort((a, b) => Number(a.frame_id) - Number(b.frame_id));
+      let appended = 0;
+      for (const raw of sorted) {
+        if (!raw || !Number.isFinite(raw.simulation_time) || !Number.isFinite(raw.frame_id)) continue;
+        const s = sanitizeFramePoses(raw);
+        const fid = Number(s.frame_id);
+        const t = Number(s.simulation_time);
+        if (frameBuffer.length > 0) {
+          const last = frameBuffer[frameBuffer.length - 1];
+          const lastFid = Number(last.frame_id);
+          if (fid <= lastFid) continue;
+          if (t + 1e-9 < Number(last.simulation_time) && !isEpisodeReset(last, s)) continue;
+        }
+        frameBuffer.push(s);
+        noteLiveFrameAnchors(s);
+        appended += 1;
+      }
+      const cutoff = Number(latestSimulationTime || 0.0) - getLiveBufferWindowS();
+      while (frameBuffer.length > 0 && frameBuffer[0].simulation_time < cutoff) {
+        frameBuffer.shift();
+      }
+      latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+      if (appended === 0 && !liveNextFrame && frameBuffer.length > 0) {
+        syncLiveRenderAnchorsFromBuffer();
+      }
     }
 
     function stateFromLiveBuffer(target) {
       if (frameBuffer.length === 0) return null;
       if (frameBuffer.length === 1) return sanitizeFramePoses(frameBuffer[0]);
+      const oldestT = frameBuffer[0].simulation_time;
       const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
       const clampedTarget = Math.max(
-        frameBuffer[0].simulation_time,
-        Math.min(target, newestT)
+        oldestT,
+        Math.min(target, newestT + LIVE_EXTRAPOLATE_MAX_S)
       );
-      if (clampedTarget <= frameBuffer[0].simulation_time) {
+      if (clampedTarget <= oldestT) {
         return sanitizeFramePoses(frameBuffer[0]);
       }
       for (let i = 1; i < frameBuffer.length; i++) {
@@ -2084,7 +2423,15 @@
           return interpolateState(a, b, t);
         }
       }
-      return sanitizeFramePoses(frameBuffer[frameBuffer.length - 1]);
+      const last = frameBuffer[frameBuffer.length - 1];
+      const prev = frameBuffer.length > 1 ? frameBuffer[frameBuffer.length - 2] : null;
+      if (clampedTarget > newestT) {
+        if (isTerminalFrame(last)) {
+          return sanitizeFramePoses(last);
+        }
+        return extrapolateState(prev, last, clampedTarget);
+      }
+      return sanitizeFramePoses(last);
     }
 
     function simTimeFromSliderValue(sliderValue) {
@@ -2256,6 +2603,7 @@
       manualPlaybackPlaying = false;
       replayScrubbing = false;
       playbackSimTime = null;
+      resetLiveRenderAnchors();
       lastFrameId = 0;
       browserHistoryLastFrameId = 0;
       frameBuffer = [];
@@ -2321,21 +2669,21 @@
         return stateFromLiveBuffer(playbackSimTime);
       }
 
-      if (frameBuffer.length === 0) return null;
-      syncLivePlaybackTime(nowS);
-      return stateFromLiveBuffer(playbackSimTime);
+      if (!liveNextFrame && frameBuffer.length === 0) return null;
+      return liveRenderState(nowS);
     }
 
     function drawPoints(points, color, radius, cx, cy) {
-      if (!Array.isArray(points)) return;
-      ctx.fillStyle = color;
+      if (!Array.isArray(points) || points.length === 0) return;
+      const path = new Path2D();
       for (const p of points) {
         if (!Array.isArray(p) || p.length < 2) continue;
         const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
-        ctx.beginPath();
-        ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-        ctx.fill();
+        path.moveTo(sx + radius, sy);
+        path.arc(sx, sy, radius, 0, Math.PI * 2);
       }
+      ctx.fillStyle = color;
+      ctx.fill(path);
     }
 
     function drawSinglePoint(pointList, color, radius, cx, cy) {
@@ -2403,24 +2751,32 @@
     }
 
     function drawTrajectories(trajectories, color, radius, cx, cy) {
-      if (!Array.isArray(trajectories)) return;
-      ctx.fillStyle = color;
+      if (!Array.isArray(trajectories) || trajectories.length === 0) return;
+      const path = new Path2D();
       for (const traj of trajectories) {
         if (!Array.isArray(traj)) continue;
         for (const p of traj) {
           if (!Array.isArray(p) || p.length < 2) continue;
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
-          ctx.beginPath();
-          ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-          ctx.fill();
+          path.moveTo(sx + radius, sy);
+          path.arc(sx, sy, radius, 0, Math.PI * 2);
         }
       }
+      ctx.fillStyle = color;
+      ctx.fill(path);
     }
 
     function applyReplayRecordingUi() {
       const replayBarEl = document.getElementById("replay-bar");
       if (replayBarEl) {
         replayBarEl.style.display = replayRecordingEnabled ? "flex" : "none";
+      }
+      if (replayRecordingEnabled) {
+        disconnectLiveWebSocket();
+        startHistoryPolling();
+      } else {
+        liveSocketWanted = true;
+        connectLiveWebSocket();
       }
     }
 
@@ -2443,6 +2799,7 @@
         if (!r.ok) return;
         const cfg = await r.json();
         metricsUiConfig = cfg;
+        applySimTimingFromUiConfig(cfg);
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
         applyReplayUiConfig(cfg);
@@ -2499,6 +2856,9 @@
     }
 
     async function pollTelemetry() {
+      if (liveSocketConnected && !metricsPanelOpen) {
+        return;
+      }
       try {
         const r = await fetch("/ui-config", { cache: "no-store" });
         if (!r.ok) return;
@@ -2529,7 +2889,7 @@
           const wasConnected = metricsServerConnected;
           metricsServerConnected = true;
           metricsStatusEl.textContent = "Metrics live";
-          if (!wasConnected || metricsPanelOpen) {
+          if (metricsPanelOpen) {
             ensureMetricsFrameLoaded(!wasConnected);
           }
         } catch (e) {
@@ -2598,13 +2958,16 @@
       latestPollWallTimeS = 0.0;
       prevPollSimTime = null;
       prevPollWallTimeS = null;
-      simTimeRate = 1.0;
+      simTimeRate = metricsUiConfig?.expected_sim_time_rate > 0
+        ? metricsUiConfig.expected_sim_time_rate
+        : nominalControlHz * nominalSimStepDt;
       observedFetchIntervalS = 0.1;
       lastFetchCompleteWallS = null;
       lastFrameId = 0;
       lastIngestedPlotFrameId = 0;
       timeSeriesData = {};
       playbackSimTime = null;
+      resetLiveRenderAnchors();
       playbackFrameIndex = 0;
       bufferPlaybackMode = "manual";
       manualPlaybackPlaying = false;
@@ -2727,12 +3090,7 @@
       }
       const newLatestSimulationTime = Number(payload.latest_simulation_time || 0.0);
       const nowWall = performance.now() / 1000.0;
-      if (prevPollSimTime !== null && prevPollWallTimeS !== null) {
-        const dSim = newLatestSimulationTime - prevPollSimTime;
-        const dWall = Math.max(1e-6, nowWall - prevPollWallTimeS);
-        const instRate = Math.max(0.1, Math.min(50.0, dSim / dWall));
-        simTimeRate = 0.8 * simTimeRate + 0.2 * instRate;
-      }
+      applySimTimingFromPayload(payload);
       prevPollSimTime = newLatestSimulationTime;
       prevPollWallTimeS = nowWall;
       latestSimulationTime = newLatestSimulationTime;
@@ -2750,43 +3108,53 @@
       }
 
       const cutoff = latestSimulationTime - getLiveBufferWindowS();
-      const mergedByFrameId = new Map();
-      for (const s of [...frameBuffer, ...history]) {
-        if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
-        if (s.simulation_time < cutoff) continue;
-        const fid = Number(s.frame_id);
-        const existing = mergedByFrameId.get(fid);
-        if (!existing || s.simulation_time >= existing.simulation_time) {
-          mergedByFrameId.set(fid, s);
+      if (replayRecordingEnabled) {
+        const mergedByFrameId = new Map();
+        for (const s of [...frameBuffer, ...history]) {
+          if (!s || !Number.isFinite(s.simulation_time) || !Number.isFinite(s.frame_id)) continue;
+          if (s.simulation_time < cutoff) continue;
+          const fid = Number(s.frame_id);
+          const existing = mergedByFrameId.get(fid);
+          if (!existing || s.simulation_time >= existing.simulation_time) {
+            mergedByFrameId.set(fid, s);
+          }
         }
-      }
 
-      const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
-        const ta = Number(a.simulation_time);
-        const tb = Number(b.simulation_time);
-        if (Math.abs(ta - tb) > 1e-9) return ta - tb;
-        return Number(a.frame_id) - Number(b.frame_id);
-      });
+        const merged = Array.from(mergedByFrameId.values()).sort((a, b) => {
+          const ta = Number(a.simulation_time);
+          const tb = Number(b.simulation_time);
+          if (Math.abs(ta - tb) > 1e-9) return ta - tb;
+          return Number(a.frame_id) - Number(b.frame_id);
+        });
 
-      const monotonic = [];
-      let lastT = -Infinity;
-      for (const s of merged) {
-        const t = Number(s.simulation_time);
-        if (t + 1e-9 >= lastT) {
-          monotonic.push(s);
-          lastT = t;
+        const monotonic = [];
+        let lastT = -Infinity;
+        for (const s of merged) {
+          const t = Number(s.simulation_time);
+          if (t + 1e-9 >= lastT) {
+            monotonic.push(s);
+            lastT = t;
+          }
         }
+        frameBuffer = monotonic;
+        latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
+      } else {
+        appendLiveFrames(history);
       }
-      frameBuffer = monotonic;
-      latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
-      ingestPlotFrames(history);
+      if (plotsPanelOpen) {
+        ingestPlotFrames(history);
+      }
 
       const labels = latest?.web_overlay?.label_dict || {};
       const labelText = showCarStateInfo && Object.keys(labels).length > 0
         ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
         : "";
       const camMode = cameraFollowEgo ? "follow-car" : "free";
-      statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+      const simHzText = Number.isFinite(simTimeRate) ? ` | sim: ${simTimeRate.toFixed(2)}x` : "";
+      if (nowWall - lastStatusUpdateS >= 0.25) {
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${labelText}`;
+        lastStatusUpdateS = nowWall;
+      }
       if (replayRecordingEnabled) {
         updateReplayBarUI();
       }
@@ -2826,6 +3194,9 @@
     }
 
     function getStatePollTick() {
+      if (!replayRecordingEnabled && liveSocketConnected) {
+        return null;
+      }
       if (!replayRecordingEnabled) {
         return fetchStateHistoryTick;
       }
@@ -2840,16 +3211,41 @@
       return fetchStateHistoryTick;
     }
 
-    let statePollTimer = null;
-    function startStatePolling() {
-      if (statePollTimer !== null) {
-        clearInterval(statePollTimer);
-        statePollTimer = null;
+    let statePollInterval = null;
+    let statePollTimeout = null;
+    function stopStatePolling() {
+      livePollActive = false;
+      if (statePollInterval !== null) {
+        clearInterval(statePollInterval);
+        statePollInterval = null;
       }
+      if (statePollTimeout !== null) {
+        clearTimeout(statePollTimeout);
+        statePollTimeout = null;
+      }
+    }
+
+    function scheduleLivePollLoop() {
+      livePollActive = true;
+      const loop = async () => {
+        if (!livePollActive) return;
+        await fetchStateHistoryTick();
+        if (!livePollActive) return;
+        statePollTimeout = setTimeout(loop, getStatePollIntervalMs());
+      };
+      loop();
+    }
+
+    function startStatePolling() {
+      stopStatePolling();
       const tick = getStatePollTick();
       if (!tick) return;
+      if (!replayRecordingEnabled) {
+        scheduleLivePollLoop();
+        return;
+      }
       tick();
-      statePollTimer = setInterval(tick, getStatePollIntervalMs());
+      statePollInterval = setInterval(tick, getStatePollIntervalMs());
     }
 
     function startHistoryPolling() {
@@ -2857,8 +3253,11 @@
     }
 
     function draw() {
-      const w = canvas.getBoundingClientRect().width;
-      const h = canvas.getBoundingClientRect().height;
+      if (liveSocketConnected) {
+        flushPendingWebSocketMessage();
+      }
+      const w = canvasCssW || canvas.getBoundingClientRect().width;
+      const h = canvasCssH || canvas.getBoundingClientRect().height;
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#092057";
       ctx.fillRect(0, 0, w, h);
@@ -2871,8 +3270,9 @@
         }
         const cx = cameraCenter[0];
         const cy = cameraCenter[1];
-        const overlay = Object.assign({}, staticOverlay || {}, frame.web_overlay || {});
-        const colors = overlay.colors || {};
+        const static = staticOverlay || {};
+        const dyn = frame.web_overlay || {};
+        const colors = static.colors || dyn.colors || {};
 
         if (showMap && mapMeta && mapImg && mapImg.complete) {
           const mapWm = mapMeta.width * mapMeta.resolution;
@@ -2885,34 +3285,35 @@
           ctx.globalAlpha = 1.0;
         }
 
-        // Base/static overlays first
-        const globalWaypoints = overlay.global_waypoints || overlay.waypoints_global || overlay.waypoints;
+        // Static overlays (from /overlay-static)
+        const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
         drawPoints(globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, cx, cy);
-        drawPoints(overlay.waypoints_alternative, "rgb(170,170,170)", 1.5, cx, cy);
-        drawPoints(overlay.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
-        drawPoints(overlay.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
-        drawPoints(overlay.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
+        drawPoints(static.waypoints_alternative, "rgb(170,170,170)", 1.5, cx, cy);
+        // Dynamic overlays (per-frame from WebSocket)
+        drawPoints(dyn.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
+        drawPoints(dyn.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
+        drawPoints(dyn.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
         if (showTrackBorders) {
           const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
-          if (Array.isArray(overlay.track_border_lines) && overlay.track_border_lines.length > 0) {
-            for (const borderLine of overlay.track_border_lines) {
+          const borderLines = dyn.track_border_lines || static.track_border_lines;
+          if (Array.isArray(borderLines) && borderLines.length > 0) {
+            for (const borderLine of borderLines) {
               drawLine(borderLine, borderColor, 1.6, cx, cy);
             }
           } else {
-            // Fallback for older payloads that only provide flattened points.
-            drawPoints(overlay.track_border_points, borderColor, 1.8, cx, cy);
+            drawPoints(static.track_border_points, borderColor, 1.8, cx, cy);
           }
         }
-        drawPoints(overlay.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
+        drawPoints(dyn.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
         drawVirtualOpponents(
-          overlay.virtual_opponents,
+          dyn.virtual_opponents,
           rgb(colors.virtual_opponents, "rgb(255,140,0)"),
           cx,
           cy,
-          overlay.virtual_opponent_size
+          dyn.virtual_opponent_size
         );
         drawDetectedOpponents(
-          overlay.detected_opponents,
+          dyn.detected_opponents,
           rgb(colors.detected_opponents, "rgb(0,255,128)"),
           cx,
           cy
@@ -2921,26 +3322,26 @@
         // Histories
         if (showPositionHistory) {
           drawTrajectories(browserPositionHistory, "rgba(70,160,255,0.55)", 1.8, cx, cy);
-          drawPoints(overlay.past_car_states_alternative, rgb(colors.history_alt, "rgb(255,255,0)"), 2.0, cx, cy);
-          drawPoints(overlay.past_car_states_gt, rgb(colors.history_gt, "rgb(0,128,255)"), 2.0, cx, cy);
-          drawPoints(overlay.past_car_states_prior, rgb(colors.history_prior, "rgb(255,255,255)"), 2.0, cx, cy);
-          drawPoints(overlay.past_car_states_prior_full, rgb(colors.history_prior_full, "rgb(0,255,255)"), 2.0, cx, cy);
+          drawPoints(dyn.past_car_states_alternative, rgb(colors.history_alt, "rgb(255,255,0)"), 2.0, cx, cy);
+          drawPoints(dyn.past_car_states_gt, rgb(colors.history_gt, "rgb(0,128,255)"), 2.0, cx, cy);
+          drawPoints(dyn.past_car_states_prior, rgb(colors.history_prior, "rgb(255,255,255)"), 2.0, cx, cy);
+          drawPoints(dyn.past_car_states_prior_full, rgb(colors.history_prior_full, "rgb(0,255,255)"), 2.0, cx, cy);
         }
 
         // MPC overlays
-        drawTrajectories(overlay.rollout_trajectory, rgb(colors.mppi, "rgb(250,25,30)"), 1.3, cx, cy);
-        drawTrajectories(overlay.optimal_trajectory, rgb(colors.optimal, "rgb(255,165,0)"), 1.5, cx, cy);
+        drawTrajectories(dyn.rollout_trajectory, rgb(colors.mppi, "rgb(250,25,30)"), 1.3, cx, cy);
+        drawTrajectories(dyn.optimal_trajectory, rgb(colors.optimal, "rgb(255,165,0)"), 1.5, cx, cy);
 
         // Gap / target
-        drawSinglePoint(overlay.largest_gap_middle_point, rgb(colors.gap, "rgb(0,255,0)"), 5.0, cx, cy);
-        drawSinglePoint(overlay.target_point, rgb(colors.target, "rgb(255,204,0)"), 7.0, cx, cy);
+        drawSinglePoint(dyn.largest_gap_middle_point, rgb(colors.gap, "rgb(0,255,0)"), 5.0, cx, cy);
+        drawSinglePoint(dyn.target_point, rgb(colors.target, "rgb(255,204,0)"), 7.0, cx, cy);
 
         // Steering arrow and emergency slowdown lines
-        if (overlay.steering_arrow && overlay.steering_arrow.start && overlay.steering_arrow.end) {
-          drawLine([overlay.steering_arrow.start, overlay.steering_arrow.end], "rgb(0,204,0)", 2.0, cx, cy);
+        if (dyn.steering_arrow && dyn.steering_arrow.start && dyn.steering_arrow.end) {
+          drawLine([dyn.steering_arrow.start, dyn.steering_arrow.end], "rgb(0,204,0)", 2.0, cx, cy);
         }
-        if (overlay.emergency_slowdown) {
-          const s = overlay.emergency_slowdown;
+        if (dyn.emergency_slowdown) {
+          const s = dyn.emergency_slowdown;
           const factor = Math.max(0, Math.min(1, s.speed_reduction_factor ?? 1.0));
           const red = Math.floor((1 - factor) * 255);
           const green = Math.floor(factor * 255);
@@ -3037,6 +3438,9 @@
     }
 
     async function sendViewerHeartbeat() {
+      if (liveSocketConnected) {
+        return;
+      }
       try {
         const r = await fetch(`/viewer-heartbeat?viewer_id=${encodeURIComponent(viewerId)}`, { cache: "no-store" });
         if (!r.ok) {
@@ -3295,6 +3699,20 @@
       ro.observe(plotsPanelEl);
       ro.observe(metricsPanelEl);
     }
+    async function prefetchLiveBuffer() {
+      if (replayRecordingEnabled) return;
+      try {
+        const r = await fetch("/state-history?since=0", { cache: "no-store" });
+        if (!r.ok) return;
+        const payload = await r.json();
+        const history = Array.isArray(payload.history) ? payload.history : [];
+        await processStatePollPayload(payload, history);
+        syncLiveRenderAnchorsFromBuffer();
+      } catch (e) {
+        // Live polling will fill the buffer if prefetch fails.
+      }
+    }
+
     async function bootstrapViewer() {
       applyReplayRecordingUi();
       syncReplaySpeedInput();
@@ -3304,18 +3722,36 @@
       loadMap();
       loadStaticOverlay();
       if (!replayRecordingEnabled) {
+        liveSocketWanted = true;
+        connectLiveWebSocket();
+      } else {
         startHistoryPolling();
       }
       requestAnimationFrame(draw);
     }
 
+    function scheduleBackgroundPolls() {
+      const runTelemetry = () => {
+        const run = () => { pollTelemetry(); };
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(run, { timeout: TELEMETRY_POLL_MS });
+        } else {
+          run();
+        }
+        setTimeout(runTelemetry, TELEMETRY_POLL_MS);
+      };
+      const runHeartbeat = () => {
+        sendViewerHeartbeat();
+        setTimeout(runHeartbeat, VIEWER_HEARTBEAT_MS);
+      };
+      runTelemetry();
+      setTimeout(runHeartbeat, 1500);
+    }
+
     syncPlotWindowInput();
     setPlotsPanelOpen(false);
     updateMetricsPanelChrome();
-    setInterval(pollTelemetry, 2000);
-    pollTelemetry();
-    sendViewerHeartbeat();
-    setInterval(sendViewerHeartbeat, 2000);
+    scheduleBackgroundPolls();
     updateFollowButton();
     bootstrapViewer();
   </script>

@@ -1,5 +1,5 @@
 {
-  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/ExperimentRecordings/2026-07-08_10-31-54_.csv",
+  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/AnalyseData/Nikira_rl/2026-04-22_INFERENCE/2026-04-22_03-30-54_Physical-20.csv",
   "start_index": 500,
   "end_index": 1000,
   "horizon_steps": 35,

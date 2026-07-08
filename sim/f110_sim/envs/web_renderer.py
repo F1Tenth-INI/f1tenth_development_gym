@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 import yaml
 from PIL import Image
+from sim.f110_sim.envs.web_renderer_ws import WebRendererSocketHub
 from utilities.map_scale import scale_map_metadata
 from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
 
@@ -1061,7 +1062,8 @@ class WebEnvRenderer:
     Runtime data flow:
     - simulator calls `render(render_obs)` at control cadence
     - backend stores compact state/history in-memory
-    - browser client pulls `/state-history` + `/overlay-static` and renders locally
+    - browser client receives live frames via WebSocket push (preferred)
+    - HTTP endpoints remain for map/config/replay fallback
 
     The browser client source-of-truth is `sim/f110_sim/envs/WebRenderer/index.html`.
     """
@@ -1093,12 +1095,15 @@ class WebEnvRenderer:
         self._replay_recording_enabled = bool(recording_csv_path)
         self._state_history = []
         self._state_history_max = 24000
-        self._live_history_max_s = 3.0
+        self._live_history_max_s = 10.0
         self._history_chunk_size = 200
         self._replay_archive_preloaded = False
         self._replay_total_time = 0.0
         self._publish_rate_hz = 50.0
         self._last_published_sim_time: Optional[float] = None
+        self._last_publish_wall_time_s: Optional[float] = None
+        self._sim_time_rate = 1.0
+        self._control_dt, self._control_hz, self._max_sim_frequency = self._read_control_timing()
         self._frame_id = 0
         self._static_overlay: Dict[str, Any] = {}
         self._static_overlay_keys = {
@@ -1251,6 +1256,7 @@ class WebEnvRenderer:
                             "session_id": renderer._session_id,
                             "replay_recording_enabled": renderer._replay_recording_enabled,
                         }
+                        payload.update(renderer._sim_timing_payload())
                     self._send_json(payload)
                     return
 
@@ -1315,10 +1321,23 @@ class WebEnvRenderer:
         self._ui_config["web_render_bind_port"] = self.port
         self._server_thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._server_thread.start()
+        ws_port_requested = int(self.port) + 1
+        self._ws_hub: Optional[WebRendererSocketHub] = WebRendererSocketHub(
+            host=self.host,
+            port=ws_port_requested,
+            hello_builder=self._build_ws_hello_payload,
+        )
+        if self._ws_hub.start():
+            self._ui_config["web_render_ws_port"] = int(self._ws_hub.port)
+            self._ui_config["web_render_ws_bind_port"] = int(self._ws_hub.port)
+        else:
+            self._ws_hub = None
+            self._ui_config["web_render_ws_port"] = ws_port_requested
         browser_url = self._browser_url()
+        ws_url = self._websocket_url()
         print(
             f"Web renderer (actor {self.actor_id}) listening on {browser_url} "
-            f"(bind {self.host}:{self.port})"
+            f"(bind {self.host}:{self.port}), WebSocket {ws_url}"
         )
         if self.auto_open_browser:
             threading.Thread(target=self._autolaunch_on_startup_once, daemon=True).start()
@@ -1374,11 +1393,61 @@ class WebEnvRenderer:
 
     def _has_active_viewer(self, now_s: Optional[float] = None) -> bool:
         now_s = time.time() if now_s is None else now_s
+        if self._ws_hub is not None and self._ws_hub.has_clients():
+            return True
         with self._lock:
             self._prune_inactive_viewers_locked(now_s)
             if len(self._viewer_last_seen) > 0:
                 return True
             return (now_s - float(self._last_client_poll_s)) <= self._viewer_timeout_s
+
+    def _websocket_url(self) -> str:
+        host = str(self.host).strip()
+        if host in ("0.0.0.0", "::", ""):
+            host = "127.0.0.1"
+        ws_port = int(self._ui_config.get("web_render_ws_bind_port") or (int(self.port) + 1))
+        return f"ws://{host}:{ws_port}"
+
+    def _build_ws_hello_payload(self) -> Dict[str, Any]:
+        with self._lock:
+            payload: Dict[str, Any] = {
+                "type": "hello",
+                "session_id": self._session_id,
+                "replay_recording_enabled": self._replay_recording_enabled,
+                "latest_frame_id": int(self._state.get("frame_id", 0)),
+                "latest_simulation_time": float(self._state.get("simulation_time", 0.0)),
+            }
+            payload.update(self._sim_timing_payload())
+            if int(self._state.get("frame_id", 0)) > 0:
+                payload["frame"] = self._compact_ws_frame(self._state)
+        return payload
+
+    def _compact_ws_frame(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "frame_id": int(state.get("frame_id", 0)),
+            "ego_idx": int(state.get("ego_idx", 0)),
+            "simulation_time": float(state.get("simulation_time", 0.0)),
+            "poses": state.get("poses", []),
+            "web_overlay": state.get("web_overlay", {}),
+        }
+
+    def _broadcast_ws_frame(self) -> None:
+        hub = self._ws_hub
+        if hub is None or not hub.has_clients():
+            return
+        with self._lock:
+            if int(self._state.get("frame_id", 0)) <= 0:
+                return
+            payload: Dict[str, Any] = {
+                "type": "frame",
+                "session_id": self._session_id,
+                "replay_recording_enabled": self._replay_recording_enabled,
+                "latest_frame_id": int(self._state.get("frame_id", 0)),
+                "latest_simulation_time": float(self._state.get("simulation_time", 0.0)),
+                "frame": self._compact_ws_frame(self._state),
+            }
+            payload.update(self._sim_timing_payload())
+        hub.broadcast_json(payload)
 
     def _browser_url(self) -> str:
         """URL for local browser tabs (bind-all addresses map to localhost)."""
@@ -1500,12 +1569,64 @@ class WebEnvRenderer:
             print(f"Web renderer: replay archive preload skipped: {exc}")
 
     @staticmethod
+    def _read_control_timing():
+        control_dt = 0.04
+        max_sim_frequency = None
+        try:
+            from utilities.Settings import Settings
+
+            control_dt = float(getattr(Settings, "TIMESTEP_CONTROL", control_dt))
+            raw_max = getattr(Settings, "MAX_SIM_FREQUENCY", None)
+            if raw_max is not None:
+                max_sim_frequency = float(raw_max)
+        except Exception:
+            pass
+        control_hz = 1.0 / max(control_dt, 1e-6)
+        return control_dt, control_hz, max_sim_frequency
+
+    def _expected_sim_time_rate(self) -> float:
+        effective_hz = float(self._control_hz)
+        if self._max_sim_frequency is not None:
+            effective_hz = min(effective_hz, float(self._max_sim_frequency))
+        return effective_hz * float(self._control_dt)
+
+    def _note_publish_timing(self, simulation_time: float) -> None:
+        now_s = time.time()
+        if (
+            self._last_publish_wall_time_s is not None
+            and self._last_published_sim_time is not None
+        ):
+            d_wall = max(1e-6, now_s - self._last_publish_wall_time_s)
+            d_sim = simulation_time - float(self._last_published_sim_time)
+            if d_sim >= 0.0:
+                inst = max(0.05, min(10.0, d_sim / d_wall))
+                self._sim_time_rate = 0.88 * self._sim_time_rate + 0.12 * inst
+        self._last_publish_wall_time_s = now_s
+
+    def _sim_timing_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "sim_step_dt": round(float(self._control_dt), 6),
+            "control_hz": round(float(self._control_hz), 3),
+            "publish_rate_hz": round(float(self._publish_rate_hz), 3),
+            "sim_time_rate": round(float(self._sim_time_rate), 4),
+            "expected_sim_time_rate": round(self._expected_sim_time_rate(), 4),
+        }
+        if self._max_sim_frequency is not None:
+            payload["max_sim_frequency"] = round(float(self._max_sim_frequency), 3)
+        return payload
+
+    @staticmethod
     def _build_ui_config(
         replay_recording_enabled: bool = False,
         replay_default_speed: float = 1.0,
     ) -> Dict[str, Any]:
         car_length = 0.58
         car_width = 0.31
+        control_dt, control_hz, max_sim_frequency = WebEnvRenderer._read_control_timing()
+        effective_hz = control_hz
+        if max_sim_frequency is not None:
+            effective_hz = min(control_hz, max_sim_frequency)
+        expected_sim_time_rate = effective_hz * control_dt
         try:
             from utilities.Settings import Settings
             from utilities.car_files.vehicle_parameters import VehicleParameters
@@ -1549,6 +1670,16 @@ class WebEnvRenderer:
             "replay_total_time": replay_total_time,
             "replay_archive_preloaded": replay_archive_preloaded,
             "replay_default_speed": replay_default_speed,
+            "sim_step_dt": round(control_dt, 6),
+            "control_hz": round(control_hz, 3),
+            "expected_sim_time_rate": round(expected_sim_time_rate, 4),
+            "publish_rate_hz": 50.0,
+            "web_render_ws_port": None,
+            **(
+                {"max_sim_frequency": round(max_sim_frequency, 3)}
+                if max_sim_frequency is not None
+                else {}
+            ),
         }
 
     def _load_html_page(self) -> str:
@@ -1705,8 +1836,11 @@ class WebEnvRenderer:
                 and not (self._replay_recording_enabled and self._replay_archive_preloaded)
             ):
                 min_dt = 1.0 / self._publish_rate_hz
-                if (simulation_time - self._last_published_sim_time) < min_dt:
+                d_sim = simulation_time - float(self._last_published_sim_time)
+                # Episode reset rewinds simulation_time — never throttle those frames away.
+                if d_sim >= 0.0 and d_sim < min_dt:
                     return
+            self._note_publish_timing(simulation_time)
             self._last_published_sim_time = simulation_time
             self._frame_id += 1
             self._state = {
@@ -1716,6 +1850,7 @@ class WebEnvRenderer:
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
             }
+            self._state.update(self._sim_timing_payload())
             if self._replay_archive_preloaded:
                 pass
             elif self._replay_recording_enabled:
@@ -1727,7 +1862,11 @@ class WebEnvRenderer:
                 live_max = max(50, int(self._publish_rate_hz * self._live_history_max_s))
                 if len(self._state_history) > live_max:
                     self._state_history = self._state_history[-live_max:]
+        self._broadcast_ws_frame()
 
     def close(self):
+        if self._ws_hub is not None:
+            self._ws_hub.close()
+            self._ws_hub = None
         self._server.shutdown()
         self._server.server_close()

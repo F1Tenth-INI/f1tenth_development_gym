@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+import yaml
 
 VIS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(VIS_DIR))
@@ -31,7 +32,13 @@ sys.path.append(os.path.join(REPO_ROOT, "utilities"))
 from sim.f110_sim.envs.car_model_jax import CarModelJAX
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.imu_utilities import IMUUtilities
+from utilities.map_scale import scale_map_metadata
 from utilities.motor_sensor_utilities import MotorSensorUtilities
+from utilities.recording_replay import (
+    load_virtual_opponent_replay_poses,
+    next_waypoints_from_recording_row,
+    resolve_map_for_recording,
+)
 from utilities.state_utilities import STATE_INDICES, STATE_VARIABLES
 
 STEERING_CONTROL_COLUMN = "angular_control_executed"
@@ -65,6 +72,7 @@ class VisualizationSettings:
     enable_comparison: bool = True
     show_controls: bool = False
     show_delta_state: bool = False
+    show_motor_sensors: bool = False
     show_all_comparisons: bool = False
     sync_scales: bool = False
     show_metrics: bool = True
@@ -128,6 +136,13 @@ class VisualizationService:
         self._comparison_cache_key: Optional[tuple] = None
         self._jobs: Dict[str, ComparisonJob] = {}
         self._jobs_lock = threading.Lock()
+        self._replay_map_meta: Optional[Dict[str, Any]] = None
+        self._replay_map_image_path: Optional[str] = None
+        self._replay_vo_poses: Optional[np.ndarray] = None
+        self._replay_lidar_helper = None
+        self._replay_lidar_cols = None
+        self._replay_lidar_angles = None
+        self._replay_ui_config_cache: Optional[Dict[str, Any]] = None
         os.makedirs(UPLOADS_DIR, exist_ok=True)
         self.load_config()
         self._try_load_config_csv()
@@ -624,6 +639,13 @@ class VisualizationService:
         self.data = pd.read_csv(abs_path, comment="#")
         self.csv_file_path = abs_path
         self.settings.csv_file_path = abs_path
+        self._replay_map_meta = None
+        self._replay_map_image_path = None
+        self._replay_vo_poses = None
+        self._replay_lidar_helper = None
+        self._replay_lidar_cols = None
+        self._replay_lidar_angles = None
+        self._replay_ui_config_cache = None
         self.clear_comparisons()
 
         selectable = self._selectable_state_names()
@@ -635,6 +657,385 @@ class VisualizationService:
 
         self.save_config()
         return self.get_session_info()
+
+    # ------------------------------------------------------------------ replay/map
+    def _resolve_replay_map(self) -> None:
+        if self.data is None:
+            raise ValueError("No data loaded")
+        if self._replay_map_meta is not None and self._replay_map_image_path is not None:
+            return
+        if not self.csv_file_path:
+            raise ValueError("No CSV file loaded")
+
+        map_render_path, _ = resolve_map_for_recording(self.csv_file_path)
+        yaml_path = f"{map_render_path}.yaml"
+        if not os.path.isfile(yaml_path):
+            raise ValueError(f"Map yaml not found: {yaml_path}")
+
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            raw_meta = yaml.safe_load(f) or {}
+        if "image" not in raw_meta or "resolution" not in raw_meta or "origin" not in raw_meta:
+            raise ValueError(f"Invalid map yaml: {yaml_path}")
+
+        map_meta = scale_map_metadata(raw_meta)
+        image_ref = str(raw_meta["image"])
+        image_path = (
+            image_ref
+            if os.path.isabs(image_ref)
+            else os.path.join(os.path.dirname(yaml_path), image_ref)
+        )
+        if not os.path.isfile(image_path):
+            raise ValueError(f"Map image not found: {image_path}")
+
+        from PIL import Image
+
+        with Image.open(image_path) as img:
+            width, height = img.size
+
+        self._replay_map_meta = {
+            "resolution": float(map_meta["resolution"]),
+            "origin": [float(map_meta["origin"][0]), float(map_meta["origin"][1])],
+            "width": int(width),
+            "height": int(height),
+        }
+        self._replay_map_image_path = image_path
+
+    def _load_replay_virtual_opponents(self) -> Optional[np.ndarray]:
+        if self._replay_vo_poses is not None:
+            return self._replay_vo_poses
+        if not self.csv_file_path:
+            return None
+        try:
+            self._replay_vo_poses = load_virtual_opponent_replay_poses(self.csv_file_path)
+        except Exception:
+            self._replay_vo_poses = None
+        return self._replay_vo_poses
+
+    def _replay_lidar_column_meta(self):
+        if getattr(self, "_replay_lidar_cols", None) is not None:
+            return self._replay_lidar_cols, self._replay_lidar_angles
+        lidar_cols = sorted(
+            [c for c in self.data.columns if str(c).startswith("LIDAR_")],
+            key=lambda name: int(str(name).split("_", 1)[1]),
+        )
+        if not lidar_cols:
+            self._replay_lidar_cols = []
+            self._replay_lidar_angles = None
+            return self._replay_lidar_cols, self._replay_lidar_angles
+        from utilities.lidar_utils import LidarHelper
+
+        if self._replay_lidar_helper is None:
+            self._replay_lidar_helper = LidarHelper()
+        indices = np.asarray(
+            [int(str(c).split("_", 1)[1]) for c in lidar_cols], dtype=np.int64
+        )
+        self._replay_lidar_cols = lidar_cols
+        self._replay_lidar_angles = self._replay_lidar_helper.all_angles_rad[indices]
+        return self._replay_lidar_cols, self._replay_lidar_angles
+
+    def _replay_lidar_points(
+        self,
+        row,
+        pose: Dict[str, float],
+        max_points: int = 160,
+    ) -> List[List[float]]:
+        lidar_cols, angles_all = self._replay_lidar_column_meta()
+        if not lidar_cols:
+            return []
+        try:
+            from utilities.lidar_utils import (
+                get_points_from_ranges,
+                transform_points_from_car_to_global,
+            )
+
+            ranges = np.asarray([float(row[c]) for c in lidar_cols], dtype=np.float64)
+            valid = np.isfinite(ranges) & (ranges > 0.05) & (ranges < 30.0)
+            if not np.any(valid):
+                return []
+            ranges = ranges[valid]
+            angles = angles_all[valid]
+            # Uniform decimation before transform keeps JSON/canvas cost bounded.
+            if max_points > 0 and ranges.size > max_points:
+                step = int(np.ceil(ranges.size / float(max_points)))
+                ranges = ranges[::step]
+                angles = angles[::step]
+            relative = get_points_from_ranges(
+                ranges.astype(np.float32), angles.astype(np.float32)
+            )
+            full_state = np.zeros(len(STATE_VARIABLES), dtype=np.float32)
+            full_state[self.state_indices["pose_x"]] = pose["x"]
+            full_state[self.state_indices["pose_y"]] = pose["y"]
+            full_state[self.state_indices["pose_theta"]] = pose["theta"]
+            full_state[self.state_indices["pose_theta_cos"]] = float(np.cos(pose["theta"]))
+            full_state[self.state_indices["pose_theta_sin"]] = float(np.sin(pose["theta"]))
+            world = transform_points_from_car_to_global(full_state, relative)
+            return np.asarray(world, dtype=np.float64).tolist()
+        except Exception:
+            return []
+
+    def _replay_overlay_for_index(self, idx: int, pose: Dict[str, float]) -> Dict[str, Any]:
+        row = self.data.iloc[idx]
+        overlay: Dict[str, Any] = {}
+
+        next_waypoints = next_waypoints_from_recording_row(row)
+        if next_waypoints is not None:
+            overlay["next_waypoints"] = next_waypoints.tolist()
+
+        vo_poses = self._load_replay_virtual_opponents()
+        if vo_poses is not None and idx < len(vo_poses):
+            vo_list = []
+            for slot_idx in range(vo_poses.shape[1]):
+                slot_pose = vo_poses[idx, slot_idx]
+                if not np.isfinite(slot_pose[0]):
+                    continue
+                vo_list.append(
+                    [
+                        float(slot_pose[0]),
+                        float(slot_pose[1]),
+                        float(slot_pose[2]),
+                    ]
+                )
+            if vo_list:
+                overlay["virtual_opponents"] = vo_list
+                try:
+                    from utilities.virtual_opponents import get_virtual_opponent_dimensions
+
+                    length_m, width_m = get_virtual_opponent_dimensions()
+                    overlay["virtual_opponent_size"] = [float(width_m), float(length_m)]
+                except Exception:
+                    pass
+
+        lidar_pts = self._replay_lidar_points(row, pose)
+        if lidar_pts:
+            overlay["lidar_border_points"] = lidar_pts
+
+        return overlay
+
+    def get_replay_ui_config(self) -> Dict[str, Any]:
+        if self._replay_ui_config_cache is not None:
+            return dict(self._replay_ui_config_cache)
+        car_length = 0.58
+        car_width = 0.31
+        try:
+            vehicle_params = VehicleParameters(self.settings.default_car_parameters)
+            car_length = float(vehicle_params.length)
+            car_width = float(vehicle_params.width)
+        except Exception:
+            pass
+        self._replay_ui_config_cache = {
+            "car_length": car_length,
+            "car_width": car_width,
+        }
+        return dict(self._replay_ui_config_cache)
+
+    def get_replay_track(self, columns: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Full scrubbable trajectory + selected series for client-side playback."""
+        if self.data is None:
+            raise ValueError("No data loaded")
+        n = len(self.data)
+        if n == 0:
+            raise ValueError("Loaded CSV has no rows")
+
+        if self.time_column in self.data.columns:
+            times = self.data[self.time_column].to_numpy(dtype=np.float64).tolist()
+        else:
+            times = np.arange(n, dtype=np.float64).tolist()
+
+        pose_x = (
+            self.data["pose_x"].to_numpy(dtype=np.float64).tolist()
+            if "pose_x" in self.data.columns
+            else [0.0] * n
+        )
+        pose_y = (
+            self.data["pose_y"].to_numpy(dtype=np.float64).tolist()
+            if "pose_y" in self.data.columns
+            else [0.0] * n
+        )
+        pose_theta = (
+            self.data["pose_theta"].to_numpy(dtype=np.float64).tolist()
+            if "pose_theta" in self.data.columns
+            else [0.0] * n
+        )
+
+        series: Dict[str, List[float]] = {}
+        preferred = [
+            "pose_x",
+            "pose_y",
+            "pose_theta",
+            "linear_vel_x",
+            "angular_vel_z",
+            "angular_control_executed",
+            "translational_control_executed",
+            "angular_control",
+            "translational_control",
+            getattr(self.settings, "state_name", None),
+        ]
+        for col in preferred:
+            if col and col in self.data.columns and col not in series:
+                series[col] = self.data[col].to_numpy(dtype=np.float64).tolist()
+        # Keep payload bounded: don't dump all CSV columns.
+        for col in list(self.settings.selected_other_data or []) + list(columns or []):
+            if col in self.data.columns and col not in series:
+                series[col] = self.data[col].to_numpy(dtype=np.float64).tolist()
+
+        ui = self.get_replay_ui_config()
+        return {
+            "row_count": n,
+            "timestep": self.get_timestep(),
+            "time": times,
+            "pose_x": pose_x,
+            "pose_y": pose_y,
+            "pose_theta": pose_theta,
+            "series": series,
+            "car_length": ui["car_length"],
+            "car_width": ui["car_width"],
+            "columns": list(self.data.columns),
+        }
+
+    def get_replay_frame(self, index: int, include_heavy: bool = True) -> Dict[str, Any]:
+        """Lightweight per-index overlays for playback (lidar/waypoints/opponents)."""
+        if self.data is None:
+            raise ValueError("No data loaded")
+        n = len(self.data)
+        if n == 0:
+            raise ValueError("Loaded CSV has no rows")
+        idx = max(0, min(int(index), n - 1))
+
+        if "pose_x" in self.data.columns:
+            pose = {
+                "x": float(self.data["pose_x"].iloc[idx]),
+                "y": float(self.data["pose_y"].iloc[idx]) if "pose_y" in self.data.columns else 0.0,
+                "theta": float(self.data["pose_theta"].iloc[idx])
+                if "pose_theta" in self.data.columns
+                else 0.0,
+            }
+        else:
+            state = np.asarray(self.extract_initial_state_at_index(idx), dtype=np.float64)
+            pose = {
+                "x": float(state[self.state_indices["pose_x"]]),
+                "y": float(state[self.state_indices["pose_y"]]),
+                "theta": float(state[self.state_indices["pose_theta"]]),
+            }
+
+        overlay: Dict[str, Any] = {}
+        if include_heavy:
+            overlay = self._replay_overlay_for_index(idx, pose)
+        else:
+            row = self.data.iloc[idx]
+            next_waypoints = next_waypoints_from_recording_row(row)
+            if next_waypoints is not None:
+                overlay["next_waypoints"] = next_waypoints.tolist()
+            vo_poses = self._load_replay_virtual_opponents()
+            if vo_poses is not None and idx < len(vo_poses):
+                vo_list = []
+                for slot_idx in range(vo_poses.shape[1]):
+                    slot_pose = vo_poses[idx, slot_idx]
+                    if not np.isfinite(slot_pose[0]):
+                        continue
+                    vo_list.append(
+                        [float(slot_pose[0]), float(slot_pose[1]), float(slot_pose[2])]
+                    )
+                if vo_list:
+                    overlay["virtual_opponents"] = vo_list
+
+        selected_time = (
+            float(self.data[self.time_column].iloc[idx])
+            if self.time_column in self.data.columns
+            else float(idx)
+        )
+        return {
+            "index": idx,
+            "selected_time": selected_time,
+            "pose": pose,
+            "web_overlay": overlay,
+        }
+
+    def get_replay_map_info(self) -> Dict[str, Any]:
+        self._resolve_replay_map()
+        return {
+            **dict(self._replay_map_meta or {}),
+            "has_map": self._replay_map_image_path is not None,
+        }
+
+    def get_replay_map_image_path(self) -> str:
+        self._resolve_replay_map()
+        if not self._replay_map_image_path:
+            raise ValueError("Replay map image not available")
+        return self._replay_map_image_path
+
+    def get_replay_snapshot(
+        self,
+        index: int,
+        half_window: int,
+        columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        if self.data is None:
+            raise ValueError("No data loaded")
+        n = len(self.data)
+        if n == 0:
+            raise ValueError("Loaded CSV has no rows")
+
+        idx = max(0, min(int(index), n - 1))
+        half = max(5, min(int(half_window), 5000))
+        start = max(0, idx - half)
+        end = min(n, idx + half + 1)
+
+        state = np.asarray(self.extract_initial_state_at_index(idx), dtype=np.float64)
+        pose = {
+            "x": float(state[self.state_indices["pose_x"]]),
+            "y": float(state[self.state_indices["pose_y"]]),
+            "theta": float(state[self.state_indices["pose_theta"]]),
+        }
+
+        selected_cols = columns or []
+        if not selected_cols:
+            selected_cols = ["pose_x", "pose_y"]
+        valid_cols = [c for c in selected_cols if c in self.data.columns]
+        if not valid_cols:
+            raise ValueError("No valid replay columns selected")
+
+        if self.time_column in self.data.columns:
+            time_vals = (
+                self.data[self.time_column].iloc[start:end].to_numpy(dtype=np.float64).tolist()
+            )
+            selected_time = float(self.data[self.time_column].iloc[idx])
+        else:
+            time_vals = np.arange(start, end, dtype=np.float64).tolist()
+            selected_time = float(idx)
+
+        series: Dict[str, List[float]] = {}
+        for col in valid_cols:
+            series[col] = self.data[col].iloc[start:end].to_numpy(dtype=np.float64).tolist()
+
+        window_positions = []
+        if "pose_x" in self.data.columns and "pose_y" in self.data.columns:
+            px = self.data["pose_x"].iloc[start:end].to_numpy(dtype=np.float64)
+            py = self.data["pose_y"].iloc[start:end].to_numpy(dtype=np.float64)
+            window_positions = np.column_stack([px, py]).tolist()
+
+        overlay = self._replay_overlay_for_index(idx, pose)
+        ui = self.get_replay_ui_config()
+
+        return {
+            "index": idx,
+            "row_count": n,
+            "selected_time": selected_time,
+            "pose": pose,
+            "poses": [[pose["x"], pose["y"], pose["theta"]]],
+            "ego_idx": 0,
+            "web_overlay": overlay,
+            "car_length": ui["car_length"],
+            "car_width": ui["car_width"],
+            "window": {
+                "start_index": start,
+                "end_index": end,
+                "selected_offset": idx - start,
+                "indices": list(range(start, end)),
+                "time": time_vals,
+                "series": series,
+                "positions": window_positions,
+            },
+        }
 
     def get_session_info(self) -> Dict[str, Any]:
         data = self.data
@@ -650,6 +1051,7 @@ class VisualizationService:
             "comparison_slider": self.get_comparison_slider_range(),
             "comparison_indices": sorted(self.comparison_data_dict.keys()),
             "comparison_cache": self.get_comparison_cache_info(),
+            "timestep": self.get_timestep() if data is not None else 0.04,
         }
 
     def _try_load_config_csv(self) -> None:

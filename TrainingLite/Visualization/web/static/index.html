@@ -65,6 +65,7 @@
         <label class="checkbox"><input type="checkbox" id="sync-scales"> Sync Scales</label>
         <label class="checkbox"><input type="checkbox" id="show-controls"> Show Control Plots</label>
         <label class="checkbox"><input type="checkbox" id="show-delta"> Show Delta State Plot</label>
+        <label class="checkbox"><input type="checkbox" id="show-motor-sensors"> Show Motor Sensor Plots</label>
         </div>
       </section>
 
@@ -119,13 +120,42 @@
     <button type="button" id="toggle-sidebar" class="sidebar-edge-toggle" aria-expanded="true" aria-controls="sidebar-shell" title="Collapse settings panel">◀</button>
 
     <main class="chart-area">
-      <div class="slider-bar" id="slider-bar">
-        <label for="comparison-slider">Comparison Start Index:</label>
-        <input type="range" id="comparison-slider" min="0" max="0" value="0">
-        <span id="comparison-index-label">Index: 0</span>
-        <span id="job-status" class="job-status"></span>
+      <div class="view-tabs" role="tablist" aria-label="Visualization views">
+        <button type="button" id="tab-comparison" class="view-tab active" role="tab" aria-selected="true">Comparison</button>
+        <button type="button" id="tab-replay" class="view-tab" role="tab" aria-selected="false">Replay</button>
       </div>
-      <div id="chart-container" class="chart-container"></div>
+
+      <section id="comparison-view" class="view-panel active" role="tabpanel" aria-labelledby="tab-comparison">
+        <div class="slider-bar" id="slider-bar">
+          <label for="comparison-slider">Comparison Start Index:</label>
+          <input type="range" id="comparison-slider" min="0" max="0" value="0">
+          <span id="comparison-index-label">Index: 0</span>
+          <span id="job-status" class="job-status"></span>
+        </div>
+        <div id="chart-container" class="chart-container"></div>
+      </section>
+
+      <section id="replay-view" class="view-panel" role="tabpanel" aria-labelledby="tab-replay" hidden>
+        <div class="replay-controls">
+          <label>Data column
+            <select id="replay-column-select"></select>
+          </label>
+          <label>Window half-size [samples]
+            <input type="number" id="replay-window-size" min="5" max="5000" value="150">
+          </label>
+          <button type="button" id="replay-play-btn" class="small-btn replay-play-btn">Play</button>
+          <label>Speed
+            <input type="number" id="replay-speed" min="0.05" max="50" step="0.1" value="1.0">
+          </label>
+          <span id="replay-index-label" class="hint">Index: 0</span>
+        </div>
+        <div class="replay-slider-row">
+          <label for="replay-index-slider">Simulation Index:</label>
+          <input type="range" id="replay-index-slider" min="0" max="0" value="0">
+        </div>
+        <canvas id="replay-map-canvas" class="replay-map-canvas"></canvas>
+        <div id="replay-plot-container" class="replay-plot-container"></div>
+      </section>
     </main>
   </div>
 
@@ -140,7 +170,7 @@
       <div class="modal-body">
         <div class="browse-bar">
           <button type="button" id="browse-up" title="Parent folder">↑</button>
-          <span id="browse-path" class="browse-path">AnalyseData</span>
+          <span id="browse-path" class="browse-path">(root)</span>
         </div>
         <ul id="file-list" class="file-list"></ul>
         <label class="upload-label">

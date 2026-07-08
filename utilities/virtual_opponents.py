@@ -380,6 +380,8 @@ class VirtualOpponents:
             "VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS", count
         )
         vel_factors = _require_per_opponent_array("VIRTUAL_OPPONENT_VEL_FACTORS", count)
+        map_scale = float(getattr(Settings, "MAP_SCALE", 1.0))
+        vel_factors = [float(v) / map_scale for v in vel_factors]
         start_offsets = _require_per_opponent_array("VIRTUAL_OPPONENT_START_OFFSET_S", count)
 
         trim_to_single_lap = bool(

@@ -10,8 +10,15 @@ YAML examples::
     GLOBAL_WAYPOINT_VEL_FACTOR: uniform(0.5, 0.7)
     SURFACE_FRICTION: uniform(0.5, 1.0)
     REVERSE_DIRECTION: [true, false]
+    VIRTUAL_OPPONENT_VEL_FACTORS:
+      - uniform(0.6, 0.9)
+      - 0.85
+      - 0.85
+      - 0.85
 
-- A list samples a random element.
+- A list on a scalar setting samples a random element.
+- A list on a list setting samples each element independently (unspecified
+  indices keep the current Settings value).
 - ``uniform(low, high)`` samples a float (or int when both bounds are integers).
 """
 
@@ -99,7 +106,35 @@ def _cast_value(value: Any, target_type: type) -> Any:
     return value
 
 
-def _sample_from_spec(spec: Any, target_type: type, rng: np.random.Generator) -> Any:
+def _sample_list_from_spec(
+    spec: list | tuple,
+    original: Any,
+    rng: np.random.Generator,
+) -> list:
+    """Sample each list element; trailing indices keep the current Settings value."""
+    if not spec:
+        raise ValueError("Empty per-element list in episode randomization spec")
+
+    original_list = list(original or [])
+    result: list[Any] = []
+    for index, elem_spec in enumerate(spec):
+        elem_type = type(original_list[index]) if index < len(original_list) else _infer_type_from_spec(
+            elem_spec
+        )
+        result.append(_sample_from_spec(elem_spec, elem_type, rng))
+
+    if len(original_list) > len(spec):
+        result.extend(original_list[len(spec) :])
+    return result
+
+
+def _sample_from_spec(
+    spec: Any,
+    target_type: type,
+    rng: np.random.Generator,
+    *,
+    original: Any = None,
+) -> Any:
     if isinstance(spec, str):
         match = _UNIFORM_RE.match(spec)
         if match:
@@ -114,6 +149,8 @@ def _sample_from_spec(spec: Any, target_type: type, rng: np.random.Generator) ->
         return _cast_value(spec, target_type)
 
     if isinstance(spec, (list, tuple)):
+        if target_type is list:
+            return _sample_list_from_spec(spec, original, rng)
         if not spec:
             raise ValueError("Empty choice list in episode randomization spec")
         return _cast_value(rng.choice(spec), target_type)
@@ -168,7 +205,7 @@ def apply_episode_randomization(
         if target_type is type(None):
             target_type = _infer_type_from_spec(entry)
 
-        value = _sample_from_spec(entry, target_type, rng)
+        value = _sample_from_spec(entry, target_type, rng, original=original)
         setattr(Settings, setting_name, value)
         _apply_setting_hooks(setting_name, value, simulation)
         sampled[setting_name] = value
@@ -217,7 +254,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             target_type = type(original)
             if target_type is type(None):
                 target_type = _infer_type_from_spec(entry)
-            value = _sample_from_spec(entry, target_type, rng)
+            value = _sample_from_spec(entry, target_type, rng, original=original)
             print(f"{setting_name}: {value!r}")
         return 0
 

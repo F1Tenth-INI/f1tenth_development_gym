@@ -112,7 +112,7 @@ class Settings():
     # CBF-QP safety filter (controller-agnostic, applied in CarSystem after the planner).
     # Keeps the car inside the track (boundary HOCBF) and below the lateral-grip limit
     # (friction-circle speed CBF). See utilities/cbf_safety_filter.py.
-    CBF_SAFETY_FILTER = True         # Master switch for the safety filter
+    CBF_SAFETY_FILTER = False         # Master switch for the safety filter
     CBF_BOUNDARY_MARGIN = 0.20       # [m] shrink corridor by this (>= half car width)
     CBF_ALPHA_1 = 2.5                # HOCBF class-K gain 1 (boundary), [1/s]
     CBF_ALPHA_2 = 2.5                # HOCBF class-K gain 2 (boundary), [1/s]

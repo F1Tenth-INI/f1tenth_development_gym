@@ -245,6 +245,7 @@ class RacingSimulation:
         
         # Normal reset
         self.episode_index = 0
+        self.sim_time = 0.0
 
         # Populate control delay buffer
         control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
@@ -267,7 +268,7 @@ class RacingSimulation:
         self.sim_index_history.clear()
 
         self.on_step_end()
-
+        self.render_env()
 
     def run_simulation(self):
 
@@ -482,6 +483,7 @@ class RacingSimulation:
         self.sim_index_history.clear()
         
         self.on_step_end()
+        self.render_env()
 
     def manual_respawn(self):
         """Manually trigger respawn - useful for testing or external control"""

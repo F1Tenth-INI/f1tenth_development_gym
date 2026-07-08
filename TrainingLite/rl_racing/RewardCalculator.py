@@ -38,6 +38,8 @@ class RewardCalculator:
         self.w_d_acceleration = 0.1
         self.w_speed_cap = 0.0 # 0.3
         self.w_proximity = 0.0
+        self.w_slip = 1.0   # per m/s lateral body velocity (linear_vel_y)
+
 
         if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
             self.w_speed_cap = 0.3
@@ -150,6 +152,9 @@ class RewardCalculator:
             ) ** 2
             proximity_penalty = -self.w_proximity * proximity_value
         reward += proximity_penalty
+        # Penalize lateral slip (body-frame y velocity).
+        slip_penalty = -self.w_slip * abs(car_state[LINEAR_VEL_Y_IDX])
+        reward += slip_penalty
 
         # Spin / stuck penalties when EpisodeTerminator flags termination this step.
         spin_reward = 0.0
@@ -187,6 +192,7 @@ class RewardCalculator:
             "d_action_penality": float(d_action_penality),
             "speed_cap_penalty": float(speed_cap_penalty),
             "proximity_penalty": float(proximity_penalty),
+            "slip_penalty": float(slip_penalty),
             "stuck_reward": float(stuck_reward),
             "spin_reward": float(spin_reward),
             "lap_finished_reward": float(lap_finished_reward),

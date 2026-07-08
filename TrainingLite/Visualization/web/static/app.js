@@ -20,12 +20,6 @@ const OTHER_DATA_COLORS = [
 const CTRL_STEERING_COLOR = "#e74c3c";
 const CTRL_ACCEL_COLOR = "#3498db";
 
-const IMU_CHANNELS = [
-  { key: "imu_a_x", label: "IMU a_x" },
-  { key: "imu_a_y", label: "IMU a_y" },
-  { key: "imu_gyro_z", label: "IMU ω_z" },
-];
-
 const MOTOR_CHANNELS = [
   { key: "motor_angular_velocity", label: "Motor ω (ERPM)" },
   { key: "motor_current_a", label: "Motor current [A]" },
@@ -54,7 +48,7 @@ function controlOverlayYAxis(baseY) {
 
 let settings = {};
 let session = null;
-let browsePath = "AnalyseData";
+let browsePath = "";
 let sliderTimer = null;
 let heartbeatTimer = null;
 let loadingCount = 0;
@@ -64,6 +58,36 @@ let comparisonRunId = 0;
 let activeJobWait = null;
 let plotBundle = null;
 let plotBundleKey = null;
+let autoscaleRevision = 0;
+let activeMainTab = "comparison";
+let replayMapMeta = null;
+let replayMapImage = null;
+let replaySnapshot = null;
+let replayFetchTimer = null;
+let replayZoom = 45.0;
+let replayCameraFollow = false;
+let replayCameraCenter = null;
+let replayCarLengthM = 0.58;
+let replayCarWidthM = 0.31;
+let replayPlaying = false;
+let replayPlayTimer = null;
+let replayPlayLastTs = 0;
+let replayPlayAccum = 0;
+let replayDragging = false;
+let replayDragLastX = 0;
+let replayDragLastY = 0;
+let replayTrack = null;
+let replayTrackKey = null;
+let replayFrameInflight = false;
+let replayOverlayNeedsRefresh = true;
+let replayLastOverlayFetchTs = 0;
+let replayLastHeavyOverlayTs = 0;
+let replayLastPlotUpdateTs = 0;
+let replayPlotReady = false;
+const REPLAY_OVERLAY_MIN_MS = 180;
+const REPLAY_HEAVY_OVERLAY_MIN_MS = 450;
+const REPLAY_PLOT_MIN_MS = 200;
+let replayPlayTickBusy = false;
 
 function syncLoadingUi() {
   const bar = document.getElementById("global-loading");
@@ -140,9 +164,8 @@ function capturePlotLayoutState() {
 
 function applyPlotLayoutState(layout, saved, identity) {
   if (!saved) {
-    layout.uirevision = identity
-      ? `${PLOT_UIREVISION}-${identity}`
-      : `${PLOT_UIREVISION}-autoscale`;
+    autoscaleRevision += 1;
+    layout.uirevision = `${PLOT_UIREVISION}-autoscale-${autoscaleRevision}`;
     Object.keys(layout).forEach((key) => {
       if (!key.startsWith("xaxis") && !key.startsWith("yaxis")) return;
       layout[key] = { ...(layout[key] || {}), autorange: true };
@@ -174,6 +197,645 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", t);
   document.getElementById("theme-dark").classList.toggle("active", t === "dark");
   document.getElementById("theme-light").classList.toggle("active", t === "light");
+}
+
+function setMainTab(tabName) {
+  const isReplay = tabName === "replay";
+  activeMainTab = isReplay ? "replay" : "comparison";
+  document.getElementById("tab-comparison").classList.toggle("active", !isReplay);
+  document.getElementById("tab-replay").classList.toggle("active", isReplay);
+  document.getElementById("tab-comparison").setAttribute("aria-selected", String(!isReplay));
+  document.getElementById("tab-replay").setAttribute("aria-selected", String(isReplay));
+
+  const comparisonView = document.getElementById("comparison-view");
+  const replayView = document.getElementById("replay-view");
+  comparisonView.classList.toggle("active", !isReplay);
+  replayView.classList.toggle("active", isReplay);
+  comparisonView.hidden = isReplay;
+  replayView.hidden = !isReplay;
+
+  if (isReplay) {
+    ensureReplayData().catch((e) => console.warn("Replay init:", e.message));
+    setTimeout(() => {
+      resizeReplayCanvas();
+      if (!replayCameraFollow) fitReplayMapOverview();
+      drawReplayMap();
+      const container = document.getElementById("replay-plot-container");
+      if (container?.data) Plotly.Plots.resize(container);
+    }, 0);
+  } else {
+    stopReplayPlayback();
+    const container = document.getElementById("chart-container");
+    if (container?.data) setTimeout(() => Plotly.Plots.resize(container), 0);
+  }
+}
+
+function resizeReplayCanvas() {
+  const canvas = document.getElementById("replay-map-canvas");
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function replayWorldToScreen(x, y, cx, cy, w, h, zoom) {
+  const sx = (x - cx) * zoom + 0.5 * w;
+  const sy = h - ((y - cy) * zoom + 0.5 * h);
+  return [sx, sy];
+}
+
+function replayDrawPoints(ctx, points, color, radius, cx, cy, w, h, zoom, maxPoints = 0) {
+  if (!Array.isArray(points) || !points.length) return;
+  const step = maxPoints > 0 && points.length > maxPoints
+    ? Math.ceil(points.length / maxPoints)
+    : 1;
+  ctx.fillStyle = color;
+  for (let i = 0; i < points.length; i += step) {
+    const p = points[i];
+    if (!Array.isArray(p) || p.length < 2) continue;
+    const [sx, sy] = replayWorldToScreen(p[0], p[1], cx, cy, w, h, zoom);
+    ctx.beginPath();
+    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function replayDrawLine(ctx, points, color, lineWidth, cx, cy, w, h, zoom) {
+  if (!Array.isArray(points) || points.length < 2) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  points.forEach((p, idx) => {
+    if (!Array.isArray(p) || p.length < 2) return;
+    const [sx, sy] = replayWorldToScreen(p[0], p[1], cx, cy, w, h, zoom);
+    if (idx === 0) ctx.moveTo(sx, sy);
+    else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+}
+
+function replayDrawCarRect(ctx, pose, color, lengthM, widthM, cx, cy, w, h, zoom) {
+  if (!pose || pose.length < 3) return;
+  const [sx, sy] = replayWorldToScreen(pose[0], pose[1], cx, cy, w, h, zoom);
+  const carLen = lengthM * zoom;
+  const carWid = widthM * zoom;
+  ctx.save();
+  ctx.translate(sx, sy);
+  // Match web_renderer.py / WebRenderer camera convention.
+  ctx.rotate(-pose[2]);
+  ctx.fillStyle = color;
+  ctx.fillRect(-carLen / 2, -carWid / 2, carLen, carWid);
+  ctx.restore();
+}
+
+function drawReplayMap() {
+  const canvas = document.getElementById("replay-map-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.getBoundingClientRect().width;
+  const h = canvas.getBoundingClientRect().height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#092057";
+  ctx.fillRect(0, 0, w, h);
+
+  const pose = replaySnapshot?.pose;
+  if (!pose && !replayMapMeta) {
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Load a recording and open Replay to scrub the map.", 14, 24);
+    return;
+  }
+
+  if (replayCameraFollow && pose) {
+    replayCameraCenter = [pose.x, pose.y];
+  } else if (replayCameraCenter === null) {
+    if (replayMapMeta) {
+      const mapWm = replayMapMeta.width * replayMapMeta.resolution;
+      const mapHm = replayMapMeta.height * replayMapMeta.resolution;
+      replayCameraCenter = [
+        replayMapMeta.origin[0] + 0.5 * mapWm,
+        replayMapMeta.origin[1] + 0.5 * mapHm,
+      ];
+    } else if (pose) {
+      replayCameraCenter = [pose.x, pose.y];
+    } else {
+      return;
+    }
+  }
+  if (!replayCameraCenter) return;
+  const cx = replayCameraCenter[0];
+  const cy = replayCameraCenter[1];
+  const zoom = replayZoom;
+  const overlay = (replaySnapshot && replaySnapshot.web_overlay) || {};
+
+  if (replayMapMeta && replayMapImage?.complete) {
+    const mapWm = replayMapMeta.width * replayMapMeta.resolution;
+    const mapHm = replayMapMeta.height * replayMapMeta.resolution;
+    const [sx, syTop] = replayWorldToScreen(
+      replayMapMeta.origin[0],
+      replayMapMeta.origin[1] + mapHm,
+      cx,
+      cy,
+      w,
+      h,
+      zoom
+    );
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(replayMapImage, sx, syTop, mapWm * zoom, mapHm * zoom);
+    ctx.globalAlpha = 1.0;
+  }
+
+  if (!pose) return;
+
+  const history = replaySnapshot.window?.positions || [];
+  if (history.length > 1) {
+    replayDrawLine(ctx, history, "rgba(70,160,255,0.7)", 1.8, cx, cy, w, h, zoom);
+  }
+
+  replayDrawPoints(ctx, overlay.next_waypoints, "rgb(0,180,70)", 2.4, cx, cy, w, h, zoom);
+  // Lidar is the heaviest canvas work; thin it out (more while playing).
+  if (Array.isArray(overlay.lidar_border_points) && overlay.lidar_border_points.length) {
+    replayDrawPoints(
+      ctx,
+      overlay.lidar_border_points,
+      "rgb(255,0,255)",
+      2.0,
+      cx,
+      cy,
+      w,
+      h,
+      zoom,
+      replayPlaying ? 80 : 220,
+    );
+  }
+
+  const voSize = overlay.virtual_opponent_size;
+  const voWidth = Array.isArray(voSize) && voSize.length >= 1 ? voSize[0] : replayCarWidthM;
+  const voLength = Array.isArray(voSize) && voSize.length >= 2 ? voSize[1] : replayCarLengthM;
+  if (Array.isArray(overlay.virtual_opponents)) {
+    for (const p of overlay.virtual_opponents) {
+      replayDrawCarRect(ctx, p, "rgb(255,140,0)", voLength, voWidth, cx, cy, w, h, zoom);
+    }
+  }
+
+  const egoPose = [pose.x, pose.y, pose.theta];
+  const carL = Number(replaySnapshot.car_length) || replayCarLengthM;
+  const carW = Number(replaySnapshot.car_width) || replayCarWidthM;
+  replayDrawCarRect(ctx, egoPose, "#ac61b9", carL, carW, cx, cy, w, h, zoom);
+}
+
+async function renderReplayWindowPlot(snapshot, { force = false } = {}) {
+  const container = document.getElementById("replay-plot-container");
+  if (!container || !snapshot?.window) return;
+  const now = performance.now();
+  if (!force && replayPlaying && (now - replayLastPlotUpdateTs) < REPLAY_PLOT_MIN_MS) {
+    return;
+  }
+  replayLastPlotUpdateTs = now;
+
+  const series = snapshot.window.series || {};
+  const keys = Object.keys(series);
+  const theme = getChartTheme();
+  if (!keys.length) {
+    replayPlotReady = false;
+    Plotly.react(container, [], {
+      title: { text: "No replay column selected", font: { size: 13 } },
+      paper_bgcolor: theme.paper,
+      plot_bgcolor: theme.plot,
+      font: { color: theme.text },
+    });
+    return;
+  }
+
+  const x = snapshot.window.time?.length ? snapshot.window.time : snapshot.window.indices;
+  const y0 = series[keys[0]] || [];
+  const markerX = x[snapshot.window.selected_offset];
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  for (const k of keys) {
+    const vals = series[k] || [];
+    for (const v of vals) {
+      if (!Number.isFinite(v)) continue;
+      if (v < ymin) ymin = v;
+      if (v > ymax) ymax = v;
+    }
+  }
+  if (!Number.isFinite(ymin) || !Number.isFinite(ymax)) {
+    ymin = -1;
+    ymax = 1;
+  }
+  if (Math.abs(ymax - ymin) < 1e-9) {
+    ymin -= 1;
+    ymax += 1;
+  }
+
+  const layout = {
+    title: { text: `Replay window around index ${snapshot.index}`, font: { size: 13 } },
+    paper_bgcolor: theme.paper,
+    plot_bgcolor: theme.plot,
+    font: { color: theme.text },
+    margin: { l: 55, r: 18, t: 36, b: 42 },
+    legend: { orientation: "h" },
+    xaxis: { title: snapshot.window.time?.length ? "Time" : "Index", gridcolor: theme.grid },
+    yaxis: { title: "Value", gridcolor: theme.grid, range: [ymin, ymax] },
+    uirevision: `replay-plot-${keys.join("|")}`,
+  };
+
+  // Fast path during playback: update existing traces in place.
+  if (
+    replayPlaying
+    && replayPlotReady
+    && container.data
+    && container.data.length === keys.length + 1
+  ) {
+    const xArrays = keys.map(() => x);
+    const yArrays = keys.map((k) => series[k]);
+    xArrays.push([markerX, markerX]);
+    yArrays.push([ymin, ymax]);
+    await Plotly.restyle(container, { x: xArrays, y: yArrays });
+    await Plotly.relayout(container, {
+      "title.text": `Replay window around index ${snapshot.index}`,
+      "yaxis.range": [ymin, ymax],
+    });
+    return;
+  }
+
+  const traces = keys.map((k, i) => ({
+    x,
+    y: series[k],
+    mode: "lines",
+    name: k,
+    line: { width: 1.8, color: OTHER_DATA_COLORS[i % OTHER_DATA_COLORS.length] },
+  }));
+  traces.push({
+    x: [markerX, markerX],
+    y: [ymin, ymax],
+    mode: "lines",
+    name: "Selected index",
+    line: { color: "#ffcc00", width: 1.5, dash: "dash" },
+  });
+  await Plotly.react(container, traces, layout, { responsive: true, displayModeBar: true });
+  replayPlotReady = true;
+}
+
+function buildLocalReplaySnapshot(index, halfWindow, column) {
+  if (!replayTrack) return null;
+  const n = replayTrack.row_count || 0;
+  if (!n) return null;
+  const idx = Math.max(0, Math.min(index, n - 1));
+  const half = Math.max(5, Math.min(halfWindow, 5000));
+  const start = Math.max(0, idx - half);
+  const end = Math.min(n, idx + half + 1);
+  const col = column && replayTrack.series?.[column] ? column : (
+    replayTrack.series?.pose_x ? "pose_x" : Object.keys(replayTrack.series || {})[0]
+  );
+  const series = {};
+  if (col && replayTrack.series?.[col]) {
+    series[col] = replayTrack.series[col].slice(start, end);
+  }
+  const px = (replayTrack.pose_x || []).slice(start, end);
+  const py = (replayTrack.pose_y || []).slice(start, end);
+  const positions = px.map((x, i) => [x, py[i] ?? 0]);
+  const previousOverlay = replaySnapshot?.web_overlay || {};
+  return {
+    index: idx,
+    row_count: n,
+    selected_time: Number(replayTrack.time?.[idx] ?? idx),
+    pose: {
+      x: Number(replayTrack.pose_x?.[idx] ?? 0),
+      y: Number(replayTrack.pose_y?.[idx] ?? 0),
+      theta: Number(replayTrack.pose_theta?.[idx] ?? 0),
+    },
+    poses: [[
+      Number(replayTrack.pose_x?.[idx] ?? 0),
+      Number(replayTrack.pose_y?.[idx] ?? 0),
+      Number(replayTrack.pose_theta?.[idx] ?? 0),
+    ]],
+    ego_idx: 0,
+    web_overlay: previousOverlay,
+    car_length: replayTrack.car_length || replayCarLengthM,
+    car_width: replayTrack.car_width || replayCarWidthM,
+    window: {
+      start_index: start,
+      end_index: end,
+      selected_offset: idx - start,
+      indices: Array.from({ length: end - start }, (_, i) => start + i),
+      time: (replayTrack.time || []).slice(start, end),
+      series,
+      positions,
+    },
+  };
+}
+
+async function ensureReplayTrack(force = false) {
+  if (!session?.row_count) return null;
+  const col = document.getElementById("replay-column-select")?.value || "";
+  const key = `${session.csv_file_path || ""}|${session.row_count}|${col}`;
+  if (!force && replayTrack && replayTrackKey === key && (!col || replayTrack.series?.[col])) {
+    return replayTrack;
+  }
+  const qs = col ? `?columns=${encodeURIComponent(col)}` : "";
+  replayTrack = await api("GET", `/api/replay/track${qs}`, undefined, false);
+  replayTrackKey = key;
+  if (Number.isFinite(replayTrack.car_length)) replayCarLengthM = replayTrack.car_length;
+  if (Number.isFinite(replayTrack.car_width)) replayCarWidthM = replayTrack.car_width;
+  if (Number.isFinite(replayTrack.timestep)) {
+    session = { ...session, timestep: replayTrack.timestep };
+  }
+  return replayTrack;
+}
+
+async function refreshReplayOverlays(index, { heavy = true, force = false } = {}) {
+  if (replayFrameInflight) {
+    replayOverlayNeedsRefresh = true;
+    return;
+  }
+  const now = performance.now();
+  if (!force && (now - replayLastOverlayFetchTs) < REPLAY_OVERLAY_MIN_MS) {
+    replayOverlayNeedsRefresh = true;
+    return;
+  }
+  let includeHeavy = heavy;
+  if (includeHeavy && !force && replayPlaying
+      && (now - replayLastHeavyOverlayTs) < REPLAY_HEAVY_OVERLAY_MIN_MS) {
+    includeHeavy = false;
+  }
+  replayFrameInflight = true;
+  replayLastOverlayFetchTs = now;
+  if (includeHeavy) replayLastHeavyOverlayTs = now;
+  try {
+    const frame = await api("POST", "/api/replay/frame", {
+      index,
+      include_heavy: includeHeavy,
+    }, false);
+    if (!replaySnapshot) return;
+    const mergedOverlay = {
+      ...(replaySnapshot.web_overlay || {}),
+      ...(frame.web_overlay || {}),
+    };
+    // Light frames omit lidar; keep previous scan until a heavy frame arrives.
+    if (!includeHeavy && replaySnapshot.web_overlay?.lidar_border_points && !mergedOverlay.lidar_border_points) {
+      mergedOverlay.lidar_border_points = replaySnapshot.web_overlay.lidar_border_points;
+    }
+    if (Number(frame.index) === Number(replaySnapshot.index)) {
+      replaySnapshot = {
+        ...replaySnapshot,
+        web_overlay: mergedOverlay,
+        pose: frame.pose || replaySnapshot.pose,
+        selected_time: frame.selected_time,
+      };
+      drawReplayMap();
+    } else {
+      // Keep latest overlays for nearby frames if index drifted during request.
+      replaySnapshot = {
+        ...replaySnapshot,
+        web_overlay: mergedOverlay,
+      };
+    }
+  } catch (e) {
+    console.warn("Replay overlays:", e.message);
+  } finally {
+    replayFrameInflight = false;
+    if (replayOverlayNeedsRefresh && replayPlaying) {
+      replayOverlayNeedsRefresh = false;
+      const slider = document.getElementById("replay-index-slider");
+      refreshReplayOverlays(parseInt(slider.value, 10) || 0, { heavy: true }).catch(() => {});
+    } else {
+      replayOverlayNeedsRefresh = false;
+    }
+  }
+}
+
+async function applyReplayIndex(index, { forcePlot = false, fetchOverlays = true } = {}) {
+  if (!session?.row_count) return;
+  await ensureReplayTrack();
+  const slider = document.getElementById("replay-index-slider");
+  const col = document.getElementById("replay-column-select").value;
+  const halfWindow = parseInt(document.getElementById("replay-window-size").value, 10) || 150;
+  const local = buildLocalReplaySnapshot(index, halfWindow, col);
+  if (!local) return;
+  // Keep prior overlays on the local pose snapshot so they don't flicker.
+  const prevOverlay = replaySnapshot?.web_overlay;
+  replaySnapshot = prevOverlay ? { ...local, web_overlay: prevOverlay } : local;
+  slider.value = String(local.index);
+  document.getElementById("replay-index-label").textContent =
+    `Index: ${local.index} | t=${Number(local.selected_time).toFixed(3)}`;
+  drawReplayMap();
+  // Never block car playback on Plotly; only force-await when scrubbing/pausing.
+  if (forcePlot || !replayPlaying) {
+    await renderReplayWindowPlot(local, { force: true });
+  } else {
+    renderReplayWindowPlot(local, { force: false }).catch(() => {});
+  }
+  if (fetchOverlays) {
+    refreshReplayOverlays(local.index, {
+      // Request heavy when not playing, forced, or on the slow cadence gate.
+      heavy: true,
+      force: forcePlot,
+    }).catch(() => {});
+  }
+}
+
+async function fetchReplaySnapshot(indexOverride = null) {
+  if (!session?.row_count) return;
+  const slider = document.getElementById("replay-index-slider");
+  const idx = indexOverride ?? (parseInt(slider.value, 10) || 0);
+  await applyReplayIndex(idx, { forcePlot: true, fetchOverlays: true });
+}
+
+async function ensureReplayData() {
+  if (!session?.row_count) return;
+  if (!replayMapMeta) {
+    try {
+      const [mapInfo, uiCfg] = await Promise.all([
+        api("GET", "/api/replay/map", undefined, false),
+        api("GET", "/api/replay/ui-config", undefined, false).catch(() => ({})),
+      ]);
+      replayMapMeta = mapInfo;
+      if (Number.isFinite(uiCfg.car_length)) replayCarLengthM = uiCfg.car_length;
+      if (Number.isFinite(uiCfg.car_width)) replayCarWidthM = uiCfg.car_width;
+      replayMapImage = new Image();
+      replayMapImage.src = `/api/replay/map-image?ts=${Date.now()}`;
+      await new Promise((resolve) => {
+        replayMapImage.onload = resolve;
+        replayMapImage.onerror = resolve;
+      });
+      if (!replayCameraFollow) fitReplayMapOverview();
+    } catch (e) {
+      console.warn("Replay map:", e.message);
+      replayMapMeta = null;
+      replayMapImage = null;
+    }
+  }
+  await ensureReplayTrack();
+  if (!replaySnapshot) {
+    await applyReplayIndex(parseInt(document.getElementById("replay-index-slider").value, 10) || 0, {
+      forcePlot: true,
+      fetchOverlays: true,
+    });
+  } else {
+    drawReplayMap();
+  }
+}
+
+function getReplayPlaybackSpeed() {
+  const raw = parseFloat(document.getElementById("replay-speed")?.value);
+  if (!Number.isFinite(raw) || raw <= 0) return 1.0;
+  return Math.min(50, Math.max(0.05, raw));
+}
+
+function updateReplayPlayButton() {
+  const btn = document.getElementById("replay-play-btn");
+  if (!btn) return;
+  btn.textContent = replayPlaying ? "Pause" : "Play";
+  btn.classList.toggle("active", replayPlaying);
+}
+
+function stopReplayPlayback({ refresh = true } = {}) {
+  replayPlaying = false;
+  replayPlayTickBusy = false;
+  if (replayPlayTimer) {
+    clearInterval(replayPlayTimer);
+    replayPlayTimer = null;
+  }
+  replayPlayLastTs = 0;
+  replayPlayAccum = 0;
+  updateReplayPlayButton();
+  // One accurate overlay/plot refresh when pausing.
+  if (!refresh) return;
+  const slider = document.getElementById("replay-index-slider");
+  if (slider && session?.row_count) {
+    applyReplayIndex(parseInt(slider.value, 10) || 0, {
+      forcePlot: true,
+      fetchOverlays: true,
+    }).catch(() => {});
+  }
+}
+
+async function advanceReplayPlaybackTick() {
+  if (!replayPlaying || !session?.row_count || replayPlayTickBusy) return;
+  replayPlayTickBusy = true;
+  try {
+    if (!replayTrack) {
+      await ensureReplayTrack();
+      if (!replayTrack) return;
+    }
+    const now = performance.now();
+    if (!replayPlayLastTs) {
+      replayPlayLastTs = now;
+      return;
+    }
+    const dt = Math.min(0.25, (now - replayPlayLastTs) / 1000);
+    replayPlayLastTs = now;
+
+    const speed = getReplayPlaybackSpeed();
+    const dtSample = Number(session?.timestep) || Number(replayTrack?.timestep) || 0.04;
+    replayPlayAccum += dt * speed;
+    const steps = Math.floor(replayPlayAccum / Math.max(1e-6, dtSample));
+    if (steps < 1) return;
+    replayPlayAccum -= steps * dtSample;
+
+    const slider = document.getElementById("replay-index-slider");
+    const max = parseInt(slider.max, 10) || Math.max(0, session.row_count - 1);
+    let next = (parseInt(slider.value, 10) || 0) + steps;
+    if (next >= max) {
+      next = max;
+      slider.value = String(next);
+      await applyReplayIndex(next, { forcePlot: true, fetchOverlays: true });
+      stopReplayPlayback({ refresh: false });
+      return;
+    }
+    slider.value = String(next);
+    // Sync path: map first; plot/overlays are throttled inside.
+    await applyReplayIndex(next, { forcePlot: false, fetchOverlays: true });
+  } finally {
+    replayPlayTickBusy = false;
+  }
+}
+
+function startReplayPlayback() {
+  if (!session?.row_count) return;
+  const slider = document.getElementById("replay-index-slider");
+  const max = parseInt(slider.max, 10) || Math.max(0, session.row_count - 1);
+  if ((parseInt(slider.value, 10) || 0) >= max) {
+    slider.value = "0";
+  }
+  ensureReplayTrack().catch(() => {});
+  replayPlaying = true;
+  replayPlayTickBusy = false;
+  replayPlayLastTs = 0;
+  replayPlayAccum = 0;
+  updateReplayPlayButton();
+  if (replayPlayTimer) clearInterval(replayPlayTimer);
+  // ~30 Hz clock; actual index advance follows recording timestep * speed.
+  replayPlayTimer = setInterval(() => {
+    advanceReplayPlaybackTick().catch((e) => console.warn("Replay play:", e.message));
+  }, 33);
+}
+
+function toggleReplayPlayback() {
+  if (replayPlaying) stopReplayPlayback();
+  else startReplayPlayback();
+}
+
+function fitReplayMapOverview() {
+  if (!replayMapMeta) return;
+  const canvas = document.getElementById("replay-map-canvas");
+  if (!canvas) return;
+  const w = canvas.getBoundingClientRect().width || 800;
+  const h = canvas.getBoundingClientRect().height || 400;
+  const mapWm = replayMapMeta.width * replayMapMeta.resolution;
+  const mapHm = replayMapMeta.height * replayMapMeta.resolution;
+  replayCameraCenter = [
+    replayMapMeta.origin[0] + 0.5 * mapWm,
+    replayMapMeta.origin[1] + 0.5 * mapHm,
+  ];
+  replayZoom = Math.max(8, 0.92 * Math.min(w / Math.max(mapWm, 1e-6), h / Math.max(mapHm, 1e-6)));
+  replayCameraFollow = false;
+}
+
+function populateReplayColumnSelect(columns) {
+  const sel = document.getElementById("replay-column-select");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const numericCols = (columns || []).filter((c) => c !== "time");
+  numericCols.forEach((c) => {
+    const opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = c;
+    sel.appendChild(opt);
+  });
+  if (numericCols.includes(prev)) sel.value = prev;
+  else if (numericCols.includes(settings.state_name)) sel.value = settings.state_name;
+  else if (numericCols.includes("pose_x")) sel.value = "pose_x";
+}
+
+function resetReplayForSession() {
+  stopReplayPlayback({ refresh: false });
+  replayMapMeta = null;
+  replayMapImage = null;
+  replaySnapshot = null;
+  replayTrack = null;
+  replayTrackKey = null;
+  replayPlotReady = false;
+  replayCameraCenter = null;
+  replayCameraFollow = false;
+  replayZoom = 45.0;
+  const slider = document.getElementById("replay-index-slider");
+  const max = Math.max(0, (session?.row_count || 1) - 1);
+  slider.min = "0";
+  slider.max = String(max);
+  slider.value = String(Math.min(parseInt(slider.value, 10) || 0, max));
+  populateReplayColumnSelect(session?.columns || []);
+  resizeReplayCanvas();
+  if (activeMainTab === "replay") {
+    ensureReplayData().catch((e) => console.warn("Replay reset:", e.message));
+  } else {
+    drawReplayMap();
+  }
 }
 
 function startBrowserHeartbeat() {
@@ -418,24 +1080,6 @@ function filterPredictionItems(bundle) {
   return [nearest];
 }
 
-function imuDataFromBundle(bundle) {
-  const channels = {};
-  const filtered = settings.enable_comparison ? filterPredictionItems(bundle) : [];
-  for (const { key, label } of IMU_CHANNELS) {
-    const gt = bundle.ground_truth?.[key];
-    if (!gt?.length) continue;
-    const predictions = [];
-    for (const p of filtered) {
-      const values = p.states?.[key];
-      if (values?.length) {
-        predictions.push({ start_index: p.start_index, time: p.time, values });
-      }
-    }
-    channels[key] = { label, ground_truth: gt, predictions };
-  }
-  return channels;
-}
-
 function addComparisonRowTraces({
   traces,
   time,
@@ -483,15 +1127,10 @@ function motorDataFromBundle(bundle) {
   return channels;
 }
 
-function buildSubplotLayout({ showDelta, showControls, showImu, showMotor }) {
+function buildSubplotLayout({ showDelta, showControls, showMotor }) {
   const rowSpecs = [{ kind: "main", weight: 0.38 }];
   if (showDelta) rowSpecs.push({ kind: "delta", weight: 0.1 });
   if (showControls) rowSpecs.push({ kind: "controls", weight: 0.12 });
-  if (showImu) {
-    IMU_CHANNELS.forEach((ch) => {
-      rowSpecs.push({ kind: "imu", channel: ch.key, label: ch.label, weight: 0.1 });
-    });
-  }
   if (showMotor) {
     MOTOR_CHANNELS.forEach((ch) => {
       rowSpecs.push({ kind: "motor", channel: ch.key, label: ch.label, weight: 0.1 });
@@ -553,7 +1192,6 @@ function plotDataFromBundle(bundle, stateName) {
     time: bundle.time,
     ground_truth: null,
     predictions: [],
-    imu: imuDataFromBundle(bundle),
     motor: motorDataFromBundle(bundle),
     other_data: bundle.other_data || {},
     controls: bundle.controls || {},
@@ -726,11 +1364,8 @@ function buildPlotFromData(plotData) {
   const noState = !plotData.state_name;
   const showDelta = !noState && settings.show_delta_state;
   const showControls = settings.show_controls && Object.keys(plotData.controls || {}).length > 0;
-  const showImu = Object.keys(plotData.imu || {}).length > 0;
-  const showMotor = Object.keys(plotData.motor || {}).length > 0;
+  const showMotor = settings.show_motor_sensors && Object.keys(plotData.motor || {}).length > 0;
   const multiPred = !noState && settings.show_all_comparisons && plotData.predictions.length > 1;
-  const imuMultiPred = showImu && settings.show_all_comparisons
-    && IMU_CHANNELS.some(({ key }) => (plotData.imu[key]?.predictions?.length ?? 0) > 1);
   const motorMultiPred = showMotor && settings.show_all_comparisons
     && MOTOR_CHANNELS.some(({ key }) => (plotData.motor[key]?.predictions?.length ?? 0) > 1);
   const showPredLegend = !multiPred;
@@ -739,7 +1374,6 @@ function buildPlotFromData(plotData) {
   const { rowSpecs, rowCount } = buildSubplotLayout({
     showDelta,
     showControls,
-    showImu,
     showMotor,
   });
   const traces = [];
@@ -773,14 +1407,12 @@ function buildPlotFromData(plotData) {
   let mainIds = null;
   let deltaIds = null;
   let controlsIds = null;
-  const imuAxisByChannel = {};
   const motorAxisByChannel = {};
   rowSpecs.forEach((spec, i) => {
     const ids = axisIds[i];
     if (spec.kind === "main") mainIds = ids;
     else if (spec.kind === "delta") deltaIds = ids;
     else if (spec.kind === "controls") controlsIds = ids;
-    else if (spec.kind === "imu") imuAxisByChannel[spec.channel] = ids;
     else if (spec.kind === "motor") motorAxisByChannel[spec.channel] = ids;
   });
 
@@ -913,25 +1545,6 @@ function buildPlotFromData(plotData) {
     }
   }
 
-  if (showImu) {
-    IMU_CHANNELS.forEach(({ key }) => {
-      const channel = plotData.imu[key];
-      const axisIdsForChannel = imuAxisByChannel[key];
-      if (!channel || !axisIdsForChannel) return;
-      addComparisonRowTraces({
-        traces,
-        time: plotData.time,
-        groundTruth: channel.ground_truth,
-        predictions: channel.predictions,
-        axisIds: axisIdsForChannel,
-        multiPred: imuMultiPred,
-        showPredLegend: !imuMultiPred,
-        gtName: `${channel.label} measured`,
-        predLegendName: `${channel.label} model`,
-      });
-    });
-  }
-
   if (showMotor) {
     MOTOR_CHANNELS.forEach(({ key }) => {
       const channel = plotData.motor[key];
@@ -958,7 +1571,6 @@ function buildPlotFromData(plotData) {
     `rows-${rowCount}`,
     `ctrl-${showControls}`,
     `delta-${showDelta}`,
-    `imu-${showImu}`,
     `motor-${showMotor}`,
     `state-${noState ? "none" : plotData.state_name}`,
     `cmp-${comparisonKey}`,
@@ -968,7 +1580,7 @@ function buildPlotFromData(plotData) {
   layout.title = { text: chartTitle, font: { size: 14 } };
   if (rowCount > 1) {
     layout.title = { text: chartTitle, font: { size: 14 }, y: 0.98 };
-    if (showControls || showImu || showMotor) layout.margin = { ...layout.margin, r: 70 };
+    if (showControls || showMotor) layout.margin = { ...layout.margin, r: 70 };
   }
 
   return { traces, layout, structureKey };
@@ -1145,6 +1757,7 @@ function readFormSettings() {
     enable_comparison: document.getElementById("enable-comparison").checked,
     show_controls: document.getElementById("show-controls").checked,
     show_delta_state: document.getElementById("show-delta").checked,
+    show_motor_sensors: document.getElementById("show-motor-sensors").checked,
     show_all_comparisons: document.getElementById("show-all-comparisons").checked,
     sync_scales: document.getElementById("sync-scales").checked,
     show_metrics: document.getElementById("show-metrics").checked,
@@ -1168,6 +1781,7 @@ function applySettingsToForm(s) {
   document.getElementById("enable-comparison").checked = s.enable_comparison ?? true;
   document.getElementById("show-controls").checked = s.show_controls ?? false;
   document.getElementById("show-delta").checked = s.show_delta_state ?? false;
+  document.getElementById("show-motor-sensors").checked = s.show_motor_sensors ?? false;
   document.getElementById("show-all-comparisons").checked = s.show_all_comparisons ?? false;
   syncComparisonSliderUi();
   document.getElementById("sync-scales").checked = s.sync_scales ?? false;
@@ -1207,7 +1821,7 @@ function renderOtherDataList(cols) {
       const remaining = getSelectedOtherData().filter((c) => c !== col);
       await pushSettings({ selected_other_data: remaining }, false);
       renderOtherDataList(remaining);
-      await refreshPlot({ preserveZoom: true, showLoading: true, loadingMessage: "Updating plot…" });
+      await refreshPlot({ preserveZoom: false, showLoading: true, loadingMessage: "Updating plot…" });
     });
     ul.appendChild(li);
   });
@@ -1285,7 +1899,7 @@ function openDataModal() {
   const modal = document.getElementById("data-modal");
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  loadBrowse(browsePath || "AnalyseData");
+  loadBrowse("");
 }
 
 function closeDataModal() {
@@ -1323,8 +1937,8 @@ function populateOtherDataSelect(columns, exclude) {
 }
 
 // ------------------------------------------------------------------ file browser
-async function loadBrowse(path) {
-  browsePath = path || "AnalyseData";
+async function loadBrowse(path = "") {
+  browsePath = path;
   const data = await api("GET", `/api/csv/browse?path=${encodeURIComponent(browsePath)}`);
   document.getElementById("browse-path").textContent = data.current_path || "(root)";
   const ul = document.getElementById("file-list");
@@ -1354,6 +1968,7 @@ async function loadBrowse(path) {
             renderOtherDataList(settings.selected_other_data || []);
             updateSliderRange(session.comparison_slider);
             updateFileStatus();
+            resetReplayForSession();
             closeDataModal();
             updateLoadingMessage("Running comparison…");
             await runFullComparisonAndRefresh({
@@ -1417,6 +2032,7 @@ async function init() {
         populateOtherDataSelect(session.columns, getSelectedOtherData());
         updateSliderRange(session.comparison_slider);
         updateFileStatus();
+        resetReplayForSession();
       }
     } catch (e) {
       console.warn("Session:", e.message);
@@ -1441,7 +2057,10 @@ async function init() {
     }
   });
 
+  resizeReplayCanvas();
+  if (session?.row_count > 0) resetReplayForSession();
   bindEventListeners();
+  setMainTab("comparison");
 }
 
 function bindCollapsibleUi() {
@@ -1608,6 +2227,8 @@ function bindCollapsibleUi() {
 
 function bindEventListeners() {
   bindCollapsibleUi();
+  document.getElementById("tab-comparison").addEventListener("click", () => setMainTab("comparison"));
+  document.getElementById("tab-replay").addEventListener("click", () => setMainTab("replay"));
   document.getElementById("open-data-modal").addEventListener("click", openDataModal);
   document.getElementById("close-data-modal").addEventListener("click", closeDataModal);
   document.getElementById("modal-backdrop").addEventListener("click", closeDataModal);
@@ -1655,6 +2276,7 @@ function bindEventListeners() {
         renderOtherDataList(settings.selected_other_data || []);
         updateSliderRange(session.comparison_slider);
         updateFileStatus();
+        resetReplayForSession();
         closeDataModal();
         updateLoadingMessage("Running comparison…");
         await runFullComparisonAndRefresh({
@@ -1679,6 +2301,7 @@ function bindEventListeners() {
         session = await api("GET", "/api/session", undefined, false);
         updateSliderRange(session.comparison_slider);
         updateFileStatus();
+        resetReplayForSession();
         updateLoadingMessage("Running comparison…");
         await runFullComparisonAndRefresh({
           preserveZoom: true,
@@ -1700,6 +2323,7 @@ function bindEventListeners() {
         applySettingsToForm(settings);
         updateSliderRange(session.comparison_slider);
         updateFileStatus();
+        resetReplayForSession();
         updateLoadingMessage("Running comparison…");
         await runFullComparisonAndRefresh({
           preserveZoom: true,
@@ -1743,7 +2367,7 @@ function bindEventListeners() {
       renderOtherDataList(current);
       populateOtherDataSelect(session?.columns || [], current);
       invalidatePlotBundle();
-      await refreshPlot({ preserveZoom: true, showLoading: true, loadingMessage: "Updating plot…" });
+      await refreshPlot({ preserveZoom: false, showLoading: true, loadingMessage: "Updating plot…" });
     }
     e.target.value = "";
   });
@@ -1764,7 +2388,7 @@ function bindEventListeners() {
     });
   });
 
-  ["show-controls", "show-delta"].forEach((id) => {
+  ["show-controls", "show-delta", "show-motor-sensors"].forEach((id) => {
     document.getElementById(id).addEventListener("change", async () => {
       await pushSettings(undefined, false);
       if (id === "show-controls") invalidatePlotBundle();
@@ -1839,7 +2463,77 @@ function bindEventListeners() {
     alert("Settings saved.");
   });
 
+  const replayDebouncedFetch = () => {
+    if (replayFetchTimer) clearTimeout(replayFetchTimer);
+    replayFetchTimer = setTimeout(() => {
+      fetchReplaySnapshot().catch((e) => console.warn("Replay update:", e.message));
+    }, 90);
+  };
+
+  document.getElementById("replay-index-slider").addEventListener("input", () => {
+    if (replayPlaying) stopReplayPlayback();
+    replayDebouncedFetch();
+  });
+  document.getElementById("replay-column-select").addEventListener("change", () => {
+    fetchReplaySnapshot().catch((e) => console.warn("Replay column:", e.message));
+  });
+  document.getElementById("replay-window-size").addEventListener("change", () => {
+    fetchReplaySnapshot().catch((e) => console.warn("Replay window:", e.message));
+  });
+  document.getElementById("replay-play-btn").addEventListener("click", () => {
+    toggleReplayPlayback();
+  });
+  document.getElementById("replay-speed").addEventListener("change", () => {
+    // Keep playing; tick uses latest speed automatically.
+    document.getElementById("replay-speed").value = String(getReplayPlaybackSpeed());
+  });
+
+  const replayCanvas = document.getElementById("replay-map-canvas");
+  if (replayCanvas) {
+    replayCanvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      replayZoom = Math.max(10, Math.min(250, replayZoom * factor));
+      drawReplayMap();
+    }, { passive: false });
+    replayCanvas.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      replayDragging = true;
+      replayCameraFollow = false;
+      replayDragLastX = e.clientX;
+      replayDragLastY = e.clientY;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!replayDragging || !replayCameraCenter) return;
+      const dx = e.clientX - replayDragLastX;
+      const dy = e.clientY - replayDragLastY;
+      replayDragLastX = e.clientX;
+      replayDragLastY = e.clientY;
+      replayCameraCenter = [
+        replayCameraCenter[0] - dx / replayZoom,
+        replayCameraCenter[1] + dy / replayZoom,
+      ];
+      drawReplayMap();
+    });
+    window.addEventListener("mouseup", () => {
+      replayDragging = false;
+    });
+    replayCanvas.addEventListener("dblclick", () => {
+      replayCameraFollow = !replayCameraFollow;
+      if (replayCameraFollow && replaySnapshot?.pose) {
+        replayCameraCenter = [replaySnapshot.pose.x, replaySnapshot.pose.y];
+      } else if (!replayCameraFollow) {
+        fitReplayMapOverview();
+      }
+      drawReplayMap();
+    });
+  }
+
   window.addEventListener("resize", () => {
+    resizeReplayCanvas();
+    drawReplayMap();
+    const replayPlot = document.getElementById("replay-plot-container");
+    if (replayPlot?.data) Plotly.Plots.resize(replayPlot);
     const container = document.getElementById("chart-container");
     if (container && container.data) {
       Plotly.Plots.resize(container);

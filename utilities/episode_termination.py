@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 
+from utilities.Settings import Settings
 from utilities.state_utilities import ANGULAR_VEL_Z_IDX, LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX
 from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX
 
@@ -59,6 +60,12 @@ class EpisodeTerminator:
         else:
             self.stuck_counter = 0
 
+        max_episode_length = int(getattr(Settings, "MAX_EPISODE_LENGTH", 0) or 0)
+        control_index = int(controller_obs.get("control_index", 0))
+        episode_length_reached = (
+            max_episode_length > 0 and control_index >= max_episode_length
+        )
+
         truncated = bool(
             leave_track
             or collision
@@ -70,6 +77,7 @@ class EpisodeTerminator:
         done = bool(
             truncated
             or terminated
+            or episode_length_reached
             or driver_obs.get("done", False)
         )
 
@@ -77,6 +85,7 @@ class EpisodeTerminator:
             "truncated": truncated,
             "terminated": terminated,
             "done": done,
+            "episode_length_reached": episode_length_reached,
             "leave_track": leave_track,
             "collision": collision,
             "virtual_opponent_collision": virtual_opponent_collision,
