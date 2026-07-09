@@ -1,7 +1,7 @@
-from operator import index
-import psutil
 import os
+import random
 import time
+from collections import deque
 import yaml
 
 import numpy as np
@@ -37,6 +37,10 @@ Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
 
 class RacingSimulation:
+    RANDOM_START_MAIN_JITTER_XY = 0.2
+    RANDOM_START_MAIN_JITTER_YAW = 0.1
+    RANDOM_START_OPPONENT_WP_GAP_MIN = 10
+    RANDOM_START_OPPONENT_WP_GAP_MAX = 40
 
     def __init__(self):
         self.crash_repetition = 0
@@ -60,7 +64,7 @@ class RacingSimulation:
         self.info = None
 
         self.agent_controls_calculated = []
-        self.control_delay_buffer = []
+        self.control_delay_buffer = deque()
 
         self.env = None
         self.world_sim: Optional[Simulator] = None
@@ -78,18 +82,16 @@ class RacingSimulation:
         self.env_car_parameters = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
 
         # State history for respawn functionality
-        self.state_history = []  # Store last N timesteps of simulation state
-        self.control_history = []  # Store last N timesteps of control inputs
-        self.sim_obs_history = []  # Store last N timesteps of world-sim outputs
-        self.sim_time_history = []  # Store last N timesteps of simulation time
-        self.sim_index_history = []  # Store last N timesteps of simulation index
         self.RESPAWN_HISTORY_LENGTH = Settings.RESPAWN_SETBACK_TIMESTEPS
+        self.state_history = deque(maxlen=self.RESPAWN_HISTORY_LENGTH)
+        self.control_history = deque(maxlen=self.RESPAWN_HISTORY_LENGTH)
+        self.sim_obs_history = deque(maxlen=self.RESPAWN_HISTORY_LENGTH)
+        self.sim_time_history = deque(maxlen=self.RESPAWN_HISTORY_LENGTH)
+        self.sim_index_history = deque(maxlen=self.RESPAWN_HISTORY_LENGTH)
 
     
 
-    '''
-    Run a number of experiments including repetitions on crash as defined in Settings
-    '''
+    """Run experiments including crash retries per settings."""
     def run_experiments(self, initial_states=None):
         self.initial_states = initial_states
             
@@ -121,40 +123,7 @@ class RacingSimulation:
     def prepare_simulation(self):
         self.renderer = None
         self.renderer_backend = None
-        
-        # Init renderer
-        
-        if Settings.RENDER_MODE is not None:
-            map_name = Settings.MAP_NAME
-            map_ext = ".png"
-            map_path = os.path.join(Settings.MAP_PATH, map_name)
-            self.renderer_backend = str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower()
-
-            if self.renderer_backend == "web":
-                from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
-                web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
-                actor_id = int(getattr(Settings, "ACTOR_ID", 0))
-                web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765)) + actor_id
-                auto_open = bool(getattr(Settings, "WEB_RENDER_AUTO_OPEN", True))
-                self.renderer = WebEnvRenderer(
-                    host=web_host,
-                    port=web_port,
-                    actor_id=actor_id,
-                    auto_open_browser=auto_open,
-                )
-            elif self.renderer_backend == "pygame":
-                from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
-                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
-                window_height = int(window_width / 1.5)
-                self.renderer = EnvRenderer(window_width, window_height)
-            else:
-                from sim.f110_sim.envs.rendering.pyglet_rendering import EnvRenderer
-                # screen size is 40% of the actual screen size
-                window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
-                window_height = int(window_width / 1.5)
-                self.renderer = EnvRenderer(window_width, window_height)
-            if not Settings.BLANK_MAP:
-                self.renderer.update_map(map_path, map_ext)
+        self._init_renderer()
         
         
         self.init_drivers()
@@ -168,6 +137,45 @@ class RacingSimulation:
         self.episode_index = 0
 
         print("initializing environment with", self.number_of_drivers, "drivers")
+
+    def _init_renderer(self):
+        """Initialize renderer backend and load map when rendering is enabled."""
+        if Settings.RENDER_MODE is None:
+            return
+
+        map_name = Settings.MAP_NAME
+        map_ext = ".png"
+        map_path = os.path.join(Settings.MAP_PATH, map_name)
+        self.renderer_backend = str(getattr(Settings, "RENDER_BACKEND", "pyglet")).lower()
+
+        if self.renderer_backend == "web":
+            from sim.f110_sim.envs.rendering.WebRenderer.web_renderer import WebEnvRenderer
+
+            web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
+            actor_id = int(getattr(Settings, "ACTOR_ID", 0))
+            web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765)) + actor_id
+            auto_open = bool(getattr(Settings, "WEB_RENDER_AUTO_OPEN", True))
+            self.renderer = WebEnvRenderer(
+                host=web_host,
+                port=web_port,
+                actor_id=actor_id,
+                auto_open_browser=auto_open,
+            )
+        elif self.renderer_backend == "pygame":
+            from sim.f110_sim.envs.rendering.pygame_rendering import EnvRenderer
+
+            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+            window_height = int(window_width / 1.5)
+            self.renderer = EnvRenderer(window_width, window_height)
+        else:
+            from sim.f110_sim.envs.rendering.pyglet_rendering import EnvRenderer
+
+            window_width, _ = ScreenUtils.get_scaled_window_size(0.7)
+            window_height = int(window_width / 1.5)
+            self.renderer = EnvRenderer(window_width, window_height)
+
+        if not Settings.BLANK_MAP:
+            self.renderer.update_map(map_path, map_ext)
 
 
     def setup_gym_environment(self):
@@ -194,10 +202,7 @@ class RacingSimulation:
         self.world_sim = Simulator(env_car_parameters, num_agents, seed)
         self.world_sim.set_map_collision_checker(self.lidar_simulator.scan_simulator)
         
-    '''
-    Initialize the drivers (car_systems) for the simulation:
-    First driver is the main car, the others are opponents as defined in Settings.NUMBER_OF_OPPONENTS
-    '''
+    """Initialize driver instances for the ego and opponents."""
     def init_drivers(self):
         
         # Init recording active dict with all data from the environment that should be recorded in the car system
@@ -247,25 +252,16 @@ class RacingSimulation:
         self.episode_index = 0
         self.sim_time = 0.0
 
-        # Populate control delay buffer
-        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
-        self.control_delay_buffer.clear()
-        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)] 
+        self._reset_control_delay_buffer()
 
         initial_states = self.get_initial_states()
 
         self.sim_obs = self.world_sim.reset(initial_states=initial_states)
         self.lidar_simulator.reset_rng(seed=12345)
-        for i in range(self.number_of_drivers):
-            driver : CarSystem = self.drivers[i]
-            driver.reset()
+        self._reset_all_drivers()
 
         # Clear state history on full reset
-        self.state_history.clear()
-        self.control_history.clear()
-        self.sim_obs_history.clear()
-        self.sim_time_history.clear()
-        self.sim_index_history.clear()
+        self._clear_respawn_history()
 
         self.on_step_end()
         self.render_env()
@@ -351,35 +347,38 @@ class RacingSimulation:
         # current environment through `env_state`.
         self.env_state = self._build_env_state_snapshot()
         agent_controls = self.get_agent_controls()
-
-        intermediate_steps = int(Settings.TIMESTEP_CONTROL/Settings.TIMESTEP_SIM)
-        for _ in range(intermediate_steps):
-
-            # Control delay buffer
-            self.control_delay_buffer.append(agent_controls)        
-            agent_controls_execute  = self.control_delay_buffer.pop(0)
-
-            self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
-            self.sim_time += Settings.TIMESTEP_SIM
-            self.episode_index += 1
+        self._run_physics_substeps(agent_controls)
 
         # Reward/labels are computed in on_step_end; render after so plots include crash penalties.
-        self.on_step_end()
-        self.render_env()
-        self.check_done()
+        self._finalize_control_step()
 
        
         
         # Store state history for respawn functionality
         self._update_state_history()
+        self._apply_step_pacing(step_start_time)
 
+    def _run_physics_substeps(self, agent_controls):
+        """Advance world simulation for control timestep, honoring delay buffer."""
+        intermediate_steps = int(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)
+        for _ in range(intermediate_steps):
+            self.control_delay_buffer.append(agent_controls)
+            agent_controls_execute = self.control_delay_buffer.popleft()
+            self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
+            self.sim_time += Settings.TIMESTEP_SIM
+            self.episode_index += 1
 
-        # limit fps
+    def _finalize_control_step(self):
+        """Run post-physics step-end hooks for drivers, rendering and done handling."""
+        self.on_step_end()
+        self.render_env()
+        self.check_done()
+
+    def _apply_step_pacing(self, step_start_time):
+        """Throttle loop according to render mode and MAX_SIM_FREQUENCY."""
         time_taken = time.time() - step_start_time
         sleep_time = 0.0
 
-        # human_fast pacing is only needed for blocking local windows (pyglet).
-        # The web backend renders asynchronously and should not throttle sim speed.
         if (
             Settings.RENDER_MODE == "human_fast"
             and self.renderer_backend == "pyglet"
@@ -387,7 +386,6 @@ class RacingSimulation:
         ):
             sleep_time = max(sleep_time, 0.25 * Settings.TIMESTEP_CONTROL - time_taken)
 
-        # Max frequency: if step took less than 1/freq, wait remaining time so it takes exactly 1/freq
         if Settings.MAX_SIM_FREQUENCY is not None:
             min_step_time = 1.0 / Settings.MAX_SIM_FREQUENCY
             if time_taken < min_step_time:
@@ -395,10 +393,7 @@ class RacingSimulation:
 
         if sleep_time > 0:
             time.sleep(sleep_time)
-        
         self.step_end_time = time.time()
-
-        # End of controller time step
 
     def _get_car_states(self):
         """Car poses from the physics world (single source of truth)."""
@@ -409,10 +404,12 @@ class RacingSimulation:
         sim_obs_copy = self.sim_obs.copy() if self.sim_obs is not None else {}
         controls = []
         for i in range(self.number_of_drivers):
-            if hasattr(self.drivers[i], 'angular_control') and hasattr(self.drivers[i], 'translational_control'):
-                controls.append([self.drivers[i].angular_control, self.drivers[i].translational_control])
-            else:
-                controls.append([0.0, 0.0])
+            controls.append(
+                [
+                    float(getattr(self.drivers[i], "angular_control", 0.0)),
+                    float(getattr(self.drivers[i], "translational_control", 0.0)),
+                ]
+            )
         return {
             "time": float(self.sim_time),
             "sim_index": int(self.episode_index),
@@ -435,13 +432,30 @@ class RacingSimulation:
         self.sim_time_history.append(self.sim_time)
         self.sim_index_history.append(self.episode_index)
         
-        # Keep only last RESPAWN_HISTORY_LENGTH entries
-        if len(self.state_history) > self.RESPAWN_HISTORY_LENGTH:
-            self.state_history.pop(0)
-            self.control_history.pop(0)
-            self.sim_obs_history.pop(0)
-            self.sim_time_history.pop(0)
-            self.sim_index_history.pop(0)
+    def _clear_respawn_history(self):
+        """Clear stored history used for respawn snapshots."""
+        self.state_history.clear()
+        self.control_history.clear()
+        self.sim_obs_history.clear()
+        self.sim_time_history.clear()
+        self.sim_index_history.clear()
+
+    def _reset_control_delay_buffer(self):
+        """Recreate delay buffer according to current settings and driver count."""
+        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
+        self.control_delay_buffer.clear()
+        self.control_delay_buffer = deque(
+            [
+                [np.zeros(2) for _ in range(self.number_of_drivers)]
+                for _ in range(control_delay_steps)
+            ]
+        )
+
+    def _reset_all_drivers(self):
+        """Reset every driver instance."""
+        for i in range(self.number_of_drivers):
+            driver: CarSystem = self.drivers[i]
+            driver.reset()
 
     def respawn(self):
         """Respawn the environment to a state from N timesteps ago (configurable via Settings.RESPAWN_SETBACK_TIMESTEPS)"""
@@ -471,16 +485,10 @@ class RacingSimulation:
             driver.set_car_state(respawn_states[i])
         
         # Clear control delay buffer and repopulate
-        control_delay_steps = int(Settings.CONTROL_DELAY / Settings.TIMESTEP_SIM)
-        self.control_delay_buffer.clear()
-        self.control_delay_buffer = [[np.zeros(2) for j in range(self.number_of_drivers)] for i in range(control_delay_steps)]
+        self._reset_control_delay_buffer()
         
         # Clear state history to prevent respawn loops
-        self.state_history.clear()
-        self.control_history.clear()
-        self.sim_obs_history.clear()
-        self.sim_time_history.clear()
-        self.sim_index_history.clear()
+        self._clear_respawn_history()
         
         self.on_step_end()
         self.render_env()
@@ -500,7 +508,7 @@ class RacingSimulation:
         return len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH
 
     def get_agent_controls(self):
-        self.get_control_for_history_forger()
+        self._update_history_forger_pre_control()
 
         self.agent_controls = []
 
@@ -517,20 +525,24 @@ class RacingSimulation:
             angular_control, translational_control = driver.process_observation(observation)
             self.agent_controls.append([angular_control, translational_control ])
 
-        self.get_state_for_history_forger()
+        self._update_history_forger_post_control()
 
         # shape: [number_of_drivers, 2]
         return self.agent_controls
 
-    def get_control_for_history_forger(self):
-        if not Settings.FORGE_HISTORY: return
+    def _update_history_forger_pre_control(self):
+        """Feed control history to history-forger before planner updates."""
+        if not Settings.FORGE_HISTORY:
+            return
         if self.episode_index > 0:
             for index, driver in enumerate(self.drivers):
                 if hasattr(driver, 'history_forger'):
                     driver.history_forger.update_control_history(self.world_sim.agents[index].u_pid_with_constrains)
 
-    def get_state_for_history_forger(self):
-        if not Settings.FORGE_HISTORY: return
+    def _update_history_forger_post_control(self):
+        """Feed state history to history-forger after planner updates."""
+        if not Settings.FORGE_HISTORY:
+            return
         for index, driver in enumerate(self.drivers):
             if hasattr(driver, 'history_forger'):
                 driver.history_forger.update_state_history(self.world_sim.agents[index].state)
@@ -574,10 +586,7 @@ class RacingSimulation:
                 self.render_callback(self.renderer)
 
 
-    '''
-    This function is called by the environment renderer to render additional information on the screen
-    env_renderer: pyglet env_renderer object
-    '''
+    """Render extra overlays in pyglet backend."""
     def render_callback(self, env_renderer):
         e = env_renderer
         margin = 0.875 * e.zoomed_height  # ≈ previous 700 when default scaling
@@ -624,90 +633,94 @@ class RacingSimulation:
             main_driver.render(env_renderer)
 
     
-    '''
-    Get starting positions from map config file
-    or Settings
-    or random waypoint
-    '''
-    def get_starting_positions(self):
-        map_config_file = Settings.MAP_CONFIG_FILE
-
-        with open(map_config_file) as file:
+    """Get starting positions from config/settings with optional randomization."""
+    def _load_config_starting_positions(self):
+        """Load start positions from map config or fallback settings."""
+        with open(Settings.MAP_CONFIG_FILE) as file:
             conf_dict = yaml.load(file, Loader=yaml.FullLoader)
             conf = Namespace(**conf_dict)
-
-
-        # Determine Starting positions
-        if hasattr(conf, 'starting_positions'):
-            starting_positions =  conf.starting_positions[0:self.number_of_drivers]
+        if hasattr(conf, "starting_positions"):
+            starting_positions = conf.starting_positions[0 : self.number_of_drivers]
         else:
-            # print("No starting positions in INI.yaml. Taking value from settings.py")
             starting_positions = Settings.STARTING_POSITION
+        return scale_positions(starting_positions)
 
-        starting_positions = scale_positions(starting_positions)
+    def _apply_reverse_direction_start_positions(self, starting_positions):
+        """Apply reverse-direction start behavior (kept backward-compatible)."""
+        if not Settings.REVERSE_DIRECTION:
+            return starting_positions
+        # Preserve existing behavior: use a fixed reverse start anchor.
+        starting_positions = [[0, 0, -3.0]]
+        new_starting_positions = []
+        for starting_position in starting_positions:
+            starting_theta = wrap_angle_rad(starting_position[2] + np.pi)
+            new_starting_positions.append(
+                [starting_position[0], starting_position[1], starting_theta]
+            )
+        return new_starting_positions
 
-        # Reverse direction of map initial positions
-        if Settings.REVERSE_DIRECTION:
-            starting_positions = [[0,0,-3.0]]
-            new_starting_positions = []
-            for starting_position in starting_positions:
-                starting_theta = wrap_angle_rad(starting_position[2]+np.pi)
-                new_starting_positions.append([starting_position[0], starting_position[1], starting_theta])
-        
-        
-        # Starting from random position near a waypoint (overwrite)
+    def _expand_starting_positions(self, starting_positions):
+        """Ensure positions list has one slot per driver."""
+        if len(starting_positions) >= self.number_of_drivers:
+            return starting_positions
+        starting_positions = [list(p) for p in starting_positions]
+        base_fallback = (
+            list(starting_positions[0]) if len(starting_positions) > 0 else [0.0, 0.0, 0.0]
+        )
+        while len(starting_positions) < self.number_of_drivers:
+            starting_positions.append(list(base_fallback))
+        return starting_positions
+
+    def _randomize_starting_positions(self, starting_positions):
+        """Randomize main and opponent starts around waypoint positions."""
+        random_wp_source = None
+        if self.drivers and hasattr(self.drivers[0], "waypoint_utils"):
+            random_wp_source = self.drivers[0].waypoint_utils.waypoints
+        if random_wp_source is None or len(random_wp_source) == 0:
+            print("Warning: Could not sample random waypoint; falling back to configured start.")
+            return starting_positions
+
+        n_waypoints = len(random_wp_source)
+        starting_positions = self._expand_starting_positions(starting_positions)
+
+        base_idx = random.randint(0, n_waypoints - 1)
+        random_wp = np.array(random_wp_source[base_idx], copy=True)
+        random_wp[WP_X_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+        random_wp[WP_Y_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+        random_wp[WP_PSI_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_YAW)
+        starting_positions[0] = random_wp[1:4]
+
+        current_idx = base_idx
+        for i in range(1, self.number_of_drivers):
+            offset = random.randint(
+                self.RANDOM_START_OPPONENT_WP_GAP_MIN,
+                self.RANDOM_START_OPPONENT_WP_GAP_MAX,
+            )
+            current_idx = (current_idx + offset) % n_waypoints
+            opp_wp = np.array(random_wp_source[current_idx], copy=True)
+            opp_wp[WP_X_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+            opp_wp[WP_Y_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+            opp_wp[WP_PSI_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_YAW)
+            starting_positions[i] = opp_wp[1:4]
+        return starting_positions
+
+    def _validate_starting_positions(self, starting_positions):
+        """Validate that there are enough start positions for all drivers."""
+        if len(starting_positions) >= self.number_of_drivers:
+            return
+        raise RuntimeError(
+            "No starting positions found for all drivers. "
+            f"Please configure starts in {Settings.MAP_NAME}.yaml or enable random starts."
+        )
+
+    def get_starting_positions(self):
+        starting_positions = self._load_config_starting_positions()
+        starting_positions = self._apply_reverse_direction_start_positions(starting_positions)
+
         if Settings.START_FROM_RANDOM_POSITION:
-            import random
+            starting_positions = self._randomize_starting_positions(starting_positions)
 
-            # Reuse waypoints already owned by the main driver.
-            # Creating a new WaypointUtils on every reset starts a background reload
-            # thread each time and causes long-run slowdown when crashes are frequent.
-            random_wp_source = None
-            if self.drivers and hasattr(self.drivers[0], "waypoint_utils"):
-                random_wp_source = self.drivers[0].waypoint_utils.waypoints
-
-            if random_wp_source is not None and len(random_wp_source) > 0:
-                n_waypoints = len(random_wp_source)
-                # Ensure list has slots for all drivers before indexed writes.
-                if len(starting_positions) < self.number_of_drivers:
-                    starting_positions = [list(p) for p in starting_positions]
-                    base_fallback = (
-                        list(starting_positions[0])
-                        if len(starting_positions) > 0
-                        else [0.0, 0.0, 0.0]
-                    )
-                    while len(starting_positions) < self.number_of_drivers:
-                        starting_positions.append(list(base_fallback))
-                # Main car: random waypoint
-                base_idx = random.randint(0, n_waypoints - 1)
-                random_wp = np.array(random_wp_source[base_idx], copy=True)
-                random_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
-                random_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
-                random_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-                starting_positions[0] = random_wp[1:4]
-
-                # Opponents: spawn on next waypoints, each 10-40 waypoints ahead from the previous
-                current_idx = base_idx
-                for i in range(1, self.number_of_drivers):
-                    offset = random.randint(10, 40)
-                    current_idx = (current_idx + offset) % n_waypoints
-                    opp_wp = np.array(random_wp_source[current_idx], copy=True)
-                    opp_wp[WP_X_IDX] += random.uniform(0.0, 0.2)
-                    opp_wp[WP_Y_IDX] += random.uniform(0.0, 0.2)
-                    opp_wp[WP_PSI_IDX] += random.uniform(0.0, 0.1)
-                    starting_positions[i] = opp_wp[1:4]
-            else:
-                print("Warning: Could not sample random waypoint; falling back to configured start.")
-
-        # If random spawning is disabled (or failed), ensure we still have
-        # enough configured starts for all drivers.
-        if len(starting_positions) < self.number_of_drivers:
-            print("No starting positions found.")
-            print("For multiple cars please specify starting postions in " + Settings.MAP_NAME + ".yaml")
-            print("You can also let oponents start at random waypoint positions")
-            exit()
-            
-        
+        self._validate_starting_positions(starting_positions)
         self.starting_positions = starting_positions
         Settings.STARTING_POSITION = starting_positions
         return starting_positions
@@ -747,7 +760,8 @@ class RacingSimulation:
 
  
     def check_done(self):
-        if self.drivers[0].driver_observation and self.drivers[0].driver_observation.get('done'):
+        driver = self.drivers[0]
+        if driver.driver_observation and driver.driver_observation.get("done"):
             self.handle_done()
 
 
@@ -759,9 +773,7 @@ class RacingSimulation:
             raise CarCrashException()
 
                 
-    '''
-    Called at the end of experiment
-    '''
+    """Called at the end of experiment."""
     def on_simulation_end(self, collision=False):
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)

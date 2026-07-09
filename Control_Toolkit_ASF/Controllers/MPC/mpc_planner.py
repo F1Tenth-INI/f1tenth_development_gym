@@ -145,6 +145,24 @@ class mpc_planner(template_planner):
             self.optimal_trajectory = optimal_trajectory
         if hasattr(self.mpc.optimizer, 'optimal_control_sequence') and self.mpc.optimizer.optimal_control_sequence is not None:
             self.optimal_control_sequence = self.mpc.optimizer.optimal_control_sequence[0]
+            optimal_control_sequence = np.asarray(self.optimal_control_sequence, dtype=np.float32)
+            angular_control_sequence = optimal_control_sequence[:, 0]
+            translational_control_sequence = optimal_control_sequence[:, 1]
+            self.angular_control_dict = {
+                f"cs_a_{i}": float(control)
+                for i, control in enumerate(angular_control_sequence)
+            }
+            self.translational_control_dict = {
+                f"cs_t_{i}": float(control)
+                for i, control in enumerate(translational_control_sequence)
+            }
+            mpc_execution_step = int(
+                Settings.CONTROL_DELAY / self.config_optimizer["mpc_timestep"]
+            )
+            mpc_execution_step = int(
+                np.clip(mpc_execution_step, 0, len(optimal_control_sequence) - 1)
+            )
+            angular_control, translational_control = optimal_control_sequence[mpc_execution_step]
         if self.mpc.controller_logging:
             traj_cost = self.mpc.logs['J_logged'][-1]
 

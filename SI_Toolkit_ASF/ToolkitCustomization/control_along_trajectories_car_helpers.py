@@ -5,7 +5,7 @@ import pandas as pd
 
 from tqdm import trange
 
-from utilities.car_system import initialize_planner, if_mpc_define_cs_variables
+from utilities.planner_factory import if_mpc_define_cs_variables, initialize_planner
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_VX_IDX
 from utilities.state_utilities import STATE_VARIABLES
 from utilities.lidar_utils import LidarHelper

@@ -40,19 +40,15 @@ import numpy as np
 import torch
 
 from stable_baselines3 import SAC
+from utilities.Settings import Settings
 
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-
-from utilities.waypoint_utils import *
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(root_dir)
         
 # Your project imports
-from utilities.state_utilities import *  # indices like LINEAR_VEL_X_IDX, etc.
-
-
 try:
     from TrainingLite.rl_racing.tcp_client import _TCPActorClient
     from TrainingLite.rl_racing.sac_utilities import SacUtilities, TransitionLogger
@@ -72,18 +68,40 @@ class RLAgentPlanner(template_planner):
     BOOTSTRAP_TRANSITIONS = 2
     ACTION_DENORM = np.array([0.4, 3.0], dtype=np.float32)
 
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+    def _log_info(self, message: str) -> None:
+        print(message)
+
+    def _log_debug(self, message: str) -> None:
+        if Settings.SAC_AGENT_DEBUG:
+            print(message)
+
+    def _init_mode_runtime_flags(self) -> None:
+        """Initialize mode-dependent runtime flags."""
+        self._warned_no_weights = False
+        self._warned_no_observation_builder = False
+        # Training waits for learner weights; inference starts ready.
+        self._received_weights = not self.training_mode
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
     def __init__(self):
         super().__init__()
-        print("Initializing RLAgentPlanner (actor client)")
+        self._log_info("Initializing RLAgentPlanner (actor client)")
 
         # Training vs Inference   
         self.inference_model_name = Settings.SAC_INFERENCE_MODEL_NAME  # Model name thats loaded: if none: use weights from server
         self.training_mode = (self.inference_model_name is None)  # Training mode if no inference model specified
         
         if self.training_mode:
-            print(f"[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
+            self._log_info("[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
         else:
-            print(f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})")
+            self._log_info(
+                f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})"
+            )
 
 
         self.clear_buffer_on_reset = False
@@ -94,6 +112,7 @@ class RLAgentPlanner(template_planner):
         self.latest_training_info: Optional[Dict[str, Any]] = None
         self._last_client_model_dir: Optional[str] = None
         self._udt_filtered_sim_hz: Optional[float] = None
+        self._init_mode_runtime_flags()
 
         # --- networking ---
 
@@ -106,19 +125,10 @@ class RLAgentPlanner(template_planner):
             # Send clear buffer message on initialization
             if self.clear_buffer_on_reset:
                 self.client.send_clear_buffer()
-                print("[RLAgentPlanner] Sent clear buffer message to server")
+                self._log_info("[RLAgentPlanner] Sent clear buffer message to server")
 
-        if self.training_mode:
-            # For training we infer obs_dim lazily from the first built observation.
-            self._received_weights = False
-            self._warned_no_weights = False
-            self._warned_no_observation_builder = False
-        else:
+        if not self.training_mode:
             self._init_inference_model()
-
-            self._received_weights = True  # no waiting for weights in inference
-            self._warned_no_weights = False
-            self._warned_no_observation_builder = False
 
         # constant warmup action in policy space [-1, 1]: [steer, accel]
         # no VecNormalize in this setup
@@ -141,7 +151,7 @@ class RLAgentPlanner(template_planner):
         # self.action_denormalization_array = vehicle_params.to_action_denorm()
         self.action_denormalization_array = np.array([0.4, 3.0], dtype=np.float32)
 
-        print(
+        self._log_info(
             f"[RLAgentPlanner] action denorm (±1 -> physical): "
             f"steer=±{self.action_denormalization_array[0]:.4f} rad, "
             f"long=±{self.action_denormalization_array[1]:.4f} "
@@ -163,8 +173,6 @@ class RLAgentPlanner(template_planner):
         self._stream_send_idx = 0
         self._stream_batch_size = int(getattr(Settings, "SAC_STREAM_BATCH_SIZE", 8))
         self._episode_id = 0
-        # Pause transition logging/streaming after episode end until planner.reset().
-        self._collecting_transitions = True
         # Init Curriculum Supervisor (when any curriculum feature is enabled)
         self.curriculum_supervisor = None
         curriculum_enabled = Settings.SAC_CURRICULUM_ENABLED
@@ -191,9 +199,11 @@ class RLAgentPlanner(template_planner):
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
         self.lidar_history.clear()
-        self._collecting_transitions = True
         # do not clear self._episode here; do it on episode end
 
+    # ------------------------------------------------------------------
+    # Control loop callbacks
+    # ------------------------------------------------------------------
     def _append_lidar_history(self, controller_observation: Dict[str, Any]) -> None:
         ranges = controller_observation.get("processed_ranges")
         if ranges is None or len(ranges) == 0:
@@ -212,17 +222,18 @@ class RLAgentPlanner(template_planner):
         history[-n:] = stacked[-n:]
         return history
 
-    def process_observation(self, controller_observation):
+    # CONTROL LOOP
+    def process_observation(self, controller_observation: Dict[str, Any]) -> tuple[float, float]:
         self._controller_observation = controller_observation
         self._maybe_handle_server_terminate()
 
         if not self.autonomous_driving:
             return self._fallback_action(controller_observation)
-        
+
         sd_to_load = self._sync_from_server()
         if self.observation_builder_fn is None:
             if not self._warned_no_observation_builder:
-                print(
+                self._log_info(
                     "[RLAgentPlanner] Waiting for observation builder from server model/client folder; "
                     "sending zero action."
                 )
@@ -238,7 +249,6 @@ class RLAgentPlanner(template_planner):
         if not self.lidar_history:
             self._append_lidar_history(controller_observation)
 
-        # --- build raw obs (manual normalization happens inside) ---
         raw_obs = self._build_observation(controller_observation)
         self._ensure_model_and_apply_weights(raw_obs, sd_to_load)
 
@@ -246,16 +256,18 @@ class RLAgentPlanner(template_planner):
         action = np.clip(action, -1, 1)
         steering, accel = action * self.action_denormalization_array
 
-        # remember pre-normalized obs & raw action for transition building
         self.prev_obs_raw = raw_obs
         self.prev_action = action
 
-        # Apply lowpass filter to control outputs
-        # filtered = alpha * new_value + (1 - alpha) * previous_value
-        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
-        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
-        
-        
+        self.angular_control = (
+            self.lowpass_alpha * steering
+            + (1 - self.lowpass_alpha) * self.prev_angular_control
+        )
+        self.translational_control = (
+            self.lowpass_alpha * accel
+            + (1 - self.lowpass_alpha) * self.prev_translational_control
+        )
+
         max_translational_control = float(
             getattr(Settings, "SAC_MAX_TRANSLATIONAL_CONTROL", 6.0)
         )
@@ -266,24 +278,23 @@ class RLAgentPlanner(template_planner):
                 max_translational_control,
             )
         )
-        
-        # Update previous values for next iteration
+
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
-        
+
         self.action_history_queue.append(action)
-        
+
         self.control_index += 1
         return self.angular_control, self.translational_control
 
 
-    def on_step_end(self, driver_obs:Dict[str, Any]) -> None:
+    def on_step_end(self, driver_obs: Dict[str, Any]) -> None:
+        """Called by env AFTER stepping with post-step controller observation."""
         self._maybe_handle_server_terminate()
 
         if not self.autonomous_driving:
             return
 
-        """Called by env AFTER stepping with post-step controller observation."""
         if self.prev_obs_raw is None or self.prev_action is None:
             return  # first step guard
 
@@ -328,25 +339,24 @@ class RLAgentPlanner(template_planner):
             if self.training_mode and self.autonomous_driving:
                 self._flush_stream_send(episode_end=True)
                 if Settings.SAC_AGENT_DEBUG and self._episode:
-                    print(
+                    self._log_info(
                         f"[RLAgentPlanner] Episode done: {len(self._episode)} transitions, "
                         f"total reward {total_reward:.2f}."
                     )
             self._reset_episode_state()
-            if bool(info_out.get("truncated")) or bool(driver_obs.get("interrupted")):
-                self._collecting_transitions = False
 
-    def on_simulation_end(self, collision=False):
+    def on_simulation_end(self, collision: bool = False) -> None:
         """Called when the simulation ends. Sends a terminate message to the server."""
         if self.terminate_server_after_simulation:
             if self.training_mode and self.client is not None:
                 self._terminate_server_with_retry()
        
-    def close(self):
+    def close(self) -> None:
         if self.client is not None:
             try:
                 self.client.close()
             except Exception:
+                # Best-effort close during shutdown.
                 pass
 
     def _terminate_server_with_retry(self) -> None:
@@ -368,17 +378,22 @@ class RLAgentPlanner(template_planner):
             if not delivered:
                 # Fallback best-effort send in case ack path fails transiently.
                 self.client.send_terminate(wait_for_ack=False, urgent=True)
-            print("[RLAgentPlanner] Sent terminate message to server")
+            self._log_info("[RLAgentPlanner] Sent terminate message to server")
         except Exception as e:
-            print(f"[RLAgentPlanner] Failed to send terminate message: {e}")
+            self._log_info(f"[RLAgentPlanner] Failed to send terminate message: {e}")
         finally:
             self.close()
-    
-    def _fallback_action(self, controller_observation=None) -> np.ndarray:
 
+    # ------------------------------------------------------------------
+    # Fallback and observation construction
+    # ------------------------------------------------------------------
+    def _sync_fallback_planner_dependencies(self) -> None:
+        """Keep fallback planner wired to current shared utilities."""
         self.fallback_planner.lidar_utils = self.lidar_utils
         self.fallback_planner.waypoint_utils = self.waypoint_utils
 
+    def _fallback_action(self, controller_observation: Optional[Dict[str, Any]] = None) -> np.ndarray:
+        self._sync_fallback_planner_dependencies()
         if controller_observation is None:
             controller_observation = getattr(self, "_controller_observation", None)
         fallback_control = self.fallback_planner.process_observation(controller_observation)
@@ -386,13 +401,11 @@ class RLAgentPlanner(template_planner):
         return np.clip(fallback_action, -1.0, 1.0).astype(np.float32)
 
 
-    def _build_super_observation(self, controller_observation: Dict[str, Any]) -> Dict[str, np.ndarray]:
-        """ 
-        Builds the super observation dictionary.
-        This dict should contain all the information that the observation available in the environment.
-        This dict is then used to build the observation array for the policy.
-        """
-      
+    def _build_super_observation(
+        self, controller_observation: Dict[str, Any]
+    ) -> Dict[str, np.ndarray]:
+        """Build a rich observation dict used by the model-specific observation builder."""
+
         car_state = self.get_car_state(controller_observation)
         last_actions = np.asarray(list(self.action_history_queue)[-3:], dtype=np.float32).reshape(-1)
         state_history = np.asarray(controller_observation["state_history"], dtype=np.float32)
@@ -435,7 +448,10 @@ class RLAgentPlanner(template_planner):
         obs = self.observation_builder_fn(super_obs, self)
         return np.asarray(obs, dtype=np.float32).reshape(-1)
 
-    def _sync_from_server(self) -> Optional[dict]:
+    # ------------------------------------------------------------------
+    # Networking and model sync
+    # ------------------------------------------------------------------
+    def _sync_from_server(self) -> Optional[dict[str, Any]]:
         """
         Pull latest messages from the TCP client:
         - model_sync: load observation builder from the mirrored/local client folder
@@ -445,25 +461,36 @@ class RLAgentPlanner(template_planner):
         if not self.training_mode or self.client is None:
             return None
 
-        model_sync = self.client.pop_latest_model_sync()
-        if isinstance(model_sync, dict):
-            local_client_dir = model_sync.get("local_client_dir")
-            if isinstance(local_client_dir, str) and local_client_dir:
-                if local_client_dir != self._last_client_model_dir:
-                    loaded = self._load_observation_builder(local_client_dir, required=False)
-                    if loaded:
-                        self._last_client_model_dir = local_client_dir
-                        self._warned_no_observation_builder = False
-
-        training_info = self.client.pop_latest_training_info()
-        if isinstance(training_info, dict):
-            self.latest_training_info = training_info
-            self._apply_udt_training_info(training_info)
+        self._maybe_update_observation_builder(self.client.pop_latest_model_sync())
+        self._maybe_apply_training_info(self.client.pop_latest_training_info())
 
         return self.client.pop_latest_state_dict()
-  
 
-    # ---- helpers ----
+    def _maybe_update_observation_builder(self, model_sync: Any) -> None:
+        """Update observation builder when model-sync points to a new client dir."""
+        if not isinstance(model_sync, dict):
+            return
+        local_client_dir = model_sync.get("local_client_dir")
+        if not isinstance(local_client_dir, str) or not local_client_dir:
+            return
+        if local_client_dir == self._last_client_model_dir:
+            return
+        loaded = self._load_observation_builder(local_client_dir, required=False)
+        if loaded:
+            self._last_client_model_dir = local_client_dir
+            self._warned_no_observation_builder = False
+
+    def _maybe_apply_training_info(self, training_info: Any) -> None:
+        """Store and apply training-info payload from learner when valid."""
+        if not isinstance(training_info, dict):
+            return
+        self.latest_training_info = training_info
+        self._apply_udt_training_info(training_info)
+
+
+    # ------------------------------------------------------------------
+    # Model and builder loading
+    # ------------------------------------------------------------------
     def _init_inference_model(self) -> None:
         """
         Load a saved SAC model for inference and attach a dummy env with matching obs_dim.
@@ -471,7 +498,7 @@ class RLAgentPlanner(template_planner):
         model_path_root, model_dir = SacUtilities.resolve_model_paths(self.inference_model_name)
         model_zip_path = model_path_root + ".zip"
 
-        print(f"[RLAgentPlanner] Loading inference model from: {model_zip_path}")
+        self._log_info(f"[RLAgentPlanner] Loading inference model from: {model_zip_path}")
         self.model = SAC.load(model_zip_path, device="cpu")
 
         try:
@@ -482,7 +509,9 @@ class RLAgentPlanner(template_planner):
         except Exception:
             pass
 
-        print(f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_zip_path}")
+        self._log_info(
+            f"[Agent] Success: Loaded SAC model: {self.inference_model_name} from {model_zip_path}"
+        )
         self._load_observation_builder(os.path.join(model_dir, "client"), required=True)
 
     def _load_observation_builder(self, client_model_dir: str, required: bool = False) -> bool:
@@ -491,7 +520,7 @@ class RLAgentPlanner(template_planner):
             msg = f"[RLAgentPlanner] observation_builder.py not found at {builder_path}"
             if required:
                 raise FileNotFoundError(msg)
-            print(msg)
+            self._log_info(msg)
             return False
         try:
             module_name = f"observation_builder_{abs(hash(builder_path))}"
@@ -505,14 +534,16 @@ class RLAgentPlanner(template_planner):
             fn = getattr(module, "build_observation", None)
             if callable(fn):
                 self.observation_builder_fn = fn
-                print(f"[RLAgentPlanner] Loaded observation builder from {builder_path}")
+                self._log_info(f"[RLAgentPlanner] Loaded observation builder from {builder_path}")
                 return True
             if required:
                 raise RuntimeError(f"'build_observation' is not callable in {builder_path}")
         except Exception as e:
             if required:
                 raise
-            print(f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}")
+            self._log_info(
+                f"[RLAgentPlanner] Failed to load observation builder from {builder_path}: {e}"
+            )
         return False
 
     def _init_model_for_obs_dim(self, obs_dim: int) -> None:
@@ -539,8 +570,7 @@ class RLAgentPlanner(template_planner):
             self.model.policy.actor.load_state_dict(sd_to_load, strict=True)
             self.model.policy.actor.eval()
             self._received_weights = True
-            if Settings.SAC_AGENT_DEBUG:
-                print("[RLAgentPlanner] ✅ Actor weights updated.")
+            self._log_debug("[RLAgentPlanner] ✅ Actor weights updated.")
 
     def _apply_udt_training_info(self, training_info: Dict[str, Any]) -> None:
         udt = training_info.get("udt_control")
@@ -563,6 +593,9 @@ class RLAgentPlanner(template_planner):
         self._udt_filtered_sim_hz = filtered
         Settings.MAX_SIM_FREQUENCY = filtered
 
+    # ------------------------------------------------------------------
+    # Policy and control
+    # ------------------------------------------------------------------
     def _select_action(self, raw_obs: np.ndarray) -> np.ndarray:
         """
         Select action from policy when weights are available, otherwise use fallback.
@@ -576,25 +609,18 @@ class RLAgentPlanner(template_planner):
             return np.asarray(action, dtype=np.float32).reshape(-1)
 
         if not self._warned_no_weights:
-            print("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
+            self._log_info("[RLAgentPlanner] ⚠️ No weights yet; using warmup strategy ")
             self._warned_no_weights = True
         return self._fallback_action()
-
-    def _apply_control_filter(self, steering: float, accel: float) -> None:
-        """
-        Apply low-pass filtering to control outputs and update filter state.
-        """
-        # filtered = alpha * new_value + (1 - alpha) * previous_value
-        self.angular_control = self.lowpass_alpha * steering + (1 - self.lowpass_alpha) * self.prev_angular_control
-        self.translational_control = self.lowpass_alpha * accel + (1 - self.lowpass_alpha) * self.prev_translational_control
-        self.prev_angular_control = self.angular_control
-        self.prev_translational_control = self.translational_control
 
     def _send_batch(self, batch: list, episode_id: int, episode_end: bool = False) -> None:
         if not batch:
             return
         self.client.send_transition_batch(batch, episode_id, episode_end=episode_end)
 
+    # ------------------------------------------------------------------
+    # Transition streaming
+    # ------------------------------------------------------------------
     def _can_stream_transitions(self) -> bool:
         return (
             self.training_mode
@@ -614,7 +640,7 @@ class RLAgentPlanner(template_planner):
             self._send_batch(batch, self._episode_id)
             self._stream_send_idx += len(batch)
         except Exception as e:
-            print(f"[RLAgentPlanner] Stream send failed: {e}")
+            self._log_info(f"[RLAgentPlanner] Stream send failed: {e}")
 
     def _flush_stream_send(self, episode_end: bool = False) -> None:
         """Send any remaining transitions at episode end."""
@@ -626,7 +652,7 @@ class RLAgentPlanner(template_planner):
         min_episode_len = int(getattr(Settings, "SAC_MIN_EPISODE_END_BATCH_SIZE", 2))
         if episode_end and len(self._episode) < min_episode_len:
             if Settings.SAC_AGENT_DEBUG:
-                print(
+                self._log_info(
                     f"[RLAgentPlanner] Skipping short episode "
                     f"({len(self._episode)} transition(s), min={min_episode_len})"
                 )
@@ -636,7 +662,7 @@ class RLAgentPlanner(template_planner):
             self._send_batch(remaining, self._episode_id, episode_end=episode_end)
             self._stream_send_idx = len(self._episode)
         except Exception as e:
-            print(f"[RLAgentPlanner] Flush send failed: {e}")
+            self._log_info(f"[RLAgentPlanner] Flush send failed: {e}")
 
     def _maybe_bootstrap_send(self) -> None:
         """
@@ -654,7 +680,7 @@ class RLAgentPlanner(template_planner):
             self._bootstrap_sent = True
             self._episode = self._episode[n:]
         except Exception as e:
-            print(f"[RLAgentPlanner] Bootstrap send failed: {e}")
+            self._log_info(f"[RLAgentPlanner] Bootstrap send failed: {e}")
 
     def _reset_episode_state(self) -> None:
         self._episode_id += 1
@@ -671,7 +697,9 @@ class RLAgentPlanner(template_planner):
         if payload is None:
             return
         reason = payload.get("reason", "server_requested_terminate")
-        print(f"[RLAgentPlanner] Received terminate from server: {reason}. Stopping client process.")
+        self._log_info(
+            f"[RLAgentPlanner] Received terminate from server: {reason}. Stopping client process."
+        )
         try:
             self.client.close()
         except Exception:

@@ -38,7 +38,7 @@ class RewardCalculator:
         self.w_d_acceleration = 0.1
         self.w_speed_cap = 0.0 # 0.3
         self.w_proximity = 0.0
-        self.w_slip = 1.0   # per m/s lateral body velocity (linear_vel_y)
+        self.w_slip = 0.0  # f8e3040 baseline had no slip term; set >0 for low-slip driving
 
 
         if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
