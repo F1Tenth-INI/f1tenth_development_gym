@@ -51,7 +51,12 @@ imu_x: 0.15
 imu_y: 0.0
 
 wheel_radius: 0.05  # drive wheel radius [m]
-motor_current_gain: 1.5  # motor current model gain [A/(m/s)]
-motor_current_max_a: 15.0  # motor current saturation [A]
+motor_command_gain: 11.5  # motor current from commanded speed [A/(m/s)]
+motor_current_offset: 4.0  # motor current offset at zero command [A]
+velocity_to_current_gain: 3.693  # speed-dependent motor load [A/(m/s)]
+acceleration_to_current_gain: 8.938  # accel demand [A/(m/s^2)]
+deceleration_to_current_gain: 4.0  # decel/regen demand [A/(m/s^2)]
+motor_current_max_a: 65.0  # max drive motor current [A]
+max_brake_current: 50.0  # max regen/brake motor current [A]
 speed_to_erpm_gain: 4352.0  # VESC ERPM gain [ERPM/(m/s)]
 speed_to_erpm_offset: 220.0  # VESC ERPM offset at zero speed [ERPM]

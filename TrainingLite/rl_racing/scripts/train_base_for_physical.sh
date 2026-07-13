@@ -16,12 +16,12 @@ python TrainingLite/rl_racing/run_training.py \
 
 
 # # finetune model in different car dynamics
-python TrainingLite/rl_racing/run_training.py \
-  --SAC_MAX_UTD 4 \
+python3 TrainingLite/rl_racing/run_training.py \
+  --SAC_MAX_UTD 2 \
   --batch-size 256 \
-  --learning-rate 3e-4 \
+  --learning-rate 1e-4 \
   --SAC_CHECKPOINT_FREQUENCY 10000 \
   --save_replay_buffer True \
   --load_replay_buffer False \
-  --load-model-name Physical-42 \
-  --save-model-name Physical-42b
+  --load-model-name Physical-51 \
+  --save-model-name Physical-51b

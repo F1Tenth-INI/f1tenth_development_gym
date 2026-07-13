@@ -188,6 +188,10 @@ class RPGDPlanner(template_planner):
             s = jnp.array(self.get_car_state(controller_observation), dtype=jnp.float32)
             waypoints = jnp.array(controller_observation["next_waypoints"], dtype=jnp.float32)
 
+            # imu_x = controller_observation["sensors"]["imu"]["imu_a_x"]
+            # imu_y = controller_observation["sensors"]["imu"]["imu_a_y"]
+            # print(f"IMU X: {imu_x}", flush=True)
+            # print(f"IMU Y: {imu_y}", flush=True)
             self.key, subkey = jax.random.split(self.key)
             
             # RPGD Step 1: Sample/maintain population of full control sequences (no interpolation)
