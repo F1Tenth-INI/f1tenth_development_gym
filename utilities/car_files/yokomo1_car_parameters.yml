@@ -51,7 +51,15 @@ imu_x: 0.15
 imu_y: 0.0
 
 wheel_radius: 0.05  # drive wheel radius [m]
-motor_current_gain: 1.5  # motor current model gain [A/(m/s)]
-motor_current_max_a: 15.0  # motor current saturation [A]
-speed_to_erpm_gain: 4352.0  # VESC ERPM gain [ERPM/(m/s)]
-speed_to_erpm_offset: 220.0  # VESC ERPM offset at zero speed [ERPM]
+motor_command_gain: 11.5  # speed-PI mode only: motor current from commanded speed [A/(m/s)]
+motor_current_offset: 4.0  # speed-PI mode only: motor current offset at zero command [A]
+# Tuned 2026-07-13 gym_bridge recording (PP, ackermann accel -> VESC current)
+velocity_to_current_gain: 2.96  # speed-dependent motor load [A/(m/s)]
+acceleration_to_current_gain: 9.07  # accel demand [A/(m/s^2)]
+deceleration_to_current_gain: 3.62  # decel/regen demand [A/(m/s^2)]
+motor_current_max_a: 65.0  # max drive motor current [A]
+max_brake_current: 50.0  # max regen/brake motor current [A]
+# motor_angular_velocity [ERPM] = speed_to_erpm_gain * linear_vel_x + speed_to_erpm_offset
+# Fitted from 2026-07-13 recording (measured ERPM vs sim linear_vel_x).
+speed_to_erpm_gain: 3079.0  # VESC ERPM gain [ERPM/(m/s)]
+speed_to_erpm_offset: 1281.0  # VESC ERPM offset at zero speed [ERPM]

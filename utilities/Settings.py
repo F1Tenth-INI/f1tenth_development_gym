@@ -8,7 +8,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "IPZ_empty"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -17,7 +17,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'pp' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -112,12 +112,12 @@ class Settings():
     # CBF-QP safety filter (controller-agnostic, applied in CarSystem after the planner).
     # Keeps the car inside the track (boundary HOCBF) and below the lateral-grip limit
     # (friction-circle speed CBF). See utilities/cbf_safety_filter.py.
-    CBF_SAFETY_FILTER = False         # Master switch for the safety filter
+    CBF_SAFETY_FILTER = True         # Master switch for the safety filter
     CBF_BOUNDARY_MARGIN = 0.20       # [m] shrink corridor by this (>= half car width)
     CBF_ALPHA_1 = 2.5                # HOCBF class-K gain 1 (boundary), [1/s]
     CBF_ALPHA_2 = 2.5                # HOCBF class-K gain 2 (boundary), [1/s]
     CBF_ALPHA_V = 2.0                # Speed CBF class-K gain, [1/s]
-    CBF_GRIP_FACTOR = 0.9            # Physical fraction of mu*g usable as lateral accel (<= 1)
+    CBF_GRIP_FACTOR = 0.6            # Physical fraction of mu*g usable as lateral accel (<= 1)
     CBF_SPEED_MARGIN = 1.0           # Extra headroom on a_lat_max for tuning (1.0 = no extra)
     CBF_KAPPA_DISCOUNT = 0.975        # Per-waypoint decay for discount-weighted kappa (0, 1]
     CBF_KAPPA_MAX_STEPS = 0          # If > 0, only first N look-ahead wps for kappa; 0 = all
@@ -253,7 +253,7 @@ class Settings():
 
     
     ### Other Settings ###
-    ROS_BRIDGE = False # Automatically determined on program start
+    ROS_BRIDGE = True # Automatically determined on program start
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
