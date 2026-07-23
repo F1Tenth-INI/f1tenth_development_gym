@@ -672,6 +672,180 @@ class WaypointUtils:
 
                     
 
+def fit_local_raceline_polynomial(
+    waypoint_xy,
+    n_points: int = 30,
+    degree: int = 6,
+    min_x_span: float = 0.5,
+):
+    """Fit a local polynomial to upcoming raceline waypoints in the car frame.
+
+    Approximates the next ``n_points`` (x, y) samples as
+
+        y(x) = c_n x^n + ... + c_1 x + c_0
+
+    where ``x`` is forward and ``y`` is left in the car frame (same convention as
+    :func:`get_relative_positions_jit`). Evaluated at the car (``x = 0``) this
+    gives a smooth lateral offset, relative heading and curvature of the
+    raceline — useful for a tube CBF around the reference.
+
+    Args:
+        waypoint_xy: (N, 2) array of waypoint positions already in the *car*
+            frame, or full next-waypoints with columns at ``WP_X/Y`` if
+            ``car_state``-relative data is passed via
+            :meth:`WaypointUtils.next_waypoint_positions_relative`.
+        n_points: number of look-ahead waypoints to use (default 30).
+        degree: polynomial degree (default 3 = cubic).
+        min_x_span: minimum forward span [m] required for a valid fit.
+
+    Returns:
+        (coeffs, info) where ``coeffs`` is length ``degree+1`` in ``np.polyfit``
+        order (highest power first), or ``None`` on failure. ``info`` always
+        contains ``ok`` and, on success: ``d_lat``, ``e``, ``kappa``, ``y0``,
+        ``yp``, ``ypp``.
+
+        - ``d_lat``: signed lateral offset of the car from the poly at ``x=0``
+          (positive = car is left of the raceline, Frenet convention).
+        - ``e``: heading of the car relative to the poly tangent at ``x=0``.
+        - ``kappa``: signed curvature of ``y(x)`` at ``x=0`` [1/m].
+    """
+    info = {
+        "ok": False,
+        "d_lat": 0.0,
+        "e": 0.0,
+        "kappa": 0.0,
+        "y0": 0.0,
+        "yp": 0.0,
+        "ypp": 0.0,
+    }
+    if waypoint_xy is None:
+        return None, info
+
+    pts = np.asarray(waypoint_xy, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[0] < 2 or pts.shape[1] < 2:
+        return None, info
+
+    n = min(int(n_points), pts.shape[0])
+    if n < degree + 1:
+        return None, info
+
+    x = pts[:n, 0]
+    y = pts[:n, 1]
+
+    # Keep only points with unique, strictly increasing x (polyfit needs that).
+    order = np.argsort(x)
+    x, y = x[order], y[order]
+    keep = np.ones(len(x), dtype=bool)
+    keep[1:] = np.diff(x) > 1e-4
+    x, y = x[keep], y[keep]
+    if len(x) < degree + 1:
+        return None, info
+    if float(x[-1] - x[0]) < float(min_x_span):
+        return None, info
+
+    try:
+        coeffs = np.polyfit(x, y, int(degree))
+    except (np.linalg.LinAlgError, ValueError):
+        return None, info
+
+    # y = c_n x^n + ... + c_1 x + c_0  -> evaluate at x = 0.
+    y0 = float(coeffs[-1])
+    yp = float(coeffs[-2]) if degree >= 1 else 0.0
+    ypp = float(2.0 * coeffs[-3]) if degree >= 2 else 0.0
+
+    # Car at (0, 0): raceline crosses x=0 at y=y0. Frenet d > 0 left of line.
+    d_lat = float(-y0)
+    e = float(-np.arctan(yp))
+    denom = (1.0 + yp * yp) ** 1.5
+    kappa = float(ypp / denom) if denom > 1e-9 else 0.0
+
+    info.update(
+        {
+            "ok": True,
+            "d_lat": d_lat,
+            "e": e,
+            "kappa": kappa,
+            "y0": y0,
+            "yp": yp,
+            "ypp": ypp,
+        }
+    )
+    return coeffs.astype(np.float64), info
+
+
+def fit_local_raceline_polynomial_parametric(
+    waypoint_xy,
+    n_points: int = 30,
+    degree: int = 8,
+    n_samples: int = 50,
+    min_span: float = 0.5,
+):
+    """Parametric polynomial fit of the local raceline for smooth rendering.
+
+    Unlike :func:`fit_local_raceline_polynomial` (which fits ``y = f(x)`` and
+    therefore breaks on hairpins where ``x`` is non-monotonic), this fits
+    ``x(t)`` and ``y(t)`` separately against a normalized cumulative
+    chord-length parameter ``t in [0, 1]``. This represents arbitrary curves,
+    including sharp turns that double back.
+
+    Args:
+        waypoint_xy: (N, 2) array of upcoming waypoint positions in the *car*
+            frame (same convention as :func:`get_relative_positions_jit`).
+        n_points: number of look-ahead waypoints to use.
+        degree: polynomial degree for each of ``x(t)`` and ``y(t)``.
+        n_samples: number of points to sample along the fitted curve.
+        min_span: minimum path length [m] required for a valid fit.
+
+    Returns:
+        (points, info) where ``points`` is an ``(n_samples, 2)`` array of
+        sampled curve positions in the car frame, or ``None`` on failure.
+    """
+    info = {"ok": False}
+    if waypoint_xy is None:
+        return None, info
+
+    pts = np.asarray(waypoint_xy, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[0] < 2 or pts.shape[1] < 2:
+        return None, info
+
+    n = min(int(n_points), pts.shape[0])
+    pts = pts[:n, :2]
+
+    # Drop consecutive duplicate points so the chord-length parameter is strictly
+    # increasing (needed for a well-conditioned fit).
+    seg = np.diff(pts, axis=0)
+    seg_len = np.hypot(seg[:, 0], seg[:, 1])
+    keep = np.ones(pts.shape[0], dtype=bool)
+    keep[1:] = seg_len > 1e-4
+    pts = pts[keep]
+    if pts.shape[0] < degree + 1:
+        return None, info
+
+    seg = np.diff(pts, axis=0)
+    seg_len = np.hypot(seg[:, 0], seg[:, 1])
+    s = np.concatenate(([0.0], np.cumsum(seg_len)))
+    total = float(s[-1])
+    if total < float(min_span):
+        return None, info
+
+    t = s / total  # normalize to [0, 1] for conditioning
+    deg = int(min(degree, pts.shape[0] - 1))
+
+    try:
+        coeffs_x = np.polyfit(t, pts[:, 0], deg)
+        coeffs_y = np.polyfit(t, pts[:, 1], deg)
+    except (np.linalg.LinAlgError, ValueError):
+        return None, info
+
+    t_sample = np.linspace(0.0, 1.0, int(n_samples))
+    x_sample = np.polyval(coeffs_x, t_sample)
+    y_sample = np.polyval(coeffs_y, t_sample)
+    points = np.column_stack((x_sample, y_sample))
+
+    info.update({"ok": True, "length": total, "degree": deg})
+    return points, info
+
+
 # Move computationally heavy operations outside of class for jit compilation
 @njit(fastmath=True)
 def jit_update_next_waypoints(
@@ -854,6 +1028,21 @@ def transform_to_car_coordinates(points, car_state):
         points_y_translated * car_state[POSE_THETA_COS_IDX]
     ))
     return points_transformed
+
+
+@njit(fastmath=True)
+def transform_from_car_coordinates(points, car_state):
+    """Inverse of :func:`transform_to_car_coordinates` / :func:`get_relative_positions_jit`."""
+    cos_t = car_state[POSE_THETA_COS_IDX]
+    sin_t = car_state[POSE_THETA_SIN_IDX]
+    car_x = car_state[POSE_X_IDX]
+    car_y = car_state[POSE_Y_IDX]
+
+    x_rel = points[:, 0]
+    y_rel = points[:, 1]
+    dx = x_rel * cos_t - y_rel * sin_t
+    dy = x_rel * sin_t + y_rel * cos_t
+    return np.column_stack((dx + car_x, dy + car_y))
 
 # Utility functions
 def get_path_suffix(reverse_direction):

@@ -5,6 +5,8 @@ from utilities.state_utilities import *
 from typing import Dict, Any, Optional
 import numbers
 
+_UNSET = object()
+
 # Imports depending on ROS/Gym
 if(Settings.ROS_BRIDGE):
     pass
@@ -94,6 +96,7 @@ class RenderUtils:
 
         self.waypoint_visualization_color = (180, 180, 180)
         self.next_waypoint_visualization_color = (0, 127, 0)
+        self.next_waypoints_polynomial_visualization_color = (255, 200, 0)
         self.next_waypoints_alternative_visualization_color = (127, 0, 127)
         self.lidar_visualization_color = (255, 0, 255)
         self.gap_visualization_color = (0, 255, 0)
@@ -115,6 +118,7 @@ class RenderUtils:
         self.waypoints_alternative: Optional[np.ndarray] = None
         self.waypoints_full: Optional[np.ndarray] = None
         self.next_waypoints: Optional[np.ndarray] = None
+        self.next_waypoints_polynomial: Optional[np.ndarray] = None
         self.next_waypoints_alternative: Optional[np.ndarray] = None
         self.lidar_border_points: Optional[np.ndarray] = None
         self.rollout_trajectory: Optional[np.ndarray] = None
@@ -148,6 +152,7 @@ class RenderUtils:
     def reset(self):
         self.waypoint_vertices = None
         self.next_waypoint_vertices = None
+        self.next_waypoints_polynomial_lines = []
         self.next_waypoints_alternative_vertices = None
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
@@ -192,6 +197,7 @@ class RenderUtils:
                largest_gap_middle_point=None,
                target_point=None,
                next_waypoints=None,
+               next_waypoints_polynomial=_UNSET,
                next_waypoints_alternative=None,
                car_state=None,
                emergency_slowdown_sprites=None,
@@ -221,6 +227,8 @@ class RenderUtils:
             self.target_point = target_point
         if next_waypoints is not None:
             self.next_waypoints = next_waypoints
+        if next_waypoints_polynomial is not _UNSET:
+            self.next_waypoints_polynomial = next_waypoints_polynomial
         if next_waypoints_alternative is not None:
             self.next_waypoints_alternative = next_waypoints_alternative
         if car_state is not None:
@@ -353,6 +361,39 @@ class RenderUtils:
                                                    ('c3B', self.next_waypoint_visualization_color * howmany))
                 else:
                     self.next_waypoint_vertices.vertices = scaled_points_flat
+
+        if self.next_waypoints_polynomial is not None:
+            pts = _normalize_points(self.next_waypoints_polynomial)
+            if pts is not None and len(pts) >= 2:
+                scaled_points = RenderUtils.get_scaled_points(pts)
+                if hasattr(self, "next_waypoints_polynomial_lines"):
+                    for line in self.next_waypoints_polynomial_lines:
+                        line.delete()
+                self.next_waypoints_polynomial_lines = []
+                glLineWidth(3)
+                segment_vertices = []
+                for i in range(len(scaled_points) - 1):
+                    segment_vertices.extend(
+                        [
+                            scaled_points[i, 0],
+                            scaled_points[i, 1],
+                            scaled_points[i + 1, 0],
+                            scaled_points[i + 1, 1],
+                        ]
+                    )
+                self.next_waypoints_polynomial_lines.append(
+                    e.batch.add(
+                        (len(scaled_points) - 1) * 2,
+                        GL_LINES,
+                        None,
+                        ("v2f/stream", segment_vertices),
+                        ("c3B", self.next_waypoints_polynomial_visualization_color * ((len(scaled_points) - 1) * 2)),
+                    )
+                )
+        elif hasattr(self, "next_waypoints_polynomial_lines") and self.next_waypoints_polynomial_lines:
+            for line in self.next_waypoints_polynomial_lines:
+                line.delete()
+            self.next_waypoints_polynomial_lines = []
                 
      
         gl.glPointSize(3)
