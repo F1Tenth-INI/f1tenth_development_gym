@@ -1,6 +1,8 @@
+import errno
 import json
 import math
 import os
+import sys
 import threading
 import time
 import webbrowser
@@ -16,6 +18,25 @@ from PIL import Image
 from sim.f110_sim.envs.web_renderer_ws import WebRendererSocketHub
 from utilities.map_scale import scale_map_metadata
 from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
+
+
+def _is_client_disconnect(exc: BaseException) -> bool:
+    if isinstance(exc, BrokenPipeError):
+        return True
+    if isinstance(exc, ConnectionResetError):
+        return True
+    if isinstance(exc, OSError) and exc.errno in (errno.EPIPE, errno.ECONNRESET):
+        return True
+    return False
+
+
+class _QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """HTTP server that ignores client disconnects during response writes."""
+
+    def handle_error(self, request, client_address):
+        if _is_client_disconnect(sys.exc_info()[1]):
+            return
+        super().handle_error(request, client_address)
 
 
 HTML_PAGE = """<!doctype html>
@@ -786,6 +807,7 @@ HTML_PAGE = """<!doctype html>
         drawPoints(overlay.waypoints_alternative, "rgb(170,170,170)", 1.5, cx, cy);
         drawPoints(overlay.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
         drawPoints(overlay.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
+        drawLine(overlay.next_waypoints_polynomial, rgb(colors.next_waypoints_polynomial, "rgb(255,200,0)"), 2.8, cx, cy);
         drawPoints(overlay.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
         if (showTrackBorders) {
           const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
@@ -1102,6 +1124,7 @@ class WebEnvRenderer:
         self._publish_rate_hz = 50.0
         self._last_published_sim_time: Optional[float] = None
         self._last_publish_wall_time_s: Optional[float] = None
+        self._last_full_overlay_sim_time: Optional[float] = None
         self._sim_time_rate = 1.0
         self._control_dt, self._control_hz, self._max_sim_frequency = self._read_control_timing()
         self._frame_id = 0
@@ -1117,9 +1140,17 @@ class WebEnvRenderer:
             "waypoints_alternative": 4000,
             "track_border_points": 6000,
         }
+        lidar_pts, max_rollouts, max_rollout_pts, overlay_hz, live_delay_s, buffer_window_s = (
+            self._read_web_render_smoothness_settings()
+        )
+        self._overlay_hz = float(overlay_hz)
+        self._live_delay_s = float(live_delay_s)
+        self._buffer_window_s = float(buffer_window_s)
+        self._live_history_max_s = max(10.0, self._buffer_window_s + 2.0)
         self._dynamic_max_points = {
-            "lidar_border_points": 320,
+            "lidar_border_points": int(lidar_pts),
             "next_waypoints": 80,
+            "next_waypoints_polynomial": 80,
             "next_waypoints_alternative": 80,
             "past_car_states_alternative": 180,
             "past_car_states_gt": 180,
@@ -1129,8 +1160,8 @@ class WebEnvRenderer:
             "virtual_opponents": 8,
             "detected_opponents": 32,
         }
-        self._max_rollout_trajectories = 8
-        self._max_rollout_points_per_trajectory = 24
+        self._max_rollout_trajectories = int(max_rollouts)
+        self._max_rollout_points_per_trajectory = int(max_rollout_pts)
         self._max_optimal_trajectories = 2
         self._max_optimal_points_per_trajectory = 64
         self._float_precision_digits = 3
@@ -1169,14 +1200,32 @@ class WebEnvRenderer:
         requested_port = int(self.port)
 
         class Handler(BaseHTTPRequestHandler):
+            def _write_body(self, body: bytes) -> bool:
+                try:
+                    self.wfile.write(body)
+                    return True
+                except (BrokenPipeError, ConnectionResetError):
+                    return False
+                except OSError as exc:
+                    if exc.errno in (errno.EPIPE, errno.ECONNRESET):
+                        return False
+                    raise
+
             def _send_json(self, payload: Dict[str, Any], status: int = 200):
                 encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Content-Length", str(len(encoded)))
-                self.end_headers()
-                self.wfile.write(encoded)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(encoded)))
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except OSError as exc:
+                    if exc.errno in (errno.EPIPE, errno.ECONNRESET):
+                        return
+                    raise
+                self._write_body(encoded)
 
             def do_GET(self):
                 parsed = urlparse(self.path)
@@ -1190,7 +1239,7 @@ class WebEnvRenderer:
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
-                    self.wfile.write(body)
+                    self._write_body(body)
                     return
 
                 if path == "/state":
@@ -1290,7 +1339,7 @@ class WebEnvRenderer:
                     self.send_header("Content-Type", "image/png")
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
-                    self.wfile.write(body)
+                    self._write_body(body)
                     return
 
                 if path == "/viewer-heartbeat":
@@ -1370,7 +1419,7 @@ class WebEnvRenderer:
                         f"Web renderer: trying fallback port {candidate_port} "
                         f"(requested {requested_port} in use)."
                     )
-                return ThreadingHTTPServer((host, candidate_port), handler_cls)
+                return _QuietThreadingHTTPServer((host, candidate_port), handler_cls)
             except OSError as exc:
                 if exc.errno != 98:
                     raise
@@ -1584,6 +1633,34 @@ class WebEnvRenderer:
         control_hz = 1.0 / max(control_dt, 1e-6)
         return control_dt, control_hz, max_sim_frequency
 
+    @staticmethod
+    def _read_web_render_smoothness_settings():
+        lidar_pts = 220
+        max_rollouts = 6
+        max_rollout_pts = 24
+        overlay_hz = 0.0
+        live_delay_s = 0.06
+        buffer_window_s = 1.5
+        try:
+            from utilities.Settings import Settings
+
+            lidar_pts = int(getattr(Settings, "WEB_RENDER_LIDAR_POINTS", lidar_pts))
+            max_rollouts = int(getattr(Settings, "WEB_RENDER_MAX_ROLLOUTS", max_rollouts))
+            max_rollout_pts = int(getattr(Settings, "WEB_RENDER_MAX_ROLLOUT_POINTS", max_rollout_pts))
+            overlay_hz = float(getattr(Settings, "WEB_RENDER_OVERLAY_HZ", overlay_hz))
+            live_delay_s = float(getattr(Settings, "WEB_RENDER_LIVE_DELAY_S", live_delay_s))
+            buffer_window_s = float(getattr(Settings, "WEB_RENDER_BUFFER_WINDOW_S", buffer_window_s))
+        except Exception:
+            pass
+        return (
+            max(32, lidar_pts),
+            max(1, max_rollouts),
+            max(4, max_rollout_pts),
+            max(0.0, overlay_hz),  # 0 => publish full overlay every frame
+            max(0.0, live_delay_s),
+            max(0.5, buffer_window_s),
+        )
+
     def _expected_sim_time_rate(self) -> float:
         effective_hz = float(self._control_hz)
         if self._max_sim_frequency is not None:
@@ -1648,6 +1725,17 @@ class WebEnvRenderer:
             open_default = False
 
         show_sac_metrics = controller == "sac_agent" and metrics_enabled
+        draw_polynomial_raceline = True
+        live_delay_s = 0.06
+        buffer_window_s = 1.5
+        camera_auto_follow = True
+        try:
+            draw_polynomial_raceline = bool(getattr(Settings, "WEB_RENDER_DRAW_POLYNOMIAL", True))
+            live_delay_s = float(getattr(Settings, "WEB_RENDER_LIVE_DELAY_S", live_delay_s))
+            buffer_window_s = float(getattr(Settings, "WEB_RENDER_BUFFER_WINDOW_S", buffer_window_s))
+            camera_auto_follow = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", True))
+        except Exception:
+            pass
         opponent_length, opponent_width = 0.58, 0.31
         try:
             from utilities.virtual_opponents import get_virtual_opponent_dimensions
@@ -1663,6 +1751,7 @@ class WebEnvRenderer:
             "show_sac_metrics": show_sac_metrics,
             "metrics_port": metrics_port,
             "metrics_panel_open_default": open_default and show_sac_metrics,
+            "draw_polynomial_raceline": draw_polynomial_raceline,
             "car_length": car_length,
             "car_width": car_width,
             "virtual_opponent_size": [opponent_width, opponent_length],
@@ -1674,6 +1763,9 @@ class WebEnvRenderer:
             "control_hz": round(control_hz, 3),
             "expected_sim_time_rate": round(expected_sim_time_rate, 4),
             "publish_rate_hz": 50.0,
+            "live_target_delay_s": round(live_delay_s, 3),
+            "live_buffer_window_s": round(buffer_window_s, 3),
+            "camera_auto_follow": camera_auto_follow,
             "web_render_ws_port": None,
             **(
                 {"max_sim_frequency": round(max_sim_frequency, 3)}
@@ -1760,6 +1852,14 @@ class WebEnvRenderer:
                 self._max_optimal_trajectories,
                 self._max_optimal_points_per_trajectory,
             )
+        if "track_border_lines" in overlay:
+            lines = overlay.get("track_border_lines")
+            if isinstance(lines, list):
+                overlay["track_border_lines"] = [
+                    self._downsample_points(line, 400)
+                    for line in lines
+                    if isinstance(line, list)
+                ]
 
         # Label text can become large; keep reward/control telemetry when truncating.
         labels = overlay.get("label_dict")
@@ -1826,6 +1926,31 @@ class WebEnvRenderer:
             step_total_reward = 0.0
         terminal_step = force_publish or step_total_reward <= -3.0
 
+        # Pose-priority streaming: publish car poses every tick; optionally throttle dense
+        # overlays (WEB_RENDER_OVERLAY_HZ). 0 Hz means full overlay every frame (pygame-like).
+        publish_full_overlay = True
+        if not terminal_step and self._overlay_hz > 0.0:
+            min_overlay_dt = 1.0 / self._overlay_hz
+            if (
+                self._last_full_overlay_sim_time is not None
+                and (simulation_time - float(self._last_full_overlay_sim_time)) < min_overlay_dt
+                and (simulation_time - float(self._last_full_overlay_sim_time)) >= 0.0
+            ):
+                publish_full_overlay = False
+        if not publish_full_overlay:
+            light = {
+                "force_plot_publish": force_publish,
+                "overlay_full": False,
+            }
+            if isinstance(labels, dict) and labels:
+                light["label_dict"] = labels
+            for key in ("virtual_opponents", "detected_opponents", "virtual_opponent_size", "colors"):
+                if key in overlay:
+                    light[key] = overlay[key]
+            overlay = light
+        else:
+            overlay["overlay_full"] = True
+
         with self._lock:
             if static_overlay:
                 self._static_overlay = static_overlay
@@ -1842,6 +1967,8 @@ class WebEnvRenderer:
                     return
             self._note_publish_timing(simulation_time)
             self._last_published_sim_time = simulation_time
+            if publish_full_overlay:
+                self._last_full_overlay_sim_time = simulation_time
             self._frame_id += 1
             self._state = {
                 "frame_id": self._frame_id,

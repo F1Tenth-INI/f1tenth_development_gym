@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-from typing import Any, Callable, Dict, Optional, Set
+from collections import deque
+from typing import Any, Callable, Deque, Dict, Optional, Set
 
 try:
     import websockets
@@ -17,7 +18,13 @@ except ImportError:  # pragma: no cover - optional at import time
 
 
 class WebRendererSocketHub:
-    """Thread-safe WebSocket broadcaster running asyncio in a daemon thread."""
+    """Thread-safe WebSocket broadcaster running asyncio in a daemon thread.
+
+    Smooth remote playback needs a contiguous stream of snapshots in the
+    client interpolation buffer. Latest-only coalesce drops intermediates and
+    creates sparse buffers (stutter) on high-RTT / bursty links. Instead we
+    keep a bounded FIFO of pending messages and drain them in order.
+    """
 
     def __init__(
         self,
@@ -25,12 +32,14 @@ class WebRendererSocketHub:
         port: int,
         hello_builder: Callable[[], Dict[str, Any]],
         max_port_tries: int = 25,
+        max_pending_messages: int = 64,
     ):
         self._host = str(host)
         self._port = int(port)
         self._requested_port = int(port)
         self._max_port_tries = int(max_port_tries)
         self._hello_builder = hello_builder
+        self._max_pending_messages = max(8, int(max_pending_messages))
         self._clients: Set[WebSocketServerProtocol] = set()
         self._clients_lock = threading.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -39,9 +48,10 @@ class WebRendererSocketHub:
         self._closed = False
         self._server = None
         self._shutdown_future: Optional[asyncio.Future] = None
-        self._pending_message: Optional[str] = None
+        self._pending_messages: Deque[str] = deque()
         self._flush_scheduled = False
         self._flush_lock = threading.Lock()
+        self._dropped_pending = 0
 
     @property
     def port(self) -> int:
@@ -97,12 +107,15 @@ class WebRendererSocketHub:
             return len(self._clients)
 
     def broadcast_json(self, payload: Dict[str, Any]) -> None:
-        """Coalesce bursts: only the latest frame is sent if the client is behind."""
+        """Enqueue a frame for ordered delivery; drop oldest if the queue is full."""
         if self._loop is None or not self.has_clients():
             return
         message = json.dumps(payload, separators=(",", ":"))
         with self._flush_lock:
-            self._pending_message = message
+            self._pending_messages.append(message)
+            while len(self._pending_messages) > self._max_pending_messages:
+                self._pending_messages.popleft()
+                self._dropped_pending += 1
             if self._flush_scheduled:
                 return
             self._flush_scheduled = True
@@ -137,6 +150,8 @@ class WebRendererSocketHub:
         for attempt in range(self._max_port_tries):
             candidate_port = self._requested_port + attempt
             try:
+                # Larger per-connection queue: prefer buffering snapshots over
+                # silently dropping them when a remote client briefly stalls.
                 async with serve(
                     self._connection_handler,
                     bind_host,
@@ -144,7 +159,7 @@ class WebRendererSocketHub:
                     ping_interval=30,
                     ping_timeout=30,
                     max_size=4 * 1024 * 1024,
-                    max_queue=4,
+                    max_queue=32,
                 ) as server:
                     self._port = int(candidate_port)
                     self._server = server
@@ -192,14 +207,13 @@ class WebRendererSocketHub:
         try:
             while True:
                 with self._flush_lock:
-                    message = self._pending_message
-                    self._pending_message = None
-                if message is None:
-                    break
+                    if not self._pending_messages:
+                        break
+                    message = self._pending_messages.popleft()
                 await self._broadcast(message)
         finally:
             with self._flush_lock:
-                more = self._pending_message is not None
+                more = len(self._pending_messages) > 0
                 if more:
                     asyncio.create_task(self._flush_pending())
                 else:
@@ -211,12 +225,23 @@ class WebRendererSocketHub:
         if not clients:
             return
         dead = []
-        for websocket in clients:
-            try:
-                await websocket.send(message)
-            except Exception:
+        # Fan-out concurrently so one slow client does not stall others.
+        results = await asyncio.gather(
+            *[self._send_one(websocket, message) for websocket in clients],
+            return_exceptions=True,
+        )
+        for websocket, result in zip(clients, results):
+            if result is not True:
                 dead.append(websocket)
         if dead:
             with self._clients_lock:
                 for websocket in dead:
                     self._clients.discard(websocket)
+
+    @staticmethod
+    async def _send_one(websocket: WebSocketServerProtocol, message: str) -> bool:
+        try:
+            await websocket.send(message)
+            return True
+        except Exception:
+            return False

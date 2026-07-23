@@ -412,6 +412,7 @@
         <label><input id="toggle-map" type="checkbox" checked />Show Map</label>
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
+        <label><input id="toggle-polynomial-raceline" type="checkbox" checked />Show polynomial raceline</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
         <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state, IMU &amp; reward plots</button>
         <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
@@ -533,6 +534,7 @@
     const toggleMapEl = document.getElementById("toggle-map");
     const toggleHistoryEl = document.getElementById("toggle-history");
     const toggleTrackBordersEl = document.getElementById("toggle-track-borders");
+    const togglePolynomialRacelineEl = document.getElementById("toggle-polynomial-raceline");
     const toggleCarInfoEl = document.getElementById("toggle-car-info");
     const togglePlotsEl = document.getElementById("toggle-plots");
     const toggleSacMetricsEl = document.getElementById("toggle-sac-metrics");
@@ -569,9 +571,9 @@
     let experimentArchive = [];
     let experimentArchiveByFrameId = new Map();
     let playbackSimTime = null;
-    let livePrevFrame = null;
-    let liveNextFrame = null;
-    let liveNextWallS = 0.0;
+    let playbackSegmentStartIdx = 0;
+    let pendingNextSegmentStartIdx = null;
+    let terminalHoldUntilWallS = 0.0;
     let lastStatusUpdateS = 0.0;
     let playbackFrameIndex = 0;
     let bufferPlaybackMode = "manual"; // "live" | "manual"
@@ -583,13 +585,15 @@
     let lastDrawWallTimeS = null;
     let cameraFollowEgo = false;
     let cameraCenter = null;
-    const LIVE_BUFFER_WINDOW_S = 8.0;
+    const LIVE_BUFFER_WINDOW_S_DEFAULT = 1.5;
     const REPLAY_BUFFER_WINDOW_S = 4.0;
     const MAX_EXPERIMENT_FRAMES = 24000; // ~8 min at 50 Hz
-    const LIVE_TARGET_DELAY_S = 0.35;   // stay slightly behind newest sample for interpolation
+    // Same-PC default: ~1 control step behind live (pygame-like). Raise via Settings for remote.
+    const LIVE_TARGET_DELAY_S_DEFAULT = 0.06;
     const REPLAY_TARGET_DELAY_S = 2.0;  // replay/scrub mode
-    const LIVE_MIN_BUFFER_DELAY_S = 0.35;
-    const LIVE_EXTRAPOLATE_MAX_S = 0.8;   // smooth coast through poll gaps (game netcode style)
+    const LIVE_MIN_BUFFER_DELAY_S_DEFAULT = 0.02;
+    const FOLLOW_LATEST_DELAY_S = 0.25; // below this => snap/follow live edge (no multi-second PLL)
+    const TERMINAL_HOLD_WALL_S = 0.35;  // brief pause on crash before showing respawn (buffered mode only)
     const REPLAY_MIN_BUFFER_DELAY_S = 1.5;
     const LIVE_POLL_MS = 16;            // poll as fast as server allows; render is rAF-driven
     const TELEMETRY_POLL_MS = 8000;
@@ -598,6 +602,14 @@
     const HISTORY_POLL_MS = 100;
     const REQUEST_OVERLAP_FRAMES = 12;
     const MAX_INFLIGHT_FETCHES = 2;
+    const MAX_STATIC_BAKE_DIM_PX = 8192; // safety only; map is drawn from source, not this bake
+    let liveTargetDelayS = LIVE_TARGET_DELAY_S_DEFAULT;
+    let liveBufferWindowS = LIVE_BUFFER_WINDOW_S_DEFAULT;
+    let liveMinBufferDelayS = LIVE_MIN_BUFFER_DELAY_S_DEFAULT;
+    let adaptiveLiveDelayS = LIVE_TARGET_DELAY_S_DEFAULT;
+    let arrivalJitterEmaS = 0.01;
+    let lastFrameArrivalWallS = null;
+    let lastCarriedOverlay = null;
     let livePollActive = false;
     let liveSocket = null;
     let liveSocketConnected = false;
@@ -605,8 +617,6 @@
     let liveSocketReconnectMs = 500;
     let liveSocketFallbackTimer = null;
     let liveSocketConnectFallbackToken = null;
-    let pendingWsPayload = null;
-    let wsParseWorker = null;
     let canvasCssW = 0;
     let canvasCssH = 0;
     let inflightFetches = 0;
@@ -638,6 +648,7 @@
     let showMap = true;
     let showPositionHistory = false;
     let showTrackBorders = true;
+    let showPolynomialRaceline = true;
     let showCarStateInfo = false;
     let browserPositionHistory = [];
     let browserHistoryLastFrameId = 0;
@@ -929,11 +940,198 @@
     }
 
     function worldToScreen(x, y, cx, cy) {
-      const w = canvas.getBoundingClientRect().width;
-      const h = canvas.getBoundingClientRect().height;
+      const w = canvasCssW || canvas.getBoundingClientRect().width;
+      const h = canvasCssH || canvas.getBoundingClientRect().height;
       const sx = (x - cx) * zoom + 0.5 * w;
       const sy = h - ((y - cy) * zoom + 0.5 * h);
       return [sx, sy];
+    }
+
+    // Pre-rasterize map + static overlays (pygame-style static layer). Rebuilt only
+    // when zoom or static payload changes — not every animation frame.
+    let staticLayerBake = null;
+
+    function invalidateStaticLayerBake() {
+      staticLayerBake = null;
+    }
+
+    function extendWorldBounds(bounds, x, y) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      bounds.minX = Math.min(bounds.minX, x);
+      bounds.minY = Math.min(bounds.minY, y);
+      bounds.maxX = Math.max(bounds.maxX, x);
+      bounds.maxY = Math.max(bounds.maxY, y);
+    }
+
+    function extendPointsBounds(bounds, points) {
+      if (!Array.isArray(points)) return;
+      for (const p of points) {
+        if (Array.isArray(p) && p.length >= 2) {
+          extendWorldBounds(bounds, p[0], p[1]);
+        }
+      }
+    }
+
+    function computeStaticWorldBounds(static) {
+      const bounds = {
+        minX: Infinity,
+        minY: Infinity,
+        maxX: -Infinity,
+        maxY: -Infinity,
+      };
+      if (showMap && mapMeta) {
+        const mapWm = mapMeta.width * mapMeta.resolution;
+        const mapHm = mapMeta.height * mapMeta.resolution;
+        extendWorldBounds(bounds, mapMeta.origin[0], mapMeta.origin[1]);
+        extendWorldBounds(bounds, mapMeta.origin[0] + mapWm, mapMeta.origin[1] + mapHm);
+      }
+      const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
+      extendPointsBounds(bounds, globalWaypoints);
+      extendPointsBounds(bounds, static.waypoints_alternative);
+      extendPointsBounds(bounds, static.track_border_points);
+      const borderLines = static.track_border_lines;
+      if (Array.isArray(borderLines)) {
+        for (const line of borderLines) {
+          extendPointsBounds(bounds, line);
+        }
+      }
+      if (!Number.isFinite(bounds.minX)) {
+        bounds.minX = -10;
+        bounds.minY = -10;
+        bounds.maxX = 10;
+        bounds.maxY = 10;
+      }
+      const pad = 2.0;
+      bounds.minX -= pad;
+      bounds.minY -= pad;
+      bounds.maxX += pad;
+      bounds.maxY += pad;
+      return bounds;
+    }
+
+    function staticLayerSignature(static) {
+      const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
+      return [
+        zoom.toFixed(2),
+        showMap ? 1 : 0,
+        showTrackBorders ? 1 : 0,
+        globalWaypoints?.length || 0,
+        static.waypoints_alternative?.length || 0,
+        static.track_border_points?.length || 0,
+        static.track_border_lines?.length || 0,
+        mapMeta?.width || 0,
+        mapMeta?.height || 0,
+        mapImg?.complete ? 1 : 0,
+      ].join("|");
+    }
+
+    function bakePointsOnLayer(bctx, points, color, radius, bake) {
+      if (!Array.isArray(points) || points.length === 0) return;
+      bctx.fillStyle = color;
+      const path = new Path2D();
+      for (const p of points) {
+        if (!Array.isArray(p) || p.length < 2) continue;
+        const bx = (p[0] - bake.minX) * bake.ppm;
+        const by = bake.heightPx - (p[1] - bake.minY) * bake.ppm;
+        path.moveTo(bx + radius, by);
+        path.arc(bx, by, radius, 0, Math.PI * 2);
+      }
+      bctx.fill(path);
+    }
+
+    function bakeLineOnLayer(bctx, points, color, lineWidth, bake) {
+      if (!Array.isArray(points) || points.length < 2) return;
+      bctx.strokeStyle = color;
+      bctx.lineWidth = lineWidth;
+      bctx.beginPath();
+      points.forEach((p, idx) => {
+        if (!Array.isArray(p) || p.length < 2) return;
+        const bx = (p[0] - bake.minX) * bake.ppm;
+        const by = bake.heightPx - (p[1] - bake.minY) * bake.ppm;
+        if (idx === 0) bctx.moveTo(bx, by);
+        else bctx.lineTo(bx, by);
+      });
+      bctx.stroke();
+    }
+
+    function rebuildStaticLayerBake(static) {
+      // Bake vector overlays only. The occupancy map is drawn from mapImg each
+      // frame so zoom never softens it via an undersampled offscreen canvas.
+      const bounds = computeStaticWorldBounds(static);
+      let ppm = Math.max(1.0, zoom);
+      let widthPx = Math.max(1, Math.ceil((bounds.maxX - bounds.minX) * ppm));
+      let heightPx = Math.max(1, Math.ceil((bounds.maxY - bounds.minY) * ppm));
+      const maxDim = Math.max(widthPx, heightPx);
+      if (maxDim > MAX_STATIC_BAKE_DIM_PX) {
+        ppm *= MAX_STATIC_BAKE_DIM_PX / maxDim;
+        widthPx = Math.max(1, Math.ceil((bounds.maxX - bounds.minX) * ppm));
+        heightPx = Math.max(1, Math.ceil((bounds.maxY - bounds.minY) * ppm));
+      }
+      const bakeCanvas = document.createElement("canvas");
+      bakeCanvas.width = widthPx;
+      bakeCanvas.height = heightPx;
+      const bctx = bakeCanvas.getContext("2d");
+      const bake = {
+        canvas: bakeCanvas,
+        minX: bounds.minX,
+        minY: bounds.minY,
+        ppm,
+        widthPx,
+        heightPx,
+        sig: staticLayerSignature(static),
+      };
+
+      const colors = static.colors || {};
+      const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
+      bakePointsOnLayer(bctx, globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, bake);
+      bakePointsOnLayer(bctx, static.waypoints_alternative, "rgb(170,170,170)", 1.5, bake);
+      if (showTrackBorders) {
+        const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
+        const borderLines = static.track_border_lines;
+        if (Array.isArray(borderLines) && borderLines.length > 0) {
+          for (const borderLine of borderLines) {
+            bakeLineOnLayer(bctx, borderLine, borderColor, 1.6, bake);
+          }
+        } else {
+          bakePointsOnLayer(bctx, static.track_border_points, borderColor, 1.8, bake);
+        }
+      }
+
+      staticLayerBake = bake;
+    }
+
+    function drawMapLayer(cx, cy) {
+      if (!showMap || !mapMeta || !mapImg || !mapImg.complete) return;
+      const w = canvasCssW || canvas.getBoundingClientRect().width;
+      const h = canvasCssH || canvas.getBoundingClientRect().height;
+      const mapWm = mapMeta.width * mapMeta.resolution;
+      const mapHm = mapMeta.height * mapMeta.resolution;
+      const sx = (mapMeta.origin[0] - cx) * zoom + 0.5 * w;
+      const sy = h - ((mapMeta.origin[1] + mapHm - cy) * zoom + 0.5 * h);
+      const drawW = mapWm * zoom;
+      const drawH = mapHm * zoom;
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      // Occupancy grids look sharper with nearest-neighbor than with blurry bilinear upscaling.
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(mapImg, sx, sy, drawW, drawH);
+      ctx.restore();
+    }
+
+    function drawStaticLayerBake(cx, cy, static) {
+      drawMapLayer(cx, cy);
+      const sig = staticLayerSignature(static);
+      if (!staticLayerBake || staticLayerBake.sig !== sig) {
+        rebuildStaticLayerBake(static);
+      }
+      if (!staticLayerBake) return;
+      const w = canvasCssW || canvas.getBoundingClientRect().width;
+      const h = canvasCssH || canvas.getBoundingClientRect().height;
+      const drawW = (staticLayerBake.widthPx / staticLayerBake.ppm) * zoom;
+      const drawH = (staticLayerBake.heightPx / staticLayerBake.ppm) * zoom;
+      const sx = (staticLayerBake.minX - cx) * zoom + 0.5 * w;
+      const sy = h - ((staticLayerBake.minY + (staticLayerBake.heightPx / staticLayerBake.ppm) - cy) * zoom + 0.5 * h);
+      ctx.drawImage(staticLayerBake.canvas, sx, sy, drawW, drawH);
     }
 
     function screenToWorld(sx, sy, cx, cy) {
@@ -951,6 +1149,7 @@
       }
       if (cameraCenter === null) {
         zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+        invalidateStaticLayerBake();
         return;
       }
       const cx = cameraCenter[0];
@@ -959,6 +1158,7 @@
       const newZoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
       if (Math.abs(newZoom - zoom) < 1e-6) return;
       zoom = newZoom;
+      invalidateStaticLayerBake();
       const [wx1, wy1] = screenToWorld(sx, sy, cx, cy);
       cameraCenter = [cx + wx0 - wx1, cy + wy0 - wy1];
     }
@@ -1927,35 +2127,6 @@
       };
     }
 
-    function extrapolateState(prev, last, targetTime) {
-      if (!prev || !last) return last;
-      const dt = Math.max(1e-6, last.simulation_time - prev.simulation_time);
-      const extra = Math.max(0.0, targetTime - last.simulation_time);
-      // Short extrapolation only; beyond this we prefer holding last sample.
-      const extraClamped = Math.min(extra, LIVE_EXTRAPOLATE_MAX_S);
-
-      const poses = [];
-      const n = Math.min(prev.poses?.length || 0, last.poses?.length || 0);
-      for (let i = 0; i < n; i++) {
-        const p0 = prev.poses[i];
-        const p1 = last.poses[i];
-        const vx = (p1[0] - p0[0]) / dt;
-        const vy = (p1[1] - p0[1]) / dt;
-        const w = angleDelta(p0[2], p1[2]) / dt;
-        poses.push([
-          p1[0] + vx * extraClamped,
-          p1[1] + vy * extraClamped,
-          normalizeAngle(p1[2] + w * extraClamped),
-        ]);
-      }
-      return {
-        ego_idx: last.ego_idx ?? 0,
-        simulation_time: last.simulation_time + extraClamped,
-        poses: poses,
-        web_overlay: last.web_overlay || {},
-      };
-    }
-
     function archiveRecordingHz() {
       if (experimentArchive.length < 2) return 25.0;
       const span = Number(experimentArchive[experimentArchive.length - 1].simulation_time)
@@ -2041,15 +2212,15 @@
     }
 
     function getLiveBufferWindowS() {
-      return replayRecordingEnabled ? REPLAY_BUFFER_WINDOW_S : LIVE_BUFFER_WINDOW_S;
+      return replayRecordingEnabled ? REPLAY_BUFFER_WINDOW_S : liveBufferWindowS;
     }
 
     function getTargetBufferDelayS() {
-      return replayRecordingEnabled ? REPLAY_TARGET_DELAY_S : LIVE_TARGET_DELAY_S;
+      return replayRecordingEnabled ? REPLAY_TARGET_DELAY_S : adaptiveLiveDelayS;
     }
 
     function getMinBufferDelayS() {
-      return replayRecordingEnabled ? REPLAY_MIN_BUFFER_DELAY_S : LIVE_MIN_BUFFER_DELAY_S;
+      return replayRecordingEnabled ? REPLAY_MIN_BUFFER_DELAY_S : liveMinBufferDelayS;
     }
 
     function getStatePollIntervalMs() {
@@ -2065,6 +2236,61 @@
         : (Number.isFinite(pagePort) && pagePort > 0 ? pagePort + 1 : 8766);
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${host}:${wsPort}`;
+    }
+
+    function isFollowLatestMode() {
+      return !replayRecordingEnabled && adaptiveLiveDelayS <= FOLLOW_LATEST_DELAY_S;
+    }
+
+    function noteFrameArrivalTiming() {
+      const nowS = performance.now() / 1000.0;
+      if (lastFrameArrivalWallS !== null) {
+        const gap = Math.max(0.0, nowS - lastFrameArrivalWallS);
+        // Ignore long stalls (tab backgrounded / reconnect); track short-term jitter only.
+        if (gap < 0.5) {
+          const nominal = 1.0 / Math.max(1.0, nominalControlHz);
+          const jitter = Math.abs(gap - nominal);
+          arrivalJitterEmaS = 0.9 * arrivalJitterEmaS + 0.1 * jitter;
+          if (liveTargetDelayS > FOLLOW_LATEST_DELAY_S) {
+            // Remote/buffered mode: grow delay with measured jitter.
+            const jitterPad = Math.min(2.0, Math.max(0.0, 4.0 * arrivalJitterEmaS));
+            adaptiveLiveDelayS = Math.max(
+              liveTargetDelayS,
+              Math.min(liveBufferWindowS - 0.35, liveTargetDelayS + jitterPad)
+            );
+            liveMinBufferDelayS = Math.max(
+              0.2,
+              Math.min(adaptiveLiveDelayS - 0.15, adaptiveLiveDelayS * 0.55)
+            );
+          } else {
+            // Same-PC / pygame-like: keep delay tiny; do not inflate toward multi-second lag.
+            adaptiveLiveDelayS = liveTargetDelayS;
+            liveMinBufferDelayS = Math.min(liveTargetDelayS, LIVE_MIN_BUFFER_DELAY_S_DEFAULT);
+          }
+        }
+      }
+      lastFrameArrivalWallS = nowS;
+    }
+
+    function mergeCarriedOverlay(frame) {
+      if (!frame || typeof frame !== "object") return frame;
+      const incoming = frame.web_overlay;
+      if (!incoming || typeof incoming !== "object") {
+        if (lastCarriedOverlay) {
+          frame.web_overlay = lastCarriedOverlay;
+        }
+        return frame;
+      }
+      if (incoming.overlay_full === false && lastCarriedOverlay) {
+        frame.web_overlay = {
+          ...lastCarriedOverlay,
+          ...incoming,
+          overlay_full: false,
+        };
+      } else if (incoming.overlay_full !== false) {
+        lastCarriedOverlay = incoming;
+      }
+      return frame;
     }
 
     function processWebSocketPayload(payload) {
@@ -2091,33 +2317,6 @@
       }
     }
 
-    function ensureWsParseWorker() {
-      if (wsParseWorker) return;
-      const workerSrc = `
-        self.onmessage = (event) => {
-          try {
-            self.postMessage({ ok: true, payload: JSON.parse(event.data) });
-          } catch (err) {
-            self.postMessage({ ok: false });
-          }
-        };
-      `;
-      wsParseWorker = new Worker(
-        URL.createObjectURL(new Blob([workerSrc], { type: "application/javascript" }))
-      );
-      wsParseWorker.onmessage = (event) => {
-        const msg = event.data;
-        if (msg && msg.ok) pendingWsPayload = msg.payload;
-      };
-    }
-
-    function flushPendingWebSocketMessage() {
-      if (pendingWsPayload === null) return;
-      const payload = pendingWsPayload;
-      pendingWsPayload = null;
-      processWebSocketPayload(payload);
-    }
-
     function processWebSocketFrame(frame, payload) {
       const incomingLatestFrameId = Number(
         payload?.latest_frame_id || frame.frame_id || 0
@@ -2125,9 +2324,10 @@
       if (incomingLatestFrameId + REQUEST_OVERLAP_FRAMES < lastFrameId) {
         return;
       }
-      const s = frame;
+      noteFrameArrivalTiming();
+      const s = mergeCarriedOverlay(sanitizeFramePoses(frame));
       if (showPositionHistory) {
-        appendHistorySamples([sanitizeFramePoses(frame)]);
+        appendHistorySamples([s]);
       }
       latestSimulationTime = Number(
         payload?.latest_simulation_time || frame.simulation_time || 0.0
@@ -2135,9 +2335,8 @@
       lastFrameId = Math.max(lastFrameId, incomingLatestFrameId);
       latestSimAtPoll = latestSimulationTime;
       latestPollWallTimeS = performance.now() / 1000.0;
-      // WebSocket path: keep only prev/next anchors (no frameBuffer growth).
-      noteLiveFrameAnchors(s);
-      latest = s;
+      appendLiveFrames([s]);
+      latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : s;
       if (plotsPanelOpen) {
         ingestPlotFrames([s]);
       }
@@ -2149,8 +2348,9 @@
       const camMode = cameraFollowEgo ? "follow-car" : "free";
       const simHzText = Number.isFinite(simTimeRate) ? ` | sim: ${simTimeRate.toFixed(2)}x` : "";
       const transport = liveSocketConnected ? " | ws" : "";
+      const modeText = isFollowLatestMode() ? " | live" : ` | buf: ${adaptiveLiveDelayS.toFixed(2)}s`;
       if (nowWall - lastStatusUpdateS >= 0.25) {
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${transport}${labelText}`;
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${transport}${modeText}${labelText}`;
         lastStatusUpdateS = nowWall;
       }
     }
@@ -2210,9 +2410,17 @@
         }
       };
       liveSocket.onmessage = (event) => {
-        // Parse off main thread; apply at most once per animation frame.
-        ensureWsParseWorker();
-        wsParseWorker.postMessage(event.data);
+        // Ingest immediately into the interpolation buffer. A single-slot
+        // pending payload (or parse-worker coalesce) drops bursted frames on
+        // remote links and is the main source of live stutter.
+        try {
+          const payload = typeof event.data === "string"
+            ? JSON.parse(event.data)
+            : event.data;
+          processWebSocketPayload(payload);
+        } catch (err) {
+          // Ignore malformed frames; keep the buffer contiguous.
+        }
       };
       liveSocket.onerror = () => {
         // onclose handles reconnect / fallback.
@@ -2221,7 +2429,6 @@
         const wasConnected = liveSocketConnected;
         liveSocketConnected = false;
         liveSocket = null;
-        pendingWsPayload = null;
         liveSocketConnectFallbackToken = null;
         if (!liveSocketWanted || replayRecordingEnabled) {
           return;
@@ -2279,28 +2486,145 @@
       } else if (Number.isFinite(cfg.control_hz) && Number.isFinite(cfg.sim_step_dt)) {
         simTimeRate = cfg.control_hz * cfg.sim_step_dt;
       }
+      if (Number.isFinite(cfg.live_target_delay_s) && cfg.live_target_delay_s >= 0) {
+        liveTargetDelayS = cfg.live_target_delay_s;
+        adaptiveLiveDelayS = cfg.live_target_delay_s;
+      }
+      if (Number.isFinite(cfg.live_buffer_window_s) && cfg.live_buffer_window_s > 0) {
+        liveBufferWindowS = cfg.live_buffer_window_s;
+      }
+      if (isFollowLatestMode()) {
+        liveMinBufferDelayS = Math.min(adaptiveLiveDelayS, LIVE_MIN_BUFFER_DELAY_S_DEFAULT);
+      } else {
+        liveMinBufferDelayS = Math.max(0.2, Math.min(adaptiveLiveDelayS - 0.15, adaptiveLiveDelayS * 0.55));
+      }
     }
 
-    function resetLiveRenderAnchors() {
-      livePrevFrame = null;
-      liveNextFrame = null;
-      liveNextWallS = 0.0;
+    function getActiveSegmentFrames() {
+      if (playbackSegmentStartIdx <= 0) return frameBuffer;
+      return frameBuffer.slice(playbackSegmentStartIdx);
     }
 
-    function syncLiveRenderAnchorsFromBuffer() {
-      if (frameBuffer.length === 0) {
-        resetLiveRenderAnchors();
+    function activeSegmentEndFrame() {
+      const segment = getActiveSegmentFrames();
+      if (segment.length === 0) return null;
+      if (pendingNextSegmentStartIdx !== null) {
+        const endIdx = pendingNextSegmentStartIdx - 1 - playbackSegmentStartIdx;
+        if (endIdx >= 0 && endIdx < segment.length) {
+          return segment[endIdx];
+        }
+      }
+      return segment[segment.length - 1];
+    }
+
+    function activeSegmentEndSimTime() {
+      const endFrame = activeSegmentEndFrame();
+      return endFrame ? Number(endFrame.simulation_time) : null;
+    }
+
+    function resetLiveSegmentState() {
+      playbackSegmentStartIdx = 0;
+      pendingNextSegmentStartIdx = null;
+      terminalHoldUntilWallS = 0.0;
+    }
+
+    function trimFrameBufferFront(cutoff) {
+      while (frameBuffer.length > 0 && frameBuffer[0].simulation_time < cutoff) {
+        frameBuffer.shift();
+        playbackSegmentStartIdx = Math.max(0, playbackSegmentStartIdx - 1);
+        if (pendingNextSegmentStartIdx !== null) {
+          pendingNextSegmentStartIdx = Math.max(
+            playbackSegmentStartIdx,
+            pendingNextSegmentStartIdx - 1
+          );
+        }
+      }
+    }
+
+    function maybeAdvanceEpisodeSegment(nowS) {
+      if (pendingNextSegmentStartIdx === null) return;
+
+      // Pygame-like mode: jump to the newest episode immediately (crash was already shown
+      // as the latest frame for a tick). Holding here is what made the view look "stuck".
+      if (isFollowLatestMode()) {
+        playbackSegmentStartIdx = pendingNextSegmentStartIdx;
+        pendingNextSegmentStartIdx = null;
+        terminalHoldUntilWallS = 0.0;
+        playbackSimTime = null;
+        lastDrawWallTimeS = nowS;
+        lastCarriedOverlay = null;
         return;
       }
-      if (frameBuffer.length === 1) {
-        livePrevFrame = null;
-        liveNextFrame = frameBuffer[0];
-        liveNextWallS = performance.now() / 1000.0;
+
+      const segmentEndT = activeSegmentEndSimTime();
+      if (segmentEndT === null || playbackSimTime === null || playbackSimTime < segmentEndT - 1e-6) {
         return;
       }
-      livePrevFrame = frameBuffer[frameBuffer.length - 2];
-      liveNextFrame = frameBuffer[frameBuffer.length - 1];
-      liveNextWallS = performance.now() / 1000.0;
+      if (nowS < terminalHoldUntilWallS) return;
+      if (terminalHoldUntilWallS === 0.0) {
+        const endFrame = activeSegmentEndFrame();
+        if (endFrame && isTerminalFrame(endFrame)) {
+          terminalHoldUntilWallS = nowS + TERMINAL_HOLD_WALL_S;
+        } else {
+          playbackSegmentStartIdx = pendingNextSegmentStartIdx;
+          pendingNextSegmentStartIdx = null;
+          playbackSimTime = null;
+          lastDrawWallTimeS = nowS;
+          lastCarriedOverlay = null;
+        }
+        return;
+      }
+      playbackSegmentStartIdx = pendingNextSegmentStartIdx;
+      pendingNextSegmentStartIdx = null;
+      playbackSimTime = null;
+      terminalHoldUntilWallS = 0.0;
+      lastDrawWallTimeS = nowS;
+      lastCarriedOverlay = null;
+    }
+
+    function syncLivePlaybackTime(nowS) {
+      maybeAdvanceEpisodeSegment(nowS);
+      const segment = getActiveSegmentFrames();
+      if (segment.length === 0) return;
+      if (!isFollowLatestMode() && nowS < terminalHoldUntilWallS) return;
+
+      const oldestT = Number(segment[0].simulation_time);
+      const segmentEndT = Number(
+        activeSegmentEndSimTime() ?? segment[segment.length - 1].simulation_time
+      );
+      const targetDelay = getTargetBufferDelayS();
+
+      // Same-PC / pygame parity: always track the live edge (tiny delay only so rAF can
+      // interpolate between the last two snapshots). No multi-second PLL creep/freeze.
+      if (isFollowLatestMode()) {
+        playbackSimTime = Math.max(oldestT, segmentEndT - targetDelay);
+        lastDrawWallTimeS = nowS;
+        return;
+      }
+
+      if (playbackSimTime === null) {
+        playbackSimTime = segmentEndT - targetDelay;
+        if (playbackSimTime < oldestT) playbackSimTime = oldestT;
+        lastDrawWallTimeS = nowS;
+        return;
+      }
+      const dtWall = Math.max(0.0, Math.min(0.05, nowS - (lastDrawWallTimeS ?? nowS)));
+      lastDrawWallTimeS = nowS;
+      const currentHorizon = segmentEndT - playbackSimTime;
+      const horizonError = currentHorizon - targetDelay;
+      const correction = Math.max(-0.06, Math.min(0.06, 0.03 * horizonError));
+      const playbackRate = Math.max(0.35, simTimeRate * (1.0 + correction));
+      const minDelay = getMinBufferDelayS();
+      if (currentHorizon > minDelay) {
+        playbackSimTime += dtWall * playbackRate;
+      } else if (currentHorizon > 0.01) {
+        playbackSimTime += dtWall * Math.min(playbackRate, Math.max(0.2, simTimeRate * 0.5));
+      } else {
+        // Starved buffer: snap to live instead of freezing the view.
+        playbackSimTime = segmentEndT;
+      }
+      playbackSimTime = Math.max(playbackSimTime, oldestT);
+      playbackSimTime = Math.min(playbackSimTime, segmentEndT);
     }
 
     function isTerminalFrame(frame) {
@@ -2314,12 +2638,11 @@
       if (!prevFrame || !nextFrame) return false;
       const prevT = Number(prevFrame.simulation_time);
       const nextT = Number(nextFrame.simulation_time);
+      // Episode restart rewinds the sim clock.
       if (Number.isFinite(prevT) && Number.isFinite(nextT) && nextT + 0.25 < prevT) {
         return true;
       }
-      if (isTerminalFrame(prevFrame)) {
-        return true;
-      }
+      // Hard teleport (respawn) without a clean time rewind.
       const prevEgo = prevFrame.poses?.[prevFrame.ego_idx || 0];
       const nextEgo = nextFrame.poses?.[nextFrame.ego_idx || 0];
       if (!prevEgo || !nextEgo) return false;
@@ -2330,56 +2653,12 @@
       return dist > 4.0;
     }
 
-    function noteLiveFrameAnchors(frame) {
-      if (!frame) return;
-      if (liveNextFrame) {
-        if (isEpisodeReset(liveNextFrame, frame)) {
-          livePrevFrame = null;
-          liveNextFrame = frame;
-          liveNextWallS = performance.now() / 1000.0;
-          return;
-        }
-        livePrevFrame = liveNextFrame;
-      }
-      liveNextFrame = frame;
-      liveNextWallS = performance.now() / 1000.0;
-    }
-
-    // Game-style live render: rAF interpolates between received samples.
-    // Hold at terminal frames (crash/done); never extrapolate past episode end.
-    function liveRenderState(nowS) {
-      if (!liveNextFrame) {
-        if (frameBuffer.length > 0) {
-          return sanitizeFramePoses(frameBuffer[frameBuffer.length - 1]);
-        }
-        return null;
-      }
-      if (!livePrevFrame) {
-        return sanitizeFramePoses(liveNextFrame);
-      }
-      const prevT = Number(livePrevFrame.simulation_time);
-      const nextT = Number(liveNextFrame.simulation_time);
-      const simDt = Math.max(1e-6, nextT - prevT);
-      const wallFrameDt = Math.max(0.008, simDt / Math.max(0.05, simTimeRate));
-      const elapsed = Math.max(0.0, nowS - liveNextWallS);
-      const t = elapsed / wallFrameDt;
-      if (t <= 1.0) {
-        return interpolateState(livePrevFrame, liveNextFrame, t);
-      }
-      if (isTerminalFrame(liveNextFrame)) {
-        return sanitizeFramePoses(liveNextFrame);
-      }
-      const extraSim = Math.min(LIVE_EXTRAPOLATE_MAX_S, (t - 1.0) * simDt);
-      return extrapolateState(livePrevFrame, liveNextFrame, nextT + extraSim);
-    }
-
     function appendLiveFrames(samples) {
       if (!Array.isArray(samples) || samples.length === 0) return;
       const sorted = [...samples].sort((a, b) => Number(a.frame_id) - Number(b.frame_id));
-      let appended = 0;
       for (const raw of sorted) {
         if (!raw || !Number.isFinite(raw.simulation_time) || !Number.isFinite(raw.frame_id)) continue;
-        const s = sanitizeFramePoses(raw);
+        const s = mergeCarriedOverlay(sanitizeFramePoses(raw));
         const fid = Number(s.frame_id);
         const t = Number(s.simulation_time);
         if (frameBuffer.length > 0) {
@@ -2387,51 +2666,65 @@
           const lastFid = Number(last.frame_id);
           if (fid <= lastFid) continue;
           if (t + 1e-9 < Number(last.simulation_time) && !isEpisodeReset(last, s)) continue;
+          if (isEpisodeReset(last, s)) {
+            if (isFollowLatestMode()) {
+              // Drop the finished episode and follow the new one immediately (pygame-like).
+              frameBuffer = [];
+              playbackSegmentStartIdx = 0;
+              pendingNextSegmentStartIdx = null;
+              terminalHoldUntilWallS = 0.0;
+              playbackSimTime = null;
+              lastCarriedOverlay = null;
+            } else {
+              pendingNextSegmentStartIdx = frameBuffer.length;
+              lastCarriedOverlay = null;
+            }
+          }
         }
         frameBuffer.push(s);
-        noteLiveFrameAnchors(s);
-        appended += 1;
       }
       const cutoff = Number(latestSimulationTime || 0.0) - getLiveBufferWindowS();
-      while (frameBuffer.length > 0 && frameBuffer[0].simulation_time < cutoff) {
+      // Avoid trimming across a rewound episode clock using a naive cutoff when the
+      // live edge is near 0 after reset; keep a frame-count floor instead.
+      if (Number.isFinite(cutoff) && cutoff > 0) {
+        trimFrameBufferFront(cutoff);
+      }
+      const maxFrames = Math.max(40, Math.ceil((nominalControlHz || 25) * getLiveBufferWindowS() * 2));
+      while (frameBuffer.length > maxFrames) {
         frameBuffer.shift();
+        playbackSegmentStartIdx = Math.max(0, playbackSegmentStartIdx - 1);
+        if (pendingNextSegmentStartIdx !== null) {
+          pendingNextSegmentStartIdx = Math.max(
+            playbackSegmentStartIdx,
+            pendingNextSegmentStartIdx - 1
+          );
+        }
       }
       latest = frameBuffer.length > 0 ? frameBuffer[frameBuffer.length - 1] : null;
-      if (appended === 0 && !liveNextFrame && frameBuffer.length > 0) {
-        syncLiveRenderAnchorsFromBuffer();
-      }
     }
 
     function stateFromLiveBuffer(target) {
-      if (frameBuffer.length === 0) return null;
-      if (frameBuffer.length === 1) return sanitizeFramePoses(frameBuffer[0]);
-      const oldestT = frameBuffer[0].simulation_time;
-      const newestT = frameBuffer[frameBuffer.length - 1].simulation_time;
+      const segment = getActiveSegmentFrames();
+      if (segment.length === 0) return null;
+      if (segment.length === 1) return sanitizeFramePoses(segment[0]);
+      const segmentEndT = activeSegmentEndSimTime() ?? segment[segment.length - 1].simulation_time;
       const clampedTarget = Math.max(
-        oldestT,
-        Math.min(target, newestT + LIVE_EXTRAPOLATE_MAX_S)
+        segment[0].simulation_time,
+        Math.min(target, segmentEndT)
       );
-      if (clampedTarget <= oldestT) {
-        return sanitizeFramePoses(frameBuffer[0]);
+      if (clampedTarget <= segment[0].simulation_time) {
+        return sanitizeFramePoses(segment[0]);
       }
-      for (let i = 1; i < frameBuffer.length; i++) {
-        const a = frameBuffer[i - 1];
-        const b = frameBuffer[i];
+      for (let i = 1; i < segment.length; i++) {
+        const a = segment[i - 1];
+        const b = segment[i];
         if (clampedTarget <= b.simulation_time) {
           const dt = Math.max(1e-6, b.simulation_time - a.simulation_time);
           const t = Math.max(0.0, Math.min(1.0, (clampedTarget - a.simulation_time) / dt));
           return interpolateState(a, b, t);
         }
       }
-      const last = frameBuffer[frameBuffer.length - 1];
-      const prev = frameBuffer.length > 1 ? frameBuffer[frameBuffer.length - 2] : null;
-      if (clampedTarget > newestT) {
-        if (isTerminalFrame(last)) {
-          return sanitizeFramePoses(last);
-        }
-        return extrapolateState(prev, last, clampedTarget);
-      }
-      return sanitizeFramePoses(last);
+      return sanitizeFramePoses(segment[segment.length - 1]);
     }
 
     function simTimeFromSliderValue(sliderValue) {
@@ -2603,7 +2896,7 @@
       manualPlaybackPlaying = false;
       replayScrubbing = false;
       playbackSimTime = null;
-      resetLiveRenderAnchors();
+      resetLiveSegmentState();
       lastFrameId = 0;
       browserHistoryLastFrameId = 0;
       frameBuffer = [];
@@ -2669,21 +2962,22 @@
         return stateFromLiveBuffer(playbackSimTime);
       }
 
-      if (!liveNextFrame && frameBuffer.length === 0) return null;
-      return liveRenderState(nowS);
+      if (frameBuffer.length === 0) return null;
+      syncLivePlaybackTime(nowS);
+      return stateFromLiveBuffer(playbackSimTime);
     }
 
     function drawPoints(points, color, radius, cx, cy) {
       if (!Array.isArray(points) || points.length === 0) return;
-      const path = new Path2D();
+      ctx.fillStyle = color;
+      const size = Math.max(1.5, radius * 2);
+      const half = size * 0.5;
+      // Rect fills are much cheaper than Path2D arcs for dense lidar/MPC clouds.
       for (const p of points) {
         if (!Array.isArray(p) || p.length < 2) continue;
         const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
-        path.moveTo(sx + radius, sy);
-        path.arc(sx, sy, radius, 0, Math.PI * 2);
+        ctx.fillRect(sx - half, sy - half, size, size);
       }
-      ctx.fillStyle = color;
-      ctx.fill(path);
     }
 
     function drawSinglePoint(pointList, color, radius, cx, cy) {
@@ -2793,6 +3087,15 @@
       replayArchivePreloaded = Boolean(cfg.replay_archive_preloaded);
     }
 
+    function applyOverlayUiConfig(cfg) {
+      if (typeof cfg.draw_polynomial_raceline === "boolean") {
+        showPolynomialRaceline = cfg.draw_polynomial_raceline;
+        if (togglePolynomialRacelineEl) {
+          togglePolynomialRacelineEl.checked = showPolynomialRaceline;
+        }
+      }
+    }
+
     async function loadUiConfig() {
       try {
         const r = await fetch("/ui-config", { cache: "no-store" });
@@ -2800,9 +3103,14 @@
         const cfg = await r.json();
         metricsUiConfig = cfg;
         applySimTimingFromUiConfig(cfg);
+        applyOverlayUiConfig(cfg);
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
         applyReplayUiConfig(cfg);
+        if (typeof cfg.camera_auto_follow === "boolean") {
+          cameraFollowEgo = cfg.camera_auto_follow;
+          updateFollowButton();
+        }
         if (replayRecordingEnabled) {
           const loaded = await fetchReplayArchive();
           if (!loaded && Number.isFinite(cfg.replay_total_time) && cfg.replay_total_time > 0) {
@@ -2821,6 +3129,7 @@
         const r = await fetch("/map");
         mapMeta = await r.json();
         mapImg = new Image();
+        mapImg.onload = () => invalidateStaticLayerBake();
         mapImg.src = "/map-image";
       } catch (e) {
         console.error(e);
@@ -2831,6 +3140,7 @@
       try {
         const r = await fetch("/overlay-static");
         staticOverlay = await r.json();
+        invalidateStaticLayerBake();
       } catch (e) {
         // Keep last static overlay on errors.
       }
@@ -2953,6 +3263,11 @@
       experimentArchive = [];
       experimentArchiveByFrameId = new Map();
       latest = null;
+      lastCarriedOverlay = null;
+      lastFrameArrivalWallS = null;
+      arrivalJitterEmaS = 0.04;
+      adaptiveLiveDelayS = liveTargetDelayS;
+      liveMinBufferDelayS = Math.max(0.4, Math.min(adaptiveLiveDelayS - 0.35, adaptiveLiveDelayS * 0.65));
       latestSimulationTime = 0.0;
       latestSimAtPoll = 0.0;
       latestPollWallTimeS = 0.0;
@@ -2967,7 +3282,7 @@
       lastIngestedPlotFrameId = 0;
       timeSeriesData = {};
       playbackSimTime = null;
-      resetLiveRenderAnchors();
+      resetLiveSegmentState();
       playbackFrameIndex = 0;
       bufferPlaybackMode = "manual";
       manualPlaybackPlaying = false;
@@ -3253,9 +3568,6 @@
     }
 
     function draw() {
-      if (liveSocketConnected) {
-        flushPendingWebSocketMessage();
-      }
       const w = canvasCssW || canvas.getBoundingClientRect().width;
       const h = canvasCssH || canvas.getBoundingClientRect().height;
       ctx.clearRect(0, 0, w, h);
@@ -3274,36 +3586,15 @@
         const dyn = frame.web_overlay || {};
         const colors = static.colors || dyn.colors || {};
 
-        if (showMap && mapMeta && mapImg && mapImg.complete) {
-          const mapWm = mapMeta.width * mapMeta.resolution;
-          const mapHm = mapMeta.height * mapMeta.resolution;
-          const [sx, syTop] = worldToScreen(mapMeta.origin[0], mapMeta.origin[1] + mapHm, cx, cy);
-          const drawW = mapWm * zoom;
-          const drawH = mapHm * zoom;
-          ctx.globalAlpha = 0.85;
-          ctx.drawImage(mapImg, sx, syTop, drawW, drawH);
-          ctx.globalAlpha = 1.0;
-        }
+        drawStaticLayerBake(cx, cy, static);
 
-        // Static overlays (from /overlay-static)
-        const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
-        drawPoints(globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, cx, cy);
-        drawPoints(static.waypoints_alternative, "rgb(170,170,170)", 1.5, cx, cy);
         // Dynamic overlays (per-frame from WebSocket)
         drawPoints(dyn.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
         drawPoints(dyn.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
-        drawPoints(dyn.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
-        if (showTrackBorders) {
-          const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
-          const borderLines = dyn.track_border_lines || static.track_border_lines;
-          if (Array.isArray(borderLines) && borderLines.length > 0) {
-            for (const borderLine of borderLines) {
-              drawLine(borderLine, borderColor, 1.6, cx, cy);
-            }
-          } else {
-            drawPoints(static.track_border_points, borderColor, 1.8, cx, cy);
-          }
+        if (showPolynomialRaceline) {
+          drawLine(dyn.next_waypoints_polynomial, rgb(colors.next_waypoints_polynomial, "rgb(255,200,0)"), 4.5, cx, cy);
         }
+        drawPoints(dyn.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
         drawPoints(dyn.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
         drawVirtualOpponents(
           dyn.virtual_opponents,
@@ -3470,7 +3761,7 @@
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? ZOOM_FACTOR : (1.0 / ZOOM_FACTOR);
-      zoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+      applyZoomAtScreen(factor, e.offsetX, e.offsetY);
     }, { passive: false });
     canvas.addEventListener("dblclick", (e) => {
       e.preventDefault();
@@ -3597,13 +3888,20 @@
     }
     toggleMapEl.addEventListener("change", () => {
       showMap = !!toggleMapEl.checked;
+      invalidateStaticLayerBake();
     });
     toggleHistoryEl.addEventListener("change", () => {
       showPositionHistory = !!toggleHistoryEl.checked;
     });
     toggleTrackBordersEl.addEventListener("change", () => {
       showTrackBorders = !!toggleTrackBordersEl.checked;
+      invalidateStaticLayerBake();
     });
+    if (togglePolynomialRacelineEl) {
+      togglePolynomialRacelineEl.addEventListener("change", () => {
+        showPolynomialRaceline = !!togglePolynomialRacelineEl.checked;
+      });
+    }
     toggleCarInfoEl.addEventListener("change", () => {
       showCarStateInfo = !!toggleCarInfoEl.checked;
     });
@@ -3707,7 +4005,6 @@
         const payload = await r.json();
         const history = Array.isArray(payload.history) ? payload.history : [];
         await processStatePollPayload(payload, history);
-        syncLiveRenderAnchorsFromBuffer();
       } catch (e) {
         // Live polling will fill the buffer if prefetch fails.
       }

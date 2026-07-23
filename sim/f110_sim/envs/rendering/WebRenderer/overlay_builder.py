@@ -101,6 +101,7 @@ def build_web_overlay(drivers):
         "waypoints": _to_xy_points(render_utils.waypoints),
         "waypoints_alternative": _to_xy_points(render_utils.waypoints_alternative),
         "next_waypoints": _to_xy_points(render_utils.next_waypoints),
+        "next_waypoints_polynomial": _to_xy_points(render_utils.next_waypoints_polynomial),
         "next_waypoints_alternative": _to_xy_points(render_utils.next_waypoints_alternative),
         "lidar_border_points": _to_xy_points(render_utils.lidar_border_points),
         "track_border_points": _to_xy_points(render_utils.track_border_points),
@@ -121,6 +122,7 @@ def build_web_overlay(drivers):
         "colors": {
             "waypoints": list(render_utils.waypoint_visualization_color),
             "next_waypoints": list(render_utils.next_waypoint_visualization_color),
+            "next_waypoints_polynomial": list(render_utils.next_waypoints_polynomial_visualization_color),
             "next_waypoints_alternative": list(render_utils.next_waypoints_alternative_visualization_color),
             "lidar": list(render_utils.lidar_visualization_color),
             "gap": list(render_utils.gap_visualization_color),

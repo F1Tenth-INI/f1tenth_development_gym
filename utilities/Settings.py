@@ -221,6 +221,16 @@ class Settings():
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
     WEB_RENDER_PORT = 8765               # base TCP port for actor 0; actor N uses WEB_RENDER_PORT + N
     WEB_RENDER_AUTO_OPEN = True          # open a browser tab per sim on startup (one tab per renderer)
+    WEB_RENDER_DRAW_POLYNOMIAL = False    # show fitted local raceline polynomial in the web renderer
+    # Live display delay in *simulation* seconds. Same-PC pygame parity ≈ 1 control step (~0.04–0.08).
+    # Raise (e.g. 1.5–2.5) only for remote/VPN viewing where you prefer smoothness over lag.
+    WEB_RENDER_LIVE_DELAY_S = 0.06
+    WEB_RENDER_BUFFER_WINDOW_S = 1.5
+    # Dense overlays each frame (0 = every published pose). Lower only if remote bandwidth is tight.
+    WEB_RENDER_OVERLAY_HZ = 0.0
+    WEB_RENDER_LIDAR_POINTS = 220
+    WEB_RENDER_MAX_ROLLOUTS = 6
+    WEB_RENDER_MAX_ROLLOUT_POINTS = 24
     PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
 
     CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
