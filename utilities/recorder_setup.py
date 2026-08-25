@@ -18,6 +18,23 @@ def _cbf_recorder_fields(car_system: "CarSystem") -> dict[str, Any]:
         "cbf_h_left": lambda: float((car_system.cbf_info or {}).get("h_left", float("inf"))),
         "cbf_h_right": lambda: float((car_system.cbf_info or {}).get("h_right", float("inf"))),
         "cbf_h_speed": lambda: float((car_system.cbf_info or {}).get("h_speed", float("inf"))),
+        "cbf_h_heading_upper": lambda: float(
+            (car_system.cbf_info or {}).get("h_heading_upper", float("inf"))
+        ),
+        "cbf_h_heading_lower": lambda: float(
+            (car_system.cbf_info or {}).get("h_heading_lower", float("inf"))
+        ),
+        "cbf_h_raceline_left": lambda: float(
+            (car_system.cbf_info or {}).get("h_raceline_left", float("inf"))
+        ),
+        "cbf_h_raceline_right": lambda: float(
+            (car_system.cbf_info or {}).get("h_raceline_right", float("inf"))
+        ),
+        "cbf_d_poly": lambda: float((car_system.cbf_info or {}).get("d_poly", float("nan"))),
+        "cbf_poly_ok": lambda: float((car_system.cbf_info or {}).get("poly_ok", False)),
+        "cbf_heading_error": lambda: float(
+            (car_system.cbf_info or {}).get("heading_error", float("nan"))
+        ),
         "cbf_kappa_ahead": lambda: float((car_system.cbf_info or {}).get("kappa_ahead", float("nan"))),
         "cbf_delta_nom": lambda: float((car_system.cbf_info or {}).get("delta_nom", float("nan"))),
         "cbf_delta_safe": lambda: float((car_system.cbf_info or {}).get("delta_safe", float("nan"))),
@@ -27,6 +44,40 @@ def _cbf_recorder_fields(car_system: "CarSystem") -> dict[str, Any]:
         "cbf_accel_safe": lambda: float((car_system.cbf_info or {}).get("accel_safe", float("nan"))),
         "cbf_accel_correction": lambda: float((car_system.cbf_info or {}).get("accel_safe", float("nan")))
         - float((car_system.cbf_info or {}).get("accel_nom", float("nan"))),
+    }
+
+
+def _mpc_recorder_fields(car_system: "CarSystem") -> dict[str, Any]:
+    return {
+        "mpc_sf_active": lambda: float((car_system.mpc_info or {}).get("active", False)),
+        "mpc_sf_intervene": lambda: float((car_system.mpc_info or {}).get("intervene", False)),
+        "mpc_sf_intervention": lambda: float(
+            (car_system.mpc_info or {}).get("intervention", 0.0)
+        ),
+        "mpc_sf_recoverable_now": lambda: float(
+            (car_system.mpc_info or {}).get("recoverable_now", True)
+        ),
+        "mpc_sf_recoverable_after_nom": lambda: float(
+            (car_system.mpc_info or {}).get("recoverable_after_nom", True)
+        ),
+        "mpc_sf_certified": lambda: float(
+            (car_system.mpc_info or {}).get("certified", False)
+        ),
+        "mpc_sf_max_dev_now": lambda: float(
+            (car_system.mpc_info or {}).get("max_dev_now", float("nan"))
+        ),
+        "mpc_sf_max_dev_after_nom": lambda: float(
+            (car_system.mpc_info or {}).get("max_dev_after_nom", float("nan"))
+        ),
+        "mpc_sf_delta_nom": lambda: float(
+            (car_system.mpc_info or {}).get("delta_nom", float("nan"))
+        ),
+        "mpc_sf_delta_safe": lambda: float(
+            (car_system.mpc_info or {}).get("delta_safe", float("nan"))
+        ),
+        "mpc_sf_delta_backup": lambda: float(
+            (car_system.mpc_info or {}).get("delta_backup", float("nan"))
+        ),
     }
 
 
@@ -51,6 +102,9 @@ def init_car_recorder(
 
     if car_system.cbf_safety_filter is not None:
         car_system.recorder.dict_data_to_save_basic.update(_cbf_recorder_fields(car_system))
+
+    if getattr(car_system, "mpc_safety_filter", None) is not None:
+        car_system.recorder.dict_data_to_save_basic.update(_mpc_recorder_fields(car_system))
 
     car_system.recorder.dict_data_to_save_basic.update(recorder_dict)
 

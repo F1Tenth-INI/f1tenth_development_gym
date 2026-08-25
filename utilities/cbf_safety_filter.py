@@ -17,13 +17,15 @@ Two barriers are used (single car, no opponents):
 
 2. Heading-error barrier (relative degree 1 w.r.t. steering).
    Uses the Frenet heading error ``e`` (car yaw minus raceline tangent). Keeps
-   ``|e| <= CBF_MAX_HEADING_ERROR`` so the car stays aligned with the raceline.
+   ``|e| <= MAX_HEADING_ERROR`` so the car stays aligned with the raceline.
 
 3. Friction-circle / speed barrier (relative degree 1 w.r.t. acceleration).
    Keeps the demanded lateral acceleration ``v^2 * kappa_eff`` below
-   ``CBF_GRIP_FACTOR * CBF_SPEED_MARGIN * mu * g``. Upcoming curvature is a
+   ``GRIP_FACTOR * SPEED_MARGIN * mu * g``. Upcoming curvature is a
    discount-weighted average over the look-ahead window (near waypoints weigh
    more than far ones); see :func:`discounted_kappa_ahead`.
+
+Enable via ``Settings.CBF_SAFETY_FILTER``; edit tunables below.
 
 Model
 -----
@@ -68,6 +70,25 @@ try:
     _HAS_QUADPROG = True
 except Exception:  # pragma: no cover - solver missing -> filter becomes a pass-through
     _HAS_QUADPROG = False
+
+# ---------------------------------------------------------------------------
+# Tunables (Settings only exposes CBF_SAFETY_FILTER as the master switch)
+# ---------------------------------------------------------------------------
+BOUNDARY_MARGIN = 0.20  # [m] shrink corridor by this (>= half car width)
+ALPHA_1 = 2.5  # HOCBF class-K gain 1 (boundary), [1/s]
+ALPHA_2 = 2.5  # HOCBF class-K gain 2 (boundary), [1/s]
+ALPHA_V = 2.0  # Speed CBF class-K gain, [1/s]
+GRIP_FACTOR = 0.6  # Physical fraction of mu*g usable as lateral accel (<= 1)
+SPEED_MARGIN = 1.0  # Extra headroom on a_lat_max for tuning (1.0 = no extra)
+KAPPA_DISCOUNT = 0.975  # Per-waypoint decay for discount-weighted kappa (0, 1]
+KAPPA_MAX_STEPS = 0  # If > 0, only first N look-ahead wps for kappa; 0 = all
+ENABLE_SPEED_BARRIER = True  # Add the friction-circle/speed barrier (accel channel)
+ENABLE_HEADING_BARRIER = True  # Keep |heading error on raceline| below MAX_HEADING_ERROR
+MAX_HEADING_ERROR = 0.35  # [rad] max |e| w.r.t. raceline tangent (~20 deg)
+ALPHA_E = 2.5  # Heading-error CBF class-K gain, [1/s]
+WEIGHT_STEERING = 1.0  # Relative cost of deviating steering from nominal
+WEIGHT_ACCEL = 10.0  # Relative cost of deviating acceleration from nominal
+SLACK_PENALTY = 1.0e4  # Soft-constraint penalty (keeps the QP always feasible)
 
 
 def discounted_kappa_ahead(
@@ -144,33 +165,29 @@ class CBFSafetyFilter:
         self.mu = float(mu)
         self.g = float(g)
 
-        # Tunables (Settings override defaults so experiments stay reproducible).
-        self.margin = _cfg(margin, "CBF_BOUNDARY_MARGIN", 0.20)
-        self.alpha_1 = _cfg(alpha_1, "CBF_ALPHA_1", 2.5)
-        self.alpha_2 = _cfg(alpha_2, "CBF_ALPHA_2", 2.5)
-        self.alpha_v = _cfg(alpha_v, "CBF_ALPHA_V", 3.0)
-        self.alpha_e = _cfg(alpha_e, "CBF_ALPHA_E", 2.5)
-        self.max_heading_error = _cfg(heading_margin, "CBF_MAX_HEADING_ERROR", 0.35)
-        self.grip_factor = _cfg(grip_factor, "CBF_GRIP_FACTOR", 0.9)
+        # Tunables: constructor kwargs override the module-level defaults above.
+        self.margin = float(_pick(margin, BOUNDARY_MARGIN))
+        self.alpha_1 = float(_pick(alpha_1, ALPHA_1))
+        self.alpha_2 = float(_pick(alpha_2, ALPHA_2))
+        self.alpha_v = float(_pick(alpha_v, ALPHA_V))
+        self.alpha_e = float(_pick(alpha_e, ALPHA_E))
+        self.max_heading_error = float(_pick(heading_margin, MAX_HEADING_ERROR))
+        self.grip_factor = float(_pick(grip_factor, GRIP_FACTOR))
         if self.grip_factor > 1.0:
             print(
-                f"[CBFSafetyFilter] CBF_GRIP_FACTOR={self.grip_factor} > 1 is non-physical; "
-                "use CBF_SPEED_MARGIN for tuning headroom instead."
+                f"[CBFSafetyFilter] GRIP_FACTOR={self.grip_factor} > 1 is non-physical; "
+                "use SPEED_MARGIN for tuning headroom instead."
             )
             self.grip_factor = min(self.grip_factor, 1.0)
-        self.speed_margin = _cfg(None, "CBF_SPEED_MARGIN", 1.0)
-        self.kappa_discount = float(getattr(Settings, "CBF_KAPPA_DISCOUNT", 0.92))
-        self.kappa_max_steps = int(getattr(Settings, "CBF_KAPPA_MAX_STEPS", 0))
-        self.slack_penalty = _cfg(slack_penalty, "CBF_SLACK_PENALTY", 1.0e4)
+        self.speed_margin = float(SPEED_MARGIN)
+        self.kappa_discount = float(KAPPA_DISCOUNT)
+        self.kappa_max_steps = int(KAPPA_MAX_STEPS)
+        self.slack_penalty = float(_pick(slack_penalty, SLACK_PENALTY))
         self.enable_speed_barrier = bool(
-            enable_speed_barrier
-            if enable_speed_barrier is not None
-            else getattr(Settings, "CBF_ENABLE_SPEED_BARRIER", True)
+            _pick(enable_speed_barrier, ENABLE_SPEED_BARRIER)
         )
         self.enable_heading_barrier = bool(
-            enable_heading_barrier
-            if enable_heading_barrier is not None
-            else getattr(Settings, "CBF_ENABLE_HEADING_BARRIER", True)
+            _pick(enable_heading_barrier, ENABLE_HEADING_BARRIER)
         )
         self.v_eps = float(v_eps)
 
@@ -184,8 +201,8 @@ class CBFSafetyFilter:
         # acceleration corrections are comparably "expensive".
         delta_range = max(self.delta_ub - self.delta_lb, 1e-3)
         accel_range = max(self.accel_ub - self.accel_lb, 1e-3)
-        self.w_steering = _cfg(weight_steering, "CBF_WEIGHT_STEERING", 1.0) / (delta_range ** 2)
-        self.w_accel = _cfg(weight_accel, "CBF_WEIGHT_ACCEL", 1.0) / (accel_range ** 2)
+        self.w_steering = float(_pick(weight_steering, WEIGHT_STEERING)) / (delta_range ** 2)
+        self.w_accel = float(_pick(weight_accel, WEIGHT_ACCEL)) / (accel_range ** 2)
 
         self._pid_speed_mode = bool(getattr(Settings, "MOTOR_PID_IN_CAR_MODEL", False))
 
@@ -469,8 +486,6 @@ class CBFSafetyFilter:
         return info
 
 
-def _cfg(explicit, settings_name: str, default):
-    """Resolve a parameter: explicit arg > Settings attribute > hard default."""
-    if explicit is not None:
-        return float(explicit)
-    return float(getattr(Settings, settings_name, default))
+def _pick(explicit, default):
+    """Resolve a parameter: explicit constructor arg, else module-level default."""
+    return default if explicit is None else explicit

@@ -8,7 +8,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "IPZ_empty"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -110,21 +110,12 @@ class Settings():
     ALLOW_ALTERNATIVE_RACELINE = False # TODO: check and automatically generate file
 
     # CBF-QP safety filter (controller-agnostic, applied in CarSystem after the planner).
-    # Keeps the car inside the track (boundary HOCBF) and below the lateral-grip limit
-    # (friction-circle speed CBF). See utilities/cbf_safety_filter.py.
-    CBF_SAFETY_FILTER = True         # Master switch for the safety filter
-    CBF_BOUNDARY_MARGIN = 0.20       # [m] shrink corridor by this (>= half car width)
-    CBF_ALPHA_1 = 2.5                # HOCBF class-K gain 1 (boundary), [1/s]
-    CBF_ALPHA_2 = 2.5                # HOCBF class-K gain 2 (boundary), [1/s]
-    CBF_ALPHA_V = 2.0                # Speed CBF class-K gain, [1/s]
-    CBF_GRIP_FACTOR = 0.6            # Physical fraction of mu*g usable as lateral accel (<= 1)
-    CBF_SPEED_MARGIN = 1.0           # Extra headroom on a_lat_max for tuning (1.0 = no extra)
-    CBF_KAPPA_DISCOUNT = 0.975        # Per-waypoint decay for discount-weighted kappa (0, 1]
-    CBF_KAPPA_MAX_STEPS = 0          # If > 0, only first N look-ahead wps for kappa; 0 = all
-    CBF_ENABLE_SPEED_BARRIER = True  # Add the friction-circle/speed barrier (accel channel)
-    CBF_WEIGHT_STEERING = 1.0        # Relative cost of deviating steering from nominal
-    CBF_WEIGHT_ACCEL = 10.0           # Relative cost of deviating acceleration from nominal
-    CBF_SLACK_PENALTY = 1.0e4        # Soft-constraint penalty (keeps the QP always feasible)
+    # Tunables live in utilities/cbf_safety_filter.py; this is only the on/off switch.
+    CBF_SAFETY_FILTER = False         # Master switch for the safety filter
+
+    # MPC predictive safety filter (Tearle et al.). Tunables live in
+    # utilities/mpc_safety_filter/; this is only the CarSystem on/off switch.
+    MPC_SAFETY_FILTER = True          # Master switch (lazy-loads Pacejka PSF)
 
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
@@ -133,6 +124,7 @@ class Settings():
     MAX_CRASH_REPETITIONS = 10000000
     
     TRUNCATE_ON_LEAVE_TRACK = True
+    LEAVE_TRACK_SLACK = 0.08  # [m] Frenet overshoot past border before truncate
     RESET_ON_DONE = True  # Reset the environment when done
     RESPAWN_ON_RESET = False  # If True, respawn to state N timesteps ago instead of complete reset
     RESPAWN_SETBACK_TIMESTEPS = 50  # Number of timesteps to go back when respawning
@@ -140,7 +132,7 @@ class Settings():
     # Experiment Settings
     NUMBER_OF_EXPERIMENTS = 1  # How many times to run the car racing experiment
     EXPERIMENT_MAX_LENGTH = 8000  # In sim timesteps: Length until the simulation is reset
-    SIMULATION_LENGTH = 2000 # In sim timesteps: Length until the simulation is terminated
+    SIMULATION_LENGTH = 8000 # In sim timesteps: Length until the simulation is terminated
     MAX_EPISODE_LENGTH = 2048 
 
 

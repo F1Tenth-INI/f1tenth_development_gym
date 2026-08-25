@@ -29,6 +29,7 @@ from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.Recorder import get_basic_data_dict
 from utilities.cbf_safety_filter import CBFSafetyFilter
+from utilities.mpc_safety_filter import MPCSafetyFilter
 from utilities.csv_logger import augment_csv_header_with_laptime
 from utilities.episode_termination import EpisodeTerminator
 from utilities.imu_utilities import IMUUtilities
@@ -58,6 +59,9 @@ from utilities.waypoint_utils import (
     WP_X_IDX,
     WP_Y_IDX,
     WaypointUtils,
+    fit_local_raceline_polynomial,
+    fit_local_raceline_polynomial_parametric,
+    transform_from_car_coordinates,
 )
 
 try:
@@ -129,6 +133,7 @@ class CarSystem:
         self.imu = IMUUtilities.zeros_dict()
         self.motor_sensors = {}
         self.cbf_info = None
+        self.mpc_info = None
         self._virtual_opponent_collision = False
 
     def _init_waypoints_and_rendering(self) -> None:
@@ -176,7 +181,13 @@ class CarSystem:
         self.cbf_safety_filter = (
             CBFSafetyFilter() if getattr(Settings, "CBF_SAFETY_FILTER", False) else None
         )
+        self.mpc_safety_filter = (
+            MPCSafetyFilter() if getattr(Settings, "MPC_SAFETY_FILTER", False) else None
+        )
+        if self.mpc_safety_filter is not None:
+            self.mpc_safety_filter.attach_render_utils(self.render_utils)
         self.tuner_connector = None
+        self.mpc_info = None
 
     def _init_planner(self, controller) -> None:
         self.controller_name = controller
@@ -238,6 +249,7 @@ class CarSystem:
 
         self.control_index = 0
         self.cbf_info = None
+        self.mpc_info = None
         self.control_history = deque(maxlen=CONTROL_HISTORY_MAXLEN)
         self.car_state_history = deque(maxlen=CAR_STATE_HISTORY_MAXLEN)
         self.lidar_utils.reset()
@@ -366,6 +378,12 @@ class CarSystem:
         controller_observation = {
             **driver_observation,
             "next_waypoints": np.asarray(self.waypoint_utils.next_waypoints, dtype=np.float32),
+            "waypoints": np.asarray(
+                self.waypoint_utils.waypoints
+                if self.waypoint_utils.waypoints is not None
+                else self.waypoint_utils.next_waypoints,
+                dtype=np.float32,
+            ),
             "state_history": np.asarray(self.car_state_history, dtype=np.float32),
             "control_history": np.asarray(self.control_history, dtype=np.float32),
             "frenet_coordinates": np.asarray(
@@ -393,6 +411,8 @@ class CarSystem:
             post_step_controller_observation, post_step_driver_observation
         )
         post_step_controller_observation["episode_termination"] = episode_termination
+        post_step_controller_observation["cbf_info"] = self.cbf_info
+        post_step_controller_observation["mpc_info"] = self.mpc_info
 
         reward_result = self.reward_calculator._calculate_reward(post_step_controller_observation)
         reward = float(reward_result["total_reward"])
@@ -428,6 +448,7 @@ class CarSystem:
             "controller_observation": pre_control_controller_observation,
             "post_step_driver_observation": post_step_driver_observation,
             "cbf_info": self.cbf_info,
+            "mpc_info": self.mpc_info,
             "episode_termination": episode_termination,
             "reward": reward,
             "done": bool(episode_termination["done"]),
@@ -482,6 +503,23 @@ class CarSystem:
             u_safe[1]
         )
 
+    def _apply_mpc_safety_filter(self) -> None:
+        """Apply Tearle et al. predictive safety filter to the current command.
+
+        Runs after the CBF filter (if any). Solves a short-horizon SLSQP backup
+        MPC that either certifies ``u_d`` or returns a minimally invasive ``u_0*``
+        ending in the configured terminal set ``S_f``.
+        """
+        if self.mpc_safety_filter is None:
+            return
+        u_safe, self.mpc_info = self.mpc_safety_filter.filter_from_observation(
+            np.array([self.angular_control, self.translational_control], dtype=np.float64),
+            self.controller_observation,
+        )
+        self.angular_control, self.translational_control = float(u_safe[0]), float(
+            u_safe[1]
+        )
+
     def process_observation(self, driver_observation):
         self._lap_finished = False
         self.env_state = driver_observation.get("env_state")
@@ -498,6 +536,7 @@ class CarSystem:
             )
             self._sync_planner_recording_dicts()
             self._apply_cbf_safety_filter()
+            self._apply_mpc_safety_filter()
         else: # Controller = None
             self.angular_control = 0.0
             self.translational_control = 0.0
@@ -706,8 +745,29 @@ class CarSystem:
         if Settings.RENDER_MODE is not None:
             self.render_utils.render(e)
 
+    def _compute_polynomial_raceline_global(
+        self,
+        relative: np.ndarray,
+    ) -> np.ndarray | None:
+        # Parametric x(t)/y(t) fit handles hairpins where y=f(x) breaks down.
+        car_frame, info = fit_local_raceline_polynomial_parametric(relative)
+        if car_frame is None or not info.get("ok"):
+            return None
+        return transform_from_car_coordinates(car_frame, self.car_state).astype(np.float32)
+
     def update_render_utils(self):
         car_state = self.car_state
+        relative = self.waypoint_utils.next_waypoint_positions_relative
+        _, poly_fit_info = fit_local_raceline_polynomial(relative)
+        poly_info = {}
+        if poly_fit_info.get("ok"):
+            poly_info = {
+                "poly d_lat": poly_fit_info["d_lat"],
+                "poly e": poly_fit_info["e"],
+                "poly kappa": poly_fit_info["kappa"],
+            }
+        polynomial_raceline = self._compute_polynomial_raceline_global(relative)
+
         label_dict = {
             "0: angular_control": self.angular_control,
             "1: translational_control": self.translational_control,
@@ -718,6 +778,7 @@ class CarSystem:
             "Distance to raceline": self.waypoint_utils.current_distance_to_raceline,
             "speed": car_state[LINEAR_VEL_X_IDX],
             "Wp_idx": self.waypoint_utils.nearest_waypoint_index,
+            **poly_info,
         }
         label_dict.update(IMUUtilities.overlay_label_dict(self.imu))
         for name, value in (self.reward_components or {}).items():
@@ -731,6 +792,7 @@ class CarSystem:
         self.render_utils.update(
             lidar_points=self.lidar_utils.processed_points_map_coordinates,
             next_waypoints=self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
+            next_waypoints_polynomial=polynomial_raceline,
             next_waypoints_alternative=(
                 self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)]
                 if self.waypoint_utils_alternative is not None

@@ -36,15 +36,26 @@ This preserves RPGD's planning capability while maintaining smooth gradients.
 """
 # MODEL_TYPE = 'residual'  # Use residual model for dynamics
 MODEL_TYPE = 'pacejka'  # Use pacejka model for dynamics
-class RPGDPlanner(template_planner):
+
+
+class RPGDJaxSafetyFilter(template_planner):
+    """Full-horizon RPGD safety-filter prototype.
+
+    Unlike the racing planner, this optimizer has no waypoint-progress or
+    target-speed tracking objective.  It only enforces track clearance along
+    the horizon, treats waypoint speed as an upper bound, and prefers a
+    stopped (or slow) terminal state — not raceline alignment.
+    """
 
     def __init__(
         self,
-        horizon: int | int = 40,
-        batch_size: int | int = 8,
-        gradient_steps: int | int = 10,
-        elite_size: int | int = 4,
-        control_smoothing_alpha: float | float = 1.0,
+        horizon: int | None = None,
+        batch_size: int | None = None,
+        gradient_steps: int | None = None,
+        elite_size: int | None = None,
+        control_smoothing_alpha: float | None = None,
+        safety_margin: float = 0.30,
+        w_u: float = 100.0,
         quiet: bool = False,
     ):
         """JAX RPGD planner.
@@ -91,6 +102,8 @@ class RPGDPlanner(template_planner):
         self.imu_data = None
         self.car_state_history = []
         self.quiet = bool(quiet)
+        self.safety_margin = float(safety_margin)
+        self.w_u = float(w_u)
         
         # History for residual model (HISTORY_LENGTH = 10)
         HISTORY_LENGTH = 10
@@ -110,7 +123,8 @@ class RPGDPlanner(template_planner):
         
         # RPGD specific parameters 
         self.elite_size = int(elite_size) if elite_size is not None else min(4, self.batch_size)
-        self.elite_size = min(self.elite_size, self.batch_size)
+        # Keep at least one fresh (non-elite) sample so resampling never has size 0.
+        self.elite_size = min(self.elite_size, max(1, self.batch_size - 1))
         self.gradient_steps = int(gradient_steps) if gradient_steps is not None else 10
         self.resampling_freq = 5 
         
@@ -127,7 +141,7 @@ class RPGDPlanner(template_planner):
         
         # Control output smoothing (low pass filter). Safety filter uses 1.0 (no lag).
         self.control_smoothing_alpha = (
-            float(control_smoothing_alpha) if control_smoothing_alpha is not None else 1.0
+            float(control_smoothing_alpha) if control_smoothing_alpha is not None else 0.5
         )
         self.last_executed_angular = 0.0
         self.last_executed_translational = 0.0
@@ -141,7 +155,9 @@ class RPGDPlanner(template_planner):
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.last_Q_sq[:, 0] = 0.0  # Straight steering (0 steering angle)
         self.last_Q_sq[:, 1] = 1.0  # Acceleration (1 m/s²)
-        self.car_params_array = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE).to_np_array().astype(np.float32)
+        vehicle = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+        self.car_params_array = vehicle.to_np_array().astype(np.float32)
+        self.vehicle_width = float(vehicle.width)
 
         # RPGD state: maintain elite plans and their costs
         self.elite_plans = None
@@ -175,7 +191,11 @@ class RPGDPlanner(template_planner):
         """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
         dummy_state = jnp.zeros(10, dtype=jnp.float32)
-        dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
+        # Safety cost needs x/y/psi/vx and left/right border distances.
+        dummy_waypoints = jnp.zeros((100, 10), dtype=jnp.float32)
+        dummy_waypoints = dummy_waypoints.at[:, WP_D_RIGHT_IDX].set(1.0)
+        dummy_waypoints = dummy_waypoints.at[:, WP_D_LEFT_IDX].set(1.0)
+        dummy_nominal = jnp.zeros(2, dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
         
         if not self.quiet:
@@ -195,6 +215,10 @@ class RPGDPlanner(template_planner):
         _ = rpgd_process_observation_jax(
             dummy_state, dummy_Q_batch, self.batch_size, self.horizon,
             self.car_params_jax, dummy_waypoints, dummy_key, dummy_dt,
+            nominal_control=dummy_nominal,
+            safety_margin=self.safety_margin,
+            vehicle_width=self.vehicle_width,
+            w_u=self.w_u,
             execute_control_index=4,
             intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
             angular_smoothness_weight=self.angular_smoothness_weight,
@@ -211,22 +235,26 @@ class RPGDPlanner(template_planner):
         with jax.default_device(self.default_device):
             s = jnp.array(self.get_car_state(controller_observation), dtype=jnp.float32)
             waypoints = jnp.array(controller_observation["next_waypoints"], dtype=jnp.float32)
+            nominal_control = jnp.asarray(
+                controller_observation.get("nominal_control", (0.0, 0.0)),
+                dtype=jnp.float32,
+            )
 
-            # imu_x = controller_observation["sensors"]["imu"]["imu_a_x"]
-            # imu_y = controller_observation["sensors"]["imu"]["imu_a_y"]
-            # print(f"IMU X: {imu_x}", flush=True)
-            # print(f"IMU Y: {imu_y}", flush=True)
             self.key, subkey = jax.random.split(self.key)
             
             # RPGD Step 1: Sample/maintain population of full control sequences (no interpolation)
             if self.elite_plans is None or self.iteration_count % self.resampling_freq == 0:
-                # Initialize or resample full control sequences
-                Q_batch_sequence = self._initialize_or_resample_full_sequences(subkey, s, waypoints)
+                # Safety-filter population is centred on the desired command.
+                Q_batch_sequence = self._initialize_or_resample_safety_sequences(
+                    subkey, nominal_control
+                )
                 # Reset Adam states when resampling
                 self._reset_adam_states_for_resampling()
             else:
                 # Use existing elite plans + time shift (work with full sequences)
-                Q_batch_sequence = self._time_shift_and_expand_elite_sequences(subkey)
+                Q_batch_sequence = self._time_shift_and_expand_elite_sequences(
+                    subkey, nominal_control
+                )
                 # Update Adam states for time shifting
                 self._update_adam_states_for_time_shift()
             
@@ -234,6 +262,10 @@ class RPGDPlanner(template_planner):
             Q_batch_sequence, total_cost_batch, Q_final_unused, adam_m_new, adam_v_new, adam_step_new = rpgd_process_observation_jax(
                 s, Q_batch_sequence, self.batch_size, self.horizon,
                 self.car_params_jax, waypoints, subkey, self.dt,
+                nominal_control=nominal_control,
+                safety_margin=self.safety_margin,
+                vehicle_width=self.vehicle_width,
+                w_u=self.w_u,
                 execute_control_index=int(Settings.CONTROL_DELAY / self.dt),
                 intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
                 angular_smoothness_weight=self.angular_smoothness_weight,
@@ -272,9 +304,24 @@ class RPGDPlanner(template_planner):
                 s_single, Q_single, self.car_params_jax, self.dt, self.horizon, model_type=MODEL_TYPE, state_history=self.state_history, control_history=self.control_history
             ))
             state_batch_sequence = batch_rollout_fn(jnp.repeat(s[None, :], self.batch_size, axis=0), Q_batch_sequence)
+            min_clearance_batch = jax.vmap(
+                lambda traj: jnp.min(
+                    jax.vmap(
+                        lambda state: track_clearance_jax(
+                            state,
+                            waypoints,
+                            self.car_params_jax[1],
+                            self.vehicle_width,
+                            self.safety_margin,
+                        )
+                    )(traj)
+                )
+            )(state_batch_sequence)
 
             # Move results back to CPU for rendering (if needed)
             self.rollout_trajectories = np.array(state_batch_sequence)
+            self.candidate_control_sequences = np.array(Q_batch_sequence)
+            self.candidate_min_clearances = np.array(min_clearance_batch)
             self.trajectory_costs = np.array(total_cost_batch)
             
             self.optimal_trajectory = np.array(optimal_traj)
@@ -383,8 +430,33 @@ class RPGDPlanner(template_planner):
             new_sequences = self._sample_full_sequences(key1, num_new, None)
             Q_batch_sequence = jnp.concatenate([self.elite_plans, new_sequences], axis=0)
         return Q_batch_sequence
+
+    def _sample_safety_sequences(self, key, batch_size, nominal_control):
+        """Sample smooth plans around u_d; candidate zero is exactly u_d."""
+        nominal = jnp.asarray(nominal_control, dtype=jnp.float32)
+        if int(batch_size) <= 0:
+            return jnp.zeros((0, self.horizon, 2), dtype=jnp.float32)
+        base = jnp.tile(nominal[None, None, :], (batch_size, self.horizon, 1))
+        noise = jax.random.normal(key, base.shape) * jnp.array([0.06, 0.8])
+        sequences = jnp.clip(
+            base + noise,
+            jnp.array([-0.4, -10.0]),
+            jnp.array([0.4, 10.0]),
+        )
+        return sequences.at[0].set(base[0])
+
+    def _initialize_or_resample_safety_sequences(self, key, nominal_control):
+        if self.elite_plans is None:
+            return self._sample_safety_sequences(
+                key, self.batch_size, nominal_control
+            )
+        num_new = self.batch_size - self.elite_size
+        new_sequences = self._sample_safety_sequences(
+            key, num_new, nominal_control
+        )
+        return jnp.concatenate([self.elite_plans, new_sequences], axis=0)
     
-    def _time_shift_and_expand_elite_sequences(self, key):
+    def _time_shift_and_expand_elite_sequences(self, key, nominal_control=None):
         """Time shift elite sequences and expand with new random ones """
         # Time shift elite plans (shift by 3 steps as in config)
         shift_steps = 2  # Why 2 ? 2 works best. Discuss
@@ -399,7 +471,12 @@ class RPGDPlanner(template_planner):
         
         # Add new random sequences
         num_new = self.batch_size - self.elite_size
-        new_sequences = self._sample_full_sequences(key2, num_new, None)
+        if nominal_control is None:
+            new_sequences = self._sample_full_sequences(key2, num_new, None)
+        else:
+            new_sequences = self._sample_safety_sequences(
+                key2, num_new, nominal_control
+            )
         
         return jnp.concatenate([shifted_elite, new_sequences], axis=0)
     
@@ -557,32 +634,120 @@ def compute_waypoint_distance_jax(state, waypoints):
     min_idx = jnp.argmin(dist_sq)
     return min_dist_sq, min_idx
 
-@jax.jit
-def cost_function_jax(state, control, waypoints, lr):
-    waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 0.1
-    translational_control_cost = jnp.abs(control[1]) * 0.0
-    waypoint_cost = waypoint_dist_sq * 20.0
-    target_speed = waypoints[min_idx, 5]
-    speed_cost = 0.5 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    v_x_safe = jnp.maximum(state[LINEAR_VEL_X_IDX], 0.1)
-    v_y_rear = state[LINEAR_VEL_Y_IDX] - state[ANGULAR_VEL_Z_IDX] * lr
-    slip_cost = 0.05 * (v_y_rear / v_x_safe) ** 2
-    # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 0.0  # Heavy penalty for large steering angles
-    # translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
-    translational_quadratic_penalty = 0
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost
 
 @jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
+def track_clearance_jax(
+    state,
+    waypoints,
+    lf,
+    vehicle_width,
+    safety_margin,
+):
+    """Minimum front-corner clearance using nearest-segment track projection."""
+    x = state[POSE_X_IDX]
+    y = state[POSE_Y_IDX]
+    p0 = waypoints[:-1, (WP_X_IDX, WP_Y_IDX)]
+    p1 = waypoints[1:, (WP_X_IDX, WP_Y_IDX)]
+    v = p1 - p0
+    seg_len2 = jnp.sum(v * v, axis=1) + 1e-12
+    pt = jnp.array([x, y], dtype=jnp.float32)
+    w = pt[None, :] - p0
+    t = jnp.sum(w * v, axis=1) / seg_len2
+    t = jnp.clip(t, 0.0, 1.0)
+    proj = p0 + t[:, None] * v
+    diff = pt[None, :] - proj
+    dist2 = jnp.sum(diff * diff, axis=1)
+    seg_idx = jnp.argmin(dist2)
+
+    t_best = t[seg_idx]
+    closest = proj[seg_idx]
+    v_seg = v[seg_idx]
+    psi = jnp.arctan2(v_seg[1], v_seg[0])
+    offset = pt - closest
+    n_x = -jnp.sin(psi)
+    n_y = jnp.cos(psi)
+    e_lat = offset[0] * n_x + offset[1] * n_y
+    mu = jnp.arctan2(
+        jnp.sin(state[POSE_THETA_IDX] - psi),
+        jnp.cos(state[POSE_THETA_IDX] - psi),
+    )
+
+    half_width = 0.5 * vehicle_width
+    e_lf = e_lat + lf * jnp.sin(mu) + half_width * jnp.cos(mu)
+    e_rf = e_lat + lf * jnp.sin(mu) - half_width * jnp.cos(mu)
+    seg_ip1 = jnp.minimum(seg_idx + 1, waypoints.shape[0] - 1)
+    left = (
+        (1.0 - t_best) * waypoints[seg_idx, WP_D_LEFT_IDX]
+        + t_best * waypoints[seg_ip1, WP_D_LEFT_IDX]
+        - safety_margin
+    )
+    right = (
+        (1.0 - t_best) * waypoints[seg_idx, WP_D_RIGHT_IDX]
+        + t_best * waypoints[seg_ip1, WP_D_RIGHT_IDX]
+        - safety_margin
+    )
+    return jnp.minimum(
+        jnp.minimum(left - e_lf, right + e_lf),
+        jnp.minimum(left - e_rf, right + e_rf),
+    )
+
+
+@jax.jit
+def safety_state_cost_jax(
+    state,
+    waypoints,
+    lf,
+    lr,
+    vehicle_width,
+    safety_margin,
+):
+    """Differentiable soft version of the intermediate state constraints."""
+    _, min_idx = compute_waypoint_distance_jax(state, waypoints)
+    wp = waypoints[min_idx]
+    min_clearance = track_clearance_jax(
+        state, waypoints, lf, vehicle_width, safety_margin
+    )
+    border_violation = jax.nn.relu(-min_clearance)
+
+    # The waypoint velocity is a ceiling, not a tracking target.
+    speed_excess = jax.nn.relu(state[LINEAR_VEL_X_IDX] - wp[WP_VX_IDX])
+    v_x_safe = jnp.maximum(state[LINEAR_VEL_X_IDX], 0.1)
+    v_y_rear = state[LINEAR_VEL_Y_IDX] - state[ANGULAR_VEL_Z_IDX] * lr
+    slip = v_y_rear / v_x_safe
+
+    return (
+        2.0e4 * border_violation**2
+        + 20.0 * speed_excess**2
+        + 0.1 * slip**2
+    )
+
+
+@jax.jit
+def terminal_safety_cost_jax(state, waypoints):
+    """Terminal set: slow / stopped anywhere on track (no raceline pull)."""
+    del waypoints
+    speed_sq = state[LINEAR_VEL_X_IDX] ** 2 + state[LINEAR_VEL_Y_IDX] ** 2
+    spin_sq = state[ANGULAR_VEL_Z_IDX] ** 2
+    return 80.0 * speed_sq + 5.0 * spin_sq
+
+
+@jax.jit
+def cost_function_sequence_jax(
+                              state_sequence, control_sequence, waypoints, lr,
+                              lf, nominal_control, safety_margin, vehicle_width,
+                              w_u,
                               intra_horizon_smoothness_weight=2.0, 
                               angular_smoothness_weight=1.0, 
                               translational_smoothness_weight=0.1):
-    
-    # Standard cost for each state-control pair
-    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, lr)
-    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
+    state_cost_fn = lambda s: safety_state_cost_jax(
+        s, waypoints, lf, lr, vehicle_width, safety_margin
+    )
+    total_costs = jax.vmap(state_cost_fn)(state_sequence)
+
+    # Tearle objective: minimally alter the command applied now.
+    total_costs = total_costs.at[0].add(
+        w_u * jnp.sum((control_sequence[0] - nominal_control) ** 2)
+    )
     
     # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
     control_diff = control_sequence[1:] - control_sequence[:-1]
@@ -593,11 +758,16 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
     step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
     
     # Add individual smoothness penalties to corresponding cost elements
-    total_costs = standard_costs.at[1:].add(step_smoothness_costs)
+    total_costs = total_costs.at[1:].add(step_smoothness_costs)
     
     # Also add overall smoothness penalty to first element for extra emphasis
     total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
     total_costs = total_costs.at[0].add(total_smoothness_penalty)
+
+    # Layer 2: prefer a slow/stopped terminal state (anywhere on track).
+    total_costs = total_costs.at[-1].add(
+        terminal_safety_cost_jax(state_sequence[-1], waypoints)
+    )
     
     return total_costs
 
@@ -610,6 +780,7 @@ def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
 
 @partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index", "gradient_steps"])
 def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, car_params, waypoints, key, dt,
+                               nominal_control, safety_margin, vehicle_width, w_u,
                                execute_control_index=4,
                                intra_horizon_smoothness_weight=2.0,
                                angular_smoothness_weight=1.0,
@@ -641,6 +812,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
 
+    lf = car_params[1]
     lr = car_params[2]
     
     # Cost function for gradient computation (operates directly on full sequences)
@@ -649,6 +821,8 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         trajectory = car_steps_sequential_jax(state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
         # Compute cost
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints, lr,
+                                         lf, nominal_control, safety_margin, vehicle_width,
+                                         w_u,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
                                          translational_smoothness_weight)
@@ -690,6 +864,8 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     def evaluation_cost_fn(Q_plan):
         trajectory = car_steps_sequential_jax(state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints, lr,
+                                         lf, nominal_control, safety_margin, vehicle_width,
+                                         w_u,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
                                          translational_smoothness_weight)
