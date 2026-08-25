@@ -17,7 +17,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'pp' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example'
+    CONTROLLER = 'rpgd-lite-jax' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -115,7 +115,7 @@ class Settings():
 
     # MPC predictive safety filter (Tearle et al.). Tunables live in
     # utilities/mpc_safety_filter/; this is only the CarSystem on/off switch.
-    MPC_SAFETY_FILTER = True          # Master switch (lazy-loads Pacejka PSF)
+    MPC_SAFETY_FILTER = False          # Master switch (lazy-loads Pacejka PSF)
 
     # Random Obstacles
     PLACE_RANDOM_OBSTACLES = False  # You can place random obstacles on the map. Have a look at the obstacle settings in maps_files/random_obstacles.yaml
