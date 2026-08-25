@@ -3030,6 +3030,36 @@
       }
     }
 
+    function drawGenericLayers(layers, cx, cy) {
+      if (!layers || typeof layers !== "object") return;
+      for (const spec of Object.values(layers)) {
+        if (!spec || typeof spec !== "object") continue;
+        const kind = spec.kind;
+        const data = spec.data;
+        const color = Array.isArray(spec.color) && spec.color.length >= 3
+          ? `rgb(${spec.color[0]},${spec.color[1]},${spec.color[2]})`
+          : "rgb(200,200,200)";
+        const style = spec.style || {};
+        const radius = Number(style.radius);
+        const width = Number(style.width);
+        const r = Number.isFinite(radius) ? radius : 2.0;
+        const w = Number.isFinite(width) ? width : 1.5;
+        if (kind === "points") {
+          drawPoints(data, color, r, cx, cy);
+        } else if (kind === "polyline") {
+          if (Array.isArray(data) && data.length > 0 && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
+            for (const line of data) drawLine(line, color, w, cx, cy);
+          } else {
+            drawLine(data, color, w, cx, cy);
+          }
+        } else if (kind === "trajectories") {
+          drawTrajectories(data, color, w, cx, cy);
+        } else if (kind === "poses") {
+          drawVirtualOpponents(data, color, cx, cy, style.size);
+        }
+      }
+    }
+
     function drawLine(points, color, lineWidth, cx, cy) {
       if (!Array.isArray(points) || points.length < 2) return;
       ctx.strokeStyle = color;
@@ -3648,6 +3678,9 @@
             ctx.fillText(factor.toFixed(2), sx, sy);
           }
         }
+
+        // Generic RenderScene layers (custom debug geometry added via scene.set_*).
+        drawGenericLayers(dyn.layers, cx, cy);
 
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);

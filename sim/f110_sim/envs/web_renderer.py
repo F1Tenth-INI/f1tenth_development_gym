@@ -1861,6 +1861,50 @@ class WebEnvRenderer:
                     if isinstance(line, list)
                 ]
 
+        layers = overlay.get("layers")
+        if isinstance(layers, dict) and layers:
+            compressed_layers = {}
+            for name, spec in layers.items():
+                if not isinstance(spec, dict):
+                    continue
+                kind = spec.get("kind")
+                data = spec.get("data")
+                style = dict(spec.get("style") or {})
+                max_pts = int(style.get("max_points", 400))
+                if kind == "points":
+                    data = self._downsample_points(data, max_pts)
+                elif kind == "poses":
+                    data = self._downsample_points(data, max(8, min(max_pts, 64)))
+                elif kind == "trajectories":
+                    data = self._downsample_trajectories(
+                        data,
+                        int(style.get("max_trajectories", self._max_rollout_trajectories)),
+                        int(style.get("max_points_per_trajectory", self._max_rollout_points_per_trajectory)),
+                    )
+                elif kind == "polyline":
+                    if (
+                        isinstance(data, list)
+                        and data
+                        and isinstance(data[0], list)
+                        and data[0]
+                        and isinstance(data[0][0], (list, tuple))
+                    ):
+                        data = [
+                            self._downsample_points(line, max_pts)
+                            for line in data
+                            if isinstance(line, list)
+                        ]
+                    else:
+                        data = self._downsample_points(data, max_pts)
+                compressed_layers[str(name)] = {
+                    "kind": kind,
+                    "data": data,
+                    "lifetime": spec.get("lifetime", "dynamic"),
+                    "color": spec.get("color"),
+                    "style": style,
+                }
+            overlay["layers"] = compressed_layers
+
         # Label text can become large; keep reward/control telemetry when truncating.
         labels = overlay.get("label_dict")
         if isinstance(labels, dict) and len(labels) > 32:

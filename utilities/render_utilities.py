@@ -30,30 +30,22 @@ else:
 '''
 HOW TO USE:
 
-1. Use render utilities to render data from your planner class:
+Preferred (backend-agnostic) — write once, show on pygame/web/ROS adapters:
 
-# Import 
-from utilities.waypoint_utils import WaypointUtils
+    self.render_utils.scene.set_static_points("waypoints", xy, color=(180, 180, 180))
+    self.render_utils.scene.set_dynamic_points("my_debug", pts, color=(0, 255, 0))
+    self.render_utils.scene.set_trajectories("mpc.rollouts", rollouts, color=(250, 25, 30))
 
-#Initialize
-self.Render = RenderUtils()
+Legacy helpers still work and mirror into ``scene`` automatically:
 
-# If there are waypoints to be rendered initially, pass them after initialization
-self.Render.waypoints = self.waypoint_utils.waypoint_positions 
-
-# Implement the render function inside your planner class (it will be called from the Gym at every step)
-def render(self, e):
-    self.Render.render(e)
-
-# At every step update the data to be rendered
-self.Render.update(
-    lidar_points=self.lidar_points,
-    next_waypoints= self.waypoint_utils.next_waypoint_positions,
-    car_state = s
-    [... more arguments to be implemented ...]
-)
-
+    self.Render = RenderUtils()
+    self.Render.waypoints = self.waypoint_utils.waypoint_positions
+    self.Render.update(lidar_points=..., next_waypoints=..., car_state=s)
+    self.Render.update_mpc(rollouts, optimal)
 '''
+
+from utilities.render_scene import RenderScene
+from utilities import render_adapters as _ra
 
 if (
     not Settings.ROS_BRIDGE
@@ -84,6 +76,7 @@ else:
 
 class RenderUtils:
     def __init__(self):
+        self.scene = RenderScene()
 
         self.draw_lidar_data = True
         self.draw_position_history = False
@@ -186,6 +179,113 @@ class RenderUtils:
         self.lidar_border_points = None
         # Clear track border points
         self.track_border_points = None
+        if hasattr(self, "scene") and self.scene is not None:
+            self.scene.clear_dynamic()
+            self.sync_scene()
+
+
+    def sync_scene(self) -> RenderScene:
+        """Mirror current attributes into ``self.scene`` for backend adapters."""
+        scene = self.scene
+        scene.set_static_points(
+            _ra.LAYER_WAYPOINTS, self.waypoints, color=self.waypoint_visualization_color
+        )
+        scene.set_static_points(
+            _ra.LAYER_WAYPOINTS_ALT,
+            self.waypoints_alternative,
+            color=(170, 170, 170),
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_NEXT_WAYPOINTS,
+            self.next_waypoints,
+            color=self.next_waypoint_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_NEXT_WAYPOINTS_POLY,
+            self.next_waypoints_polynomial,
+            color=self.next_waypoints_polynomial_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_NEXT_WAYPOINTS_ALT,
+            self.next_waypoints_alternative,
+            color=self.next_waypoints_alternative_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_LIDAR, self.lidar_border_points, color=self.lidar_visualization_color
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_TRACK_BORDER,
+            self.track_border_points,
+            color=self.track_border_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_GAP,
+            self.largest_gap_middle_point,
+            color=self.gap_visualization_color,
+            radius=5.0,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_TARGET,
+            self.target_point,
+            color=self.target_point_visualization_color,
+            radius=7.0,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_OBSTACLES, self.obstacles, color=self.obstacle_visualization_color
+        )
+        scene.set_poses(
+            _ra.LAYER_VIRTUAL_OPPONENTS,
+            self.virtual_opponents,
+            color=self.virtual_opponent_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_DETECTED_OPPONENTS,
+            self.detected_opponents,
+            color=self.detected_opponent_visualization_color,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_HISTORY_ALT,
+            self.past_car_states_alternative,
+            color=(255, 255, 0),
+            state_like=True,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_HISTORY_GT,
+            self.past_car_states_gt,
+            color=self.gt_history_color,
+            state_like=True,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_HISTORY_PRIOR,
+            self.past_car_states_prior,
+            color=self.prior_history_color,
+            state_like=True,
+        )
+        scene.set_dynamic_points(
+            _ra.LAYER_HISTORY_PRIOR_FULL,
+            self.past_car_states_prior_full,
+            color=self.prior_full_history_color,
+            state_like=True,
+        )
+        scene.set_trajectories(
+            _ra.LAYER_MPC_ROLLOUTS,
+            self.rollout_trajectory,
+            color=self.mppi_visualization_color,
+        )
+        scene.set_trajectories(
+            _ra.LAYER_MPC_OPTIMAL,
+            self.optimal_trajectory,
+            color=self.optimal_trajectory_visualization_color,
+        )
+        if self.emergency_slowdown_sprites is not None:
+            scene.set_sprite(
+                _ra.LAYER_EMERGENCY_SLOWDOWN,
+                self.emergency_slowdown_sprites,
+            )
+        else:
+            scene.remove(_ra.LAYER_EMERGENCY_SLOWDOWN)
+        scene.set_labels(self.label_dict, replace=True)
+        return scene
 
 
     # Pass all data that is updated during simulation
@@ -252,16 +352,20 @@ class RenderUtils:
         if gt_past_car_states is not None: self.past_car_states_gt = gt_past_car_states
         if prior_past_car_states is not None: self.past_car_states_prior = prior_past_car_states
         if prior_full_past_car_states is not None: self.past_car_states_prior_full = prior_full_past_car_states
+        self.sync_scene()
 
     def update_mpc(self, rollout_trajectory, optimal_trajectory):
         self.rollout_trajectory = rollout_trajectory
         self.optimal_trajectory = optimal_trajectory
+        self.sync_scene()
 
     def update_pp(self, target_point):
         self.target_point = target_point
+        self.sync_scene()
         
     def update_obstacles(self, obstacles):
         self.obstacles = obstacles
+        self.sync_scene()
         return
     
     
@@ -280,6 +384,7 @@ class RenderUtils:
             if isinstance(value, (numbers.Real, np.float32)):
                 value = round(float(value), 4)
             self.label_dict[key] = value
+        self.sync_scene()
             
             
     

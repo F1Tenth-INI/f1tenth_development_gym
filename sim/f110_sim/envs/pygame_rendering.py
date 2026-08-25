@@ -857,6 +857,14 @@ class EnvRenderer:
                 except (TypeError, ValueError, IndexError):
                     pass
 
+        # Generic RenderScene layers (custom debug geometry, etc.).
+        try:
+            from utilities.render_adapters import PygameLayerDrawer
+
+            PygameLayerDrawer(self).draw(overlay)
+        except Exception:
+            pass
+
     def _draw_cars(self):
         if self.poses is None:
             return
