@@ -204,7 +204,10 @@ class RaceCar(object):
         # clear state
         self.state = normalize_state_yaw(np.asarray(initial_state, dtype=np.float64).copy())
         if Settings.GLOBAL_SPEED_LIMIT is not None and len(self.state) > LINEAR_VEL_X_IDX:
-            self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
+            speed_limit = float(Settings.GLOBAL_SPEED_LIMIT)
+            self.state[LINEAR_VEL_X_IDX] = np.clip(
+                self.state[LINEAR_VEL_X_IDX], -speed_limit, speed_limit
+            )
         
         self.steer_buffer = np.empty((0, ))
         
@@ -293,7 +296,10 @@ class RaceCar(object):
 
         # clip linear_vel_x to SpeedCap when set
         if Settings.GLOBAL_SPEED_LIMIT is not None:
-            self.state[LINEAR_VEL_X_IDX] = np.clip(self.state[LINEAR_VEL_X_IDX], 0.0, float(Settings.GLOBAL_SPEED_LIMIT))
+            speed_limit = float(Settings.GLOBAL_SPEED_LIMIT)
+            self.state[LINEAR_VEL_X_IDX] = np.clip(
+                self.state[LINEAR_VEL_X_IDX], -speed_limit, speed_limit
+            )
 
         # Update state and control history (circular buffer)
         self.state_history = np.roll(self.state_history, -1, axis=0)

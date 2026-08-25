@@ -72,6 +72,7 @@ class UniversalJoystick:
 
         self.joy = pygame.joystick.Joystick(self.index)
         self.joy.init()
+        self._instance_id = self.joy.get_instance_id()
 
         self.name = self.joy.get_name() or "Unknown"
         self.num_axes = self.joy.get_numaxes()
@@ -139,9 +140,9 @@ class UniversalJoystick:
         elif self._is_sony():
             # Steering on axis 3 (from your test)
             self.Steering = 3 if (self.prefer_axis3_for_sony and self.num_axes > 3) else 0
-            # Throttle on left stick Y (axis 1), neutral = 0
+            # RC-style longitudinal control on one stick: up/neutral/down.
             self.Throttle = 1
-            self.Brake = None  # ignore triggers if you don’t need them
+            self.Brake = None
         else:
             # Generic fallback: left stick X for steering, rightmost axis for throttle
             self.Steering = 0 if self.num_axes > 0 else 0
@@ -167,11 +168,11 @@ class UniversalJoystick:
         Capture idle offsets (averaged). If axes are moving beyond deadzone, retry.
         """
         for attempt in range(retries):
-            pygame.event.pump()
+            self._poll_joystick_events()
             samples = []
             t0 = time.time()
             while time.time() - t0 < seconds:
-                pygame.event.pump()
+                self._poll_joystick_events()
                 vals = [self.joy.get_axis(i) for i in range(self.num_axes)]
                 samples.append(vals)
                 time.sleep(0.01)
@@ -191,16 +192,40 @@ class UniversalJoystick:
     def _apply_deadzone(self, x: float) -> float:
         return 0.0 if abs(x) < self.deadzone else x
 
-    def _normalize_trigger(self, v: float) -> float:
+    def _read_throttle(self) -> float:
         """
-        Convert trigger [-1,1] to [0,1] if requested.
-        Many drivers give -1 (released) to +1 (fully pressed).
+        RC-style bidirectional stick in [-1, 1].
+
+        Stick up accelerates forward, neutral coasts, and stick down first
+        brakes a forward-moving car and then accelerates it in reverse.
         """
-        
-        return -v if self.throttle_invert else v
+        t_raw = self._apply_deadzone(float(self.axes[self.Throttle]))
+        return -t_raw if self.throttle_invert else t_raw
+
+    def _poll_joystick_events(self) -> None:
+        """Drain SDL joystick events so axis state keeps updating on Linux."""
+        for event in pygame.event.get(
+            (pygame.JOYAXISMOTION, pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED)
+        ):
+            if event.type == pygame.JOYDEVICEREMOVED:
+                if event.instance_id == self._instance_id:
+                    logger.warning("Joystick disconnected; waiting for reconnect.")
+                    self.joy = None
+            elif event.type == pygame.JOYDEVICEADDED:
+                if self.joy is None and pygame.joystick.get_count() > self.index:
+                    self.joy = pygame.joystick.Joystick(self.index)
+                    self.joy.init()
+                    self._instance_id = self.joy.get_instance_id()
+                    self.num_axes = self.joy.get_numaxes()
+                    self.axes = np.zeros(self.num_axes, dtype=float)
+                    self.offsets = np.zeros(self.num_axes, dtype=float)
+                    logger.info(f'Joystick reconnected: "{self.joy.get_name()}"')
+
+        if self.joy is None:
+            raise RuntimeError("Joystick disconnected.")
 
     def read(self) -> Tuple[float, float]:
-        pygame.event.pump()
+        self._poll_joystick_events()
         for i in range(self.num_axes):
             raw = self.joy.get_axis(i)
             self.axes[i] = raw - self.offsets[i]
@@ -211,11 +236,8 @@ class UniversalJoystick:
         if self.steering_invert:
             s = -s
 
-        # throttle from left stick Y
-        t_raw = float(self.axes[self.Throttle])
-        t_raw = self._apply_deadzone(t_raw)
-        # map: up = −1 => throttle = 1, neutral = 0, down = +1 => throttle = 0
-        t = self._normalize_trigger(t_raw)
+        # throttle from stick / triggers
+        t = self._read_throttle()
 
         return s, t
 

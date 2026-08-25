@@ -39,6 +39,15 @@ class RewardCalculator:
         self.w_speed_cap = 0.0 # 0.3
         self.w_proximity = 0.0
         self.w_slip = 0.0  # f8e3040 baseline had no slip term; set >0 for low-slip driving
+        # CBF safety-filter correction penalties (requires Settings.CBF_SAFETY_FILTER).
+        self.w_cbf_steering = 1.5
+        self.w_cbf_acceleration = 0.1
+        self.w_cbf_slack = 1.0
+        self.w_cbf_intervention = 0.0  # optional; steering/accel terms already cover adjustments
+        # MPC predictive SF corrections (Tearle et al.; Settings.MPC_SAFETY_FILTER).
+        self.w_mpc_steering = 1.5
+        self.w_mpc_acceleration = 0.1
+        self.w_mpc_intervention = 0.0  # optional; steering/accel terms already cover adjustments
 
 
         if Settings.RANDOM_WAYPOINT_VEL_FACTOR:
@@ -70,6 +79,56 @@ class RewardCalculator:
         self.reward_history = []
         self.accumulated_reward = 0
         self.last_reward_components = {}
+
+    @staticmethod
+    def _cbf_metrics(cbf_info: dict | None) -> dict[str, float]:
+        """Extract CBF filter adjustment metrics from CarSystem ``cbf_info``."""
+        if not cbf_info:
+            return {
+                "cbf_active": 0.0,
+                "cbf_intervention": 0.0,
+                "cbf_slack": 0.0,
+                "cbf_delta_correction": 0.0,
+                "cbf_accel_correction": 0.0,
+            }
+
+        delta_nom = float(cbf_info.get("delta_nom", 0.0))
+        delta_safe = float(cbf_info.get("delta_safe", delta_nom))
+        accel_nom = float(cbf_info.get("accel_nom", 0.0))
+        accel_safe = float(cbf_info.get("accel_safe", accel_nom))
+
+        return {
+            "cbf_active": float(bool(cbf_info.get("active", False))),
+            "cbf_intervention": float(cbf_info.get("intervention", 0.0)),
+            "cbf_slack": float(cbf_info.get("slack", 0.0)),
+            "cbf_delta_correction": delta_safe - delta_nom,
+            "cbf_accel_correction": accel_safe - accel_nom,
+        }
+
+    @staticmethod
+    def _mpc_metrics(mpc_info: dict | None) -> dict[str, float]:
+        """Extract MPC safety-filter adjustment metrics from CarSystem ``mpc_info``."""
+        if not mpc_info:
+            return {
+                "mpc_active": 0.0,
+                "mpc_intervene": 0.0,
+                "mpc_intervention": 0.0,
+                "mpc_delta_correction": 0.0,
+                "mpc_accel_correction": 0.0,
+            }
+
+        delta_nom = float(mpc_info.get("delta_nom", 0.0))
+        delta_safe = float(mpc_info.get("delta_safe", delta_nom))
+        accel_nom = float(mpc_info.get("accel_nom", 0.0))
+        accel_safe = float(mpc_info.get("accel_safe", accel_nom))
+
+        return {
+            "mpc_active": float(bool(mpc_info.get("active", False))),
+            "mpc_intervene": float(bool(mpc_info.get("intervene", False))),
+            "mpc_intervention": float(mpc_info.get("intervention", 0.0)),
+            "mpc_delta_correction": delta_safe - delta_nom,
+            "mpc_accel_correction": accel_safe - accel_nom,
+        }
 
     def _calculate_reward(self, controller_obs: dict) -> dict:
         car_state = np.asarray(controller_obs["car_state"])
@@ -156,6 +215,23 @@ class RewardCalculator:
         slip_penalty = -self.w_slip * abs(car_state[LINEAR_VEL_Y_IDX])
         reward += slip_penalty
 
+        cbf_metrics = self._cbf_metrics(controller_obs.get("cbf_info"))
+        cbf_penalty = -(
+            self.w_cbf_steering * abs(cbf_metrics["cbf_delta_correction"])
+            + self.w_cbf_acceleration * abs(cbf_metrics["cbf_accel_correction"])
+            + self.w_cbf_intervention * cbf_metrics["cbf_intervention"]
+            + self.w_cbf_slack * cbf_metrics["cbf_slack"]
+        )
+        reward += cbf_penalty
+
+        mpc_metrics = self._mpc_metrics(controller_obs.get("mpc_info"))
+        mpc_penalty = -(
+            self.w_mpc_steering * abs(mpc_metrics["mpc_delta_correction"])
+            + self.w_mpc_acceleration * abs(mpc_metrics["mpc_accel_correction"])
+            + self.w_mpc_intervention * mpc_metrics["mpc_intervention"]
+        )
+        reward += mpc_penalty
+
         # Spin / stuck penalties when EpisodeTerminator flags termination this step.
         spin_reward = 0.0
         if spinning:
@@ -193,6 +269,10 @@ class RewardCalculator:
             "speed_cap_penalty": float(speed_cap_penalty),
             "proximity_penalty": float(proximity_penalty),
             "slip_penalty": float(slip_penalty),
+            "cbf_penalty": float(cbf_penalty),
+            "mpc_penalty": float(mpc_penalty),
+            # **cbf_metrics,
+            # **mpc_metrics,
             "stuck_reward": float(stuck_reward),
             "spin_reward": float(spin_reward),
             "lap_finished_reward": float(lap_finished_reward),

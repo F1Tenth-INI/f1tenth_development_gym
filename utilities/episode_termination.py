@@ -37,7 +37,14 @@ class EpisodeTerminator:
 
         wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
-        leave_track = bool(d < -wp_distances_r or d > wp_distances_l)
+        # Require a small overshoot past the recorded border so transient
+        # Frenet noise / recovery nudges don't immediately truncate the episode.
+        leave_slack = float(getattr(Settings, "LEAVE_TRACK_SLACK", 0.08))
+        leave_track = bool(
+            d < -(wp_distances_r + leave_slack) or d > (wp_distances_l + leave_slack)
+        )
+        if not bool(getattr(Settings, "TRUNCATE_ON_LEAVE_TRACK", True)):
+            leave_track = False
 
         speed = math.sqrt(
             float(car_state[LINEAR_VEL_X_IDX]) ** 2 + float(car_state[LINEAR_VEL_Y_IDX]) ** 2

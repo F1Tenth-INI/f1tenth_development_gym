@@ -36,6 +36,16 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
     last_actions = super_obs["last_actions"].astype(np.float32)
 
     curvatures = super_obs["next_waypoints"][:, WP_KAPPA_IDX].astype(np.float32)
+     # Fit κ(s) ≈ c_n s^n + ... + c_1 s + c_0 over look-ahead, feed coeffs instead of raw κ.
+    curvature_poly_degree = 3
+    kappa = next_waypoints[:, WP_KAPPA_IDX].astype(np.float64)
+    n_kappa = int(kappa.shape[0])
+    if n_kappa >= curvature_poly_degree + 1:
+        s_norm = np.linspace(0.0, 1.0, n_kappa, dtype=np.float64)
+        curvature_coeffs = np.polyfit(s_norm, kappa, curvature_poly_degree).astype(np.float32)
+    else:
+        curvature_coeffs = np.zeros(curvature_poly_degree + 1, dtype=np.float32)
+        
     border_points = super_obs["border_points"].astype(np.float32)
 
     border_points_left, border_points_right = border_points
@@ -84,6 +94,7 @@ def build_observation(super_obs: Dict[str, np.ndarray], planner: Any = None) -> 
         [
             np.tile(np.array([0.1, 1.0, 0.3, 2.5], dtype=np.float32), state_history_len) * state_features,
             1.0 * curvatures,
+            # 1.0 * curvature_coeffs,
             0.1* border_points,
             1.0 * last_actions,
             1.0 * np.concatenate([d, e]),

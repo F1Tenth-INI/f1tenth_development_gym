@@ -15,7 +15,11 @@ Two barriers are used (single car, no opponents):
    Uses the Frenet lateral deviation ``d`` and the per-waypoint distances to the
    left/right track border. Keeps ``-(d_right - margin) <= d <= (d_left - margin)``.
 
-2. Friction-circle / speed barrier (relative degree 1 w.r.t. acceleration).
+2. Heading-error barrier (relative degree 1 w.r.t. steering).
+   Uses the Frenet heading error ``e`` (car yaw minus raceline tangent). Keeps
+   ``|e| <= CBF_MAX_HEADING_ERROR`` so the car stays aligned with the raceline.
+
+3. Friction-circle / speed barrier (relative degree 1 w.r.t. acceleration).
    Keeps the demanded lateral acceleration ``v^2 * kappa_eff`` below
    ``CBF_GRIP_FACTOR * CBF_SPEED_MARGIN * mu * g``. Upcoming curvature is a
    discount-weighted average over the look-ahead window (near waypoints weigh
@@ -113,11 +117,14 @@ class CBFSafetyFilter:
         alpha_1: float | None = None,
         alpha_2: float | None = None,
         alpha_v: float | None = None,
+        alpha_e: float | None = None,
         grip_factor: float | None = None,
+        heading_margin: float | None = None,
         weight_steering: float | None = None,
         weight_accel: float | None = None,
         slack_penalty: float | None = None,
         enable_speed_barrier: bool | None = None,
+        enable_heading_barrier: bool | None = None,
         v_eps: float = 0.3,
     ):
         # Vehicle geometry / limits (fall back to the configured car parameter file).
@@ -142,6 +149,8 @@ class CBFSafetyFilter:
         self.alpha_1 = _cfg(alpha_1, "CBF_ALPHA_1", 2.5)
         self.alpha_2 = _cfg(alpha_2, "CBF_ALPHA_2", 2.5)
         self.alpha_v = _cfg(alpha_v, "CBF_ALPHA_V", 3.0)
+        self.alpha_e = _cfg(alpha_e, "CBF_ALPHA_E", 2.5)
+        self.max_heading_error = _cfg(heading_margin, "CBF_MAX_HEADING_ERROR", 0.35)
         self.grip_factor = _cfg(grip_factor, "CBF_GRIP_FACTOR", 0.9)
         if self.grip_factor > 1.0:
             print(
@@ -157,6 +166,11 @@ class CBFSafetyFilter:
             enable_speed_barrier
             if enable_speed_barrier is not None
             else getattr(Settings, "CBF_ENABLE_SPEED_BARRIER", True)
+        )
+        self.enable_heading_barrier = bool(
+            enable_heading_barrier
+            if enable_heading_barrier is not None
+            else getattr(Settings, "CBF_ENABLE_HEADING_BARRIER", True)
         )
         self.v_eps = float(v_eps)
 
@@ -183,6 +197,8 @@ class CBFSafetyFilter:
             "h_left": np.inf,
             "h_right": np.inf,
             "h_speed": np.inf,
+            "h_heading_upper": np.inf,
+            "h_heading_lower": np.inf,
         }
 
     # ------------------------------------------------------------------ API
@@ -278,6 +294,9 @@ class CBFSafetyFilter:
             "h_left": float(h_values["h_left"]),
             "h_right": float(h_values["h_right"]),
             "h_speed": float(h_values["h_speed"]),
+            "h_heading_upper": float(h_values["h_heading_upper"]),
+            "h_heading_lower": float(h_values["h_heading_lower"]),
+            "heading_error": float(e),
             "kappa_ahead": float(kappa_ahead),
             "delta_nom": delta_nom,
             "accel_nom": accel_nom,
@@ -295,10 +314,10 @@ class CBFSafetyFilter:
 
             A @ [delta, accel] + slack >= b
 
-        that encode the safety barriers (track boundary + friction circle), using
-        a kinematic single-track model in the Frenet frame with a small-angle
-        ``tan(delta) ~ delta`` linearisation. This function contains all barrier
-        definitions; it does no optimisation.
+        that encode the safety barriers (track boundary, heading error, friction
+        circle), using a kinematic single-track model in the Frenet frame with a
+        small-angle ``tan(delta) ~ delta`` linearisation. This function contains
+        all barrier definitions; it does no optimisation.
 
         Args:
             car_state: full car state vector (STATE_VARIABLES ordering).
@@ -310,7 +329,8 @@ class CBFSafetyFilter:
             (rows, b_vals, h_values):
                 rows: list of [coef_delta, coef_accel] constraint gradients.
                 b_vals: list of right-hand sides (one per row).
-                h_values: dict of current barrier values {h_left, h_right, h_speed}.
+                h_values: dict of current barrier values {h_left, h_right, h_speed,
+                    h_heading_upper, h_heading_lower}.
         """
         d, e, kappa = float(frenet[1]), float(frenet[2]), float(frenet[3])
 
@@ -355,6 +375,23 @@ class CBFSafetyFilter:
         rows.append([steer_gain, sin_e])
         b_vals.append(-right_const)
 
+        # --- Heading-error CBF (relative degree 1 in steering) ----------------
+        # Keep |e| <= e_max with symmetric barriers:
+        #   h_upper = e_max - e,  h_lower = e_max + e
+        # e_dot = (v/L) tan(delta) - kappa s_dot  (~ (v/L) delta, small-angle).
+        e_max = max(self.max_heading_error, 1e-3)
+        h_heading_upper = e_max - e
+        h_heading_lower = e_max + e
+        if self.enable_heading_barrier:
+            steer_heading = max(v, self.v_eps) / self.L
+            alpha_e = self.alpha_e
+            # Upper: -(v/L) delta + kappa s_dot + alpha_e h_upper >= 0
+            rows.append([-steer_heading, 0.0])
+            b_vals.append(-(kappa * s_dot + alpha_e * h_heading_upper))
+            # Lower: (v/L) delta - kappa s_dot + alpha_e h_lower >= 0
+            rows.append([steer_heading, 0.0])
+            b_vals.append(kappa * s_dot - alpha_e * h_heading_lower)
+
         # --- Friction-circle / speed CBF (relative degree 1 in acceleration) ---
         if self.enable_speed_barrier and not self._pid_speed_mode:
             # h_dot + alpha_v h >= 0,  h_dot = -2 v kappa_eff a
@@ -362,7 +399,13 @@ class CBFSafetyFilter:
             rows.append([0.0, -2.0 * v * kappa_eff])
             b_vals.append(-speed_const)
 
-        h_values = {"h_left": h_left, "h_right": h_right, "h_speed": h_speed}
+        h_values = {
+            "h_left": h_left,
+            "h_right": h_right,
+            "h_speed": h_speed,
+            "h_heading_upper": h_heading_upper,
+            "h_heading_lower": h_heading_lower,
+        }
         return rows, b_vals, h_values
 
     # ---------------------------------------------------------- the QP / filter

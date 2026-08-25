@@ -44,8 +44,13 @@ class MotorSensorSimulator:
         control = np.asarray(control, dtype=np.float64)
 
         wheel_radius = float(car_params.wheel_radius)
-        motor_gain = float(car_params.motor_current_gain)
+        command_gain = float(car_params.motor_command_gain)
+        current_offset = float(car_params.motor_current_offset)
+        velocity_gain = float(car_params.velocity_to_current_gain)
+        accel_gain = float(car_params.acceleration_to_current_gain)
+        decel_gain = float(car_params.deceleration_to_current_gain)
         motor_max_a = float(car_params.motor_current_max_a)
+        brake_max_a = float(car_params.max_brake_current)
 
         v_x = float(state[LINEAR_VEL_X_IDX])
         delta = float(state[STEERING_ANGLE_IDX])
@@ -60,7 +65,15 @@ class MotorSensorSimulator:
         v_cmd = float(control[TRANSLATIONAL_CONTROL_IDX])
         v_max = max(float(car_params.v_max), 1e-3)
         speed_error = v_cmd - v_x
-        motor_current = np.clip(motor_gain * speed_error, -motor_max_a, motor_max_a)
+        accel_cmd = speed_error / dt if dt > 0.0 else 0.0
+        motor_current = (
+            current_offset
+            + command_gain * v_cmd
+            + velocity_gain * v_x
+            + accel_gain * max(accel_cmd, 0.0)
+            - decel_gain * max(-accel_cmd, 0.0)
+        )
+        motor_current = float(np.clip(motor_current, -brake_max_a, motor_max_a))
         if v_cmd >= 0.0:
             throttle = float(np.clip(v_cmd / v_max, 0.0, 1.0))
             brake = float(np.clip(max(-speed_error, 0.0) / v_max, 0.0, 1.0))

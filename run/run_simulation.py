@@ -770,7 +770,7 @@ class RacingSimulation:
             self.reset()
         else:
             self.on_simulation_end()
-            raise CarCrashException()
+            raise CarCrashException("episode done")
 
                 
     """Called at the end of experiment."""
