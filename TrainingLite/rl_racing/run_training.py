@@ -313,6 +313,15 @@ def resolve_run_script_path(run_script_path: str) -> Optional[Path]:
     return None
 
 
+def _client_settings_args(settings_args: list[str], run_args: argparse.Namespace) -> list[str]:
+    """Forward Settings overrides to the sim; sync learner TCP port with --port unless overridden."""
+    args = list(settings_args)
+    if getattr(run_args, "auto_start_client", False):
+        if not any(a.split("=", 1)[0] == "--LEARNER_TCP_PORT" for a in args):
+            args.extend(["--LEARNER_TCP_PORT", str(run_args.port)])
+    return args
+
+
 def start_client_process(
     run_script_path: str,
     *,
@@ -459,7 +468,7 @@ def main() -> None:
     run_args, settings_args = parse_args()
     settings_namespace = parse_settings_overrides(settings_args)
 
-    setattr(run_args, "forwarded_settings_args", settings_args)
+    setattr(run_args, "forwarded_settings_args", _client_settings_args(settings_args, run_args))
     setattr(run_args, "settings_namespace", settings_namespace)
 
     # Resolve model naming from --model-name convenience.

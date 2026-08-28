@@ -117,7 +117,8 @@ class SacUtilities:
                      batch_size=256,
                      train_freq=1
                      ) -> SAC:
-        policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        # policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.Tanh)
+        policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.ReLU)
 
         # policy_kwargs = dict(net_arch=[256, 256], activation_fn=torch.nn.Tanh)
         # policy_kwargs = dict[str, list[int] | float](net_arch=[256, 256], activation_fn=torch.nn.Tanh, log_std_init=-3.5)

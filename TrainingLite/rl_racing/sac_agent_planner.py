@@ -12,7 +12,7 @@ you should call from your env step once reward/done are known.
 
 Integration (minimal diff):
 1) Construct the planner:
-     driver.planner = RLAgentPlanner(host="127.0.0.1", port=5555, actor_id=0)
+     Settings.LEARNER_TCP_HOST / Settings.LEARNER_TCP_PORT (override via CLI, e.g. --LEARNER_TCP_PORT 5556)
 2) In `RacingEnv.step` *after* you compute `reward`, `terminated`, `truncated`,
    and `info`, add:
      if hasattr(driver, "planner") and hasattr(driver.planner, "on_step_end"):
@@ -123,9 +123,11 @@ class RLAgentPlanner(template_planner):
 
         if self.training_mode:
             actor_id = int(getattr(Settings, "ACTOR_ID", 0))
-            # self.client = _TCPActorClient(host="192.168.194.226", port=5555, actor_id=actor_id)
-            self.client = _TCPActorClient(host="127.0.0.1", port=5555, actor_id=actor_id)
+            host = str(getattr(Settings, "LEARNER_TCP_HOST", "127.0.0.1"))
+            port = int(getattr(Settings, "LEARNER_TCP_PORT", 5555))
+            self.client = _TCPActorClient(host=host, port=port, actor_id=actor_id)
             self.client.start()
+            self._log_info(f"[RLAgentPlanner] TCP client -> {host}:{port} (actor_id={actor_id})")
             
             # Send clear buffer message on initialization
             if self.clear_buffer_on_reset:

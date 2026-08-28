@@ -251,6 +251,8 @@ class Settings():
 
     ## SAC Agent planner
     ACTOR_ID = 0                         # RL actor index (TCP learner + web renderer port offset)
+    LEARNER_TCP_HOST = "127.0.0.1"       # learner server address for sac_agent training client
+    LEARNER_TCP_PORT = 5555              # learner server port (match run_training.py --port)
     SAC_INFERENCE_MODEL_NAME = None  # Model name to be used for inference. If None, the agent will be in training mode
     # SAC_INFERENCE_MODEL_NAME = 'Example-3b'  # Model name to be used for inference. If None, the agent will be in training mode
     # If set (seconds), training actor sends learner terminate once at least two completed laps
