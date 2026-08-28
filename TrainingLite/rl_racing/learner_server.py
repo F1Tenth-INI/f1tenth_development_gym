@@ -20,7 +20,16 @@ import time
 import csv
 
 from tcp_utilities import pack_frame, read_frame, blob_to_np  # shared utils (JSON + base64 framing)
-from sac_utilities import _SpacesOnlyEnv, SacUtilities, EpisodeReplayBuffer, TrainingLogHelper, ObsRewardTracker, IngestStatsTracker, EpisodeLogTracker
+from sac_utilities import (
+    _SpacesOnlyEnv,
+    SacUtilities,
+    EpisodeReplayBuffer,
+    TrainingLogHelper,
+    ObsRewardTracker,
+    IngestStatsTracker,
+    EpisodeLogTracker,
+    NStepReturnAssembler,
+)
 from utilities.Settings import Settings
 
 class LearnerServer:
@@ -118,9 +127,12 @@ class LearnerServer:
         self.episode_inactivity_timeout = 60.0
         self._has_received_episode = False
 
-        #used for n-step buffer, for standard buffer set = 1
-        self.n_step = getattr(Settings, "SAC_N_STEP", 1)
-        # self.n_step_discount_factor = self.discount_factor ** self.n_step
+        # n-step TD: 1 = classic SAC; >1 stores n-step returns and bootstraps with gamma^n
+        self.n_step = max(1, int(getattr(Settings, "SAC_N_STEP", 1)))
+        self.n_step_discount_factor = self.discount_factor ** self.n_step
+        self.nstep_assembler = NStepReturnAssembler(
+            n_step=self.n_step, gamma=self.discount_factor
+        )
         self.custom_sampling = Settings.USE_CUSTOM_SAC_SAMPLING
 
         self.save_model_checkpoints = bool(Settings.SAC_SAVE_MODEL_CHECKPOINTS)
@@ -128,7 +140,8 @@ class LearnerServer:
         self.last_checkpoint_timestep = 0
         print(
             f"[server] SAC training batch_size={self.batch_size} "
-            f"(not SAC_STREAM_BATCH_SIZE)"
+            f"(not SAC_STREAM_BATCH_SIZE) | n_step={self.n_step} "
+            f"(gamma^n={self.n_step_discount_factor:.6f})"
         )
         if self.save_model_checkpoints:
             print(
@@ -303,15 +316,19 @@ class LearnerServer:
         # Fresh replay buffer
         # self.replay_buffer = RewardBiasedReplayBuffer(
 
+        # n-step tuples are not consecutive 1-step env transitions, so next_obs
+        # must be stored independently (optimize_memory_usage would alias it to obs[t+1]).
         self.replay_buffer = ReplayBuffer(
             buffer_size=self.replay_capacity,
             observation_space=self.model.observation_space,
             action_space=self.model.action_space,
             device=self.device,
-            optimize_memory_usage=True,
+            optimize_memory_usage=(self.n_step <= 1),
             handle_timeout_termination=False,
         )
         self.model.replay_buffer = self.replay_buffer
+        self.nstep_assembler.gamma = float(self.model.gamma)
+        self.n_step_discount_factor = float(self.model.gamma) ** self.n_step
         if self.load_replay_buffer_enabled and self.load_model_name is not None:
             self._load_replay_buffer()
         elif self.load_replay_buffer_enabled:
@@ -334,6 +351,8 @@ class LearnerServer:
         info = {
             "grad_steps": self.grad_steps,
             "batch_size": self.batch_size,
+            "n_step": self.n_step,
+            "n_step_discount_factor": self.n_step_discount_factor,
             "sac_checkpoint_frequency": self.checkpoint_frequency,
             "sac_terminate_below_laptime": self._terminate_below_lap_s,
         }
@@ -426,7 +445,7 @@ class LearnerServer:
         msg = (
             f"grad={training_steps_done}/{grad_steps} "
             f"new={new_samples} UDT={current_udt:.3f} buf={buf} "
-            f"train={train_duration:.2f}s"
+            f"n={self.n_step} train={train_duration:.2f}s"
         )
         if self._status_line_callback is not None:
             self._status_line_callback(msg)
@@ -539,7 +558,13 @@ class LearnerServer:
                         infos={},
                     )
                     loaded += 1
-            print(f"[server] Loaded {loaded} transition(s) from {self.replay_buffer_csv_path}")
+            extra = ""
+            if self.n_step > 1:
+                extra = (
+                    f" Warning: these rows are used as-is; if they were saved as 1-step "
+                    f"tuples they will be mixed with n_step={self.n_step} training targets."
+                )
+            print(f"[server] Loaded {loaded} transition(s) from {self.replay_buffer_csv_path}.{extra}")
         except Exception as e:
             print(f"[server] Failed to load replay CSV ({e}); resetting replay buffer to empty.")
             self.replay_buffer.reset()
@@ -631,6 +656,32 @@ class LearnerServer:
             self.obs_tracker.flush(render_png=False)
         return n_added
 
+    def _add_nstep_tuples_locked(self, nstep_tuples: List[dict]) -> int:
+        if self.replay_buffer is None or not nstep_tuples:
+            return 0
+        n_added = 0
+        for nt in nstep_tuples:
+            self.replay_buffer.add(
+                obs=nt["obs"],
+                next_obs=nt["next_obs"],
+                action=nt["action"],
+                reward=float(nt["reward"]),
+                done=bool(nt["done"]),
+                infos={},
+            )
+            n_added += 1
+        return n_added
+
+    def _flush_nstep_episode_to_replay(self, actor_id: int, episode_id: int) -> int:
+        """Flush leftover k < n n-step tuples when an episode is known complete."""
+        if self.replay_buffer is None:
+            return 0
+        with self._replay_lock:
+            leftover = self.nstep_assembler.flush_episode(
+                actor_id, episode_id, force_done=True
+            )
+            return self._add_nstep_tuples_locked(leftover)
+
     def _ingest_transitions_locked(self, transitions: List[dict]) -> tuple[int, bool]:
         expected_obs_dim = self._expected_obs_dim()
         dropped_for_dim_mismatch = 0
@@ -639,11 +690,14 @@ class LearnerServer:
         for t in transitions:
             obs = t["obs"].astype(np.float32)
             next_obs = t["next_obs"].astype(np.float32)
+            actor_id = int(t.get("actor_id", -1))
+            episode_id = int(t.get("episode_id", 0))
             if expected_obs_dim is not None:
                 obs_dim = int(np.asarray(obs).reshape(-1).shape[0])
                 next_obs_dim = int(np.asarray(next_obs).reshape(-1).shape[0])
                 if obs_dim != expected_obs_dim or next_obs_dim != expected_obs_dim:
                     dropped_for_dim_mismatch += 1
+                    self.nstep_assembler.drop_episode(actor_id, episode_id)
                     continue
             action = t["action"].astype(np.float32)
             reward = float(t["reward"])
@@ -655,15 +709,17 @@ class LearnerServer:
             if not isinstance(reward_components, dict):
                 reward_components = None
             self.obs_tracker.track(obs, reward, reward_components=reward_components)
-            self.replay_buffer.add(
-                obs=obs,
-                next_obs=next_obs,
-                action=action,
-                reward=reward,
-                done=done,
-                infos={},
-            )
-            n_added += 1
+            prepared = {
+                "obs": obs,
+                "action": action,
+                "next_obs": next_obs,
+                "reward": reward,
+                "done": done,
+                "info": info,
+                "actor_id": actor_id,
+                "episode_id": episode_id,
+            }
+            n_added += self._add_nstep_tuples_locked(self.nstep_assembler.add(prepared))
             flush_obs_tracker = flush_obs_tracker or self.obs_tracker.should_flush()
         if dropped_for_dim_mismatch > 0:
             print(
@@ -797,6 +853,7 @@ class LearnerServer:
         critic_optimizer = self.model.policy.critic.optimizer
         replay_buffer = self.model.replay_buffer
         gamma = self.model.gamma
+        gamma_n = gamma ** max(1, int(self.n_step))
         tau = self.model.tau
         ent_coef = self.model.ent_coef
         target_entropy = self.model.target_entropy
@@ -829,7 +886,7 @@ class LearnerServer:
                             next_log_prob = next_log_prob.sum(dim=1, keepdim=True)
                         else:
                             next_log_prob = next_log_prob.view(-1, 1)
-                        target_q = rewards + gamma * (1 - dones) * (target_q - ent_coef * next_log_prob)
+                        target_q = rewards + gamma_n * (1 - dones) * (target_q - ent_coef * next_log_prob)
 
                     current_q1, current_q2 = critic(obs, actions)
                     critic_loss_t = torch.nn.functional.mse_loss(current_q1, target_q) + torch.nn.functional.mse_loss(
@@ -1276,6 +1333,7 @@ class LearnerServer:
                 "total_actor_timesteps": int(self.total_actor_timesteps),
                 "training_steps_done": int(training_steps_done),
                 "replay_buffer_size": int(self.replay_buffer.size() if self.replay_buffer is not None else 0),
+                "n_step": int(self.n_step),
             },
         }
         if udt_control is not None:
@@ -1392,6 +1450,9 @@ class LearnerServer:
                         ep_actor = int(completed_episode[0].get("actor_id", actor_id))
                         ep_id = int(completed_episode[0].get("episode_id", episode_id))
                         self._finalize_stream_batches_for_episode(ep_actor, ep_id)
+                        leftover_n = self._flush_nstep_episode_to_replay(ep_actor, ep_id)
+                        if leftover_n > 0:
+                            await self._notify_new_samples(leftover_n)
                         self.episode_buffer.add_episode(completed_episode)
                         self.episode_log.record_episode(
                             completed_episode,
@@ -1448,10 +1509,12 @@ class LearnerServer:
                     self._finalized_stream_batches.clear()
 
                     # Clear the replay buffer if it exists
-                    if self.replay_buffer is not None:
-                        replay_size_before = self.replay_buffer.size()
-                        self.replay_buffer.reset()
-                        print(f"[server] Cleared replay buffer (had {replay_size_before} transitions)")
+                    with self._replay_lock:
+                        if self.replay_buffer is not None:
+                            replay_size_before = self.replay_buffer.size()
+                            self.replay_buffer.reset()
+                            print(f"[server] Cleared replay buffer (had {replay_size_before} transitions)")
+                        self.nstep_assembler.clear()
 
                     print(f"[server] Cleared {episodes_cleared} episodes from buffer (requested by actor {actor_id})")
 

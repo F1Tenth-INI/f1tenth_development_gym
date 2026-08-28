@@ -11,7 +11,7 @@ import os
 import sys
 import csv
 import json
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple, Union
 import matplotlib
 
 matplotlib.use("Agg")
@@ -1252,6 +1252,104 @@ class TransitionLogger:
     def get_logs(self):
         return self.transitions
     
+
+# ------------------------------
+# N-step return assembler (multi-step TD)
+# ------------------------------
+class NStepReturnAssembler:
+    """
+    Convert a stream of 1-step transitions into overlapping n-step tuples.
+
+    For each start state s_t the stored reward is
+        R_t^{(n)} = r_t + γ r_{t+1} + ... + γ^{k-1} r_{t+k-1}
+    with next_obs = s_{t+k} and done if a terminal appears within k steps,
+    where k = n except at episode tails (k < n, done=True, no bootstrap).
+
+    Windows are keyed by (actor_id, episode_id) so interleaved actors stay correct.
+    """
+
+    def __init__(self, n_step: int = 1, gamma: float = 0.99):
+        self.n_step = max(1, int(n_step))
+        self.gamma = float(gamma)
+        self._windows: Dict[Tuple[int, int], Deque[dict]] = {}
+
+    def _key(self, transition: dict) -> Tuple[int, int]:
+        return (int(transition.get("actor_id", -1)), int(transition.get("episode_id", 0)))
+
+    @staticmethod
+    def build_n_step_transition(
+        window: Sequence[dict], gamma: float, n_step: int
+    ) -> dict:
+        """Build one n-step tuple starting at window[0], stopping early on done."""
+        first = window[0]
+        n = min(int(n_step), len(window))
+        ret = 0.0
+        discount = 1.0
+        done = False
+        last = first
+        for i in range(n):
+            last = window[i]
+            ret += discount * float(last["reward"])
+            if last.get("done"):
+                done = True
+                break
+            discount *= float(gamma)
+        return {
+            "obs": first["obs"],
+            "action": first["action"],
+            "next_obs": last["next_obs"],
+            "reward": float(ret),
+            "done": bool(done),
+            "info": first.get("info", {}) or {},
+            "actor_id": first.get("actor_id", -1),
+            "episode_id": first.get("episode_id", 0),
+            "n_used": i + 1,
+        }
+
+    def add(self, transition: dict) -> List[dict]:
+        """Ingest one 1-step transition; return any n-step tuples that are now complete."""
+        if self.n_step <= 1:
+            return [transition]
+
+        key = self._key(transition)
+        window = self._windows.setdefault(key, deque())
+        window.append(transition)
+        out: List[dict] = []
+        while len(window) >= self.n_step:
+            out.append(self.build_n_step_transition(window, self.gamma, self.n_step))
+            window.popleft()
+        if transition.get("done"):
+            out.extend(self.flush_episode(key[0], key[1]))
+        return out
+
+    def flush_episode(
+        self,
+        actor_id: int,
+        episode_id: int,
+        force_done: bool = False,
+    ) -> List[dict]:
+        """Emit remaining k < n tuples at episode end (truncated n-step, typically done)."""
+        key = (int(actor_id), int(episode_id))
+        window = self._windows.pop(key, None)
+        if not window:
+            return []
+        if force_done:
+            tail = dict(window[-1])
+            tail["done"] = True
+            window[-1] = tail
+        out: List[dict] = []
+        while window:
+            out.append(self.build_n_step_transition(window, self.gamma, self.n_step))
+            window.popleft()
+        return out
+
+    def drop_episode(self, actor_id: int, episode_id: int) -> None:
+        """Discard an in-progress n-step window (e.g. obs-dim mismatch hole)."""
+        self._windows.pop((int(actor_id), int(episode_id)), None)
+
+    def clear(self) -> None:
+        self._windows.clear()
+
 
 # ------------------------------
 # Simple in-memory episode buffer

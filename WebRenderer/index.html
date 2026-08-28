@@ -1,17 +1,49 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>F1TENTH Web Renderer</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #091f56; color: #fff; font-family: sans-serif; }
-    #root { display: grid; grid-template-rows: 72px 1fr; height: 100%; }
-    #topbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: #0d2f7b; }
-    #status { font-size: 14px; opacity: 0.95; white-space: pre-line; }
-    canvas { width: 100%; height: 100%; display: block; background: #092057; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #091f56;
+      color: #fff;
+      font-family: sans-serif;
+    }
+
+    #root {
+      display: grid;
+      grid-template-rows: 72px 1fr;
+      height: 100%;
+    }
+
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 12px;
+      background: #0d2f7b;
+    }
+
+    #status {
+      font-size: 14px;
+      opacity: 0.95;
+      white-space: pre-line;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #092057;
+    }
   </style>
 </head>
+
 <body>
   <div id="root">
     <div id="topbar">
@@ -336,7 +368,7 @@
           ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
           : "";
         const camMode = cameraFollowEgo ? "follow-car" : "free";
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | zoom: ${zoom.toFixed(1)}${labelText}`;
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {
@@ -464,4 +496,5 @@
     requestAnimationFrame(draw);
   </script>
 </body>
+
 </html>

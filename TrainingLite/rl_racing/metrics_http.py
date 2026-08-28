@@ -7,6 +7,7 @@ import ast
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -25,6 +26,123 @@ _SKIP_PLOT_COLS = frozenset(
         "learning_rate",
     }
 )
+
+_X_AXIS_ALIASES = {
+    "wallclock": "wallclock",
+    "wall-clock": "wallclock",
+    "wall_clock": "wallclock",
+    "time": "wallclock",
+    "simulation": "simulation",
+    "sim": "simulation",
+    "sim_time": "simulation",
+    "timesteps": "timesteps",
+    "total_timesteps": "timesteps",
+    "steps": "timesteps",
+}
+_X_AXIS_COLUMNS = {
+    "wallclock": ("time",),
+    "simulation": ("total_timesteps", "transitions_total"),
+    "timesteps": ("total_timesteps", "transitions_total"),
+}
+_X_AXIS_LABELS = {
+    "wallclock": "wall-clock time (s)",
+    "simulation": "simulation time (s)",
+    "timesteps": "timesteps",
+}
+_STEP_COLUMNS = ("total_timesteps", "transitions_total")
+_DEFAULT_TIMESTEP_CONTROL_S = 0.04
+_TIMESTEP_CONTROL_RE = re.compile(r"TIMESTEP_CONTROL\s*=\s*([0-9]*\.?[0-9]+)")
+
+
+def _normalize_x_axis(x_axis: Optional[str]) -> str:
+    key = str(x_axis or "wallclock").strip().lower().replace(" ", "_")
+    return _X_AXIS_ALIASES.get(key, "wallclock")
+
+
+def _parse_timestep_control(path: Path) -> Optional[float]:
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _TIMESTEP_CONTROL_RE.search(text)
+    if match is None:
+        return None
+    dt = float(match.group(1))
+    return dt if dt > 0.0 else None
+
+
+def _timestep_dt_s(csv_path: str) -> float:
+    model_dir = Path(csv_path).resolve().parent
+    for candidate in (
+        model_dir / "training_files" / "Settings.py",
+        Path(__file__).resolve().parents[2] / "utilities" / "Settings.py",
+    ):
+        dt = _parse_timestep_control(candidate)
+        if dt is not None:
+            return dt
+    try:
+        from utilities.Settings import Settings
+
+        dt = float(getattr(Settings, "TIMESTEP_CONTROL", 0.0) or 0.0)
+        if dt > 0.0:
+            return dt
+    except Exception:
+        pass
+    return _DEFAULT_TIMESTEP_CONTROL_S
+
+
+def _select_x_values(
+    df: pd.DataFrame,
+    x_axis: str,
+    dt_s: float,
+) -> Tuple[List[float], str, str]:
+    requested = _normalize_x_axis(x_axis)
+
+    if requested in ("simulation", "timesteps"):
+        for col in _STEP_COLUMNS:
+            if col in df.columns:
+                steps = df[col].astype(float)
+                if requested == "simulation":
+                    return (steps * float(dt_s)).tolist(), col, _X_AXIS_LABELS["simulation"]
+                return steps.tolist(), col, _X_AXIS_LABELS["timesteps"]
+
+    if "time" in df.columns:
+        return df["time"].astype(float).tolist(), "time", _X_AXIS_LABELS["wallclock"]
+
+    for col in _STEP_COLUMNS:
+        if col in df.columns:
+            return df[col].astype(float).tolist(), col, _X_AXIS_LABELS["timesteps"]
+
+    return list(range(len(df))), "log_index", "log_index"
+
+
+def _empty_metrics_payload(
+    model_name: str,
+    csv_path: str,
+    x_axis: str,
+    *,
+    csv_mtime: Optional[float] = None,
+    error: Optional[str] = None,
+    row_count: int = 0,
+) -> Dict[str, Any]:
+    requested = _normalize_x_axis(x_axis)
+    payload: Dict[str, Any] = {
+        "model_name": model_name,
+        "csv_path": csv_path,
+        "csv_mtime": csv_mtime,
+        "row_count": row_count,
+        "x_axis": requested,
+        "x_key": _X_AXIS_COLUMNS[requested][0],
+        "x_label": _X_AXIS_LABELS[requested],
+        "sim_dt_s": _timestep_dt_s(csv_path),
+        "series": [],
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
 
 _ARRAY_LIKE_COLS = frozenset(
     {
@@ -439,14 +557,17 @@ def load_metrics_payload(
     csv_path: str,
     model_name: str,
     ingest_csv_path: Optional[str] = None,
+    x_axis: str = "wallclock",
 ) -> Dict[str, Any]:
     """Parse learning_metrics.csv (and optional ingest_metrics.csv) into chart payload."""
-    payload = _load_single_metrics_csv(csv_path, model_name, source_label="training")
+    payload = _load_single_metrics_csv(
+        csv_path, model_name, source_label="training", x_axis=x_axis
+    )
     if not ingest_csv_path:
         return payload
 
     ingest_payload = _load_single_metrics_csv(
-        ingest_csv_path, model_name, source_label="ingest"
+        ingest_csv_path, model_name, source_label="ingest", x_axis=x_axis
     )
     if not ingest_payload.get("series"):
         return payload
@@ -470,58 +591,38 @@ def _load_single_metrics_csv(
     model_name: str,
     *,
     source_label: str = "training",
+    x_axis: str = "wallclock",
 ) -> Dict[str, Any]:
     """Parse one metrics CSV into a JSON-serializable chart payload."""
     if not os.path.isfile(csv_path):
-        return {
-            "model_name": model_name,
-            "csv_path": csv_path,
-            "csv_mtime": None,
-            "row_count": 0,
-            "x_key": "time",
-            "x_label": "time (s)",
-            "series": [],
-        }
+        return _empty_metrics_payload(model_name, csv_path, x_axis)
 
     try:
         df = pd.read_csv(csv_path)
     except Exception as exc:
-        return {
-            "model_name": model_name,
-            "csv_path": csv_path,
-            "csv_mtime": os.path.getmtime(csv_path),
-            "row_count": 0,
-            "x_key": "time",
-            "x_label": "time (s)",
-            "series": [],
-            "error": str(exc),
-        }
+        return _empty_metrics_payload(
+            model_name,
+            csv_path,
+            x_axis,
+            csv_mtime=os.path.getmtime(csv_path),
+            error=str(exc),
+        )
 
     if df.empty:
-        return {
-            "model_name": model_name,
-            "csv_path": csv_path,
-            "csv_mtime": os.path.getmtime(csv_path),
-            "row_count": 0,
-            "x_key": "time",
-            "x_label": "time (s)",
-            "series": [],
-        }
+        return _empty_metrics_payload(
+            model_name,
+            csv_path,
+            x_axis,
+            csv_mtime=os.path.getmtime(csv_path),
+        )
 
-    if "time" in df.columns:
-        x_vals = df["time"].astype(float).tolist()
-        x_key = "time"
-        x_label = "time (s)"
-    elif "total_timesteps" in df.columns:
-        x_vals = df["total_timesteps"].astype(float).tolist()
-        x_key = "total_timesteps"
-        x_label = "total_timesteps"
-    else:
-        x_vals = list(range(len(df)))
-        x_key = "log_index"
-        x_label = "log_index"
-
-    columns_to_plot = [col for col in df.columns if col not in _SKIP_PLOT_COLS]
+    dt_s = _timestep_dt_s(csv_path)
+    x_vals, x_key, x_label = _select_x_values(df, x_axis, dt_s)
+    skip_cols = set(_SKIP_PLOT_COLS)
+    skip_cols.add(x_key)
+    if _normalize_x_axis(x_axis) in ("simulation", "timesteps"):
+        skip_cols.update(_STEP_COLUMNS)
+    columns_to_plot = [col for col in df.columns if col not in skip_cols]
     series: List[Dict[str, Any]] = []
 
     for col in columns_to_plot:
@@ -569,8 +670,10 @@ def _load_single_metrics_csv(
         "csv_path": csv_path,
         "csv_mtime": os.path.getmtime(csv_path),
         "row_count": int(len(df)),
+        "x_axis": _normalize_x_axis(x_axis),
         "x_key": x_key,
         "x_label": x_label,
+        "sim_dt_s": dt_s,
         "series": series,
         "source": source_label,
     }
@@ -659,11 +762,16 @@ class MetricsHttpServer:
                 body = {"ok": True, "model_name": self.model_name}
                 writer.write(_json_response(body))
             elif path in ("/api/metrics", "/metrics"):
+                first_line = request_header.split("\r\n", 1)[0]
+                raw_path = first_line.split()[1] if len(first_line.split()) >= 2 else "/"
+                query = parse_qs(urlparse(raw_path).query)
+                x_axis = query.get("x", ["wallclock"])[0]
                 payload = await asyncio.to_thread(
                     load_metrics_payload,
                     self.csv_path,
                     self.model_name,
                     self.ingest_csv_path,
+                    x_axis,
                 )
                 payload["poll_interval_s"] = self.poll_hint_s
                 writer.write(_json_response(payload))

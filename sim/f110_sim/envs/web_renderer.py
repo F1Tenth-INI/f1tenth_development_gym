@@ -750,7 +750,7 @@ HTML_PAGE = """<!doctype html>
           ? " | " + Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join(" | ")
           : "";
         const camMode = cameraFollowEgo ? "follow-car" : "free";
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${labelText}`;
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | zoom: ${zoom.toFixed(1)}${labelText}`;
       } catch (e) {
         statusEl.textContent = "Waiting for simulation state...";
       } finally {
@@ -1728,12 +1728,12 @@ class WebEnvRenderer:
         draw_polynomial_raceline = True
         live_delay_s = 0.06
         buffer_window_s = 1.5
-        camera_auto_follow = True
+        camera_auto_follow = False
         try:
             draw_polynomial_raceline = bool(getattr(Settings, "WEB_RENDER_DRAW_POLYNOMIAL", True))
             live_delay_s = float(getattr(Settings, "WEB_RENDER_LIVE_DELAY_S", live_delay_s))
             buffer_window_s = float(getattr(Settings, "WEB_RENDER_BUFFER_WINDOW_S", buffer_window_s))
-            camera_auto_follow = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", True))
+            camera_auto_follow = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", False))
         except Exception:
             pass
         opponent_length, opponent_width = 0.58, 0.31

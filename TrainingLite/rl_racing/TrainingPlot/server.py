@@ -146,8 +146,9 @@ class TrainingPlotHandler(http.server.BaseHTTPRequestHandler):
                 {
                     "model_name": model_name,
                     "row_count": 0,
+                    "x_axis": "wallclock",
                     "x_key": "time",
-                    "x_label": "time (s)",
+                    "x_label": "wall-clock time (s)",
                     "series": [],
                     "poll_interval_s": self.poll_hint_s,
                     "error": "model not found",
@@ -158,7 +159,8 @@ class TrainingPlotHandler(http.server.BaseHTTPRequestHandler):
 
         csv_path = str(model_dir / LEARNING_METRICS_CSV)
         ingest_csv_path = str(model_dir / "ingest_metrics.csv")
-        payload = load_metrics_payload(csv_path, model_name, ingest_csv_path)
+        x_axis = query.get("x", ["wallclock"])[0]
+        payload = load_metrics_payload(csv_path, model_name, ingest_csv_path, x_axis=x_axis)
         payload["poll_interval_s"] = self.poll_hint_s
         self._send_json(payload)
 

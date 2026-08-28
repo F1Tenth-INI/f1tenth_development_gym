@@ -230,7 +230,7 @@ class EnvRenderer:
         self.height = height
         self.zoom_level = 60.0
         self.camera_offset = np.array([0.0, 0.0], dtype=np.float32)
-        self.camera_follow_ego = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", True))
+        self.camera_follow_ego = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", False))
 
         # Map state.
         self.map_surface = None

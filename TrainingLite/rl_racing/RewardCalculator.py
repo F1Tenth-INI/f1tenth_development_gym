@@ -242,6 +242,7 @@ class RewardCalculator:
         if speed < self.STUCK_MIN_SPEED:
             stuck_reward = -0.05
         if stuck:
+            # pass
             stuck_reward = -self.w_crash
         reward += stuck_reward
 

@@ -1,17 +1,60 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>F1TENTH Web Renderer</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #091f56; color: #fff; font-family: sans-serif; }
-    #root { display: grid; grid-template-rows: 72px 1fr; height: 100%; }
-    #topbar { display: flex; align-items: center; gap: 16px; padding: 0 12px; background: #0d2f7b; }
-    #status { font-size: 14px; opacity: 0.95; white-space: pre-line; }
-    #controls { display: flex; align-items: center; gap: 14px; margin-left: auto; font-size: 13px; }
-    #controls label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
-    #controls { flex-wrap: wrap; }
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #091f56;
+      color: #fff;
+      font-family: sans-serif;
+    }
+
+    #root {
+      display: grid;
+      grid-template-rows: 72px 1fr;
+      height: 100%;
+    }
+
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 12px;
+      background: #0d2f7b;
+    }
+
+    #status {
+      font-size: 14px;
+      opacity: 0.95;
+      white-space: pre-line;
+    }
+
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-left: auto;
+      font-size: 13px;
+    }
+
+    #controls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #controls {
+      flex-wrap: wrap;
+    }
+
     #toggle-follow {
       border: 1px solid rgba(255, 255, 255, 0.45);
       border-radius: 6px;
@@ -23,7 +66,12 @@
       user-select: none;
       white-space: nowrap;
     }
-    #toggle-follow.active { background: #ac61b9; border-color: #d9b3e8; }
+
+    #toggle-follow.active {
+      background: #ac61b9;
+      border-color: #d9b3e8;
+    }
+
     .topbar-toggle {
       border: 1px solid rgba(255, 255, 255, 0.45);
       border-radius: 6px;
@@ -35,11 +83,31 @@
       user-select: none;
       white-space: nowrap;
     }
-    #toggle-plots.active { background: #5c4d7a; border-color: #b8a9d9; }
+
+    #toggle-plots.active {
+      background: #5c4d7a;
+      border-color: #b8a9d9;
+    }
+
+    #toggle-stream.playing {
+      background: #2d6a4f;
+      border-color: #95d5b2;
+    }
+
+    #toggle-stream.paused {
+      background: #7a3b3b;
+      border-color: #e0a0a0;
+    }
+
     #toggle-sac-metrics {
       display: none;
     }
-    #toggle-sac-metrics.active { background: #2d6a4f; border-color: #95d5b2; }
+
+    #toggle-sac-metrics.active {
+      background: #2d6a4f;
+      border-color: #95d5b2;
+    }
+
     .side-panel {
       position: fixed;
       top: 72px;
@@ -52,7 +120,11 @@
       transition: transform 0.22s ease;
       pointer-events: none;
     }
-    .side-panel.open { pointer-events: auto; }
+
+    .side-panel.open {
+      pointer-events: auto;
+    }
+
     .side-panel-header {
       display: flex;
       align-items: center;
@@ -63,7 +135,12 @@
       font-size: 13px;
       flex-shrink: 0;
     }
-    .side-panel-header span { flex: 1; font-weight: 600; }
+
+    .side-panel-header span {
+      flex: 1;
+      font-weight: 600;
+    }
+
     .plot-window-control {
       display: inline-flex;
       align-items: center;
@@ -74,6 +151,7 @@
       white-space: nowrap;
       user-select: none;
     }
+
     .plot-window-control input {
       width: 52px;
       padding: 3px 6px;
@@ -84,11 +162,13 @@
       font-size: 12px;
       text-align: center;
     }
+
     .plot-window-control input:focus {
       outline: none;
       border-color: #b8a9d9;
       background: rgba(255, 255, 255, 0.16);
     }
+
     .side-panel-close {
       border: 1px solid rgba(255, 255, 255, 0.35);
       border-radius: 6px;
@@ -98,6 +178,7 @@
       font-size: 12px;
       cursor: pointer;
     }
+
     .side-panel-tab {
       position: fixed;
       top: 50%;
@@ -113,18 +194,24 @@
       cursor: pointer;
       user-select: none;
     }
+
     .side-panel.left {
       left: 0;
       border-right: 1px solid rgba(255, 255, 255, 0.35);
       transform: translateX(-100%);
       transition: transform 0.22s ease, left 0.22s ease;
     }
-    .side-panel.left.open { transform: translateX(0); }
+
+    .side-panel.left.open {
+      transform: translateX(0);
+    }
+
     .side-panel-tab.left {
       left: 0;
       border-left: none;
       border-radius: 0 8px 8px 0;
     }
+
     #plots-panel {
       width: clamp(380px, 44vw, 680px);
       min-width: 320px;
@@ -133,6 +220,7 @@
       overflow: hidden;
       z-index: 42;
     }
+
     #plots-panel-resize-handle {
       position: absolute;
       top: 0;
@@ -143,6 +231,7 @@
       z-index: 3;
       touch-action: none;
     }
+
     #plots-panel-body {
       flex: 1;
       min-height: 0;
@@ -152,12 +241,15 @@
       touch-action: pan-y;
       background: #0f1115;
     }
+
     .plot-section {
       border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     }
+
     .plot-section:last-child {
       border-bottom: none;
     }
+
     .plot-section-title {
       margin: 0;
       padding: 10px 12px 6px;
@@ -171,6 +263,7 @@
       top: 0;
       z-index: 2;
     }
+
     .plot-section-title-row {
       display: flex;
       align-items: center;
@@ -188,9 +281,11 @@
       top: 0;
       z-index: 2;
     }
+
     .plot-section-title-row span {
       flex: 1;
     }
+
     .plot-section-option {
       display: inline-flex;
       align-items: center;
@@ -204,15 +299,18 @@
       cursor: pointer;
       user-select: none;
     }
+
     .plot-section-option input {
       margin: 0;
       cursor: pointer;
     }
+
     .reward-tab-bar {
       display: inline-flex;
       gap: 4px;
       flex-shrink: 0;
     }
+
     .reward-tab {
       border: 1px solid rgba(255, 255, 255, 0.35);
       border-radius: 6px;
@@ -227,17 +325,21 @@
       user-select: none;
       white-space: nowrap;
     }
+
     .reward-tab.active {
       background: #5c4d7a;
       border-color: #b8a9d9;
       color: #fff;
     }
+
     .reward-tab-pane {
       display: none;
     }
+
     .reward-tab-pane.active {
       display: block;
     }
+
     .reward-components-controls {
       display: flex;
       align-items: center;
@@ -249,6 +351,7 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       flex-wrap: wrap;
     }
+
     .reward-components-controls label {
       display: inline-flex;
       align-items: center;
@@ -256,28 +359,37 @@
       flex: 1;
       min-width: 180px;
     }
+
     .reward-components-controls input[type="range"] {
       flex: 1;
       min-width: 120px;
       accent-color: #ac61b9;
       cursor: pointer;
     }
+
     #reward-components-status {
       width: 100%;
       font-size: 10px;
       color: rgba(255, 255, 255, 0.55);
     }
+
     .plot-section canvas {
       width: 100%;
       display: block;
       height: auto;
       min-height: 140px;
     }
-    #plots-panel-tab { top: 38%; display: none; }
+
+    #plots-panel-tab {
+      top: 38%;
+      display: none;
+    }
+
     #metrics-panel {
       width: clamp(360px, 44vw, 720px);
       z-index: 41;
     }
+
     #metrics-panel-body {
       flex: 1;
       min-height: 0;
@@ -286,6 +398,7 @@
       overflow: hidden;
       background: #0f1115;
     }
+
     #metrics-frame {
       flex: 1;
       width: 100%;
@@ -294,13 +407,19 @@
       display: block;
       background: #0f1115;
     }
-    #metrics-panel-tab { top: 58%; display: none; }
+
+    #metrics-panel-tab {
+      top: 58%;
+      display: none;
+    }
+
     #metrics-status {
       padding: 4px 10px;
       font-size: 11px;
       color: rgba(255, 255, 255, 0.55);
       flex-shrink: 0;
     }
+
     #view {
       width: 100%;
       height: 100%;
@@ -310,6 +429,7 @@
       -webkit-user-select: none;
       user-select: none;
     }
+
     #replay-bar {
       position: fixed;
       left: 0;
@@ -325,6 +445,7 @@
       font-size: 13px;
       pointer-events: auto;
     }
+
     #replay-bar button {
       border: 1px solid rgba(255, 255, 255, 0.45);
       border-radius: 6px;
@@ -336,18 +457,28 @@
       user-select: none;
       white-space: nowrap;
     }
+
     #replay-bar button:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
-    #replay-play { min-width: 72px; }
-    #replay-live.active { background: #2d6a4f; border-color: #95d5b2; }
+
+    #replay-play {
+      min-width: 72px;
+    }
+
+    #replay-live.active {
+      background: #2d6a4f;
+      border-color: #95d5b2;
+    }
+
     #replay-slider {
       flex: 1;
       min-width: 80px;
       cursor: pointer;
       accent-color: #ac61b9;
     }
+
     #replay-time {
       min-width: 118px;
       font-variant-numeric: tabular-nums;
@@ -355,6 +486,7 @@
       font-size: 12px;
       white-space: nowrap;
     }
+
     .replay-speed-control {
       display: inline-flex;
       align-items: center;
@@ -364,6 +496,7 @@
       white-space: nowrap;
       user-select: none;
     }
+
     .replay-speed-control input {
       width: 52px;
       padding: 4px 6px;
@@ -374,15 +507,18 @@
       font-size: 12px;
       text-align: center;
     }
+
     .replay-speed-control input:focus {
       outline: none;
       border-color: #ac61b9;
       background: rgba(255, 255, 255, 0.16);
     }
+
     .replay-speed-control input:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
+
     .replay-speed-control select {
       padding: 4px 6px;
       border: 1px solid rgba(255, 255, 255, 0.35);
@@ -391,43 +527,52 @@
       color: #fff;
       font-size: 12px;
     }
+
     .replay-speed-control select:focus {
       outline: none;
       border-color: #ac61b9;
       background: rgba(255, 255, 255, 0.16);
     }
+
     .replay-speed-control select:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
   </style>
 </head>
+
 <body>
   <div id="root">
     <div id="topbar">
       <strong>F1TENTH Web Renderer</strong>
       <span id="status">Connecting...</span>
       <div id="controls">
+        <button id="toggle-stream" type="button" class="topbar-toggle playing" aria-pressed="true"
+          title="Pause: disconnect from backend and stop rendering">Pause</button>
         <button id="toggle-follow" type="button" aria-pressed="false">Free view</button>
         <label><input id="toggle-map" type="checkbox" checked />Show Map</label>
         <label><input id="toggle-history" type="checkbox" />Show position history</label>
         <label><input id="toggle-track-borders" type="checkbox" checked />Show track borders</label>
         <label><input id="toggle-polynomial-raceline" type="checkbox" checked />Show polynomial raceline</label>
         <label><input id="toggle-car-info" type="checkbox" />Show car state info</label>
-        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state, IMU &amp; reward plots</button>
-        <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training metrics</button>
+        <button id="toggle-plots" type="button" class="topbar-toggle" aria-pressed="false">Control, state, IMU &amp;
+          reward plots</button>
+        <button id="toggle-sac-metrics" type="button" class="topbar-toggle" aria-pressed="false">Training
+          metrics</button>
       </div>
     </div>
     <canvas id="view"></canvas>
   </div>
-  <button id="plots-panel-tab" class="side-panel-tab left" type="button" title="Show control, state, IMU and reward plots">Plots</button>
+  <button id="plots-panel-tab" class="side-panel-tab left" type="button"
+    title="Show control, state, IMU and reward plots">Plots</button>
   <aside id="plots-panel" class="side-panel left" aria-label="Control, state, IMU and reward plots" aria-hidden="true">
     <div id="plots-panel-resize-handle" title="Drag to resize panel width"></div>
     <div class="side-panel-header">
       <span>Control, State, IMU &amp; Reward plots</span>
       <label class="plot-window-control" title="Seconds of history shown on each plot">
         Window (s)
-        <input id="plot-window-s" type="text" inputmode="decimal" value="50" size="4" aria-label="Plot time window in seconds" />
+        <input id="plot-window-s" type="text" inputmode="decimal" value="50" size="4"
+          aria-label="Plot time window in seconds" />
       </label>
       <button id="plots-panel-close" class="side-panel-close" type="button" title="Collapse panel">Hide</button>
     </div>
@@ -447,8 +592,10 @@
       <section class="plot-section" id="reward-plots-section" aria-label="Reward plots">
         <div class="plot-section-title-row">
           <div class="reward-tab-bar" role="tablist" aria-label="Reward plot views">
-            <button type="button" class="reward-tab active" data-reward-tab="live" role="tab" aria-selected="true">Live</button>
-            <button type="button" class="reward-tab" data-reward-tab="components" role="tab" aria-selected="false">Reward Components</button>
+            <button type="button" class="reward-tab active" data-reward-tab="live" role="tab"
+              aria-selected="true">Live</button>
+            <button type="button" class="reward-tab" data-reward-tab="components" role="tab"
+              aria-selected="false">Reward Components</button>
           </div>
         </div>
         <div id="reward-live-pane" class="reward-tab-pane active" role="tabpanel">
@@ -488,13 +635,15 @@
         <option value="4">4×</option>
         <option value="8">8×</option>
       </select>
-      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4" aria-label="Custom replay speed multiplier" />
+      <input id="replay-speed" type="text" inputmode="decimal" value="1.0" size="4"
+        aria-label="Custom replay speed multiplier" />
       <span>×</span>
     </label>
     <input id="replay-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="Scrub recording time" />
     <span id="replay-time">—</span>
   </div>
-  <button id="metrics-panel-tab" class="side-panel-tab left" type="button" title="Show SAC training metrics">Metrics</button>
+  <button id="metrics-panel-tab" class="side-panel-tab left" type="button"
+    title="Show SAC training metrics">Metrics</button>
   <aside id="metrics-panel" class="side-panel left" aria-label="SAC training metrics" aria-hidden="true">
     <div class="side-panel-header">
       <span>SAC training metrics</span>
@@ -531,6 +680,7 @@
     const plotWindowInputEl = document.getElementById("plot-window-s");
     const toggleIntegratedRewardsEl = document.getElementById("toggle-integrated-rewards");
     const statusEl = document.getElementById("status");
+    const toggleStreamEl = document.getElementById("toggle-stream");
     const toggleMapEl = document.getElementById("toggle-map");
     const toggleHistoryEl = document.getElementById("toggle-history");
     const toggleTrackBordersEl = document.getElementById("toggle-track-borders");
@@ -617,6 +767,8 @@
     let liveSocketReconnectMs = 500;
     let liveSocketFallbackTimer = null;
     let liveSocketConnectFallbackToken = null;
+    let viewerPaused = false;
+    let renderLoopRunning = false;
     let canvasCssW = 0;
     let canvasCssH = 0;
     let inflightFetches = 0;
@@ -1177,6 +1329,47 @@
       btn.title = cameraFollowEgo
         ? "Unlock view (double-tap track)"
         : "Lock view to car (double-tap track)";
+    }
+
+    function updateStreamButton() {
+      const btn = toggleStreamEl || document.getElementById("toggle-stream");
+      if (!btn) return;
+      btn.classList.toggle("playing", !viewerPaused);
+      btn.classList.toggle("paused", viewerPaused);
+      btn.textContent = viewerPaused ? "Play" : "Pause";
+      btn.setAttribute("aria-pressed", viewerPaused ? "false" : "true");
+      btn.title = viewerPaused
+        ? "Resume streaming from backend"
+        : "Pause: disconnect from backend and stop rendering";
+    }
+
+    function startRenderLoop() {
+      if (renderLoopRunning || viewerPaused) return;
+      renderLoopRunning = true;
+      requestAnimationFrame(draw);
+    }
+
+    function setViewerPaused(paused) {
+      if (viewerPaused === paused) return;
+      viewerPaused = paused;
+      updateStreamButton();
+      if (paused) {
+        disconnectLiveWebSocket();
+        stopStatePolling();
+        statusEl.textContent = "Paused — disconnected from backend (rendering stopped)";
+        return;
+      }
+      if (replayRecordingEnabled) {
+        startHistoryPolling();
+      } else {
+        liveSocketWanted = true;
+        connectLiveWebSocket();
+      }
+      startRenderLoop();
+    }
+
+    function toggleViewerPause() {
+      setViewerPaused(!viewerPaused);
     }
 
     function touchDistance(t0, t1) {
@@ -2350,7 +2543,7 @@
       const transport = liveSocketConnected ? " | ws" : "";
       const modeText = isFollowLatestMode() ? " | live" : ` | buf: ${adaptiveLiveDelayS.toFixed(2)}s`;
       if (nowWall - lastStatusUpdateS >= 0.25) {
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${transport}${modeText}${labelText}`;
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | zoom: ${zoom.toFixed(1)}${simHzText}${transport}${modeText}${labelText}`;
         lastStatusUpdateS = nowWall;
       }
     }
@@ -2360,12 +2553,12 @@
         clearTimeout(liveSocketFallbackTimer);
         liveSocketFallbackTimer = null;
       }
-      if (replayRecordingEnabled || !liveSocketWanted) {
+      if (replayRecordingEnabled || viewerPaused || !liveSocketWanted) {
         return;
       }
       liveSocketFallbackTimer = setTimeout(async () => {
         liveSocketFallbackTimer = null;
-        if (liveSocketConnected || replayRecordingEnabled) {
+        if (viewerPaused || liveSocketConnected || replayRecordingEnabled || !liveSocketWanted) {
           return;
         }
         await prefetchLiveBuffer();
@@ -2374,7 +2567,7 @@
     }
 
     function connectLiveWebSocket() {
-      if (!liveSocketWanted || replayRecordingEnabled) return;
+      if (!liveSocketWanted || viewerPaused || replayRecordingEnabled) return;
       if (
         liveSocket
         && (liveSocket.readyState === WebSocket.OPEN
@@ -2430,14 +2623,14 @@
         liveSocketConnected = false;
         liveSocket = null;
         liveSocketConnectFallbackToken = null;
-        if (!liveSocketWanted || replayRecordingEnabled) {
+        if (!liveSocketWanted || viewerPaused || replayRecordingEnabled) {
           return;
         }
         if (!wasConnected) {
           scheduleHttpFallbackPolling();
         }
         setTimeout(() => {
-          if (liveSocketWanted && !replayRecordingEnabled && !liveSocketConnected) {
+          if (liveSocketWanted && !viewerPaused && !replayRecordingEnabled && !liveSocketConnected) {
             connectLiveWebSocket();
           }
         }, liveSocketReconnectMs);
@@ -3095,6 +3288,11 @@
       if (replayBarEl) {
         replayBarEl.style.display = replayRecordingEnabled ? "flex" : "none";
       }
+      if (viewerPaused) {
+        disconnectLiveWebSocket();
+        stopStatePolling();
+        return;
+      }
       if (replayRecordingEnabled) {
         disconnectLiveWebSocket();
         startHistoryPolling();
@@ -3196,6 +3394,9 @@
     }
 
     async function pollTelemetry() {
+      if (viewerPaused) {
+        return;
+      }
       if (liveSocketConnected && !metricsPanelOpen) {
         return;
       }
@@ -3497,7 +3698,7 @@
       const camMode = cameraFollowEgo ? "follow-car" : "free";
       const simHzText = Number.isFinite(simTimeRate) ? ` | sim: ${simTimeRate.toFixed(2)}x` : "";
       if (nowWall - lastStatusUpdateS >= 0.25) {
-        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | cars: ${(latest?.poses?.length || 0)} | cam: ${camMode} | zoom: ${zoom.toFixed(1)}${simHzText}${labelText}`;
+        statusEl.textContent = `Sim time: ${(latestSimulationTime || 0).toFixed(2)} s | zoom: ${zoom.toFixed(1)}${simHzText}${labelText}`;
         lastStatusUpdateS = nowWall;
       }
       if (replayRecordingEnabled) {
@@ -3582,6 +3783,7 @@
     }
 
     function startStatePolling() {
+      if (viewerPaused) return;
       stopStatePolling();
       const tick = getStatePollTick();
       if (!tick) return;
@@ -3702,6 +3904,10 @@
       if (bufferPlaybackMode === "manual") {
         updateReplayBarUI();
       }
+      if (viewerPaused) {
+        renderLoopRunning = false;
+        return;
+      }
       requestAnimationFrame(draw);
     }
 
@@ -3762,7 +3968,7 @@
     }
 
     async function sendViewerHeartbeat() {
-      if (liveSocketConnected) {
+      if (viewerPaused || liveSocketConnected) {
         return;
       }
       try {
@@ -3876,6 +4082,11 @@
     document.getElementById("toggle-follow").addEventListener("click", () => {
       toggleCameraFollow();
     });
+    if (toggleStreamEl) {
+      toggleStreamEl.addEventListener("click", () => {
+        toggleViewerPause();
+      });
+    }
     const replayPlayEl = document.getElementById("replay-play");
     const replayLiveEl = document.getElementById("replay-live");
     const replaySliderEl = document.getElementById("replay-slider");
@@ -4031,7 +4242,7 @@
       ro.observe(metricsPanelEl);
     }
     async function prefetchLiveBuffer() {
-      if (replayRecordingEnabled) return;
+      if (viewerPaused || replayRecordingEnabled) return;
       try {
         const r = await fetch("/state-history?since=0", { cache: "no-store" });
         if (!r.ok) return;
@@ -4047,17 +4258,20 @@
       applyReplayRecordingUi();
       syncReplaySpeedInput();
       updateReplayBarUI();
+      updateStreamButton();
       resizeCanvas();
       await loadUiConfig();
       loadMap();
       loadStaticOverlay();
-      if (!replayRecordingEnabled) {
-        liveSocketWanted = true;
-        connectLiveWebSocket();
-      } else {
-        startHistoryPolling();
+      if (!viewerPaused) {
+        if (!replayRecordingEnabled) {
+          liveSocketWanted = true;
+          connectLiveWebSocket();
+        } else {
+          startHistoryPolling();
+        }
+        startRenderLoop();
       }
-      requestAnimationFrame(draw);
     }
 
     function scheduleBackgroundPolls() {
@@ -4086,4 +4300,5 @@
     bootstrapViewer();
   </script>
 </body>
+
 </html>

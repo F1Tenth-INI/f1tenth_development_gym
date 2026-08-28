@@ -225,7 +225,7 @@ class Settings():
     WEB_RENDER_MAX_ROLLOUT_POINTS = 24
     PYGAME_RENDER_FPS = 60               # cap pygame draw rate; sim still runs at full speed, only screen flips are throttled
 
-    CAMERA_AUTO_FOLLOW = True  # Automatically follow the first car on the map
+    CAMERA_AUTO_FOLLOW = False  # Automatically follow the first car on the map
     RENDER_INFO = True  # Render additional information on the screen
     PRINTING_ON = False
     FLOAT_ON_TOP = False  # Float the rendering window on top of all other windows, implemented for Mac only
@@ -306,6 +306,9 @@ class Settings():
     SAC_UDT_REF_SIM_FREQUENCY = 200.0
     # SAC replay minibatch size (samples per gradient step on the learner).
     SAC_BATCH_SIZE = 256
+    # Multi-step TD: critic target uses an n-step return instead of 1-step Bellman.
+    # 1 = classic SAC. Typical values 3–5; larger n reduces bias, increases variance.
+    SAC_N_STEP = 1
     # Stream transitions to the learner every N env steps (episode tail is flushed on done).
     SAC_STREAM_BATCH_SIZE = 32
     # Skip episode-end TCP batches shorter than this (guards crash-only spam).

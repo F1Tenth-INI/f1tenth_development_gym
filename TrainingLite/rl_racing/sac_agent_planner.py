@@ -98,6 +98,11 @@ class RLAgentPlanner(template_planner):
         
         if self.training_mode:
             self._log_info("[RLAgentPlanner] Mode: TRAINING (receiving weights from server)")
+            n_step = max(1, int(getattr(Settings, "SAC_N_STEP", 1)))
+            self._log_info(
+                f"[RLAgentPlanner] Streaming 1-step (s, a, r, s') tuples; "
+                f"learner applies {n_step}-step TD (Settings.SAC_N_STEP)"
+            )
         else:
             self._log_info(
                 f"[RLAgentPlanner] Mode: INFERENCE (using model: {self.inference_model_name})"
@@ -311,6 +316,7 @@ class RLAgentPlanner(template_planner):
         if self.curriculum_supervisor is not None:
             info_out["difficulty"] = float(np.clip(np.round(self.curriculum_supervisor.get_difficulty(), 4), 0.0, 1.0))
         at_episode_end = bool(done) or self.control_index >= Settings.MAX_EPISODE_LENGTH
+        # 1-step tuple: the learner folds these into n-step TD returns (Settings.SAC_N_STEP).
         transition = {
             "obs":      self.prev_obs_raw.astype(np.float32),
             "action":   self.prev_action.astype(np.float32),

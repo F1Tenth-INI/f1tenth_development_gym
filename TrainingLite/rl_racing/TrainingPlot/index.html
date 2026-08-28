@@ -39,6 +39,30 @@
     <section id="tab-metrics" class="tab-panel active" role="tabpanel">
       <div class="panel-header">
         <div id="metrics-meta" class="meta-line">Waiting for data…</div>
+        <div class="metrics-xaxis">
+          <label title="Horizontal axis for training metrics">
+            X axis
+            <select id="metrics-x-axis">
+              <option value="wallclock">Wall-clock time</option>
+              <option value="simulation">Simulation time</option>
+              <option value="timesteps">Timesteps</option>
+            </select>
+          </label>
+        </div>
+        <div class="metrics-series-picker">
+          <span class="metrics-series-label">Metrics</span>
+          <button type="button" id="metrics-series-toggle" class="metrics-series-toggle" aria-expanded="false" aria-controls="metrics-series-menu">
+            Training
+          </button>
+          <div id="metrics-series-menu" class="metrics-series-menu" hidden>
+            <div class="metrics-series-actions">
+              <button type="button" class="secondary-btn" data-series-action="training">Training</button>
+              <button type="button" class="secondary-btn" data-series-action="all">All</button>
+              <button type="button" class="secondary-btn" data-series-action="none">None</button>
+            </div>
+            <div id="metrics-series-list" class="metrics-series-list"></div>
+          </div>
+        </div>
         <div id="metrics-status" class="inline-status">connecting</div>
       </div>
       <div id="metrics-chart" class="metrics-chart"></div>
@@ -97,7 +121,7 @@
   </main>
 
   <script src="main.js?v=4"></script>
-  <script src="metrics_tab.js?v=4"></script>
+  <script src="metrics_tab.js?v=9"></script>
   <script src="reward_tab.js?v=4"></script>
   <script src="obs_tab.js?v=5"></script>
 </body>
