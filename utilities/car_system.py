@@ -990,12 +990,15 @@ class CarSystem:
             str(getattr(Settings, "CONTROLLER", "") or "") == "sac_agent"
             and not getattr(Settings, "SAC_INFERENCE_MODEL_NAME", None)
         )
-        save_and_plot_incidents(
-            overtakes,
-            crashes,
-            csv_filepath=csv_filepath,
-            show=not is_training_client,
-        )
+        try:
+            save_and_plot_incidents(
+                overtakes,
+                crashes,
+                csv_filepath=csv_filepath,
+                show=not is_training_client,
+            )
+        except ValueError as exc:
+            print(f"[incidents] skipped save: {exc}")
 
     def add_control_noise(self, control):
         if self.control_noise is None or self.control_index % Settings.CONTROL_NOISE_DURATION == 0:
