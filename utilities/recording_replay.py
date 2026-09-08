@@ -18,15 +18,22 @@ def virtual_opponent_recording_column_name(slot: int, component: int) -> str:
 
 
 def get_virtual_opponent_recording_dict(driver: "CarSystem", slot_count: int) -> dict:
-    """CSV columns for virtual opponent poses [x, y, theta] per slot."""
+    """CSV columns for opponent poses [x, y, theta] per slot (virtual or physics)."""
     recording_dict = {}
 
     def _pose_value(opponent_idx: int, component_idx: int):
         def getter():
-            if driver.virtual_opponents is None:
-                return float("nan")
-            poses = driver.virtual_opponents.get_poses()
-            if opponent_idx >= len(poses):
+            poses = None
+            if driver.virtual_opponents is not None:
+                poses = driver.virtual_opponents.get_poses()
+            elif getattr(driver, "env_state", None) is not None:
+                from utilities.virtual_opponents import opponent_poses_from_car_states
+
+                poses = opponent_poses_from_car_states(
+                    driver.env_state.get("car_states") or [],
+                    int(getattr(driver, "driver_index", 0)),
+                )
+            if poses is None or opponent_idx >= len(poses):
                 return float("nan")
             return float(poses[opponent_idx, component_idx])
 
@@ -137,16 +144,18 @@ def resolve_map_for_recording(csv_path: str, map_override: str | None = None) ->
     return map_render_path, map_name
 
 
+def _sorted_numbered_columns(columns, prefix: str) -> list[str]:
+    matched = [col for col in columns if str(col).startswith(prefix)]
+    try:
+        return sorted(matched, key=lambda name: int(str(name)[len(prefix):].lstrip("_")))
+    except ValueError:
+        return sorted(matched)
+
+
 def next_waypoints_from_recording_row(row) -> Optional[np.ndarray]:
     """Rebuild look-ahead waypoint polyline from WYPT_X/Y columns in one CSV row."""
-    x_cols = sorted(
-        [col for col in row.index if str(col).startswith("WYPT_X_")],
-        key=lambda name: int(str(name).split("_")[-1]),
-    )
-    y_cols = sorted(
-        [col for col in row.index if str(col).startswith("WYPT_Y_")],
-        key=lambda name: int(str(name).split("_")[-1]),
-    )
+    x_cols = _sorted_numbered_columns(row.index, "WYPT_X_")
+    y_cols = _sorted_numbered_columns(row.index, "WYPT_Y_")
     if not x_cols or not y_cols or len(x_cols) != len(y_cols):
         return None
     return np.column_stack(
@@ -155,6 +164,76 @@ def next_waypoints_from_recording_row(row) -> Optional[np.ndarray]:
             np.asarray([float(row[col]) for col in y_cols], dtype=np.float32),
         ]
     )
+
+
+def next_waypoints_array_from_dataframe(df) -> Optional[np.ndarray]:
+    """Look-ahead waypoints for every row, shape (N, W, 2), or None if absent."""
+    x_cols = _sorted_numbered_columns(df.columns, "WYPT_X_")
+    y_cols = _sorted_numbered_columns(df.columns, "WYPT_Y_")
+    if not x_cols or not y_cols or len(x_cols) != len(y_cols):
+        return None
+    xs = df[x_cols].to_numpy(dtype=np.float32)
+    ys = df[y_cols].to_numpy(dtype=np.float32)
+    return np.stack([xs, ys], axis=-1)
+
+
+def lidar_columns_and_angles(columns) -> tuple[list[str], Optional[np.ndarray]]:
+    """Return recorded LIDAR_* columns and the matching beam angles in radians."""
+    lidar_cols = _sorted_numbered_columns(columns, "LIDAR_")
+    if not lidar_cols:
+        return [], None
+    from utilities.lidar_utils import LidarHelper
+
+    helper = LidarHelper()
+    indices = np.asarray(
+        [int(str(col).split("_", 1)[1]) for col in lidar_cols], dtype=np.int64
+    )
+    n_angles = int(helper.all_angles_rad.shape[0])
+    valid = (indices >= 0) & (indices < n_angles)
+    if not np.any(valid):
+        return [], None
+    lidar_cols = [col for col, keep in zip(lidar_cols, valid) if keep]
+    indices = indices[valid]
+    return lidar_cols, np.asarray(helper.all_angles_rad[indices], dtype=np.float32)
+
+
+def lidar_points_from_ranges(
+    ranges: np.ndarray,
+    angles: np.ndarray,
+    pose_x: float,
+    pose_y: float,
+    pose_theta: float,
+    *,
+    max_points: int = 0,
+    min_range: float = 0.05,
+    max_range: float = 30.0,
+) -> Optional[np.ndarray]:
+    """Convert one scan of ranges into global-frame lidar hit points."""
+    if ranges is None or angles is None or len(ranges) == 0 or len(angles) == 0:
+        return None
+    from utilities.lidar_utils import get_points_from_ranges, transform_points_from_car_to_global
+    from utilities.state_utilities import create_car_state
+
+    ranges = np.asarray(ranges, dtype=np.float64).reshape(-1)
+    angles = np.asarray(angles, dtype=np.float64).reshape(-1)
+    n = min(ranges.size, angles.size)
+    ranges = ranges[:n]
+    angles = angles[:n]
+    valid = np.isfinite(ranges) & (ranges > min_range) & (ranges < max_range)
+    if not np.any(valid):
+        return None
+    ranges = ranges[valid]
+    angles = angles[valid]
+    if max_points > 0 and ranges.size > max_points:
+        step = int(np.ceil(ranges.size / float(max_points)))
+        ranges = ranges[::step]
+        angles = angles[::step]
+    relative = get_points_from_ranges(ranges.astype(np.float32), angles.astype(np.float32))
+    car_state = create_car_state(
+        {"pose_x": float(pose_x), "pose_y": float(pose_y), "pose_theta": float(pose_theta)}
+    )
+    world = transform_points_from_car_to_global(car_state, relative)
+    return np.asarray(world, dtype=np.float32)
 
 
 def apply_replay_recording_context(

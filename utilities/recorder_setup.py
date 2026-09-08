@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from utilities.Settings import Settings
+from utilities.virtual_opponents import opponent_count
 
 if TYPE_CHECKING:
     from utilities.car_system import CarSystem
@@ -108,13 +109,11 @@ def init_car_recorder(
 
     car_system.recorder.dict_data_to_save_basic.update(recorder_dict)
 
-    if car_system.virtual_opponents is not None:
+    if opponent_count() > 0:
         from utilities.recording_replay import get_virtual_opponent_recording_dict
 
         car_system.recorder.dict_data_to_save_basic.update(
-            get_virtual_opponent_recording_dict(
-                car_system, len(car_system.virtual_opponents.opponents)
-            )
+            get_virtual_opponent_recording_dict(car_system, opponent_count())
         )
 
     if Settings.FORGE_HISTORY and hasattr(car_system, "history_forger"):

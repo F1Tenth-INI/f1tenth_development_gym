@@ -1,9 +1,9 @@
-"""Detect and track opponents (real or virtual) from the ego lidar scan.
+"""Detect and track opponents from the ego lidar scan.
 
-Both physically-simulated opponents and the lightweight "virtual opponents"
-(see ``utilities/virtual_opponents.py``) appear identically in the ego lidar
-scan: a virtual opponent ray-casts its rectangular body into the scan before it
-reaches the ego, so from the controller's point of view there is no difference.
+Physics cars and trajectory-replay ("virtual") opponents appear the same in the
+ego lidar: virtual opponents ray-cast their rectangular body into the scan, and
+physics opponents are included by the lidar simulator. From the controller's
+point of view there is no difference.
 
 This module therefore works purely from the lidar return. It uses the full,
 non-decimated scan (every beam) so that small / distant opponents are still

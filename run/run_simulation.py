@@ -16,6 +16,7 @@ from utilities.Settings import Settings
 from utilities.car_system import CarSystem
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.virtual_opponents import is_solo_episode, physics_opponent_count
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
 from utilities.state_utilities import (
     STATE_VARIABLES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_THETA_COS_IDX, LINEAR_VEL_X_IDX, ANGULAR_VEL_Z_IDX,
@@ -191,7 +192,7 @@ class RacingSimulation:
         env_car_parameters = yaml.load(open(os.path.join(path, car_parameter_file), "r"), Loader=yaml.FullLoader)
 
         # Simulation settings
-        num_agents = 1 + Settings.NUMBER_OF_OPPONENTS
+        num_agents = 1 + physics_opponent_count()
         seed = 12345
 
         # Initialize lidar simulator
@@ -225,7 +226,7 @@ class RacingSimulation:
 
         opponents = []
         waypoint_velocity_factor = (np.random.uniform(-0.05, 0.05) + Settings.OPPONENTS_VEL_FACTOR )
-        for _ in range(Settings.NUMBER_OF_OPPONENTS):
+        for _ in range(physics_opponent_count()):
             opponent = CarSystem(
                 Settings.OPPONENTS_CONTROLLER,
                 save_recording=False,
@@ -237,6 +238,8 @@ class RacingSimulation:
             
         self.drivers = [driver] + opponents
         self.number_of_drivers = len(self.drivers)
+        for index, item in enumerate(self.drivers):
+            item.driver_index = index
        
        
   
@@ -312,7 +315,7 @@ class RacingSimulation:
         )
         scans = self.lidar_simulator.from_env_state(driver_index, env_state, simulate=simulate_lidar)
 
-        collision = bool(agent.in_collision) or bool(self.sim_obs['collisions'][driver_index])
+        collision = bool(agent.in_collision)
         terminated = self.sim_obs['terminated']
         interrupted = False # Only happens on manual driving
 
@@ -399,6 +402,15 @@ class RacingSimulation:
         """Car poses from the physics world (single source of truth)."""
         return [self.world_sim.agents[i].state.copy() for i in range(self.number_of_drivers)]
 
+    def _get_virtual_opponent_poses(self):
+        """Global [x, y, theta] of replayed virtual opponents on the ego driver."""
+        if not self.drivers:
+            return np.zeros((0, 3), dtype=np.float32)
+        virtual_opponents = getattr(self.drivers[0], "virtual_opponents", None)
+        if virtual_opponents is None:
+            return np.zeros((0, 3), dtype=np.float32)
+        return np.asarray(virtual_opponents.get_poses(), dtype=np.float32)
+
     def _build_env_state_snapshot(self):
         """Collect a single snapshot of the full race environment."""
         sim_obs_copy = self.sim_obs.copy() if self.sim_obs is not None else {}
@@ -414,6 +426,7 @@ class RacingSimulation:
             "time": float(self.sim_time),
             "sim_index": int(self.episode_index),
             "car_states": self._get_car_states(),
+            "virtual_opponent_poses": self._get_virtual_opponent_poses(),
             "controls": controls,
             "sim_obs": sim_obs_copy,
         }
@@ -512,8 +525,11 @@ class RacingSimulation:
 
         self.agent_controls = []
 
-        #Process observations and get control actions
+        # Process observations and get control actions
         for index, driver in enumerate(self.drivers):
+            if is_solo_episode() and index > 0:
+                self.agent_controls.append([0.0, 0.0])
+                continue
             driver : CarSystem = driver
 
             car_state_clean = self.world_sim.agents[index].state
@@ -551,6 +567,8 @@ class RacingSimulation:
     def on_step_end(self):
         post_step_env = self._build_env_state_snapshot()
         for i in range(self.number_of_drivers):
+            if is_solo_episode() and i > 0:
+                continue
             driver : CarSystem = self.drivers[i]
             driver.on_step_end(self.build_driver_observation(i, env_state=post_step_env))
         
@@ -743,6 +761,15 @@ class RacingSimulation:
                 initial_states[i][POSE_THETA_SIN_IDX] = np.sin(initial_states[i][POSE_THETA_IDX])
                 initial_states[i][LINEAR_VEL_X_IDX] = 0.0
                 initial_states[i][ANGULAR_VEL_Z_IDX] = 0.0
+        if is_solo_episode() and initial_states.shape[0] > 1:
+            # Physics agents stay allocated; park them off the map this episode.
+            initial_states[1:, POSE_X_IDX] = -1000.0
+            initial_states[1:, POSE_Y_IDX] = -1000.0
+            initial_states[1:, POSE_THETA_IDX] = 0.0
+            initial_states[1:, POSE_THETA_COS_IDX] = 1.0
+            initial_states[1:, POSE_THETA_SIN_IDX] = 0.0
+            initial_states[1:, LINEAR_VEL_X_IDX] = 0.0
+            initial_states[1:, ANGULAR_VEL_Z_IDX] = 0.0
         return initial_states
 
     # Noise Level can now be set in Settings.py

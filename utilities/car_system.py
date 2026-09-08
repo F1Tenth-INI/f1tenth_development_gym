@@ -51,7 +51,18 @@ from utilities.state_utilities import (
     STATE_VARIABLES,
     STEERING_ANGLE_IDX,
 )
-from utilities.virtual_opponents import VirtualOpponents, get_ego_car_dimensions
+from utilities.virtual_opponents import (
+    VirtualOpponents,
+    empty_virtual_opponent_observation,
+    get_ego_car_dimensions,
+    is_solo_episode,
+    min_clearance_to_ego_from_poses,
+    observation_from_car_states,
+    opponent_count,
+    opponent_poses_from_car_states,
+    opponents_are_virtual,
+    opponents_collide_with_ego,
+)
 from utilities.waypoint_utils import (
     WP_KAPPA_IDX,
     WP_S_IDX,
@@ -135,6 +146,8 @@ class CarSystem:
         self.cbf_info = None
         self.mpc_info = None
         self._virtual_opponent_collision = False
+        self.driver_index = 0
+        self.env_state = None
 
     def _init_waypoints_and_rendering(self) -> None:
         self.waypoint_utils = WaypointUtils()
@@ -172,7 +185,7 @@ class CarSystem:
         self.obstacle_detector = ObstacleDetector()
         self.reward_calculator = RewardCalculator()
         self.episode_terminator = EpisodeTerminator()
-        self.virtual_opponents = VirtualOpponents.from_settings()
+        self.virtual_opponents = self._spawn_virtual_opponents_for_episode()
         if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):
             self.opponent_tracker = OpponentTracker.from_settings()
         else:
@@ -188,6 +201,19 @@ class CarSystem:
             self.mpc_safety_filter.attach_render_utils(self.render_utils)
         self.tuner_connector = None
         self.mpc_info = None
+
+    def _spawn_virtual_opponents_for_episode(self):
+        """Spawn trajectory-replay opponents when using the virtual backend.
+
+        Solo episodes skip spawning so lidar/reward match true solo driving.
+        Observation slot count stays ``NUMBER_OF_OPPONENTS``.
+        """
+        if not opponents_are_virtual():
+            return None
+        n_configured = opponent_count()
+        if n_configured <= 0 or is_solo_episode():
+            return None
+        return VirtualOpponents.from_settings()
 
     def _init_planner(self, controller) -> None:
         self.controller_name = controller
@@ -245,7 +271,7 @@ class CarSystem:
         self._virtual_opponent_collision = False
         self.episode_done = False
         self.episode_truncated = False
-        self.virtual_opponents = VirtualOpponents.from_settings()
+        self.virtual_opponents = self._spawn_virtual_opponents_for_episode()
 
         self.control_index = 0
         self.cbf_info = None
@@ -310,6 +336,7 @@ class CarSystem:
     def _ingest_driver_observation(self, observation):
         """Apply a raw driver observation dict to internal CarSystem state."""
         self.driver_observation = observation
+        self.env_state = observation.get("env_state", self.env_state)
         self.set_car_state(observation["car_state"])
         self.set_sensors(observation["sensors"])
         self._update_waypoint_indices()
@@ -361,17 +388,36 @@ class CarSystem:
             "lap_count": len(self.laptimes),
         }
 
-    def _virtual_opponent_observation_fields(self) -> dict[str, Any]:
-        if self.virtual_opponents is None:
-            return {"virtual_opponent_poses": np.zeros((0, 3), dtype=np.float32)}
-        ego_length, ego_width = get_ego_car_dimensions()
-        return {
-            "virtual_opponent_poses": self.virtual_opponents.get_poses(),
-            "min_virtual_opponent_distance": self.virtual_opponents.min_clearance_to_ego(
-                self.car_state, ego_length, ego_width
-            ),
-            "virtual_opponent_collision": bool(self._virtual_opponent_collision),
-        }
+    def _physics_opponent_length_width(self) -> tuple[float, float]:
+        return get_ego_car_dimensions()
+
+    def _physics_opponent_poses(self) -> np.ndarray:
+        car_states = (self.env_state or {}).get("car_states") or []
+        return opponent_poses_from_car_states(car_states, self.driver_index)
+
+    def _opponent_observation_fields(self) -> dict[str, Any]:
+        if self.virtual_opponents is not None:
+            ego_length, ego_width = get_ego_car_dimensions()
+            return {
+                "virtual_opponent_poses": self.virtual_opponents.get_poses(),
+                "virtual_opponent_states": self.virtual_opponents.get_relative_states(
+                    self.car_state
+                ),
+                "min_virtual_opponent_distance": self.virtual_opponents.min_clearance_to_ego(
+                    self.car_state, ego_length, ego_width
+                ),
+                "virtual_opponent_collision": bool(self._virtual_opponent_collision),
+                "virtual_opponent_waypoint_indices": self.virtual_opponents.get_waypoint_indices(),
+            }
+        if opponent_count() <= 0 or opponents_are_virtual() or is_solo_episode():
+            return empty_virtual_opponent_observation()
+        return observation_from_car_states(
+            self.car_state,
+            (self.env_state or {}).get("car_states") or [],
+            ego_index=self.driver_index,
+            waypoints=getattr(self.waypoint_utils, "waypoints", None),
+            collision=bool(self._virtual_opponent_collision),
+        )
 
     def _build_controller_observation(self, driver_observation: dict[str, Any]) -> dict[str, Any]:
         """Enrich raw driver observation with CarSystem-computed planner fields."""
@@ -389,13 +435,14 @@ class CarSystem:
             "frenet_coordinates": np.asarray(
                 self.waypoint_utils.frenet_coordinates, dtype=np.float32
             ),
+            "ego_waypoint_index": int(self.waypoint_utils.nearest_waypoint_index or 0),
             "control_index": int(self.control_index),
             "imu": self.imu,
             "motor_sensors": self.motor_sensors,
             "processed_ranges": np.asarray(self.lidar_utils.processed_ranges, dtype=np.float32),
             "lidar_points": self.lidar_utils.processed_points_map_coordinates,
             **self._lap_metrics(),
-            **self._virtual_opponent_observation_fields(),
+            **self._opponent_observation_fields(),
         }
         controller_observation.update(
             self.opponent_tracker.to_controller_observation(self.car_state)
@@ -420,6 +467,11 @@ class CarSystem:
         info = {
             "lap_times": list(self.laptimes),
             "reward_components": reward_components,
+            "min_virtual_opponent_distance": float(
+                post_step_controller_observation.get(
+                    "min_virtual_opponent_distance", float("inf")
+                )
+            ),
             **episode_termination,
         }
         return episode_termination, reward, reward_components, info
@@ -468,16 +520,24 @@ class CarSystem:
         return controller_observation
 
     def _check_virtual_opponent_collision(self, driver_observation: dict) -> bool:
-        if (
-            self.virtual_opponents is None
-            or self.car_state is None
-            or not bool(getattr(Settings, "TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION", False))
-        ):
+        if self.car_state is None or not bool(
+            getattr(Settings, "TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION", False)
+        ) or is_solo_episode():
             return False
+
         ego_length, ego_width = get_ego_car_dimensions()
-        collision = self.virtual_opponents.collides_with_ego(
-            self.car_state, ego_length, ego_width
-        )
+        if self.virtual_opponents is not None:
+            collision = self.virtual_opponents.collides_with_ego(
+                self.car_state, ego_length, ego_width
+            )
+        elif opponent_count() > 0 and not opponents_are_virtual():
+            poses = self._physics_opponent_poses()
+            opp_length, opp_width = self._physics_opponent_length_width()
+            collision = opponents_collide_with_ego(
+                self.car_state, poses, ego_length, ego_width, opp_length, opp_width
+            )
+        else:
+            collision = False
         if collision:
             driver_observation["collision"] = True
         return collision
@@ -632,13 +692,21 @@ class CarSystem:
     def _primary_raceline_blocked(self) -> bool:
         if self.waypoint_utils.obstacle_on_raceline:
             return True
-        if self.virtual_opponents is None or self.car_state is None:
-            return False
-        ego_length, ego_width = get_ego_car_dimensions()
-        clearance = self.virtual_opponents.min_clearance_to_ego(
-            self.car_state, ego_length, ego_width
-        )
-        return clearance < 4.0
+        if self.virtual_opponents is not None and self.car_state is not None:
+            ego_length, ego_width = get_ego_car_dimensions()
+            clearance = self.virtual_opponents.min_clearance_to_ego(
+                self.car_state, ego_length, ego_width
+            )
+            return clearance < 4.0
+        if opponent_count() > 0 and not opponents_are_virtual() and self.car_state is not None:
+            poses = self._physics_opponent_poses()
+            ego_length, ego_width = get_ego_car_dimensions()
+            opp_length, opp_width = self._physics_opponent_length_width()
+            clearance = min_clearance_to_ego_from_poses(
+                self.car_state, poses, ego_length, ego_width, opp_length, opp_width
+            )
+            return clearance < 4.0
+        return False
 
     def choose_raceline_from_waypoints(self) -> np.ndarray:
         alt = self.waypoint_utils_alternative
@@ -904,6 +972,31 @@ class CarSystem:
         if self.recorder is not None:
             self.recorder.start_csv_recording()
 
+    def _save_overtake_map(self) -> None:
+        if int(getattr(self, "driver_index", 0) or 0) != 0:
+            return
+        reward_calculator = getattr(self, "reward_calculator", None)
+        overtakes = getattr(reward_calculator, "overtake_events", None) or []
+        crashes = getattr(reward_calculator, "crash_events", None) or []
+        if not overtakes and not crashes:
+            print("[incidents] none recorded this run")
+            return
+        from utilities.overtake_map_plot import save_and_plot_incidents
+
+        csv_filepath = None
+        if getattr(self, "recorder", None) is not None:
+            csv_filepath = getattr(self.recorder, "csv_filepath", None)
+        is_training_client = (
+            str(getattr(Settings, "CONTROLLER", "") or "") == "sac_agent"
+            and not getattr(Settings, "SAC_INFERENCE_MODEL_NAME", None)
+        )
+        save_and_plot_incidents(
+            overtakes,
+            crashes,
+            csv_filepath=csv_filepath,
+            show=not is_training_client,
+        )
+
     def add_control_noise(self, control):
         if self.control_noise is None or self.control_index % Settings.CONTROL_NOISE_DURATION == 0:
             noise_level = Settings.NOISE_LEVEL_CONTROL
@@ -918,6 +1011,8 @@ class CarSystem:
 
         if self.planner is not None and hasattr(self.planner, "on_simulation_end"):
             self.planner.on_simulation_end(collision=collision)
+
+        self._save_overtake_map()
 
         self._simulation_ended = True
         if self.recorder is None:

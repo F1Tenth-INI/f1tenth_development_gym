@@ -883,6 +883,7 @@
       "d_action_penality",
       "speed_cap_penalty",
       "proximity_penalty",
+      "vo_proximity_penalty",
       "stuck_reward",
       "spin_reward",
     ];
@@ -893,6 +894,7 @@
       d_action_penality: "#F58518",
       speed_cap_penalty: "#54A24B",
       proximity_penalty: "#B279A2",
+      vo_proximity_penalty: "#FF9DA7",
       stuck_reward: "#EECA3B",
       spin_reward: "#9D755D",
     };
@@ -1140,13 +1142,6 @@
       const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
       extendPointsBounds(bounds, globalWaypoints);
       extendPointsBounds(bounds, static.waypoints_alternative);
-      extendPointsBounds(bounds, static.track_border_points);
-      const borderLines = static.track_border_lines;
-      if (Array.isArray(borderLines)) {
-        for (const line of borderLines) {
-          extendPointsBounds(bounds, line);
-        }
-      }
       if (!Number.isFinite(bounds.minX)) {
         bounds.minX = -10;
         bounds.minY = -10;
@@ -1166,11 +1161,8 @@
       return [
         zoom.toFixed(2),
         showMap ? 1 : 0,
-        showTrackBorders ? 1 : 0,
         globalWaypoints?.length || 0,
         static.waypoints_alternative?.length || 0,
-        static.track_border_points?.length || 0,
-        static.track_border_lines?.length || 0,
         mapMeta?.width || 0,
         mapMeta?.height || 0,
         mapImg?.complete ? 1 : 0,
@@ -1189,21 +1181,6 @@
         path.arc(bx, by, radius, 0, Math.PI * 2);
       }
       bctx.fill(path);
-    }
-
-    function bakeLineOnLayer(bctx, points, color, lineWidth, bake) {
-      if (!Array.isArray(points) || points.length < 2) return;
-      bctx.strokeStyle = color;
-      bctx.lineWidth = lineWidth;
-      bctx.beginPath();
-      points.forEach((p, idx) => {
-        if (!Array.isArray(p) || p.length < 2) return;
-        const bx = (p[0] - bake.minX) * bake.ppm;
-        const by = bake.heightPx - (p[1] - bake.minY) * bake.ppm;
-        if (idx === 0) bctx.moveTo(bx, by);
-        else bctx.lineTo(bx, by);
-      });
-      bctx.stroke();
     }
 
     function rebuildStaticLayerBake(static) {
@@ -1237,17 +1214,6 @@
       const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
       bakePointsOnLayer(bctx, globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, bake);
       bakePointsOnLayer(bctx, static.waypoints_alternative, "rgb(170,170,170)", 1.5, bake);
-      if (showTrackBorders) {
-        const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
-        const borderLines = static.track_border_lines;
-        if (Array.isArray(borderLines) && borderLines.length > 0) {
-          for (const borderLine of borderLines) {
-            bakeLineOnLayer(bctx, borderLine, borderColor, 1.6, bake);
-          }
-        } else {
-          bakePointsOnLayer(bctx, static.track_border_points, borderColor, 1.8, bake);
-        }
-      }
 
       staticLayerBake = bake;
     }
@@ -3827,6 +3793,17 @@
           drawLine(dyn.next_waypoints_polynomial, rgb(colors.next_waypoints_polynomial, "rgb(255,200,0)"), 4.5, cx, cy);
         }
         drawPoints(dyn.lidar_border_points, rgb(colors.lidar, "rgb(255,0,255)"), 2.6, cx, cy);
+        if (showTrackBorders) {
+          const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
+          const borderLines = dyn.track_border_lines;
+          if (Array.isArray(borderLines) && borderLines.length > 0) {
+            for (const borderLine of borderLines) {
+              drawLine(borderLine, borderColor, 1.6, cx, cy);
+            }
+          } else {
+            drawPoints(dyn.track_border_points, borderColor, 1.8, cx, cy);
+          }
+        }
         drawPoints(dyn.obstacles, rgb(colors.obstacles, "rgb(255,0,0)"), 2.0, cx, cy);
         drawVirtualOpponents(
           dyn.virtual_opponents,
@@ -4139,7 +4116,6 @@
     });
     toggleTrackBordersEl.addEventListener("change", () => {
       showTrackBorders = !!toggleTrackBordersEl.checked;
-      invalidateStaticLayerBake();
     });
     if (togglePolynomialRacelineEl) {
       togglePolynomialRacelineEl.addEventListener("change", () => {

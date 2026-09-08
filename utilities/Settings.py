@@ -8,7 +8,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "oval2"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -58,32 +58,45 @@ class Settings():
 
     CONNECT_RACETUNER_TO_MAIN_CAR = False
 
-    # Oponents
+    # Opponents: one count, two backends. Observation, lidar occlusion, collision,
+    # and reward all use the same privileged opponent slots either way.
+    # Virtual = recorded-trajectory replay (no physics, no sensors).
+    # Physics = extra CarSystem agents (pp/etc; lidar skipped unless OPPONENTS_SIMULATE_LIDAR).
     NUMBER_OF_OPPONENTS = 0
+    OPPONENTS_VIRTUAL = False
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
-    OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; opponents get max-range placeholder scans.
+    OPPONENTS_SIMULATE_LIDAR = False  # If False, only ego runs lidar; physics opponents get max-range placeholder scans.
 
-    # Virtual opponents: lightweight lidar occluders replaying recorded trajectories (no physics).
-    # Per-opponent arrays may hold more entries than NUMBER_OF_VIRTUAL_OPPONENTS; the first N are used.
+    # Alias: --NUMBER_OF_VIRTUAL_OPPONENTS N sets NUMBER_OF_OPPONENTS=N and OPPONENTS_VIRTUAL=True.
+    # Per-opponent arrays may hold more entries than the count; the first N are used.
     NUMBER_OF_VIRTUAL_OPPONENTS = 0
     VIRTUAL_OPPONENT_TRAJECTORY_FOLDER = os.path.join("utilities", "virtual_opponent_trajectories")
     # CSV filenames must contain Settings.MAP_NAME (e.g. sac_opponent_trajectory_RCA1.csv).
     VIRTUAL_OPPONENT_RECORDINGS = [
-        "sac_opponent_trajectory_RCA1.csv",
+        "sac_opponent_trajectory_oval1.csv",
         "sac_opponent_trajectory_RCA1.csv",
         "sac_opponent_trajectory_RCA1.csv",
         "sac_opponent_trajectory_RCA1.csv",
     ]
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 100, 170, 240]
-    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 20  # Extra waypoints added per opponent at spawn; 0 = off.
-    VIRTUAL_OPPONENT_VEL_FACTORS = [0.85, 0.1, 0.1, 0.1]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS = [30, 130, 170, 240]
+    VIRTUAL_OPPONENT_DISTANCE_AHEAD_WAYPOINTS_RANDOM_MAX = 10  # Extra waypoints added per opponent at spawn; 0 = off.
+    VIRTUAL_OPPONENT_VEL_FACTORS = [0.5, 0.1, 0.1, 0.1]
     VIRTUAL_OPPONENT_START_OFFSET_S = [0.0, 0.0, 0.0, 0.0]
     VIRTUAL_OPPONENT_TRIM_TO_SINGLE_LAP = True  # Use one clean lap from recording (no loop jump).
     VIRTUAL_OPPONENT_SIZE = [0.25, 0.38]  # [width, length] in meters; None uses ego car dimensions.
     VIRTUAL_OPPONENT_LOOP = True  # Loop single-lap recording when playback time exceeds lap duration.
     TERMINATE_ON_VIRTUAL_OPPONENT_COLLISION = True  # End episode with crash penalty on body overlap.
+    # During opponent finetune: fraction of episodes with no opponents (true solo:
+    # wall-only lidar, no opponent collision/reward). Obs dim still uses NUMBER_OF_OPPONENTS
+    # slots (zeroed). 0.0 = always spawn when N>0; e.g. 0.3 ≈ 30% solo episodes.
+    # Applies to virtual replay and physics opponents. Can also be sampled from
+    # utilities/episode_randomization.yaml (SOLO_EPISODE / SOLO_EPISODE_FRACTION).
+    SOLO_EPISODE_FRACTION = 0.3
+    SOLO_EPISODE = False  # current episode; set on each reset
+    # Deprecated CLI alias for SOLO_EPISODE_FRACTION.
+    VO_SOLO_EPISODE_FRACTION = 0.3
 
     # Opponent tracker: detect/track opponents (real or virtual) from the ego lidar.
     # Lidar returns inside the track corridor (walls removed via waypoint borders)
@@ -152,7 +165,7 @@ class Settings():
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
 
     ## waypoints generation ##
-    MIN_CURV_SAFETY_WIDTH = 0.6             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    MIN_CURV_SAFETY_WIDTH = 0.8             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
@@ -265,6 +278,13 @@ class Settings():
     # Min seconds between train status updates when not using run_training combined display.
     LEARNER_SERVER_TRAIN_LOG_INTERVAL_S = 1.0
 
+    SAC_W_CRASH = None
+    SAC_W_VO_CRASH = None          # override RewardCalculator.w_vo_crash
+    SAC_W_LATERAL_ERROR = None     # override RewardCalculator.w_lateral_error; 0 while learning to pass
+    SAC_W_OVERTAKE = None          # override RewardCalculator.w_overtake
+    SAC_W_STUCK_BEHIND = None      # override dense same-line drafting penalty
+    SAC_W_ALONGSIDE = None         # override dense offset-and-close passing bonus
+    SAC_W_VO_PROXIMITY = None      # override RewardCalculator.w_vo_proximity
     SAC_SPEED_CURRICULUM_LEARNING = False
     SAC_CURRICULUM_DEBUG = False
 
@@ -340,6 +360,16 @@ class Settings():
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
 
     USE_CUSTOM_SAC_SAMPLING = False
+    # When True (and NUMBER_OF_OPPONENTS > 0), replay sampling favors transitions
+    # where the ego is closer to an opponent (see VirtualOpponentProximityReplayBuffer).
+    SAC_VO_PROXIMITY_SAMPLING = True
+    SAC_VO_PROXIMITY_ALPHA = 3.0       # extra weight scale for near-opponent samples
+    SAC_VO_PROXIMITY_TAU_M = 2.0       # closeness falloff [m]; smaller = sharper focus when very close
+    SAC_VO_PROXIMITY_STATS_NEAR_M = 3.0  # "near opponent" cutoff [m] for the logged sampling stats
+    # On first opponent finetune from a solo checkpoint, zero the VO input columns
+    # so random unused weights do not jerk steering. Do NOT set this when loading a
+    # model that already learned opponents.
+    SAC_ZERO_VO_INPUT_WEIGHTS = False
     
 
     
@@ -362,11 +392,44 @@ class Settings():
     WALL_CLOCK_LAPTIMES = True
 
     @classmethod
+    def sync_opponent_settings(cls) -> None:
+        """Keep opponent count and virtual/physics backend in sync.
+
+        ``NUMBER_OF_OPPONENTS`` is the count. ``OPPONENTS_VIRTUAL`` chooses
+        trajectory replay vs physics cars. ``NUMBER_OF_VIRTUAL_OPPONENTS`` is
+        the training/CLI alias: a positive value selects the virtual backend
+        with that count.
+        """
+        n_vo = int(getattr(cls, "NUMBER_OF_VIRTUAL_OPPONENTS", 0) or 0)
+        n_opp = int(getattr(cls, "NUMBER_OF_OPPONENTS", 0) or 0)
+        virtual = bool(getattr(cls, "OPPONENTS_VIRTUAL", False))
+
+        if n_vo > 0:
+            virtual = True
+            n_opp = n_vo
+        elif virtual:
+            n_vo = n_opp
+        else:
+            n_vo = 0
+
+        cls.OPPONENTS_VIRTUAL = virtual
+        cls.NUMBER_OF_OPPONENTS = n_opp
+        cls.NUMBER_OF_VIRTUAL_OPPONENTS = n_vo
+
+        solo_frac = float(getattr(cls, "SOLO_EPISODE_FRACTION", 0.0) or 0.0)
+        vo_solo_frac = float(getattr(cls, "VO_SOLO_EPISODE_FRACTION", solo_frac) or 0.0)
+        if abs(solo_frac - 0.3) < 1e-12 and abs(vo_solo_frac - solo_frac) > 1e-12:
+            solo_frac = vo_solo_frac
+        cls.SOLO_EPISODE_FRACTION = solo_frac
+        cls.VO_SOLO_EPISODE_FRACTION = solo_frac
+
+    @classmethod
     def recalculate_paths(cls) -> None:
         """Recompute path dependent settings after attribute overrides."""
         cls.MAP_PATH = os.path.join("utilities", "maps", cls.MAP_NAME)
         cls.MAP_CONFIG_FILE = os.path.join(cls.MAP_PATH, cls.MAP_NAME + ".yaml")
         cls.RECORDING_PATH = os.path.join(cls.RECORDING_FOLDER, cls.RECORDING_NAME)
+        cls.sync_opponent_settings()
 
 
     def save_snapshot(self, path: str) -> None:
@@ -381,5 +444,8 @@ class Settings():
                 if not attr.startswith("__") and not callable(getattr(Settings, attr)):
                     f.write(f"{attr}: {value}\n")
         print(f"Settings snapshot saved to {out_path}")
+
+
+Settings.sync_opponent_settings()
 
 

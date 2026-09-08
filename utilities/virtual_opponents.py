@@ -1,4 +1,9 @@
-"""Lightweight lidar-blocking opponents that follow recorded trajectories."""
+"""Opponents: physics cars or trajectory-replay stand-ins with the same observation.
+
+Virtual opponents replay a recording (no physics, no sensors) and ray-cast their
+bodies into the ego lidar. Physics opponents are extra CarSystem agents. Both
+fill the same privileged observation slots used by reward, termination, and RL.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +25,22 @@ from utilities.map_scale import (
 )
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.lidar_simulator import LidarSimulator
-from utilities.state_utilities import POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
+from utilities.state_utilities import (
+    LINEAR_VEL_X_IDX,
+    LINEAR_VEL_Y_IDX,
+    NUMBER_OF_STATES,
+    POSE_THETA_COS_IDX,
+    POSE_THETA_IDX,
+    POSE_THETA_SIN_IDX,
+    POSE_X_IDX,
+    POSE_Y_IDX,
+)
+
+# Privileged ego-frame feature vector per virtual opponent:
+# [present, forward, left, heading_rel, vx_body]
+# vx_body = opponent forward speed in its own body frame [m/s] (not relative to ego).
+VIRTUAL_OPPONENT_STATE_SIZE = 5
+_VELOCITY_FD_EPS_S = 0.05
 
 
 def _resolve_recording_path(recording_name: str) -> str:
@@ -194,6 +214,275 @@ def get_virtual_opponent_dimensions() -> tuple[float, float]:
     return float(params["length"]), float(params["width"])
 
 
+def opponent_count() -> int:
+    """Configured opponent count (virtual replay or physics cars)."""
+    return max(int(getattr(Settings, "NUMBER_OF_OPPONENTS", 0) or 0), 0)
+
+
+def opponents_are_virtual() -> bool:
+    """True when opponents replay recordings instead of running physics agents."""
+    return bool(getattr(Settings, "OPPONENTS_VIRTUAL", False))
+
+
+def solo_episode_fraction() -> float:
+    """Probability of a true solo episode (no opponents in lidar / obs / reward)."""
+    return float(
+        getattr(Settings, "SOLO_EPISODE_FRACTION", None)
+        or getattr(Settings, "VO_SOLO_EPISODE_FRACTION", 0.0)
+        or 0.0
+    )
+
+
+def is_solo_episode() -> bool:
+    """Whether this episode hid all opponents. Slot count is unchanged."""
+    return bool(getattr(Settings, "SOLO_EPISODE", False))
+
+
+def roll_solo_episode(rng: Optional[np.random.Generator] = None) -> bool:
+    """Bernoulli roll from SOLO_EPISODE_FRACTION; writes Settings.SOLO_EPISODE."""
+    frac = float(np.clip(solo_episode_fraction(), 0.0, 1.0))
+    if frac <= 0.0:
+        solo = False
+    elif frac >= 1.0:
+        solo = True
+    else:
+        draw = rng.random() if rng is not None else float(np.random.random())
+        solo = bool(draw < frac)
+    Settings.SOLO_EPISODE = solo
+    return solo
+
+
+def physics_opponent_count() -> int:
+    """How many extra world-sim / CarSystem agents to spawn."""
+    if opponents_are_virtual():
+        return 0
+    return opponent_count()
+
+
+def virtual_opponent_slot_count() -> int:
+    """Observation slots: at least one so the RL obs dim stays defined when N=0."""
+    return max(opponent_count(), 1)
+
+
+def empty_virtual_opponent_observation() -> dict:
+    """Default privileged opponent fields when none are spawned this episode."""
+    n_slots = virtual_opponent_slot_count()
+    n_opp = opponent_count()
+    return {
+        "virtual_opponent_poses": np.zeros((0, 3), dtype=np.float32),
+        "virtual_opponent_states": np.zeros(
+            (n_slots, VIRTUAL_OPPONENT_STATE_SIZE), dtype=np.float32
+        ),
+        "min_virtual_opponent_distance": float("inf"),
+        "virtual_opponent_collision": False,
+        "virtual_opponent_waypoint_indices": np.full((n_opp,), -1, dtype=np.int32),
+    }
+
+
+def _pose_from_car_state(car_state: np.ndarray) -> np.ndarray:
+    state = np.asarray(car_state, dtype=np.float64)
+    return np.array(
+        [state[POSE_X_IDX], state[POSE_Y_IDX], state[POSE_THETA_IDX]],
+        dtype=np.float64,
+    )
+
+
+def _map_velocity_from_car_state(car_state: np.ndarray) -> np.ndarray:
+    """Body-frame (vx, vy) → map-frame [vx, vy]."""
+    state = np.asarray(car_state, dtype=np.float64)
+    vx = float(state[LINEAR_VEL_X_IDX])
+    vy = float(state[LINEAR_VEL_Y_IDX])
+    c = float(np.cos(state[POSE_THETA_IDX]))
+    s = float(np.sin(state[POSE_THETA_IDX]))
+    return np.array([vx * c - vy * s, vx * s + vy * c], dtype=np.float64)
+
+
+def _waypoint_index_for_pose(pose: np.ndarray, waypoints: Optional[np.ndarray]) -> int:
+    if waypoints is None or len(waypoints) == 0:
+        return -1
+    from utilities.waypoint_utils import get_nearest_waypoint
+
+    dummy = np.zeros(NUMBER_OF_STATES, dtype=np.float64)
+    dummy[POSE_X_IDX] = float(pose[0])
+    dummy[POSE_Y_IDX] = float(pose[1])
+    idx, _ = get_nearest_waypoint(dummy, np.asarray(waypoints))
+    return int(idx)
+
+
+def relative_opponent_states(
+    ego_car_state: np.ndarray,
+    poses: np.ndarray,
+    velocities: np.ndarray,
+) -> np.ndarray:
+    """Padded ego-frame feature matrix, shape (slot_count, VIRTUAL_OPPONENT_STATE_SIZE).
+
+    Layout per row: present, forward, left, heading_rel, vx_body.
+    """
+    n_slots = virtual_opponent_slot_count()
+    states = np.zeros((n_slots, VIRTUAL_OPPONENT_STATE_SIZE), dtype=np.float32)
+    if ego_car_state is None or poses is None or len(poses) == 0:
+        return states
+
+    ego = np.asarray(ego_car_state, dtype=np.float64)
+    ego_c = float(ego[POSE_THETA_COS_IDX])
+    ego_s = float(ego[POSE_THETA_SIN_IDX])
+    ego_theta = float(ego[POSE_THETA_IDX])
+    poses = np.asarray(poses, dtype=np.float64)
+    velocities = np.asarray(velocities, dtype=np.float64)
+    if velocities.ndim == 1:
+        velocities = velocities.reshape(-1, 2)
+
+    n = min(len(poses), n_slots, len(velocities) if len(velocities) else len(poses))
+    for i in range(n):
+        pose = poses[i]
+        vel = velocities[i] if i < len(velocities) else np.zeros(2, dtype=np.float64)
+        dx = float(pose[0]) - float(ego[POSE_X_IDX])
+        dy = float(pose[1]) - float(ego[POSE_Y_IDX])
+        forward = dx * ego_c + dy * ego_s
+        left = -dx * ego_s + dy * ego_c
+        heading_rel = float(
+            np.arctan2(np.sin(pose[2] - ego_theta), np.cos(pose[2] - ego_theta))
+        )
+        opp_c = float(np.cos(pose[2]))
+        opp_s = float(np.sin(pose[2]))
+        vx_body = float(vel[0]) * opp_c + float(vel[1]) * opp_s
+        states[i] = np.array(
+            [1.0, forward, left, heading_rel, vx_body],
+            dtype=np.float32,
+        )
+    return states
+
+
+def opponents_collide_with_ego(
+    ego_car_state: np.ndarray,
+    poses: np.ndarray,
+    ego_length: float,
+    ego_width: float,
+    opp_length: float,
+    opp_width: float,
+) -> bool:
+    if ego_car_state is None or poses is None or len(poses) == 0:
+        return False
+    ego_pose = _pose_from_car_state(ego_car_state)
+    ego_verts = np.ascontiguousarray(get_vertices(ego_pose, ego_length, ego_width))
+    for pose in np.asarray(poses, dtype=np.float64):
+        opp_verts = np.ascontiguousarray(get_vertices(pose, opp_length, opp_width))
+        if collision(ego_verts, opp_verts):
+            return True
+    return False
+
+
+def min_clearance_to_ego_from_poses(
+    ego_car_state: np.ndarray,
+    poses: np.ndarray,
+    ego_length: float,
+    ego_width: float,
+    opp_length: float,
+    opp_width: float,
+) -> float:
+    """Minimum center-based clearance to any opponent body (0 if overlapping)."""
+    if ego_car_state is None or poses is None or len(poses) == 0:
+        return float("inf")
+    ego_pose = _pose_from_car_state(ego_car_state)
+    ego_verts = get_vertices(ego_pose, ego_length, ego_width)
+    ego_radius = 0.5 * float(np.linalg.norm(ego_verts[0] - ego_verts[2]))
+    min_clearance = float("inf")
+    for pose in np.asarray(poses, dtype=np.float64):
+        opp_verts = get_vertices(pose, opp_length, opp_width)
+        if collision(np.ascontiguousarray(ego_verts), np.ascontiguousarray(opp_verts)):
+            return 0.0
+        opp_radius = 0.5 * float(np.linalg.norm(opp_verts[0] - opp_verts[2]))
+        center_dist = float(
+            np.linalg.norm(ego_verts.mean(axis=0) - opp_verts.mean(axis=0))
+        )
+        min_clearance = min(min_clearance, center_dist - ego_radius - opp_radius)
+    return max(0.0, min_clearance)
+
+
+def observation_from_poses(
+    ego_car_state: np.ndarray,
+    poses: np.ndarray,
+    velocities: np.ndarray,
+    waypoint_indices: np.ndarray,
+    *,
+    collision: bool = False,
+    length: float,
+    width: float,
+) -> dict:
+    """Privileged opponent observation dict from poses (virtual or physics)."""
+    if poses is None or len(poses) == 0 or ego_car_state is None:
+        obs = empty_virtual_opponent_observation()
+        obs["virtual_opponent_collision"] = bool(collision)
+        return obs
+
+    poses = np.asarray(poses, dtype=np.float32)
+    ego_length, ego_width = get_ego_car_dimensions()
+    return {
+        "virtual_opponent_poses": poses,
+        "virtual_opponent_states": relative_opponent_states(
+            ego_car_state, poses, velocities
+        ),
+        "min_virtual_opponent_distance": min_clearance_to_ego_from_poses(
+            ego_car_state, poses, ego_length, ego_width, length, width
+        ),
+        "virtual_opponent_collision": bool(collision),
+        "virtual_opponent_waypoint_indices": np.asarray(
+            waypoint_indices, dtype=np.int32
+        ).reshape(-1),
+    }
+
+
+def observation_from_car_states(
+    ego_car_state: np.ndarray,
+    car_states: list,
+    *,
+    ego_index: int = 0,
+    waypoints: Optional[np.ndarray] = None,
+    collision: bool = False,
+) -> dict:
+    """Build the privileged opponent dict from extra physics agents."""
+    if car_states is None or len(car_states) <= 1 or ego_car_state is None:
+        return empty_virtual_opponent_observation()
+
+    poses = []
+    velocities = []
+    waypoint_indices = []
+    for i, state in enumerate(car_states):
+        if i == int(ego_index):
+            continue
+        state = np.asarray(state, dtype=np.float64)
+        pose = _pose_from_car_state(state)
+        poses.append(pose)
+        velocities.append(_map_velocity_from_car_state(state))
+        waypoint_indices.append(_waypoint_index_for_pose(pose, waypoints))
+
+    if not poses:
+        return empty_virtual_opponent_observation()
+
+    length, width = get_ego_car_dimensions()
+    return observation_from_poses(
+        ego_car_state,
+        np.asarray(poses, dtype=np.float32),
+        np.asarray(velocities, dtype=np.float32),
+        np.asarray(waypoint_indices, dtype=np.int32),
+        collision=collision,
+        length=length,
+        width=width,
+    )
+
+
+def opponent_poses_from_car_states(car_states: list, ego_index: int = 0) -> np.ndarray:
+    """Global [x, y, theta] for every physics agent except ego."""
+    poses = []
+    for i, state in enumerate(car_states or []):
+        if i == int(ego_index):
+            continue
+        poses.append(_pose_from_car_state(state))
+    if not poses:
+        return np.zeros((0, 3), dtype=np.float32)
+    return np.asarray(poses, dtype=np.float32)
+
+
 class VirtualOpponent:
     """
     Replay one recording lap.
@@ -232,7 +521,9 @@ class VirtualOpponent:
 
         self._anchor_sim_time: Optional[float] = None
         self._anchor_recording_time: Optional[float] = None
-        self._current_pose: Optional[np.ndarray] = None # [x, y, theta]
+        self._current_pose: Optional[np.ndarray] = None  # [x, y, theta]
+        self._current_recording_time: Optional[float] = None
+        self._current_velocity: Optional[np.ndarray] = None  # [vx, vy] map frame [m/s]
 
     def _roll_distance_ahead_waypoints(self) -> None:
         if self._distance_ahead_random_max > 0:
@@ -246,6 +537,8 @@ class VirtualOpponent:
         self._anchor_sim_time = None
         self._anchor_recording_time = None
         self._current_pose = None
+        self._current_recording_time = None
+        self._current_velocity = None
 
     def target_waypoint_index(self, ego_waypoint_index: int) -> int:
         return (int(ego_waypoint_index) + self.distance_ahead_waypoints) % self.total_waypoints
@@ -333,12 +626,51 @@ class VirtualOpponent:
             recording_t = float(np.clip(recording_t, self.times[0], self.times[-1]))
         pose = interpolate_pose(self.times, self.poses, recording_t)
         self._current_pose = pose
+        self._current_recording_time = float(recording_t)
+        self._current_velocity = self._velocity_at_recording_time(recording_t)
         return pose.copy()
+
+    def _velocity_at_recording_time(self, recording_t: float) -> np.ndarray:
+        """Map-frame [vx, vy] from a recording-time finite difference, scaled by vel_factor."""
+        t0 = float(recording_t)
+        t_end = float(self.times[-1])
+        t_start = float(self.times[0])
+        eps = _VELOCITY_FD_EPS_S
+        if t0 + eps <= t_end:
+            t1 = t0 + eps
+            p0 = interpolate_pose(self.times, self.poses, t0)
+            p1 = interpolate_pose(self.times, self.poses, t1)
+            dt_rec = eps
+        elif t0 - eps >= t_start:
+            t1 = t0
+            t0 = t0 - eps
+            p0 = interpolate_pose(self.times, self.poses, t0)
+            p1 = interpolate_pose(self.times, self.poses, t1)
+            dt_rec = eps
+        else:
+            return np.zeros(2, dtype=np.float64)
+        dxy_drec = (p1[:2] - p0[:2]) / dt_rec
+        return dxy_drec * self.vel_factor
 
     def current_pose(self) -> np.ndarray:
         if self._current_pose is None:
             raise RuntimeError("Virtual opponent pose not available.")
         return self._current_pose.copy()
+
+    def current_velocity(self) -> np.ndarray:
+        """Map-frame [vx, vy] in m/s. Zeros before the first pose update."""
+        if self._current_velocity is None:
+            return np.zeros(2, dtype=np.float64)
+        return self._current_velocity.copy()
+
+    def current_waypoint_index(self) -> Optional[int]:
+        """Along-track waypoint index at the current replay pose (for overtake detection)."""
+        if self._current_recording_time is None:
+            return None
+        rt = float(self._current_recording_time)
+        idx = int(np.searchsorted(self.times, rt, side="right") - 1)
+        idx = int(np.clip(idx, 0, len(self.waypoint_indices) - 1))
+        return int(self.waypoint_indices[idx] % self.total_waypoints)
 
     def current_vertices(self) -> np.ndarray:
         return get_vertices(self.current_pose(), self.length, self.width)
@@ -349,7 +681,7 @@ def _require_per_opponent_array(attr_name: str, count: int) -> list:
     if len(values) < count:
         raise ValueError(
             f"Settings.{attr_name} must have at least length {count} "
-            f"(NUMBER_OF_VIRTUAL_OPPONENTS), got {len(values)}"
+            f"(NUMBER_OF_OPPONENTS), got {len(values)}"
         )
     return values[:count]
 
@@ -365,7 +697,7 @@ class VirtualOpponents:
 
     @classmethod
     def from_settings(cls) -> Optional["VirtualOpponents"]:
-        count = int(getattr(Settings, "NUMBER_OF_VIRTUAL_OPPONENTS", 0))
+        count = opponent_count() if opponents_are_virtual() else 0
         if count <= 0:
             return None
 
@@ -476,6 +808,43 @@ class VirtualOpponents:
             return np.zeros((0, 3), dtype=np.float32)
         return np.asarray(self._current_poses, dtype=np.float32)
 
+    def get_velocities(self) -> np.ndarray:
+        """Map-frame [vx, vy] per opponent. Empty (0, 2) before the first update."""
+        if not self._initialized:
+            return np.zeros((0, 2), dtype=np.float32)
+        return np.asarray(
+            [opponent.current_velocity() for opponent in self.opponents],
+            dtype=np.float32,
+        )
+
+    def get_relative_states(self, ego_car_state: np.ndarray) -> np.ndarray:
+        """Padded ego-frame feature matrix, shape (slot_count, VIRTUAL_OPPONENT_STATE_SIZE).
+
+        Layout per row: present, forward, left, heading_rel, vx_body.
+        """
+        n_slots = virtual_opponent_slot_count()
+        if not self._initialized or ego_car_state is None:
+            return np.zeros((n_slots, VIRTUAL_OPPONENT_STATE_SIZE), dtype=np.float32)
+        poses = np.asarray(
+            [self.opponents[i].current_pose() for i in range(len(self.opponents))],
+            dtype=np.float64,
+        )
+        velocities = np.asarray(
+            [self.opponents[i].current_velocity() for i in range(len(self.opponents))],
+            dtype=np.float64,
+        )
+        return relative_opponent_states(ego_car_state, poses, velocities)
+
+    def get_waypoint_indices(self) -> np.ndarray:
+        """Per-opponent along-track waypoint index; empty before the first update."""
+        if not self._initialized:
+            return np.zeros((0,), dtype=np.int32)
+        indices = [opponent.current_waypoint_index() for opponent in self.opponents]
+        return np.asarray(
+            [int(i) if i is not None else -1 for i in indices],
+            dtype=np.int32,
+        )
+
     def get_body_polygons(self) -> list[np.ndarray]:
         if not self._initialized:
             return []
@@ -487,22 +856,19 @@ class VirtualOpponents:
         ego_length: float,
         ego_width: float,
     ) -> bool:
-        if not self._initialized:
+        if not self._initialized or not self.opponents:
             return False
-        ego_pose = np.array(
-            [
-                ego_car_state[POSE_X_IDX],
-                ego_car_state[POSE_Y_IDX],
-                ego_car_state[POSE_THETA_IDX],
-            ],
-            dtype=np.float64,
+        poses = np.asarray(
+            [opponent.current_pose() for opponent in self.opponents], dtype=np.float64
         )
-        ego_verts = np.ascontiguousarray(get_vertices(ego_pose, ego_length, ego_width))
-        for opponent in self.opponents:
-            opp_verts = np.ascontiguousarray(opponent.current_vertices())
-            if collision(ego_verts, opp_verts):
-                return True
-        return False
+        return opponents_collide_with_ego(
+            ego_car_state,
+            poses,
+            ego_length,
+            ego_width,
+            self.opponents[0].length,
+            self.opponents[0].width,
+        )
 
     def min_clearance_to_ego(
         self,
@@ -511,28 +877,16 @@ class VirtualOpponents:
         ego_width: float,
     ) -> float:
         """Minimum center-based clearance to any opponent body (0 if overlapping)."""
-        if not self._initialized:
+        if not self._initialized or not self.opponents:
             return float("inf")
-        ego_pose = np.array(
-            [
-                ego_car_state[POSE_X_IDX],
-                ego_car_state[POSE_Y_IDX],
-                ego_car_state[POSE_THETA_IDX],
-            ],
-            dtype=np.float64,
+        poses = np.asarray(
+            [opponent.current_pose() for opponent in self.opponents], dtype=np.float64
         )
-        ego_verts = get_vertices(ego_pose, ego_length, ego_width)
-        ego_radius = 0.5 * float(np.linalg.norm(ego_verts[0] - ego_verts[2]))
-        min_clearance = float("inf")
-        for opponent in self.opponents:
-            opp_verts = opponent.current_vertices()
-            if collision(np.ascontiguousarray(ego_verts), np.ascontiguousarray(opp_verts)):
-                return 0.0
-            opp_radius = 0.5 * float(np.linalg.norm(opp_verts[0] - opp_verts[2]))
-            center_dist = float(
-                np.linalg.norm(ego_verts.mean(axis=0) - opp_verts.mean(axis=0))
-            )
-            min_clearance = min(
-                min_clearance, center_dist - ego_radius - opp_radius
-            )
-        return max(0.0, min_clearance)
+        return min_clearance_to_ego_from_poses(
+            ego_car_state,
+            poses,
+            ego_length,
+            ego_width,
+            self.opponents[0].length,
+            self.opponents[0].width,
+        )

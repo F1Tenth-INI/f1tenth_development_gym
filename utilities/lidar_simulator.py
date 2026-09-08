@@ -61,6 +61,11 @@ class LidarSimulator:
 
     @staticmethod
     def opponent_poses_from_env(env_state: dict[str, Any], driver_index: int) -> list[np.ndarray]:
+        """Poses of other physics agents. Virtual replay poses are applied later on the ego scan."""
+        from utilities.virtual_opponents import is_solo_episode
+
+        if is_solo_episode():
+            return []
         car_states = env_state.get("car_states", [])
         poses = []
         for i, state in enumerate(car_states):
