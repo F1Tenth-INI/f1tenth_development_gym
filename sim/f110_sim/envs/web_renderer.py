@@ -1132,13 +1132,11 @@ class WebEnvRenderer:
         self._static_overlay_keys = {
             "waypoints",
             "waypoints_alternative",
-            "track_border_points",
             "colors",
         }
         self._static_max_points = {
             "waypoints": 4000,
             "waypoints_alternative": 4000,
-            "track_border_points": 6000,
         }
         lidar_pts, max_rollouts, max_rollout_pts, overlay_hz, live_delay_s, buffer_window_s = (
             self._read_web_render_smoothness_settings()
@@ -1149,6 +1147,7 @@ class WebEnvRenderer:
         self._live_history_max_s = max(10.0, self._buffer_window_s + 2.0)
         self._dynamic_max_points = {
             "lidar_border_points": int(lidar_pts),
+            "track_border_points": 800,
             "next_waypoints": 80,
             "next_waypoints_polynomial": 80,
             "next_waypoints_alternative": 80,
