@@ -66,8 +66,10 @@ from utilities.waypoint_utils import (
 
 try:
     from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
+    from TrainingLite.rl_racing.RewardCalculatorMidlineReturner import RewardCalculatorMidlineReturner
 except ModuleNotFoundError:
     from f1tenth_development_gym.TrainingLite.rl_racing.RewardCalculator import RewardCalculator
+    from f1tenth_development_gym.TrainingLite.rl_racing.RewardCalculatorMidlineReturner import RewardCalculatorMidlineReturner
 
 if Settings.CONNECT_RACETUNER_TO_MAIN_CAR:
     from RaceTuner.TunerConnectorSim import TunerConnectorSim
@@ -170,7 +172,7 @@ class CarSystem:
 
     def _init_race_utilities(self) -> None:
         self.obstacle_detector = ObstacleDetector()
-        self.reward_calculator = RewardCalculator()
+        self.reward_calculator = RewardCalculator() if Settings.CONTROLLER == "sac_agent" else RewardCalculatorMidlineReturner()
         self.episode_terminator = EpisodeTerminator()
         self.virtual_opponents = VirtualOpponents.from_settings()
         if bool(getattr(Settings, "OPPONENT_TRACKER_ENABLED", False)):

@@ -48,7 +48,7 @@ def initialize_planner(controller: str):
 
         importlib.reload(sysid_planner)
         planner = sysid_planner.SysIdPlanner()
-    elif controller == "sac_agent":
+    elif controller == "sac_agent" or controller == "sac_MidlineReturner":
         from TrainingLite.rl_racing.sac_agent_planner import RLAgentPlanner
 
         planner = RLAgentPlanner()
@@ -67,6 +67,7 @@ def initialize_planner(controller: str):
 
         importlib.reload(random_planner)
         planner = random_planner.random_planner()
+    
     else:
         print(f"controller {controller} not recognized")
         raise NotImplementedError(f"{controller} is not a valid controller name for f1t")

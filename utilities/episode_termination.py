@@ -12,8 +12,8 @@ class EpisodeTerminator:
 
     SPIN_ANGULAR_VEL_THRESHOLD = 15.0
     SPIN_STEPS_THRESHOLD = 50
-    STUCK_SPEED_THRESHOLD = 0.3
-    STUCK_STEPS_THRESHOLD = 50
+    STUCK_SPEED_THRESHOLD = 0.03
+    STUCK_STEPS_THRESHOLD = 500
 
     def __init__(self):
         self.reset()

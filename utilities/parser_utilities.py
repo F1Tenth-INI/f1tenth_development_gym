@@ -55,6 +55,7 @@ _CONTROLLER_CHOICES = [
     "rpgd-lite-jax",
     "example",
     "sac_agent",
+    "sac_MidlineReturner",
 ]
 
 
