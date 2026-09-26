@@ -38,7 +38,7 @@ Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
 class RacingSimulation:
     RANDOM_START_MAIN_JITTER_XY = 0.6
-    RANDOM_START_MAIN_JITTER_YAW = 3.1
+    RANDOM_START_MAIN_JITTER_YAW = 0.3
     RANDOM_START_OPPONENT_WP_GAP_MIN = 10
     RANDOM_START_OPPONENT_WP_GAP_MAX = 40
 

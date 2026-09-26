@@ -56,6 +56,7 @@ _CONTROLLER_CHOICES = [
     "example",
     "sac_agent",
     "sac_MidlineReturner",
+    "HirarchicalPlanner",
 ]
 
 

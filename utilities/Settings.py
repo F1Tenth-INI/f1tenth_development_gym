@@ -17,7 +17,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'sac_MidlineReturner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner'
+    CONTROLLER = 'HirarchicalPlanner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner', 'HirarchicalPlanner'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -340,6 +340,21 @@ class Settings():
     SAC_STAT_TRACKER_FULL_OBS_ACTION_SAVE = True 
 
     USE_CUSTOM_SAC_SAMPLING = False
+
+    ## Hierarchical world-model planner (TrainingLite/hwm) ## temporary, some will beredundant later
+    HWM_INFERENCE_MODEL_NAME = None      # None -> training mode (weights from learner over TCP); str -> load models/<name>/ from disk, no TCP
+    HWM_AGENT_DEBUG = False
+    HWM_STREAM_BATCH_SIZE = 32           # stream [state, action] rows to the learner every N control steps
+    HWM_MIN_EPISODE_END_BATCH_SIZE = 2   # skip episode-end batches shorter than this
+    HWM_MAX_TRANSLATIONAL_CONTROL = 12.0  # clip on physical translational control
+    HWM_WALL_POINTS = 20                 # relative wall points per side fed to the observation builder
+    HWM_CONTEXT_LEN = 16                 # recent [state, action] rows available to the observation builder
+    HWM_SUPER_STATE_SIZE = 3             # [state, action] steps in one LLD superstate
+    HWM_STATE_DIM = 10                   # car-state width stored in memory and predicted by the dynamics
+    HWM_ACTION_DIM = 2                   # [angular, translational] action width
+    HWM_HIDDEN_DIM = 256                 # MLP width for actor, value, and the placeholder dynamics
+    HWM_ACTION_DENORM = [2.0, 5.0]       # network output ±1 -> physical [steering rad, translational]
+    HWM_CLIENT_MODULES = ["actor"]       # modules the learner broadcasts to the planner after each train round
     
 
     

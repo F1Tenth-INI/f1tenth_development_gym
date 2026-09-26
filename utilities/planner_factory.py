@@ -67,6 +67,11 @@ def initialize_planner(controller: str):
 
         importlib.reload(random_planner)
         planner = random_planner.random_planner()
+    elif controller == "HirarchicalPlanner":
+        from TrainingLite.hwm import hirarchical_planner
+
+        importlib.reload(hirarchical_planner)
+        planner = hirarchical_planner.HirarchicalPlanner()
     
     else:
         print(f"controller {controller} not recognized")
