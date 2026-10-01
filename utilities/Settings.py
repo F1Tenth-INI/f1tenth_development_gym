@@ -1,3 +1,4 @@
+import math
 import os
 class Settings():
 
@@ -17,7 +18,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'HirarchicalPlanner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner', 'HirarchicalPlanner'
+    CONTROLLER = 'sac_MidlineReturner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner', 'HirarchicalPlanner'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -350,11 +351,43 @@ class Settings():
     HWM_WALL_POINTS = 20                 # relative wall points per side fed to the observation builder
     HWM_CONTEXT_LEN = 16                 # recent [state, action] rows available to the observation builder
     HWM_SUPER_STATE_SIZE = 3             # [state, action] steps in one LLD superstate
+    HWM_LLD_BATCH_SIZE = 32              # consecutive [state, action] rows in one sampled LLD batch
+    HWM_MEMORY_MAX_ROWS = 200_000        # ring-buffer capacity of the memory; new rows overwrite the oldest
+    HWM_LOW_LEVEL_DISCOUNT = 0.99        # per-control-step discount for low-level values, on top of crash survival
+    HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer
+    # Divisors for raw state channels, STATE_VARIABLES order. Observation uses state / scale.
+    HWM_STATE_SCALE = [
+        10.0 / 3.0,  # angular_vel_z
+        10.0,        # linear_vel_x
+        1.0,         # linear_vel_y
+        math.pi,     # pose_theta
+        1.0,         # pose_theta_cos
+        1.0,         # pose_theta_sin
+        10.0,        # pose_x
+        10.0,        # pose_y
+        1.0,         # slip_angle
+        0.4,         # steering_angle
+    ]
+    # Divisors for consecutive state differences after HWM_STATE_SCALE, same channel order.
+    # Chosen so a strong normal step (about the 95th percentile of |Δ| on a Pure Pursuit
+    # rollout, dt = TIMESTEP_CONTROL) is near 1. pose_x and pose_y share one divisor.
+    HWM_STATE_DIFF_SCALE = [
+        0.1,   # angular_vel_z
+        0.02,  # linear_vel_x
+        0.05,  # linear_vel_y
+        0.05,  # pose_theta
+        0.1,   # pose_theta_cos
+        0.1,   # pose_theta_sin
+        0.04,  # pose_x
+        0.04,  # pose_y
+        0.02,  # slip_angle
+        0.2,   # steering_angle
+    ]
     HWM_STATE_DIM = 10                   # car-state width stored in memory and predicted by the dynamics
     HWM_ACTION_DIM = 2                   # [angular, translational] action width
     HWM_HIDDEN_DIM = 256                 # MLP width for actor, value, and the placeholder dynamics
     HWM_ACTION_DENORM = [2.0, 5.0]       # network output ±1 -> physical [steering rad, translational]
-    HWM_CLIENT_MODULES = ["actor"]       # modules the learner broadcasts to the planner after each train round
+    HWM_CLIENT_MODULES = ["actor", "LLD"]       # modules the learner broadcasts to the planner after each train round
     
 
     

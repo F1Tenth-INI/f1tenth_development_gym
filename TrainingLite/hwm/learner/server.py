@@ -41,6 +41,7 @@ from TrainingLite.hwm.models.networks import build_models as build_model_bundle
 from TrainingLite.hwm.paths import resolve_model_dir
 from utilities.Settings import Settings
 from TrainingLite.hwm.shared.memory_manager import MemoryManager
+from TrainingLite.hwm.shared.observation import build_LLD_observation_inference, lld_dynamic_indices
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame
 
@@ -74,7 +75,6 @@ class HWMLearnerServer:
 
         # Shared components (identical construction on the planner, both from Settings).
         self.wall_geometry = WallGeometry(device=self.device)
-        self.memory = MemoryManager()
         self.models: ModelBundle = self.build_models().to(self.device)
         if self.load_model_name is not None:
             loaded = self.models.load(resolve_model_dir(self.load_model_name), device=self.device)
@@ -83,6 +83,15 @@ class HWMLearnerServer:
         else:
             # Random init: first broadcast happens in _train_loop once learning_starts is reached.
             self._weights_blob = None
+        self.memory = MemoryManager(device=self.device)
+        self.memory.attach_projector(self.models["LLD"].attention_norm_projector)
+
+        # After .to(device) and checkpoint load, so each Adam tracks the tensors that training updates.
+        lr = float(Settings.HWM_LEARNING_RATE)
+        self.optimizers: dict[str, torch.optim.Optimizer] = {
+            name: torch.optim.Adam(module.parameters(), lr=lr)
+            for name, module in self.models.items()
+        }
 
         # Networking / lifecycle.
         self._clients: set[asyncio.StreamWriter] = set()
@@ -115,11 +124,65 @@ class HWMLearnerServer:
     def train_round(self, n_steps: int) -> dict[str, Any]:
         """Run ``n_steps`` gradient steps on ``self.models`` using ``self.memory``.
 
-        Runs in a worker thread; do not touch asyncio state here. Return metrics
+        Each step samples one consecutive LLD batch and applies one Adam update.
+        Memory embeddings are refreshed once, after the last step. Runs in a worker thread; do not touch asyncio state here. Return metrics
         (JSON-serialisable) that are logged and sent to the planner as training_info.
         """
-        # Placeholder: no learning yet.
-        return {"steps": 0}
+        n_steps = int(n_steps)
+        if n_steps <= 0:
+            return {"steps": 0}
+
+        opt = self.optimizers["LLD"]
+        total_loss = 0.0
+        for _ in range(n_steps):
+            loss = self._lld_nll(*self.memory.sample_batch())
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            opt.step()
+            total_loss += float(loss.detach())
+        self.memory.refresh_embeddings()
+        return {"steps": n_steps, "lld_loss": total_loss / n_steps}
+
+    def _lld_nll(self, rows: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
+        """Negative log-likelihood of the next-state delta along one consecutive batch.
+
+        ``rows`` is ``(L, row_dim)`` and ``steps`` their global memory indices. Step ``t``
+        predicts the normalized delta from row ``t`` to row ``t+1``, so the last row is a
+        target only. Neighbors for step ``t`` are restricted to windows stored before row
+        ``t``, so neither the sample nor anything after it can be retrieved. Each sample's
+        history is read from memory, so samples at the start of the run still see the rows
+        before it; only rows before the episode start are zero, as at inference.
+        The predicted channels are yaw rate, body-frame velocity, and steering.
+        Position, heading, and slip angle are not targets: they follow from the
+        current state together with those changes.
+        """
+        if int(rows.shape[0]) < 2:
+            raise ValueError(f"LLD batch needs at least 2 rows, got {int(rows.shape[0])}")
+
+        state_dim = int(Settings.HWM_STATE_DIM)
+        hist_len = int(Settings.HWM_SUPER_STATE_SIZE) - 1
+        current = rows[:-1]
+        nxt = rows[1:]
+        past, _ = self.memory.preceding(steps[:-1], hist_len)
+
+        obs = build_LLD_observation_inference(
+            current[:, :state_dim],
+            current[:, state_dim:],
+            self.memory,
+            episode_id=0,
+            past_states=past,
+            before_steps=steps[:-1],
+        )
+        device = next(self.models["LLD"].parameters()).device
+        obs = {name: value.to(device) for name, value in obs.items()}
+        target = self._lld_target(current[:, :state_dim].to(device), nxt[:, :state_dim].to(device))
+        dist = self.models["LLD"](obs)
+        return -dist.log_prob(target).mean()
+
+    def _lld_target(self, states: torch.Tensor, next_states: torch.Tensor) -> torch.Tensor:
+        scale = torch.tensor(list(Settings.HWM_STATE_SCALE), dtype=states.dtype, device=states.device)
+        delta = (next_states - states) / scale[: states.shape[-1]]
+        return delta[:, lld_dynamic_indices()]
 
     # ------------------------------------------------------------------
     # Training loop
@@ -154,9 +217,11 @@ class HWMLearnerServer:
                 **{k: v for k, v in metrics.items() if isinstance(v, (int, float, str, bool))},
             }
             self._latest_training_info = payload
+            loss = payload.get("lld_loss")
+            loss_text = f" loss={float(loss):.4f}" if isinstance(loss, (int, float)) else ""
             self._status(
                 f"rows={payload['total_rows']} eps={payload['episodes']} "
-                f"updates={payload['total_updates']} round={dt:.2f}s"
+                f"updates={payload['total_updates']}{loss_text} round={dt:.2f}s"
             )
 
             self._weights_blob = pack_frame(pack_weights(self.models.state_dicts(self.client_modules())))

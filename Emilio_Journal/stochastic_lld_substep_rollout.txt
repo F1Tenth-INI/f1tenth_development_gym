@@ -1,0 +1,75 @@
+Idea: train the LLD through stochastic substep rollouts
+
+Goal
+----
+Train the LLD to model a shorter transition of h = 0.04 / n seconds instead
+of directly modeling the complete 0.04-second control interval.
+
+For each recorded transition (state_t, action_t, state_t+1):
+
+1. Set predicted_state = state_t.
+2. Keep action_t constant during the complete 0.04-second interval.
+3. Repeat n times:
+   - Build the LLD input from predicted_state and action_t.
+   - Obtain the Gaussian distribution over the reduced dynamic delta.
+   - Draw a differentiable sample with dist.rsample().
+   - Reconstruct the next intermediate state using dt = 0.04 / n.
+4. Train the final reconstructed state against the recorded state_t+1.
+
+Why this could help
+-------------------
+Acceleration and orientation are reevaluated at every intermediate state.
+This can represent nonlinear evolution within one control interval more
+accurately than applying one endpoint delta. It resembles a stochastic neural
+ODE or multiple-shooting transition model, rather than merely repeating the
+existing 0.04-second transition.
+
+Required changes and caveats
+----------------------------
+- The LLD output must explicitly represent an h-second delta. The current
+  training targets and retrieved value-token differences represent changes over
+  0.04 seconds. They need to be converted to rates or otherwise rescaled for h.
+- Keep n fixed, or provide dt/h as an explicit model input.
+- There are no observed intermediate states. Many intermediate trajectories can
+  reach the same endpoint, so final-only supervision does not uniquely identify
+  the substep dynamics.
+- Recursive errors and gradients can accumulate. One-step, rate-consistency, or
+  semigroup-consistency regularization may be useful.
+- The terminal distribution is generally not Gaussian after repeatedly sampling
+  Gaussian deltas and passing them through nonlinear state reconstruction.
+
+Why naive sampled terminal MSE collapses variance
+-------------------------------------------------
+For a scalar Gaussian sample
+
+    prediction = mu + sigma * epsilon,  epsilon ~ N(0, 1)
+
+sampled MSE against target y has expectation
+
+    E[(prediction - y)^2] = (mu - y)^2 + sigma^2.
+
+The derivative with respect to sigma is 2*sigma, so the optimum is always
+sigma = 0. In multiple dimensions:
+
+    E[||mu + L*epsilon - y||^2] = ||mu - y||^2 + ||L||_F^2.
+
+Thus terminal MSE treats every injected stochastic perturbation as extra error
+and drives every substep covariance to the numerical minimum. Reparameterized
+sampling allows this gradient to propagate; it does not make MSE a proper
+distributional objective.
+
+Possible probabilistic objective
+--------------------------------
+Generate several reparameterized terminal rollout samples and use a proper
+sample-based scoring rule such as the energy score:
+
+    ES = E[||X - y||] - 0.5 * E[||X - X'||].
+
+The first term pulls terminal samples toward the observed endpoint. The second
+term accounts for sample spread and prevents the automatic covariance collapse
+of sampled MSE.
+
+An alternative is deterministic recursive training with the Gaussian means,
+combined with a separate likelihood objective for uncertainty. However, a
+substep Gaussian NLL requires suitable substep targets, which are not present
+in the current 0.04-second data.

@@ -34,7 +34,7 @@ from TrainingLite.hwm.paths import resolve_model_dir
 from TrainingLite.hwm.models.bundle import ModelBundle
 from TrainingLite.hwm.models.networks import build_models
 from TrainingLite.hwm.shared.memory_manager import MemoryManager
-from TrainingLite.hwm.shared.observation import build_observation as shared_build_observation
+from TrainingLite.hwm.shared.observation import build_actor_observation
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from utilities.Settings import Settings
 
@@ -73,8 +73,9 @@ class HirarchicalPlanner(template_planner):
 
         # Shared components (identical construction on the learner, both from Settings).
         self.wall_geometry = WallGeometry()
-        self.memory = MemoryManager()
         self.models: ModelBundle = build_models().to("cpu").eval()
+        self.memory = MemoryManager(device="cpu")
+        self.memory.attach_projector(self.models["LLD"].attention_norm_projector)
 
         self.client: Optional[HWMTCPClient] = None
         self.latest_training_info: Optional[Dict[str, Any]] = None
@@ -127,8 +128,8 @@ class HirarchicalPlanner(template_planner):
     # INSERTION POINTS
     # ------------------------------------------------------------------
     def build_observation(self, state: np.ndarray) -> dict[str, torch.Tensor]:
-        """Model input for the current raw state. Shared implementation with the learner."""
-        return shared_build_observation(
+        """Actor input for the current raw state. Shared implementation with the learner."""
+        return build_actor_observation(
             state=state,
             memory=self.memory,
             wall_geometry=self.wall_geometry,
@@ -138,8 +139,8 @@ class HirarchicalPlanner(template_planner):
     def select_action(self, obs: dict[str, torch.Tensor], state: np.ndarray) -> np.ndarray:
         """Policy in network output units. ``±1`` is ``±action_denorm`` on the car.
 
-        Default: actor forward pass once weights are available, Pure Pursuit before that.
-        Pure Pursuit is ``physical / action_denorm`` with no clip, so it can leave ``[-1, 1]``.
+        Default: the actor's squashed Gaussian mean once weights are available, Pure
+        Pursuit before that. Pure Pursuit is not clipped, so it can leave ``[-1, 1]``.
         Replace with search (MCTS over ``self.models["dynamics"]``) or anything else.
         """
         if not self._received_weights:
@@ -149,7 +150,9 @@ class HirarchicalPlanner(template_planner):
             return self._fallback_action()
 
         with torch.no_grad():
-            action = self.models["actor"](obs.unsqueeze(0))[0]
+            actor = self.models["actor"]
+            dist, _ = actor(obs)
+            action = actor.deterministic_action(dist)[0]
         return action.cpu().numpy().astype(np.float32).reshape(-1)
 
     # ------------------------------------------------------------------
@@ -232,6 +235,8 @@ class HirarchicalPlanner(template_planner):
         model_dir = resolve_model_dir(self.inference_model_name)
         loaded = self.models.load(model_dir, device="cpu")
         self.models.eval()
+        if "LLD" in loaded:
+            self.memory.refresh_embeddings()
         if "actor" not in loaded:
             raise FileNotFoundError(f"[HirarchicalPlanner] actor.pt not found in {model_dir}")
         self._log_info(f"[HirarchicalPlanner] Loaded modules {loaded} from {model_dir}")
@@ -239,6 +244,8 @@ class HirarchicalPlanner(template_planner):
     def _apply_weights(self, sds: dict) -> None:
         loaded = self.models.load_state_dicts(sds, strict=True)
         self.models.eval()
+        if "LLD" in loaded:
+            self.memory.refresh_embeddings()
         if loaded:
             self._received_weights = True
             self._log_debug(f"[HirarchicalPlanner] Weights updated: {loaded}")
