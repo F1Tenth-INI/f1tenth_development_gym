@@ -4,7 +4,7 @@ Browser-based waypoint editor for F1TENTH maps.
 
 Launch from the repository root:
     python utilities/waypoints_editor_web.py
-    python utilities/waypoints_editor_web.py --map RCA2 --port 8766
+    python utilities/waypoints_editor_web.py --map RCA2 --port 8686
 
 Opens Settings.MAP_NAME by default.
 """
@@ -812,7 +812,7 @@ class WaypointsEditorServer:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Web-based waypoint editor")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8766)
+    parser.add_argument("--port", type=int, default=8686)
     parser.add_argument(
         "--map",
         default=Settings.MAP_NAME,

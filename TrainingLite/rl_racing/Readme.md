@@ -296,7 +296,7 @@ Removing/changing existing `super_obs` entries can break previously trained mode
 
 Run multiple sims/actors (different `actor_id`s) pointing to the same learner to speed up data collection. Diverse seeds and slightly different `accel_scale` improve exploration.
 
-Each actor uses `Settings.ACTOR_ID` for the TCP learner client and offsets the web renderer port: `WEB_RENDER_PORT + ACTOR_ID` (default base `8765` → actor 0 on 8765, actor 1 on 8766). A browser tab auto-opens per sim when `WEB_RENDER_AUTO_OPEN` is true.
+Each actor uses `Settings.ACTOR_ID` for the TCP learner client and offsets the web renderer port by two: `WEB_RENDER_PORT + 2 * ACTOR_ID` (default base `8680` → actor 0 on 8680, websocket 8681; actor 1 on 8682). Foxglove stays on 8765. A browser tab auto-opens per sim when `WEB_RENDER_AUTO_OPEN` is true.
 
 ```bash
 # Terminal 1 — actor 0

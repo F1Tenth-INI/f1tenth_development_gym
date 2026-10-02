@@ -153,7 +153,7 @@ class RacingSimulation:
 
             web_host = str(getattr(Settings, "WEB_RENDER_HOST", "127.0.0.1"))
             actor_id = int(getattr(Settings, "ACTOR_ID", 0))
-            web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8765)) + actor_id
+            web_port = int(getattr(Settings, "WEB_RENDER_PORT", 8680)) + ( actor_id)
             auto_open = bool(getattr(Settings, "WEB_RENDER_AUTO_OPEN", True))
             self.renderer = WebEnvRenderer(
                 host=web_host,

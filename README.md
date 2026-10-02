@@ -118,7 +118,7 @@ Example:
 python run.py --RENDER_MODE human_fast --RENDER_BACKEND web
 ```
 
-Then open: [http://localhost:8765](http://localhost:8765)
+Then open: [http://localhost:8680](http://localhost:8680)
 
 Controls in browser:
 - `Space`: toggle follow-car / free camera

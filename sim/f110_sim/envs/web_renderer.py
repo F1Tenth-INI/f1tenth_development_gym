@@ -1093,7 +1093,7 @@ class WebEnvRenderer:
     def __init__(
         self,
         host: str = "127.0.0.1",
-        port: int = 8765,
+        port: int = 8680,
         actor_id: int = 0,
         auto_open_browser: bool = True,
         recording_csv_path: Optional[str] = None,

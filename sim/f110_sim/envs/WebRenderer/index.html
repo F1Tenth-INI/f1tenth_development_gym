@@ -2426,7 +2426,7 @@
       const pagePort = Number(window.location.port);
       const wsPort = Number.isFinite(cfgPort) && cfgPort > 0
         ? cfgPort
-        : (Number.isFinite(pagePort) && pagePort > 0 ? pagePort + 1 : 8766);
+        : (Number.isFinite(pagePort) && pagePort > 0 ? pagePort + 1 : 8681);
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${host}:${wsPort}`;
     }
@@ -3479,7 +3479,7 @@
       if (Number.isFinite(cfgPort) && cfgPort > 0) return cfgPort;
       const currentPort = Number(window.location.port);
       if (Number.isFinite(currentPort) && currentPort > 0) return currentPort;
-      return 8765;
+      return 8680;
     }
 
     function handleServerSessionChange(serverSessionId) {

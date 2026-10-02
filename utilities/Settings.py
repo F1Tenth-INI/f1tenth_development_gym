@@ -211,7 +211,7 @@ class Settings():
     # RENDER_MODE = None          # no rendering
     RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
-    WEB_RENDER_PORT = 8765               # base TCP port for actor 0; actor N uses WEB_RENDER_PORT + N
+    WEB_RENDER_PORT = 8680               # HTTP for actor 0; websocket is this + 1. 8765 is Foxglove, not this stream. Actor N uses WEB_RENDER_PORT + 2N.
     WEB_RENDER_AUTO_OPEN = True          # open a browser tab per sim on startup (one tab per renderer)
     WEB_RENDER_DRAW_POLYNOMIAL = False    # show fitted local raceline polynomial in the web renderer
     # Live display delay in *simulation* seconds. Same-PC pygame parity ≈ 1 control step (~0.04–0.08).

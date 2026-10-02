@@ -39,7 +39,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(getattr(Settings, "WEB_RENDER_PORT", 8765)),
+        default=int(getattr(Settings, "WEB_RENDER_PORT", 8680)),
         help="Web renderer port",
     )
     parser.add_argument(
