@@ -10,20 +10,21 @@ from utilities.state_utilities import *
 def _ks_step_factory(lib, car_parameters, t_step):
 
     def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot):
+        # No-slip constraint: the yaw rate is (v/L)*tan(delta), which is also
+        # what turns the heading. Do not integrate that rate's derivative onto
+        # angular_vel_z. While the models are blended that state is the Pacejka
+        # yaw rate, and the gyro then walks away from the heading.
         s_x_dot = v_x * lib.cos(psi)
         s_y_dot = v_x * lib.sin(psi)
         psi_dot = (v_x / car_parameters.l_wb) * lib.tan(delta)
-        psi_dot_dot = (v_x_dot * lib.tan(delta) / car_parameters.l_wb) \
-                        + v_x * delta_dot / (car_parameters.l_wb * lib.cos(delta) ** 2)
 
         s_x = s_x + t_step * s_x_dot
         s_y = s_y + t_step * s_y_dot
         delta = lib.clip(delta + t_step * delta_dot, car_parameters.s_min, car_parameters.s_max)
         v_x = v_x + t_step * v_x_dot
         psi = psi + t_step * psi_dot
-        angular_vel_z = angular_vel_z + t_step * psi_dot_dot
 
-        return s_x, s_y, delta, v_x, psi, angular_vel_z
+        return s_x, s_y, delta, v_x, psi, psi_dot
 
     return _ks_step
 
@@ -53,30 +54,57 @@ def _pacejka_step_factory(lib, car_parameters, t_step):
         alpha_f = -lib.atan((v_y + psi_dot * lf) / v_x_safe) + delta
         alpha_r = -lib.atan((v_y - psi_dot * lr) / v_x_safe)
 
-        # compute vertical tire forces
+        # compute vertical tire forces; a lifted wheel carries no load
         F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
         F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
+        zero = lib.constant(0.0, lib.float32)
+        F_zf = lib.where(F_zf > 0.0, F_zf, zero)
+        F_zr = lib.where(F_zr > 0.0, F_zr, zero)
 
         F_yf = mu * F_zf * D_f * lib.sin(
             C_f * lib.atan(B_f * alpha_f - E_f * (B_f * alpha_f - lib.atan(B_f * alpha_f))))
         F_yr = mu * F_zr * D_r * lib.sin(
             C_r * lib.atan(B_r * alpha_r - E_r * (B_r * alpha_r - lib.atan(B_r * alpha_r))))
 
+        # Friction circle per axle. Longitudinal demand is split by normal load
+        # so a straight-line request inside ±μ g is unchanged. The front force
+        # is rotated from the wheel frame into the body frame.
+        eps = lib.constant(1.0e-6, lib.float32)
+        Fz_sum = lib.where((F_zf + F_zr) > eps, F_zf + F_zr, eps)
+        Fx_req = m * v_x_dot
+
+        def _project(Fx, Fy, Fmax):
+            radius = lib.sqrt(Fx * Fx + Fy * Fy)
+            limit = lib.where(Fmax > 0.0, Fmax, zero)
+            scale = lib.min(lib.constant(1.0, lib.float32), limit / (radius + lib.constant(1.0e-8, lib.float32)))
+            return Fx * scale, Fy * scale
+
+        Fx_f, Fy_f = _project(Fx_req * F_zf / Fz_sum, F_yf, mu * F_zf)
+        Fx_r, Fy_r = _project(Fx_req * F_zr / Fz_sum, F_yr, mu * F_zr)
+        c_delta = lib.cos(delta)
+        s_delta = lib.sin(delta)
+        Fy_f_body = Fx_f * s_delta + Fy_f * c_delta
+        Fx_body = (Fx_f * c_delta - Fy_f * s_delta) + Fx_r
+        Fy_body = Fy_f_body + Fy_r
+
         d_pos_x = v_x * lib.cos(psi) - v_y * lib.sin(psi)
         d_pos_y = v_x * lib.sin(psi) + v_y * lib.cos(psi)
         d_psi = psi_dot
-        d_v_x = v_x_dot
-        d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
-        # print d_v_y + v_x * psi_dot
-        # Should be equal to IMUs a_y
-
-        d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
+        # Body lateral specific force. With the yaw transport below, this is
+        # what an IMU at the CoG measures as a_y.
+        d_psi_dot = (lf * Fy_f_body - lr * Fy_r) / I_z
 
         s_x = s_x + t_step * d_pos_x
         s_y = s_y + t_step * d_pos_y
         delta = lib.clip(delta + t_step * delta_dot, car_parameters.s_min, car_parameters.s_max)
-        v_x = v_x + t_step * d_v_x
-        v_y = v_y + t_step * d_v_y
+        # Exact yaw transport, then the friction-limited tire impulse.
+        theta = psi_dot * t_step
+        c_th = lib.cos(theta)
+        s_th = lib.sin(theta)
+        v_x_new = (v_x * c_th + v_y * s_th) + t_step * Fx_body / m
+        v_y_new = (-v_x * s_th + v_y * c_th) + t_step * Fy_body / m
+        v_x = v_x_new
+        v_y = v_y_new
         psi = psi + t_step * d_psi
         psi_dot = psi_dot + t_step * d_psi_dot
         return s_x, s_y, delta, v_x, v_y, psi, psi_dot
