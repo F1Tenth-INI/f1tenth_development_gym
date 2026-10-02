@@ -1,0 +1,7 @@
+image: RCA1b_wp_min_curve.png
+mode: trinary
+resolution: 0.05
+origin: [-24.128065, -2.655411, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196
