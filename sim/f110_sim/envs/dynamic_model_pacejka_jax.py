@@ -8,6 +8,10 @@ import jax.numpy as jnp
 from functools import partial
 from utilities.Settings import Settings
 
+# Hardcoded. True: each axle's (Fx, Fy) is scaled onto Fx^2 + Fy^2 <= (mu * Fz)^2.
+# False: longitudinal accel and lateral Pacejka force stay independent, as in ODE_TF.
+USE_FRICTION_CIRCLE = True
+
 
 def _wrap_angle_rad(angle):
     """Wrap heading to [-pi, pi]."""
@@ -79,38 +83,73 @@ def _pacejka_lateral_forces(v_x, v_y, psi_dot, delta, v_x_dot,
     alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
 
-    F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
-    F_zr = m * (v_x_dot * h_cg + g_ * lf) / (lr + lf)
+    # A lifted wheel has no load and no force. The unclamped formula can go
+    # negative under hard load transfer.
+    F_zf = jnp.maximum(m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf), 0.0)
+    F_zr = jnp.maximum(m * (v_x_dot * h_cg + g_ * lf) / (lr + lf), 0.0)
 
     F_yf = mu * F_zf * D_f * jnp.sin(
         C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
     F_yr = mu * F_zr * D_r * jnp.sin(
         C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
-    return F_yf, F_yr
+    return F_yf, F_yr, F_zf, F_zr
+
+
+def _project_friction_circle(Fx, Fy, Fmax):
+    """Scale the tire force onto Fx^2 + Fy^2 <= Fmax^2, keeping its direction."""
+    radius = jnp.sqrt(Fx * Fx + Fy * Fy)
+    limit = jnp.maximum(Fmax, 0.0)
+    scale = jnp.minimum(1.0, limit / jnp.maximum(radius, 1.0e-8))
+    return Fx * scale, Fy * scale
 
 
 def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                   lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                  mu, s_min, s_max, dt_sub, curve_resistance_factor=0.0, v_dead=0.05):
-    F_yf, F_yr = _pacejka_lateral_forces(
+                  mu, s_min, s_max, dt_sub, curve_resistance_factor=0.0, v_dead=0.05,
+                  use_friction_circle=USE_FRICTION_CIRCLE):
+    F_yf, F_yr, F_zf, F_zr = _pacejka_lateral_forces(
         v_x, v_y, psi_dot, delta, v_x_dot, lf, lr, h_cg, m, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, mu)
     v_x_dot = v_x_dot + jax.lax.stop_gradient(
         _cornering_resistance_accel(v_x, F_yf, F_yr, m, curve_resistance_factor, v_dead))
     max_a_friction = mu * g_
     v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
+    Fx_req = m * v_x_dot
+    if use_friction_circle:
+        # Longitudinal request split by normal load, then each axle's (Fx, Fy)
+        # is projected onto its friction circle. The front force is in the wheel
+        # frame, so a steered tire also produces a body-longitudinal component.
+        Fz_sum = jnp.maximum(F_zf + F_zr, 1.0e-6)
+        Fx_f, Fy_f = _project_friction_circle(Fx_req * F_zf / Fz_sum, F_yf, mu * F_zf)
+        Fx_r, Fy_r = _project_friction_circle(Fx_req * F_zr / Fz_sum, F_yr, mu * F_zr)
+        c_delta = jnp.cos(delta)
+        s_delta = jnp.sin(delta)
+        Fy_f_body = Fx_f * s_delta + Fy_f * c_delta
+        Fx_body = Fx_f * c_delta - Fy_f * s_delta + Fx_r
+        Fy_body = Fy_f_body + Fy_r
+    else:
+        Fx_body = Fx_req
+        Fy_body = F_yf + F_yr
+        Fy_f_body = F_yf
+
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
     d_psi = psi_dot
-    d_v_x = v_x_dot
-    d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
-    d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
+    d_psi_dot = (lf * Fy_f_body - lr * Fy_r) / I_z
 
     s_x = s_x + dt_sub * d_s_x
     s_y = s_y + dt_sub * d_s_y
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
-    v_x = v_x + dt_sub * d_v_x
-    v_y = v_y + dt_sub * d_v_y
+    # Exact yaw transport of the body velocity, then the tire impulse.
+    # Explicit Euler of only the lateral Coriolis term creates kinetic energy
+    # and is what ran v_y off to tens of m/s in a spin.
+    theta = psi_dot * dt_sub
+    c_th = jnp.cos(theta)
+    s_th = jnp.sin(theta)
+    v_x_new = (v_x * c_th + v_y * s_th) + dt_sub * Fx_body / m
+    v_y_new = (-v_x * s_th + v_y * c_th) + dt_sub * Fy_body / m
+    v_x = v_x_new
+    v_y = v_y_new
     psi = _wrap_angle_rad(psi + dt_sub * d_psi)
     psi_dot = psi_dot + dt_sub * d_psi_dot
     return s_x, s_y, delta, v_x, v_y, psi, psi_dot
@@ -118,18 +157,23 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
 
 def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
              l_wb, s_min, s_max, dt_sub):
+    """Kinematic single track.
+
+    Heading is turned by the no-slip constraint psi_dot = (v/L)*tan(delta).
+    That constraint is the yaw rate. Integrating its derivative on top of the
+    incoming state mixes in the Pacejka yaw rate and the gyro walks away from
+    the heading. angular_vel_z is accepted and ignored for that reason.
+    """
     s_x_dot = v_x * jnp.cos(psi)
     s_y_dot = v_x * jnp.sin(psi)
     psi_dot = (v_x / l_wb) * jnp.tan(delta)
-    psi_dot_dot = (v_x_dot * jnp.tan(delta) / l_wb) + v_x * delta_dot / (l_wb * jnp.cos(delta) ** 2)
 
     s_x = s_x + dt_sub * s_x_dot
     s_y = s_y + dt_sub * s_y_dot
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
     v_x = v_x + dt_sub * v_x_dot
     psi = _wrap_angle_rad(psi + dt_sub * psi_dot)
-    angular_vel_z = angular_vel_z + dt_sub * psi_dot_dot
-    return s_x, s_y, delta, v_x, psi, angular_vel_z
+    return s_x, s_y, delta, v_x, psi, psi_dot
 
 
 def _next_step_output(psi_dot, v_x, v_y, psi, s_x, s_y, delta):
@@ -154,9 +198,10 @@ def _blend_states_circular_yaw(s_ks, s_pacejka, weight):
     return blended
 
 
-@partial(jax.jit, static_argnames=['intermediate_steps', 'ode_model'])
+@partial(jax.jit, static_argnames=['intermediate_steps', 'ode_model', 'use_friction_circle'])
 def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=1,
-                             ode_model='ODE:ks_pacejka'):
+                             ode_model='ODE:ks_pacejka',
+                             use_friction_circle=USE_FRICTION_CIRCLE):
     """Advance car dynamics (ODE_TF-equivalent).
 
     Args:
@@ -217,7 +262,8 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             p_s_x, p_s_y, p_delta, p_v_x, p_v_y, p_psi, p_psi_dot = _pacejka_step(
                 s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                 lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
-                mu, s_min, s_max, dt_sub, curve_resistance_factor, v_dead)
+                mu, s_min, s_max, dt_sub, curve_resistance_factor, v_dead,
+                use_friction_circle)
             s_pacejka = _next_step_output(p_psi_dot, p_v_x, p_v_y, p_psi, p_s_x, p_s_y, p_delta)
         else:
             s_pacejka = state_in
