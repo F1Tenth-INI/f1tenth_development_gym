@@ -18,10 +18,30 @@ from utilities.state_utilities import (
 class IMUSimulator:
     """Simulate 6-DOF IMU readings from 2D vehicle state."""
 
-    def __init__(self, noise_level=0.01, car_parameter_file=None):
-        self.noise_level = noise_level
+    def __init__(
+        self,
+        noise_level=0.01,
+        car_parameter_file=None,
+        accel_noise_std=None,
+        gyro_noise_std=None,
+        bias_std=0.0,
+    ):
+        self.noise_level = float(noise_level)
+        self.accel_noise_std = self._as_std3(accel_noise_std, self.noise_level)
+        self.gyro_noise_std = self._as_std3(gyro_noise_std, self.noise_level)
+        self.bias_std = float(bias_std)
         self._load_imu_position(car_parameter_file)
         self._reset_state()
+
+    @staticmethod
+    def _as_std3(value, fallback):
+        if value is None:
+            std = float(fallback)
+            return (std, std, std)
+        vals = tuple(float(v) for v in value)
+        if len(vals) != 3:
+            raise ValueError("IMU noise std must have 3 components (x, y, z)")
+        return vals
 
     def _load_imu_position(self, car_parameter_file=None):
         """Load IMU mount offset from car parameters (body frame, relative to rear axle)."""
@@ -41,6 +61,16 @@ class IMUSimulator:
         self.last_vy = 0.0
         self.last_avz = 0.0
         self.first_update = True
+        self._sample_bias()
+
+    def _sample_bias(self):
+        std = float(self.bias_std)
+        if std <= 0.0:
+            self._accel_bias = (0.0, 0.0, 0.0)
+            self._gyro_bias = (0.0, 0.0, 0.0)
+            return
+        self._accel_bias = tuple(float(v) for v in np.random.normal(0.0, std, size=3))
+        self._gyro_bias = tuple(float(v) for v in np.random.normal(0.0, std, size=3))
 
     @staticmethod
     def body_velocity_at_imu(v_x, v_y, av_z, dx_cog, dy_cog):
@@ -196,14 +226,17 @@ class IMUSimulator:
         gyro_z = av_z
         quat_w, quat_x, quat_y, quat_z = self._yaw_to_quaternion(yaw)
 
-        noise = self.noise_level
+        ax_std, ay_std, az_std = self.accel_noise_std
+        gx_std, gy_std, gz_std = self.gyro_noise_std
+        bax, bay, baz = self._accel_bias
+        bgx, bgy, bgz = self._gyro_bias
         imu_data = np.zeros(IMUUtilities.IMU_DATA_DIM)
-        imu_data[IMUUtilities.ACCEL_X_IDX] = a_x_car + np.random.normal(0, noise)
-        imu_data[IMUUtilities.ACCEL_Y_IDX] = a_y_car + np.random.normal(0, noise)
-        imu_data[IMUUtilities.ACCEL_Z_IDX] = a_z + np.random.normal(0, noise)
-        imu_data[IMUUtilities.GYRO_X_IDX] = np.random.normal(0, noise)
-        imu_data[IMUUtilities.GYRO_Y_IDX] = np.random.normal(0, noise)
-        imu_data[IMUUtilities.GYRO_Z_IDX] = gyro_z + np.random.normal(0, noise)
+        imu_data[IMUUtilities.ACCEL_X_IDX] = a_x_car + bax + np.random.normal(0, ax_std)
+        imu_data[IMUUtilities.ACCEL_Y_IDX] = a_y_car + bay + np.random.normal(0, ay_std)
+        imu_data[IMUUtilities.ACCEL_Z_IDX] = a_z + baz + np.random.normal(0, az_std)
+        imu_data[IMUUtilities.GYRO_X_IDX] = bgx + np.random.normal(0, gx_std)
+        imu_data[IMUUtilities.GYRO_Y_IDX] = bgy + np.random.normal(0, gy_std)
+        imu_data[IMUUtilities.GYRO_Z_IDX] = gyro_z + bgz + np.random.normal(0, gz_std)
         imu_data[IMUUtilities.EULER_ROLL_IDX] = 0.0
         imu_data[IMUUtilities.EULER_PITCH_IDX] = 0.0
         imu_data[IMUUtilities.EULER_YAW_IDX] = yaw
