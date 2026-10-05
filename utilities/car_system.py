@@ -583,7 +583,7 @@ class CarSystem:
             self.opponent_predictor = pp_predictor.PurePursuitPredictor(self.waypoint_utils)
 
         opponent_states = car_states[1:]  # Exclude ego car (index 0)
-        controls = env_state["controls"][1:0] # Controls computed in step k-1
+        controls = env_state["controls"][1:] # Controls computed in step k-1
 
         if self.k2_controls is None:
             # Reset just happened
@@ -832,13 +832,18 @@ class CarSystem:
             label_dict[f"reward: {name}"] = float(value)
         label_dict["reward: total"] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
+        
+        next_waypoints = self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)]
+        if self.is_ego and self.opponent_predictions is not None:
+            predicted_points = np.asarray(self.opponent_predictions).reshape(-1, 2)
+            next_waypoints = np.concatenate([next_waypoints, predicted_points], axis=0)
 
         virtual_opponent_poses = get_virtual_opponent_poses_for_render(self)
         if virtual_opponent_poses is None:
             virtual_opponent_poses = np.empty((0, 3), dtype=np.float32)
         self.render_utils.update(
             lidar_points=self.lidar_utils.processed_points_map_coordinates,
-            next_waypoints=self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)],
+            next_waypoints=next_waypoints,
             next_waypoints_polynomial=polynomial_raceline,
             next_waypoints_alternative=(
                 self.waypoint_utils_alternative.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)]

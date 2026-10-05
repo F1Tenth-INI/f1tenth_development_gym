@@ -209,7 +209,7 @@ class Settings():
     KEYBOARD_INPUT_ENABLE = False  # Allows for keyboard input during experiment. Causes silent crash on some computers
     RENDER_MODE = 'human_fast'    #selects rendering cadence only: None, 'human', or 'human_fast'
     # RENDER_MODE = None          # no rendering
-    RENDER_BACKEND = 'web'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
+    RENDER_BACKEND = 'pygame'               # backend: 'web', 'pyglet' (deprecated), or 'pygame' (experimental)
     WEB_RENDER_HOST = '0.0.0.0'          # web renderer bind host (0.0.0.0 exposes to LAN/VPN)
     WEB_RENDER_PORT = 8765               # base TCP port for actor 0; actor N uses WEB_RENDER_PORT + N
     WEB_RENDER_AUTO_OPEN = True          # open a browser tab per sim on startup (one tab per renderer)
