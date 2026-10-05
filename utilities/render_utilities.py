@@ -95,6 +95,7 @@ class RenderUtils:
         self.gap_visualization_color = (0, 255, 0)
         self.mppi_visualization_color = (250, 25, 30)
         self.optimal_trajectory_visualization_color = (255, 165, 0)
+        self.opponent_trajectory_color = (0, 255, 255)
         self.target_point_visualization_color = (255, 204, 0)
         self.position_history_color = (0, 204, 0)
         self.obstacle_visualization_color = (255, 0, 0)
@@ -117,6 +118,7 @@ class RenderUtils:
         self.rollout_trajectory: Optional[np.ndarray] = None
         self.traj_cost =None
         self.optimal_trajectory = None
+        self.opponent_trajectory = None
         self.largest_gap_middle_point = None
         self.target_point = None
         self.car_state = None
@@ -150,6 +152,7 @@ class RenderUtils:
         self.gap_vertex = None
         self.mppi_rollouts_vertices = None
         self.optimal_trajectory_vertices = None
+        self.opponent_trajectory_vertices = None
         self.target_vertex = None
         self.obstacle_vertices = None
         self.virtual_opponents = None
@@ -277,6 +280,12 @@ class RenderUtils:
             self.optimal_trajectory,
             color=self.optimal_trajectory_visualization_color,
         )
+        scene.set_trajectories(
+            _ra.LAYER_OPPONENT_TRAJECTORY,
+            self.opponent_trajectory,
+            color= self.opponent_trajectory_color,
+            width=3.0,
+        )
         if self.emergency_slowdown_sprites is not None:
             scene.set_sprite(
                 _ra.LAYER_EMERGENCY_SLOWDOWN,
@@ -294,6 +303,7 @@ class RenderUtils:
                rollout_trajectory=None,
                traj_cost=None,
                optimal_trajectory=None,
+               opponent_trajectory=None,
                largest_gap_middle_point=None,
                target_point=None,
                next_waypoints=None,
@@ -321,6 +331,8 @@ class RenderUtils:
             self.traj_cost = traj_cost
         if optimal_trajectory is not None:
             self.optimal_trajectory = optimal_trajectory
+        if opponent_trajectory is not None:
+            self.opponent_trajectory = opponent_trajectory
         if largest_gap_middle_point is not None:
             self.largest_gap_middle_point = largest_gap_middle_point
         if target_point is not None:
@@ -685,6 +697,17 @@ class RenderUtils:
                                                ('c3B', self.optimal_trajectory_visualization_color * howmany_mppi_optimal))
             else:
                 self.optimal_trajectory_vertices.vertices = scaled_optimal_trajectory_points_flat
+
+        if self.opponent_trajectory is not None:
+            scaled_opponent_trajectory_points = RenderUtils.get_scaled_points(self.opponent_trajectory)
+            howmany_opponent = scaled_opponent_trajectory_points.shape[0]*scaled_opponent_trajectory_points.shape[1]
+            scaled_opponent_trajectory_points_flat = scaled_opponent_trajectory_points.flatten()
+
+            if self.opponent_trajectory_vertices is None:
+                self.opponent_trajectory_vertices = e.batch.add(howmany_opponent, GL_POINTS, None, ('v2f/stream', scaled_opponent_trajectory_points_flat),
+                                               ('c3B', self.opponent_trajectory_color * howmany_opponent))
+            else:
+                self.opponent_trajectory_vertices.vertices = scaled_opponent_trajectory_points_flat
 
         if self.target_point is not None and (Settings.CONTROLLER == 'pp' or Settings.CONTROLLER == 'stanley'):
 

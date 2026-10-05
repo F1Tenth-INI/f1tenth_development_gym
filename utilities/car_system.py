@@ -834,9 +834,13 @@ class CarSystem:
         self.render_utils.set_label_dict(label_dict)
         
         next_waypoints = self.waypoint_utils.next_waypoints[:, (WP_X_IDX, WP_Y_IDX)]
+
+        
         if self.is_ego and self.opponent_predictions is not None:
-            predicted_points = np.asarray(self.opponent_predictions).reshape(-1, 2)
-            next_waypoints = np.concatenate([next_waypoints, predicted_points], axis=0)
+                    predicted_points = np.asarray(self.opponent_predictions).reshape(-1, 2)
+                    # next_waypoints = np.concatenate([next_waypoints, predicted_points], axis=0)
+        
+        
 
         virtual_opponent_poses = get_virtual_opponent_poses_for_render(self)
         if virtual_opponent_poses is None:
@@ -860,15 +864,10 @@ class CarSystem:
                 if self.opponent_tracker is not None
                 else None
             ),
+            opponent_trajectory = predicted_points if self.is_ego and self.opponent_predictions is not None else None
         )
 
-        if self.is_ego and self.opponent_tracker is not None:
-            self.render_utils.scene.set_trajectories(
-                "opponent_predictions",
-                self.opponent_predictions,
-                color = (0,0,255),
-                width = 2.0
-            )
+        
 
     # -------------------------------------------------------------------------
     # Post-control logging and integrations

@@ -34,6 +34,7 @@ LAYER_HISTORY_PRIOR = "history_prior"
 LAYER_HISTORY_PRIOR_FULL = "history_prior_full"
 LAYER_MPC_ROLLOUTS = "mpc.rollouts"
 LAYER_MPC_OPTIMAL = "mpc.optimal"
+LAYER_OPPONENT_TRAJECTORY = "opponent_trajectory"
 LAYER_STEERING_ARROW = "steering_arrow"
 LAYER_EMERGENCY_SLOWDOWN = "emergency_slowdown"
 
