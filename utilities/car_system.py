@@ -64,6 +64,8 @@ from utilities.waypoint_utils import (
     transform_from_car_coordinates,
 )
 
+from utilities import pp_predictor
+
 try:
     from TrainingLite.rl_racing.RewardCalculator import RewardCalculator
 except ModuleNotFoundError:
@@ -106,6 +108,12 @@ class CarSystem:
         self.backward_predictor = None
         if not Settings.ROS_BRIDGE:
             self.start_recorder()
+
+        # New attributes added for opponent trajectory prediction
+        self.is_ego = False # Flag to determine if opponent trajectories need to be computed.
+        self.k2_controls = None # Stores opponent controls computed in simulation step k-2
+        self.opponent_predictions = None # Stores opponent trajectory predictions for the current step.
+        self.opponent_predictor = None # Helper Class that contains predictor logic
 
     def _init_timing_and_control_state(self) -> None:
         self.time = 0.0
@@ -527,6 +535,11 @@ class CarSystem:
         if not self.car_state_history:
             self._append_car_state_history()
 
+
+        # Predict opponent trajectories if this is the ego car
+        if self.is_ego:
+            self.predict_opponents(driver_observation)
+
         self.controller_observation = self._build_controller_observation(driver_observation)
 
         if self.planner is not None:
@@ -555,6 +568,40 @@ class CarSystem:
         self.control_index += 1
         self.time += self.time_increment
         return self.angular_control, self.translational_control
+
+
+    def predict_opponents(self, driver_observation):
+        env_state = driver_observation.get("env_state")
+        car_states = env_state.get("car_states") if env_state is not None else []
+
+        if len(car_states) < 2:
+            # There are no opponents
+            self.opponent_predictions = None
+            return
+
+        if self.opponent_predictor is None:
+            self.opponent_predictor = pp_predictor.PurePursuitPredictor(self.waypoint_utils)
+
+        opponent_states = car_states[1:]  # Exclude ego car (index 0)
+        controls = env_state["controls"][1:0] # Controls computed in step k-1
+
+        if self.k2_controls is None:
+            # Reset just happened
+            controls = [np.zeros(2) for _ in opponent_states]
+            self.k2_controls = controls
+
+        predictions = []
+        opponent_controls = zip(opponent_states, self.k2_controls, controls)
+
+        for state, k2, k1 in opponent_controls:
+            predicted_trajectory = self.opponent_predictor.predict(state, pending_controls=[k2, k1], vel_factor=Settings.OPPONENTS_VEL_FACTOR)
+            predictions.append(predicted_trajectory[:, [POSE_X_IDX, POSE_Y_IDX]])
+
+        self.opponent_predictions = np.array(predictions)
+        self.prev_opponent_controls = controls # Update k-2 controls for the next step
+
+
+        
 
 
 
@@ -809,6 +856,14 @@ class CarSystem:
                 else None
             ),
         )
+
+        if self.is_ego and self.opponent_tracker is not None:
+            self.render_utils.scene.set_trajectories(
+                "opponent_predictions",
+                self.opponent_predictions,
+                color = (0,0,255),
+                width = 2.0
+            )
 
     # -------------------------------------------------------------------------
     # Post-control logging and integrations

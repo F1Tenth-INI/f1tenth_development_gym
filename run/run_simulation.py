@@ -214,6 +214,8 @@ class RacingSimulation:
         
         # First planner settings
         driver = CarSystem(Settings.CONTROLLER, recorder_dict=recording_dict)
+        driver.is_ego = True
+
         
         # Explicitly start recorder since ROS_BRIDGE might be True by default
         if driver.recorder is not None:
