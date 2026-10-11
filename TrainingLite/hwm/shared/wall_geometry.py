@@ -34,6 +34,12 @@ from PIL import Image
 from scipy import ndimage
 from skimage import measure
 
+from TrainingLite.hwm.shared.state_indices import (
+    LINEAR_VEL_X_IDX,
+    POSE_THETA_IDX,
+    POSE_X_IDX,
+    POSE_Y_IDX,
+)
 from utilities.map_scale import scale_map_metadata
 from utilities.Settings import Settings
 
@@ -93,7 +99,14 @@ class WallGeometry:
             point_spacing = float(np.median(np.hypot(*np.diff(raceline, axis=0).T)))
         self.point_spacing = float(point_spacing)
 
-        left, right, obstacles = self._extract_walls(blocked, raceline)
+        if self.map_name == "test_rectangle":
+            # One border, no inner wall: the racetrack extractor needs both.
+            from utilities.test_track import side_walls
+
+            left, right = side_walls(self.point_spacing)
+            obstacles = []
+        else:
+            left, right, obstacles = self._extract_walls(blocked, raceline)
         # Raceline waypoints (N, 2) in driving order.
         self.raceline_abs = torch.as_tensor(raceline, dtype=torch.float32, device=self.device)
         self.left_wall_abs = torch.as_tensor(left, dtype=torch.float32, device=self.device)
@@ -118,9 +131,13 @@ class WallGeometry:
         self.map_height, self.map_width = int(free.shape[0]), int(free.shape[1])
 
         # Same distance transform and threshold as check_body_map_collision.
-        distance = self.resolution * ndimage.distance_transform_edt(free)
-        blocked = distance < self.collision_margin
+        # ``clearance`` is that distance minus the distance back to free space, so it is
+        # positive in the corridor and negative inside walls; gradient planning samples it.
+        free_distance = self.resolution * ndimage.distance_transform_edt(free)
+        occupied_distance = self.resolution * ndimage.distance_transform_edt(~free)
+        blocked = free_distance < self.collision_margin
         self.blocked = torch.as_tensor(blocked, device=self.device)
+        self.clearance = torch.as_tensor(free_distance - occupied_distance, dtype=torch.float32, device=self.device)
         return blocked
 
     @staticmethod
@@ -135,7 +152,9 @@ class WallGeometry:
             xy = df.loc[:, ["x_m", "y_m"]].to_numpy(dtype=np.float64)
         except KeyError as exc:
             raise KeyError(f"{csv_path} is missing column {exc}; expected x_m and y_m") from exc
-        return xy * float(Settings.MAP_SCALE)
+        # Closed loop without repeated points (waypoint files may end on their first point).
+        repeated = np.all(xy == np.roll(xy, -1, axis=0), axis=1)
+        return xy[~repeated] * float(Settings.MAP_SCALE)
 
     # ------------------------------------------------------------------
     # Wall polylines
@@ -280,9 +299,10 @@ class WallGeometry:
 
         If every position lies within radius R of centroid C, the globally nearest wall
         point W* of any position satisfies ||C - W*|| <= 2R + ||C - W_C||, where W_C is
-        the wall point nearest C. Searching only that ball is therefore exact.
+        the wall point nearest C. Searching only that ball is therefore exact. Compiled
+        code (small search batches) skips the ball: its size depends on the data.
         """
-        if pos.shape[0] > 1:
+        if pos.shape[0] > 1 and not torch.compiler.is_compiling():
             centroid = pos.mean(dim=0)
             radius = (pos - centroid).norm(dim=1).max()
             dist_c_sq = ((wall - centroid) ** 2).sum(dim=1)
@@ -365,6 +385,177 @@ class WallGeometry:
         hit = self.in_wall(poses)
         return hit.to(torch.float32).mean(dim=-1).reshape(batch_shape)
 
+    def soft_crash_probability(
+        self,
+        mean: ArrayLike,
+        cov: ArrayLike,
+        smoothing_m: float,
+        noise: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Differentiable ``crash_probability``: same pose samples, a smooth wall test.
+
+        The hard test reads a boolean grid, so it has no gradient. Here each body corner
+        takes the signed wall clearance (``clearance``, meters, positive in free space)
+        by bilinear sampling, and its crash weight is ``sigmoid((margin - clearance) /
+        smoothing_m)``. The body weight is ``1 - Π(1 - corner)`` and the result is the
+        mean over the pose samples. ``smoothing_m`` is the width of that sigmoid, in
+        meters; smaller is closer to the hard test and has a weaker gradient.
+        """
+        if smoothing_m <= 0:
+            raise ValueError(f"smoothing_m must be positive, got {smoothing_m}")
+        mean_t = torch.as_tensor(mean, device=self.device).to(torch.float32)
+        cov_t = torch.as_tensor(cov, device=self.device).to(torch.float32)
+        batch_shape = mean_t.shape[:-1]
+        if Settings.BLANK_MAP:
+            return torch.zeros(batch_shape, dtype=torch.float32, device=mean_t.device)
+        mean_t = mean_t.reshape(-1, 3)
+        cov_t = cov_t.reshape(-1, 3, 3)
+        if noise is None:
+            noise = self.shared_noise(self.crash_samples)
+        noise = noise.to(device=self.device, dtype=torch.float32)
+
+        # Eigen square root, so a singular pose covariance still has a gradient.
+        sym = 0.5 * (cov_t + cov_t.transpose(-1, -2))
+        eigenvalues, eigenvectors = torch.linalg.eigh(sym)
+        scale = eigenvectors * eigenvalues.clamp_min(0.0).sqrt().unsqueeze(-2)
+        poses = mean_t[:, None, :] + torch.einsum("kj,bij->bki", noise, scale)
+        clearance = self.clearance_at(self.corners(poses))
+        weight = torch.sigmoid((self.collision_margin - clearance) / float(smoothing_m))
+        body = 1.0 - (1.0 - weight).prod(dim=-1)
+        return body.mean(dim=-1).reshape(batch_shape).to(dtype=torch.float32)
+
+    @torch.no_grad()
+    def controller_wall_features(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """``(wall_side, urgency, clearance)`` each ``(B,)``, about order 1, for the coefficient controller.
+
+        ``wall_side`` is the lateral component, in the car frame, of the unit gradient of the
+        signed clearance. Positive means free space is to the left, so a positive steering
+        gain on it turns away from the nearest wall. ``clearance`` is ``tanh`` of the signed
+        clearance in meters (positive in free space). ``urgency`` is ``tanh`` of forward speed
+        over the soft distance to a wall straight ahead: near 0 in the open, near 1 when the
+        wall in front is close at speed. That ahead-distance is a sum of sigmoid steps, so a
+        thin wall still cuts it. All three are detached from ``state``.
+        """
+        device, dtype = state.device, state.dtype
+        if Settings.BLANK_MAP:
+            zeros = state.new_zeros(int(state.shape[0]))
+            return zeros, zeros, zeros
+        state = state.to(device=self.device, dtype=torch.float32)
+        xy = state[:, [POSE_X_IDX, POSE_Y_IDX]]
+        theta = state[:, POSE_THETA_IDX]
+        eps = max(float(self.resolution), 1e-3)
+        ahead = torch.tensor([eps, 0.0], device=state.device, dtype=state.dtype)
+        left = torch.tensor([0.0, eps], device=state.device, dtype=state.dtype)
+        gx = (self.clearance_at(xy + ahead) - self.clearance_at(xy - ahead)) / (2.0 * eps)
+        gy = (self.clearance_at(xy + left) - self.clearance_at(xy - left)) / (2.0 * eps)
+        norm = torch.sqrt(gx * gx + gy * gy).clamp_min(1e-6)
+        wall_side = (-torch.sin(theta) * gx + torch.cos(theta) * gy) / norm
+
+        # 4 m of look-ahead at quarter-meter steps. A sample in free space adds its step.
+        steps = 16
+        spacing = 0.25
+        distances = torch.arange(1, steps + 1, device=state.device, dtype=state.dtype) * spacing
+        direction = torch.stack((torch.cos(theta), torch.sin(theta)), dim=-1)
+        points = xy[:, None, :] + distances[None, :, None] * direction[:, None, :]
+        free = torch.sigmoid(self.clearance_at(points) / 0.1)
+        ahead_m = (free * spacing).sum(dim=-1)
+        speed = state[:, LINEAR_VEL_X_IDX].clamp(min=0.0)
+        urgency = torch.tanh(speed / (ahead_m + 0.5))
+        clearance = torch.tanh(self.clearance_at(xy) / 1.0)
+        out = (
+            wall_side.to(device=device, dtype=dtype),
+            urgency.to(device=device, dtype=dtype),
+            clearance.to(device=device, dtype=dtype),
+        )
+        return out
+
+    def clearance_at(self, points_abs: torch.Tensor) -> torch.Tensor:
+        """Signed wall clearance in meters at world points ``(..., 2)``; negative outside the map."""
+        x_t = points_abs[..., 0] - self.origin_x
+        y_t = points_abs[..., 1] - self.origin_y
+        x_rot = x_t * self.origin_cos + y_t * self.origin_sin
+        y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
+        width = self.map_width * self.resolution
+        height = self.map_height * self.resolution
+        inside = (x_rot >= 0) & (x_rot < width) & (y_rot >= 0) & (y_rot < height)
+        # Cell centers sit on integer indices; bilinear there returns that cell's value.
+        cols = x_rot / self.resolution - 0.5
+        rows = y_rot / self.resolution - 0.5
+        sampled = _bilinear(self.clearance, rows, cols)
+        return torch.where(inside, sampled, torch.full_like(sampled, -1.0))
+
+    def trajectory_center_punishment(self, start_xy: torch.Tensor, points_xy: torch.Tensor) -> torch.Tensor:
+        """``(B, T)`` wall punishment at each center, in meters, zero or negative.
+
+        Only the car center is tested, at ``points_xy`` ``(B, T, 2)``. ``start_xy`` ``(B, 2)``
+        is the center before the first point. Clearance is positive in free space and negative
+        inside a wall, so a point's depth is ``max(0, margin - clearance)`` and the punishment
+        is ``-depth``: further into the wall is a linearly larger penalty. No crash probability
+        and no body corners; this is the mean pose only.
+
+        A step can cross a thin wall without either center landing inside it. That is detected
+        on the straight line from the last center that was still in free space to a later free
+        center: if that line intersects a blocked cell, the step went through. From the arrival
+        point on, this trajectory treats the wall as infinitely thick on the far side, and the
+        punishment is the distance past the breach, still linear. Points after the breach stay
+        inside even when the map says they are in free space.
+
+        That infinite thickness belongs to the trajectory, not to the map. It starts only once
+        a previous point of this same plan has already passed through. A curve that goes around
+        the wall never draws such a line, so the free space beyond the wall stays free for it.
+        Backing out is the same idea in reverse: the line from the last free center to the exit
+        does not cross a wall, so the exit is still the original free space and later points
+        are not condemned.
+        """
+        if Settings.BLANK_MAP:
+            return points_xy.new_zeros(points_xy.shape[:-1])
+        margin = self.collision_margin
+        batch, steps, _ = points_xy.shape
+        last_free = start_xy
+        last_free_ok = self.clearance_at(start_xy) >= margin
+        through = torch.zeros(batch, dtype=torch.bool, device=points_xy.device)
+        breach = start_xy.detach().clone()
+        rows = torch.arange(batch, device=points_xy.device)
+        punishments = []
+        for t in range(int(steps)):
+            curr = points_xy[:, t]
+            here = self.clearance_at(curr)
+            samples = self._segment_clearance(last_free, curr)
+            # The line, not only its ends: a thin wall can sit between two free centers.
+            hits = samples.min(dim=-1).values < margin
+            curr_free = here >= margin
+            passed = hits & curr_free & last_free_ok & ~through
+            worst = samples.argmin(dim=-1)
+            breach_now = self._segment_points(last_free, curr)[rows, worst]
+            breach = torch.where(passed.unsqueeze(-1), breach_now.detach(), breach)
+            through = through | passed
+            geometric = (margin - here).clamp_min(0)
+            beyond = torch.linalg.norm(curr - breach, dim=-1)
+            depth = torch.where(through, beyond, geometric)
+            punishments.append(-depth)
+            # Stay with the last free center while the plan is inside a wall, so the line
+            # checked above still starts on the near side. Once through, the far side is wall.
+            still_free = curr_free & ~through
+            last_free = torch.where(still_free.unsqueeze(-1), curr, last_free)
+            last_free_ok = torch.where(still_free, torch.ones_like(last_free_ok), last_free_ok)
+        return torch.stack(punishments, dim=1)
+
+    def _segment_points(self, start: torch.Tensor, end: torch.Tensor) -> torch.Tensor:
+        """``(B, samples, 2)`` points from ``start`` to ``end``, both included.
+
+        Spacing is half a map cell, so a thin wall between the ends is not skipped. The
+        count is capped: a very long jump is sampled at 64 intervals.
+        """
+        length = torch.linalg.norm(end - start, dim=-1).max()
+        count = int(torch.ceil(length / (self.resolution * 0.5)).item()) + 1
+        count = min(max(count, 2), 65)
+        alpha = torch.linspace(0, 1, count, device=start.device, dtype=start.dtype).unsqueeze(-1)
+        return start.unsqueeze(-2) + (end - start).unsqueeze(-2) * alpha
+
+    def _segment_clearance(self, start: torch.Tensor, end: torch.Tensor) -> torch.Tensor:
+        """Signed clearance ``(B, samples)`` along the segment from ``start`` to ``end``."""
+        return self.clearance_at(self._segment_points(start, end))
+
     def shared_noise(self, num_samples: int) -> torch.Tensor:
         """Fixed ``(num_samples, 3)`` standard-normal draws (scrambled Sobol, seed 0)."""
         key = (int(num_samples), self.device)
@@ -376,6 +567,23 @@ class WallGeometry:
         return self._noise[key]
 
 
+def _bilinear(field: torch.Tensor, rows: torch.Tensor, cols: torch.Tensor) -> torch.Tensor:
+    """Sample ``field`` ``(H, W)`` at continuous ``(row, col)`` positions, clamped to the grid."""
+    height, width = int(field.shape[0]), int(field.shape[1])
+    rows = rows.clamp(0, height - 1)
+    cols = cols.clamp(0, width - 1)
+    row0 = rows.floor()
+    col0 = cols.floor()
+    row1 = (row0 + 1).clamp(max=height - 1)
+    col1 = (col0 + 1).clamp(max=width - 1)
+    row_weight = rows - row0
+    col_weight = cols - col0
+    row0, col0, row1, col1 = row0.long(), col0.long(), row1.long(), col1.long()
+    top = field[row0, col0] * (1 - col_weight) + field[row0, col1] * col_weight
+    bottom = field[row1, col0] * (1 - col_weight) + field[row1, col1] * col_weight
+    return top * (1 - row_weight) + bottom * row_weight
+
+
 def _argmin_to_points(pos: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
     delta = points.unsqueeze(0) - pos.unsqueeze(1)
     return (delta * delta).sum(dim=-1).argmin(dim=1)
@@ -385,6 +593,10 @@ def _matrix_sqrt(cov: torch.Tensor) -> torch.Tensor:
     """``S`` with ``S S^T = cov``: Cholesky, or an eigen square root where that fails (singular)."""
     scale, info = torch.linalg.cholesky_ex(cov)
     bad = info != 0
+    if torch.compiler.is_compiling():
+        # No data-dependent branch: compute the eigen root everywhere and pick per matrix.
+        w, v = torch.linalg.eigh(0.5 * (cov + cov.transpose(-1, -2)))
+        return torch.where(bad[..., None, None], v * w.clamp_min(0.0).sqrt()[..., None, :], scale)
     if bool(bad.any()):
         w, v = torch.linalg.eigh(0.5 * (cov[bad] + cov[bad].transpose(-1, -2)))
         scale = scale.clone()

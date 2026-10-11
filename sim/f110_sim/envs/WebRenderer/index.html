@@ -3246,7 +3246,12 @@
             drawLine(data, color, w, cx, cy);
           }
         } else if (kind === "trajectories") {
-          drawTrajectories(data, color, w, cx, cy);
+          if (style.fill) {
+            const alpha = Number(style.alpha);
+            fillPolygons(data, color, Number.isFinite(alpha) ? alpha : 0.3, cx, cy);
+          } else {
+            drawTrajectories(data, color, w, cx, cy);
+          }
         } else if (kind === "poses") {
           drawVirtualOpponents(data, color, cx, cy, style.size);
         }
@@ -3281,6 +3286,27 @@
       }
       ctx.fillStyle = color;
       ctx.fill(path);
+    }
+
+    // Closed polygons filled as one path (nonzero rule), so overlaps keep one opacity.
+    function fillPolygons(polygons, color, alpha, cx, cy) {
+      if (!Array.isArray(polygons) || polygons.length === 0) return;
+      const path = new Path2D();
+      for (const poly of polygons) {
+        if (!Array.isArray(poly) || poly.length < 3) continue;
+        poly.forEach((p, idx) => {
+          if (!Array.isArray(p) || p.length < 2) return;
+          const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+          if (idx === 0) path.moveTo(sx, sy);
+          else path.lineTo(sx, sy);
+        });
+        path.closePath();
+      }
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fill(path, "nonzero");
+      ctx.restore();
     }
 
     function applyReplayRecordingUi() {

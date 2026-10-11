@@ -38,7 +38,7 @@ Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 
 class RacingSimulation:
     RANDOM_START_MAIN_JITTER_XY = 1
-    RANDOM_START_MAIN_JITTER_YAW = 3.141
+    RANDOM_START_MAIN_JITTER_YAW = 0.3
     RANDOM_START_OPPONENT_WP_GAP_MIN = 10
     RANDOM_START_OPPONENT_WP_GAP_MAX = 40
 
@@ -360,6 +360,8 @@ class RacingSimulation:
 
     def _run_physics_substeps(self, agent_controls):
         """Advance world simulation for control timestep, honoring delay buffer."""
+        if self._run_lld_control_step(agent_controls):
+            return
         intermediate_steps = int(Settings.TIMESTEP_CONTROL / Settings.TIMESTEP_SIM)
         for _ in range(intermediate_steps):
             self.control_delay_buffer.append(agent_controls)
@@ -367,6 +369,40 @@ class RacingSimulation:
             self.sim_obs = self.world_sim.step(np.array(agent_controls_execute))
             self.sim_time += Settings.TIMESTEP_SIM
             self.episode_index += 1
+
+    def _run_lld_control_step(self, agent_controls) -> bool:
+        """One LLD transition for the control step. False leaves the Pacejka loop to run."""
+        if not getattr(Settings, "HWM_SIM_USE_LLD", False):
+            return False
+        planners = []
+        for driver in self.drivers:
+            planner = getattr(driver, "planner", None)
+            if planner is None or not hasattr(planner, "lld_dynamics_step"):
+                return False
+            planners.append(planner)
+        # Keep the delay buffer moving so turning the setting off is not a stale queue.
+        # The integrated action is the one just commanded: that is the pair the LLD is trained on.
+        intermediate_steps = int(round(float(Settings.TIMESTEP_CONTROL) / float(Settings.TIMESTEP_SIM)))
+        for _ in range(intermediate_steps):
+            self.control_delay_buffer.append(agent_controls)
+            self.control_delay_buffer.popleft()
+            self.sim_time += float(Settings.TIMESTEP_SIM)
+            self.episode_index += 1
+        for index, planner in enumerate(planners):
+            agent = self.world_sim.agents[index]
+            agent.in_collision = False
+            control = np.asarray(agent_controls[index], dtype=np.float32)
+            agent.state = np.asarray(planner.lld_dynamics_step(agent.state, control), dtype=np.float64)
+            pose = agent.state
+            self.world_sim.agent_poses[index, :] = [pose[POSE_X_IDX], pose[POSE_Y_IDX], pose[POSE_THETA_IDX]]
+        self.world_sim.check_map_collision()
+        self.world_sim.check_collision()
+        for index, agent in enumerate(self.world_sim.agents):
+            if agent.in_collision:
+                self.world_sim.collisions[index] = 1.0
+        self.world_sim.sim_index += intermediate_steps
+        self.sim_obs = self.world_sim.get_sim_observation()
+        return True
 
     def _finalize_control_step(self):
         """Run post-physics step-end hooks for drivers, rendering and done handling."""

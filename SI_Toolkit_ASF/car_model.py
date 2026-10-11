@@ -312,6 +312,10 @@ class car_model:
     def _step_dynamics_ks_pacejka(self, s, Q):
 
         v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
+        v_y = s[:, self.LINEAR_VEL_Y_IDX]  # Lateral velocity
+        # The kinematic model has no lateral velocity (it outputs v_y = 0), so blending it in damps v_y.
+        # The weight therefore follows the speed over ground, not v_x. With v_y = 0 (or v_x < 0) this is v_x.
+        v_blend = v_x + self.lib.sqrt(v_x * v_x + v_y * v_y + 1.0e-8) - self.lib.abs(v_x)
 
         # switch to kinematic model for small velocities
         # Define speed thresholds
@@ -329,7 +333,7 @@ class car_model:
         midpoint = (low_speed_threshold + high_speed_threshold) / self.lib.constant(2, self.lib.float32)
         k = self.lib.constant(4.8, self.lib.float32)
         weights = self.lib.constant(1, self.lib.float32) / (self.lib.constant(1, self.lib.float32) + self.lib.exp(
-            -k * (v_x - midpoint)))
+            -k * (v_blend - midpoint)))
 
         weights = self.lib.reshape(weights, (-1, 1))
         weights_shape = self.lib.shape(weights)

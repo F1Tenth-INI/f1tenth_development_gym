@@ -232,7 +232,11 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             s_ks = state_in
 
         if use_blend:
-            weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_x - 1.75)))
+            # The kinematic model has no lateral velocity (it outputs v_y = 0), so blending it in damps v_y.
+            # The weight therefore follows the speed over ground, not v_x: a car sliding sideways at low v_x
+            # is not a slow no-slip car. With v_y = 0 (or v_x < 0) this is exactly v_x, as before.
+            v_blend = v_x + jnp.sqrt(v_x * v_x + v_y * v_y + 1.0e-8) - jnp.abs(v_x)
+            weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_blend - 1.75)))
             next_state = _blend_states_circular_yaw(s_ks, s_pacejka, weight)
         elif use_pacejka:
             next_state = s_pacejka

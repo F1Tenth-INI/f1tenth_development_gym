@@ -1,5 +1,5 @@
 {
-  "csv_file_path": "/home/florian/Documents/INI/f1tenth_development_gym/AnalyseData/Nikira_rl/2026-04-22_INFERENCE/2026-04-22_03-30-54_Physical-20.csv",
+  "csv_file_path": "/home/emilio/projects/bachelor/f1tenth_development_gym/ExperimentRecordings/2026-06-26_14-34-29_.csv",
   "start_index": 500,
   "end_index": 1000,
   "horizon_steps": 35,
@@ -12,16 +12,10 @@
   "show_all_comparisons": true,
   "sync_scales": true,
   "show_metrics": true,
-  "state_name": "",
-  "selected_other_data": [
-    "cbf_active",
-    "cbf_accel_nom",
-    "cbf_accel_safe",
-    "cbf_accel_correction",
-    "angular_vel_z"
-  ],
+  "state_name": "pose_theta_cos",
+  "selected_other_data": [],
   "comparison_start_index": 500,
-  "default_car_model": "Pure Pacejka Model",
-  "default_car_parameters": "yokomo1_car_parameters.yml",
+  "default_car_model": "Residual Dynamics Model",
+  "default_car_parameters": "gym_car_parameters_finetune.yml",
   "theme": "dark"
 }

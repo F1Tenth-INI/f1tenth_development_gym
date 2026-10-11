@@ -41,7 +41,12 @@ from TrainingLite.hwm.models.networks import build_models as build_model_bundle
 from TrainingLite.hwm.paths import resolve_model_dir
 from utilities.Settings import Settings
 from TrainingLite.hwm.shared.memory_manager import MemoryManager
-from TrainingLite.hwm.shared.observation import build_LLD_observation_inference, lld_dynamic_indices
+from TrainingLite.hwm.shared.observation import (
+    build_LLD_observation_inference,
+    lld_correction_alone,
+    lld_delta,
+)
+from utilities.test_track import enabled as test_track_enabled
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from TrainingLite.rl_racing.tcp_utilities import pack_frame, read_frame
 
@@ -83,14 +88,19 @@ class HWMLearnerServer:
         else:
             # Random init: first broadcast happens in _train_loop once learning_starts is reached.
             self._weights_blob = None
-        self.memory = MemoryManager(device=self.device)
-        self.memory.attach_projector(self.models["LLD"].attention_norm_projector)
-
+        self.memory = MemoryManager(device=self.device, overlap=bool(Settings.HWM_MEMORY_OVERLAP_TRAIN))
+        lld = self.models["LLD"]
+        self.memory.attach_projector(lld.key_encoder(), lld.query_encoder())
+        memory_path = resolve_model_dir(self.load_model_name or self.save_model_name) / "memory.pt"
+        if memory_path.is_file():
+            imported = self.memory.import_rows(torch.load(memory_path, weights_only=True))
+            print(f"[server] Loaded {imported} memory rows from {memory_path}")
         # After .to(device) and checkpoint load, so each Adam tracks the tensors that training updates.
+        # Only the LLD is trained here. The actor, value head and the rest keep the weights they were
+        # loaded with (or their random initialization).
         lr = float(Settings.HWM_LEARNING_RATE)
         self.optimizers: dict[str, torch.optim.Optimizer] = {
-            name: torch.optim.Adam(module.parameters(), lr=lr)
-            for name, module in self.models.items()
+            "LLD": torch.optim.Adam(self.models["LLD"].parameters(), lr=lr)
         }
 
         # Networking / lifecycle.
@@ -122,48 +132,72 @@ class HWMLearnerServer:
         return self.memory.add_batch(states, actions, episode_id, episode_end=episode_end)
 
     def train_round(self, n_steps: int) -> dict[str, Any]:
-        """Run ``n_steps`` gradient steps on ``self.models`` using ``self.memory``.
+        """Run ``n_steps`` LLD gradient steps using ``self.memory``.
 
-        Each step samples one consecutive LLD batch and applies one Adam update.
-        Memory embeddings are refreshed once, after the last step. Runs in a worker thread; do not touch asyncio state here. Return metrics
-        (JSON-serialisable) that are logged and sent to the planner as training_info.
+        Each step is one Adam update on ``HWM_LLD_BATCH_SIZE`` independent random
+        transitions (whole-memory attention needs no sequence). With
+        ``HWM_LLD_CORRECTION_ALONE`` the correction net is trained to match the delta on
+        its own, and the retrieval encoder is trained to help that prediction. No other
+        module is trained.
+        Memory embeddings are refreshed once, after the last step. Runs in a worker thread;
+        do not touch asyncio state here. Return metrics (JSON-serialisable) that are
+        logged and sent to the planner as training_info.
         """
         n_steps = int(n_steps)
         if n_steps <= 0:
             return {"steps": 0}
 
-        opt = self.optimizers["LLD"]
-        total_loss = 0.0
+        lld_opt = self.optimizers["LLD"]
+        totals: dict[str, float] = {}
         for _ in range(n_steps):
-            loss = self._lld_nll(*self.memory.sample_batch())
-            opt.zero_grad(set_to_none=True)
-            loss.backward()
-            opt.step()
-            total_loss += float(loss.detach())
+            current, nxt, steps = self.memory.sample_transitions(
+                int(Settings.HWM_LLD_BATCH_SIZE), int(Settings.HWM_LLD_SKIP_START_ROWS)
+            )
+            lld_loss = self._lld_nll(current, nxt, steps)
+            lld_opt.zero_grad(set_to_none=True)
+            lld_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.models["LLD"].parameters(), float(Settings.HWM_LLD_GRAD_CLIP))
+            lld_opt.step()
+
+            metrics = {
+                "lld_loss": float(lld_loss.detach()),
+                "lld_n_soft": float(self.models["LLD"].last_n_soft),
+                "lld_top_keys": float(self.models["LLD"].last_top_keys),
+                "lld_n_soft_norm": float(self.models["LLD"].last_n_soft_norm),
+                "lld_dummy_pct": 100.0 * float(self.models["LLD"].last_dummy_share),
+            }
+            if self.models["LLD"].cov_head:
+                metrics["lld_cov_n_soft"] = float(self.models["LLD"].last_cov_n_soft)
+                metrics["lld_cov_top_keys"] = float(self.models["LLD"].last_cov_top_keys)
+            for name, value in metrics.items():
+                totals[name] = totals.get(name, 0.0) + value
         self.memory.refresh_embeddings()
-        return {"steps": n_steps, "lld_loss": total_loss / n_steps}
+        return {"steps": n_steps, **{name: value / n_steps for name, value in totals.items()}}
 
-    def _lld_nll(self, rows: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
-        """Negative log-likelihood of the next-state delta along one consecutive batch.
+    def _lld_nll(self, current: torch.Tensor, nxt: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
+        """Negative log-likelihood of the next-state delta of independent random transitions.
 
-        ``rows`` is ``(L, row_dim)`` and ``steps`` their global memory indices. Step ``t``
-        predicts the normalized delta from row ``t`` to row ``t+1``, so the last row is a
-        target only. Neighbors for step ``t`` are restricted to windows stored before row
-        ``t``, so neither the sample nor anything after it can be retrieved. Each sample's
-        history is read from memory, so samples at the start of the run still see the rows
-        before it; only rows before the episode start are zero, as at inference.
-        The predicted channels are yaw rate, body-frame velocity, and steering.
-        Position, heading, and slip angle are not targets: they follow from the
+        ``current`` and ``nxt`` are ``(B, row_dim)`` rows ``t`` and ``t+1`` and ``steps`` the
+        global memory indices of the current rows (``MemoryManager.sample_transitions``).
+        Neighbors for each sample are the windows stored before its superstate, and the
+        windows that start more than ``HWM_LLD_TRAIN_FUTURE_MARGIN`` rows after its next row.
+        Neither the sample nor its immediate future can be retrieved. Each sample's history is
+        read from memory, so samples near an episode start still see the rows before it;
+        only rows before the episode start are zero, as at inference. Steps from the first
+        ``HWM_LLD_SKIP_START_ROWS`` rows of an episode are not drawn.
+        The predicted channels are yaw rate, body-frame velocity, steering, and
+        heading. Position and slip angle are not targets: they follow from the
         current state together with those changes.
-        """
-        if int(rows.shape[0]) < 2:
-            raise ValueError(f"LLD batch needs at least 2 rows, got {int(rows.shape[0])}")
 
+        With ``HWM_LLD_CORRECTION_ALONE`` the correction net is scored by the squared
+        error of ``g(q)`` against that delta, and the retrieval encoder by the likelihood
+        of the residual prediction with ``g`` held fixed.
+        """
+        if lld_correction_alone():
+            return self._lld_alone_loss(current, nxt, steps)
         state_dim = int(Settings.HWM_STATE_DIM)
         hist_len = int(Settings.HWM_SUPER_STATE_SIZE) - 1
-        current = rows[:-1]
-        nxt = rows[1:]
-        past, _ = self.memory.preceding(steps[:-1], hist_len)
+        past, _ = self.memory.preceding(steps, hist_len)
 
         obs = build_LLD_observation_inference(
             current[:, :state_dim],
@@ -171,18 +205,46 @@ class HWMLearnerServer:
             self.memory,
             episode_id=0,
             past_states=past,
-            before_steps=steps[:-1],
+            before_steps=steps,
+            future_margin=int(Settings.HWM_LLD_TRAIN_FUTURE_MARGIN),
         )
         device = next(self.models["LLD"].parameters()).device
         obs = {name: value.to(device) for name, value in obs.items()}
         target = self._lld_target(current[:, :state_dim].to(device), nxt[:, :state_dim].to(device))
-        dist = self.models["LLD"](obs)
-        return -dist.log_prob(target).mean()
+        lld = self.models["LLD"]
+        dist = lld(obs)
+        return -dist.log_prob(target).mean() + lld.encoder_nll(target)
+
+    def _lld_alone_loss(self, current: torch.Tensor, nxt: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
+        """``g(q)`` matches the delta; the retrieval encoder is trained to help, with ``g`` held fixed.
+
+        Neighbors are retrieved as in ``_lld_nll``. The squared error trains only ``g``. The
+        likelihood trains the encoder through the attention weights of
+        ``g(q) + sum_j w_j (delta_j - g(k_j))``, and ``g`` is detached there so it cannot
+        rely on the retrieved samples.
+        """
+        state_dim = int(Settings.HWM_STATE_DIM)
+        hist_len = int(Settings.HWM_SUPER_STATE_SIZE) - 1
+        past, _ = self.memory.preceding(steps, hist_len)
+        obs = build_LLD_observation_inference(
+            current[:, :state_dim],
+            current[:, state_dim:],
+            self.memory,
+            episode_id=0,
+            past_states=past,
+            before_steps=steps,
+            future_margin=int(Settings.HWM_LLD_TRAIN_FUTURE_MARGIN),
+        )
+        device = next(self.models["LLD"].parameters()).device
+        obs = {name: value.to(device) for name, value in obs.items()}
+        target = self._lld_target(current[:, :state_dim].to(device), nxt[:, :state_dim].to(device))
+        lld = self.models["LLD"]
+        residual = lld._correct(obs["current_super_state"])
+        dist = lld(obs, detach_correction=True)
+        return lld.alone_loss(residual, dist, target) - dist.log_prob(target).mean() + lld.encoder_nll(target)
 
     def _lld_target(self, states: torch.Tensor, next_states: torch.Tensor) -> torch.Tensor:
-        scale = torch.tensor(list(Settings.HWM_STATE_SCALE), dtype=states.dtype, device=states.device)
-        delta = (next_states - states) / scale[: states.shape[-1]]
-        return delta[:, lld_dynamic_indices()]
+        return lld_delta(states, next_states)
 
     # ------------------------------------------------------------------
     # Training loop
@@ -196,6 +258,10 @@ class HWMLearnerServer:
                 self._train_event.clear()
             if self._should_terminate:
                 break
+            if test_track_enabled():
+                # Rows may still be stored. No gradient step, so the LLD weights are not broadcast.
+                self._pending_rows = 0
+                continue
             if self.memory.total_steps < self.learning_starts:
                 continue
             n_new = self._pending_rows
@@ -217,8 +283,19 @@ class HWMLearnerServer:
                 **{k: v for k, v in metrics.items() if isinstance(v, (int, float, str, bool))},
             }
             self._latest_training_info = payload
-            loss = payload.get("lld_loss")
-            loss_text = f" loss={float(loss):.4f}" if isinstance(loss, (int, float)) else ""
+            loss_text = "".join(
+                f" {label}={float(payload[key]):.4f}"
+                for key, label in (
+                    ("lld_loss", "loss"),
+                    ("lld_n_soft", "n_soft"),
+                    ("lld_top_keys", "keys50"),
+                    ("lld_n_soft_norm", "n_soft_norm"),
+                    ("lld_dummy_pct", "dummy%"),
+                    ("lld_cov_n_soft", "cov_n_soft"),
+                    ("lld_cov_top_keys", "cov_keys50"),
+                )
+                if isinstance(payload.get(key), (int, float))
+            )
             self._status(
                 f"rows={payload['total_rows']} eps={payload['episodes']} "
                 f"updates={payload['total_updates']}{loss_text} round={dt:.2f}s"
@@ -245,6 +322,13 @@ class HWMLearnerServer:
     def _save_models(self) -> None:
         try:
             self.models.save(self.model_dir)
+            # An LLD-sim run records its own predictions. Saving those would replace the
+            # real transitions the model reads with a car that never got up to speed.
+            snapshot = None if Settings.HWM_SIM_USE_LLD else self.memory.export_rows()
+            if snapshot is not None:
+                tmp = self.model_dir / "memory.pt.tmp"
+                torch.save(snapshot, tmp)
+                tmp.replace(self.model_dir / "memory.pt")
             self._last_autosave = time.time()
             print(f"[server] Saved models to {self.model_dir}")
         except Exception as e:

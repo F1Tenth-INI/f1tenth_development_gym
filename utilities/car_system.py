@@ -25,6 +25,8 @@ import numpy as np
 import yaml
 
 from utilities.Settings import Settings
+from utilities.test_track import command as test_track_command
+from utilities.test_track import enabled as test_track_enabled
 from utilities.EmergencySlowdown import EmergencySlowdown
 from utilities.LapAnalyzer import LapAnalyzer
 from utilities.Recorder import get_basic_data_dict
@@ -281,6 +283,8 @@ class CarSystem:
             self.opponent_tracker.reset()
         self.planner.reset()
         self.waypoint_utils.reset_frenet_progress()
+        if test_track_enabled():
+            self.time = 0.0
 
     def initialize_controller(self, controller_name):
         self.planner = initialize_planner(controller_name)
@@ -543,7 +547,17 @@ class CarSystem:
 
         self.controller_observation = self._build_controller_observation(driver_observation)
 
-        if self.planner is not None:
+        if test_track_enabled():
+            # Open-loop arena drive. The hierarchical planner records the same command;
+            # any other planner is not asked, so its action cannot replace this one.
+            if self.planner is not None and type(self.planner).__name__ == "HirarchicalPlanner":
+                self.angular_control, self.translational_control = self.planner.process_observation(
+                    self.controller_observation
+                )
+                self._sync_planner_recording_dicts()
+            else:
+                self.angular_control, self.translational_control = test_track_command(self.time)
+        elif self.planner is not None:
             # CONTROL STEP
             self.angular_control, self.translational_control = self.planner.process_observation(
                 self.controller_observation
@@ -558,9 +572,10 @@ class CarSystem:
         # Add control noise and append to control history
         self.angular_control_calculated = self.angular_control
         self.translational_control_calculated = self.translational_control
-        self.angular_control, self.translational_control = self.add_control_noise(
-            np.array([self.angular_control, self.translational_control])
-        )
+        if not test_track_enabled():
+            self.angular_control, self.translational_control = self.add_control_noise(
+                np.array([self.angular_control, self.translational_control])
+            )
         self.control_history.append(
             np.array([self.angular_control, self.translational_control], dtype=np.float32)
         )
