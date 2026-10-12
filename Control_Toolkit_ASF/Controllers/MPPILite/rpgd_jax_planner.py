@@ -201,7 +201,8 @@ class RPGDPlanner(template_planner):
             translational_smoothness_weight=self.translational_smoothness_weight,
             gradient_steps=self.gradient_steps,
             adam_m=dummy_adam_m, adam_v=dummy_adam_v, adam_step=0,
-            state_history=dummy_state_history, control_history=dummy_control_history
+            state_history=dummy_state_history, control_history=dummy_control_history,
+            opponent_predictions = jnp.zeros((0, self.horizon, 2), dtype=jnp.float32)
         )
         if not self.quiet:
             print(f"JAX functions compiled and ready for execution on {self.default_device}!")
@@ -211,6 +212,15 @@ class RPGDPlanner(template_planner):
         with jax.default_device(self.default_device):
             s = jnp.array(self.get_car_state(controller_observation), dtype=jnp.float32)
             waypoints = jnp.array(controller_observation["next_waypoints"], dtype=jnp.float32)
+            predictions = controller_observation.get("opponent_predictions")
+            if predictions is None:
+                opponent_predictions = jnp.zeros((0, self.horizon, 2), dtype=jnp.float32)  # No opponents, simply pass empty array so additional cost is 0
+            else:
+                predictions = np.asarray(predictions, dtype=np.float32)
+                pred_horizon = predictions.shape[1]
+                horizon = min(pred_horizon, self.horizon)
+                # Remove first position since it is the opponent's current position.
+                opponent_predictions = jnp.array(predictions[:, 1:horizon+1, :], dtype=jnp.float32)
 
             # imu_x = controller_observation["sensors"]["imu"]["imu_a_x"]
             # imu_y = controller_observation["sensors"]["imu"]["imu_a_y"]
@@ -240,7 +250,8 @@ class RPGDPlanner(template_planner):
                 translational_smoothness_weight=self.translational_smoothness_weight,
                 gradient_steps=self.gradient_steps,
                 adam_m=self.adam_m, adam_v=self.adam_v, adam_step=self.adam_step,
-                state_history=self.state_history, control_history=self.control_history
+                state_history=self.state_history, control_history=self.control_history,
+                opponent_predictions=opponent_predictions
             )
             
             # Update Adam states
@@ -578,7 +589,9 @@ def cost_function_jax(state, control, waypoints, lr):
 def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
                               intra_horizon_smoothness_weight=2.0, 
                               angular_smoothness_weight=1.0, 
-                              translational_smoothness_weight=0.1):
+                              translational_smoothness_weight=0.1,
+                              opponent_predictions=None   # (no_opponents, horizon, 2)
+                              ):
     
     # Standard cost for each state-control pair
     cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, lr)
@@ -598,6 +611,36 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
     # Also add overall smoothness penalty to first element for extra emphasis
     total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
     total_costs = total_costs.at[0].add(total_smoothness_penalty)
+
+    #Add proximity cost with opponents
+    ego_position = state_sequence[:, POSE_X_IDX:POSE_Y_IDX+1]
+    dist_squared = jnp.sum((ego_position - opponent_predictions)**2, axis=-1)
+    proximity_weight = 20
+    radius = 0.2
+    '''
+    Explanation:
+
+    - weight    <-- simple linear weight. 
+                    Increase makes ego car avoid crashes.
+    - radius    <-- Used to tune how close ego car gets to opponent.
+                    In general:
+                        - Small radius: More risky overtaking maneuvers, smaller gaps.
+                        - Large radius: Safer overtaking maneuvers, larger gaps (up to a point).
+
+                    Caveat: Very large values (e.g. >= 0.4, depends on other weigts) will make the cost of
+                            evasive maneuvers larger than the crash cost, causing a collision.
+    '''
+    proximity_cost = proximity_weight*jnp.exp(-dist_squared/radius).sum(axis=0)
+    total_costs += proximity_cost
+
+    #Crash cost
+    '''
+    The ego tends to crash into the opponents on straight. We add a unbounded crash cost to avoid this.
+    '''
+    safe_distance = 0.4
+    crash_weight = 40
+    crash_cost = crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2
+    total_costs += crash_cost
     
     return total_costs
 
@@ -616,7 +659,9 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
                                translational_smoothness_weight=0.1,
                                gradient_steps=5,
                                adam_m=None, adam_v=None, adam_step=0,
-                               state_history=None, control_history=None):
+                               state_history=None, control_history=None,
+                               opponent_predictions=None   # (no_opponents, horizon, 2)
+                               ):
     """
     RPGD Step 2: Gradient optimization - SIMPLIFIED to match original exactly
     NO interpolation (period_interpolation_inducing_points: 1 means no interpolation)
@@ -651,7 +696,8 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         costs = cost_function_sequence_jax(trajectory, Q_full, waypoints, lr,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
-                                         translational_smoothness_weight)
+                                         translational_smoothness_weight,
+                                         opponent_predictions)
         return jnp.sum(costs)
     
     def gradient_step(carry, step_idx):
@@ -692,7 +738,8 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints, lr,
                                          intra_horizon_smoothness_weight,
                                          angular_smoothness_weight, 
-                                         translational_smoothness_weight)
+                                         translational_smoothness_weight,
+                                         opponent_predictions)
         return jnp.sum(costs)
     
     final_costs = jax.vmap(evaluation_cost_fn)(Q_final)

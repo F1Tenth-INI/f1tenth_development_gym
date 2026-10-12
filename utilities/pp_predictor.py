@@ -18,7 +18,7 @@ import jax.numpy as jnp
 
 
 class PurePursuitPredictor:
-    def __init__(self, waypoints_utils, horizon_steps=25):
+    def __init__(self, waypoints_utils, horizon_steps=40):
 
         self.waypoints_utils = waypoints_utils
         self.horizon_steps = horizon_steps

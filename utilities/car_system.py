@@ -404,6 +404,8 @@ class CarSystem:
             "lidar_points": self.lidar_utils.processed_points_map_coordinates,
             **self._lap_metrics(),
             **self._virtual_opponent_observation_fields(),
+            #Add opponent predictions to controller observation so that the planner can use them.
+            "opponent_predictions": np.asarray(self.opponent_predictions, dtype=np.float32),        
         }
         controller_observation.update(
             self.opponent_tracker.to_controller_observation(self.car_state)
