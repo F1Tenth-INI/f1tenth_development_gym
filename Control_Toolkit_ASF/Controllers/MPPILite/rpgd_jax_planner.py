@@ -635,10 +635,10 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
 
     #Crash cost
     '''
-    The ego tends to crash into the opponents on straight. We add a unbounded crash cost to avoid this.
+    The ego tends to crash into the opponents on straight. We add a large (but finite) crash cost to avoid that.
     '''
     safe_distance = 0.4
-    crash_weight = 40
+    crash_weight = 1000
     crash_cost = crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2
     total_costs += crash_cost
     
