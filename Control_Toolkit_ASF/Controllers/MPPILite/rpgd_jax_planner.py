@@ -628,7 +628,8 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
                         - Large radius: Safer overtaking maneuvers, larger gaps (up to a point).
 
                     Caveat: Very large values (e.g. >= 0.4, depends on other weigts) will make the cost of
-                            evasive maneuvers larger than the crash cost, causing a collision.
+                            evasive maneuvers larger than the crash cost, causing a collision. This is mostly
+                            fixed with the addition of the crash cost.
     '''
     proximity_cost = proximity_weight*jnp.exp(-dist_squared/radius).sum(axis=0)
     total_costs += proximity_cost
@@ -637,7 +638,7 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
     '''
     The ego tends to crash into the opponents on straight. We add a large (but finite) crash cost to avoid that.
     '''
-    safe_distance = 0.4
+    safe_distance = 0.3       #Increase this to increase gap between ego and opponent. Might make overtaking infeasible.
     crash_weight = 1000
     crash_cost = crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2
     total_costs += crash_cost
