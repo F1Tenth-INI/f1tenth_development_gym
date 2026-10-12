@@ -181,6 +181,7 @@ class RPGDPlanner(template_planner):
         dummy_state = jnp.zeros(10, dtype=jnp.float32)
         dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
+        dummy_opponent_predictions = jnp.zeros((0, self.horizon, 2), dtype=jnp.float32)
         
         if not self.quiet:
             print("Compiling rpgd_process_observation_jax...")
@@ -206,7 +207,7 @@ class RPGDPlanner(template_planner):
             gradient_steps=self.gradient_steps,
             adam_m=dummy_adam_m, adam_v=dummy_adam_v, adam_step=0,
             state_history=dummy_state_history, control_history=dummy_control_history,
-            opponent_predictions = jnp.zeros((0, self.horizon, 2), dtype=jnp.float32)
+            opponent_predictions = dummy_opponent_predictions
         )
         if not self.quiet:
             print(f"JAX functions compiled and ready for execution on {self.default_device}!")
@@ -573,7 +574,7 @@ def compute_waypoint_distance_jax(state, waypoints):
     return min_dist_sq, min_idx
 
 @jax.jit
-def cost_function_jax(state, control, waypoints, lr):
+def cost_function_jax(state, control, waypoints, lr, opponent_predictions):
     waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
     angular_control_cost = jnp.abs(control[0]) * 0.1
     translational_control_cost = jnp.abs(control[1]) * 0.0
@@ -588,52 +589,8 @@ def cost_function_jax(state, control, waypoints, lr):
     # translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
     translational_quadratic_penalty = 0
 
-    # Add a penalty for crashing into the wall (based on lateral distance to wall). Enables safer overtaking maneuvers.
-    waypoint = waypoints[min_idx]
-    psi = waypoint[WP_PSI_IDX]
-    unit_left = jnp.array([-jnp.sin(psi), jnp.cos(psi)])
-    ego_position = state[POSE_X_IDX:POSE_Y_IDX+1]
-
-    offset = jnp.dot(ego_position - waypoint[WP_X_IDX:WP_Y_IDX+1], unit_left)   #Project distance between current position and waypoint onto the unit left vector
-
-    safe_distance = SAFE_WALL_DISTANCE + 0.05   #SAFE_WALL_DISTANCE is the minimum lateral offset to avoid crash with the wall.
-    crash_weight = 1000
-
-    left_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_LEFT_IDX] - offset))
-    right_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_RIGHT_IDX] + offset))
-    crash_cost = crash_weight*(left_crash**2 + right_crash**2)
-
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost + crash_cost
-
-@jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
-                              intra_horizon_smoothness_weight=2.0, 
-                              angular_smoothness_weight=1.0, 
-                              translational_smoothness_weight=0.1,
-                              opponent_predictions=None   # (no_opponents, horizon, 2)
-                              ):
-    
-    # Standard cost for each state-control pair
-    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, lr)
-    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
-    
-    # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
-    control_diff = control_sequence[1:] - control_sequence[:-1]
-    
-    # Individual step smoothness costs
-    step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
-    step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
-    step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
-    
-    # Add individual smoothness penalties to corresponding cost elements
-    total_costs = standard_costs.at[1:].add(step_smoothness_costs)
-    
-    # Also add overall smoothness penalty to first element for extra emphasis
-    total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
-    total_costs = total_costs.at[0].add(total_smoothness_penalty)
-
     #Add proximity cost with opponents
-    ego_position = state_sequence[:, POSE_X_IDX:POSE_Y_IDX+1]
+    ego_position = state[POSE_X_IDX:POSE_Y_IDX+1]
     dist_squared = jnp.sum((ego_position - opponent_predictions)**2, axis=-1)
     proximity_weight = 20
     radius = 0.15
@@ -651,17 +608,59 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
                             evasive maneuvers larger than the crash cost, causing a collision. This is mostly
                             fixed with the addition of the crash cost.
     '''
-    proximity_cost = proximity_weight*jnp.exp(-dist_squared/radius).sum(axis=0)
-    total_costs += proximity_cost
+    proximity_cost = proximity_weight*jnp.exp(-dist_squared/radius).sum()
 
-    #Crash cost
+    #Opponent Crash cost
     '''
     The ego tends to crash into the opponents on straights. We add a large (but finite) crash cost to avoid that.
     '''
     safe_distance = 0.15       #Increase this to increase gap between ego and opponent. Might make overtaking infeasible.
-    crash_weight = 1000
-    crash_cost = crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2
-    total_costs += crash_cost
+    opponent_crash_weight = 1000
+    opponent_crash_cost = (opponent_crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2).sum()
+
+    # Add a penalty for crashing into the wall (based on lateral distance to wall). Enables safer overtaking maneuvers.
+    waypoint = waypoints[min_idx]
+    psi = waypoint[WP_PSI_IDX]
+    unit_left = jnp.array([-jnp.sin(psi), jnp.cos(psi)])
+
+    offset = jnp.dot(ego_position - waypoint[WP_X_IDX:WP_Y_IDX+1], unit_left)   #Project distance between current position and waypoint onto the unit left vector
+
+    safe_distance = SAFE_WALL_DISTANCE + 0.05   #SAFE_WALL_DISTANCE is the minimum lateral offset to avoid crash with the wall.
+    wall_crash_weight = 1000
+
+    left_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_LEFT_IDX] - offset))
+    right_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_RIGHT_IDX] + offset))
+    wall_crash_cost = wall_crash_weight*(left_crash**2 + right_crash**2)
+
+    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost + wall_crash_cost + proximity_cost + opponent_crash_cost
+
+@jax.jit
+def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
+                              intra_horizon_smoothness_weight=2.0, 
+                              angular_smoothness_weight=1.0, 
+                              translational_smoothness_weight=0.1,
+                              opponent_predictions=None   # (no_opponents, horizon, 2)
+                              ):
+    
+    # Standard cost for each state-control pair
+    opponents = jnp.swapaxes(opponent_predictions, 0, 1)
+    cost_fn = lambda s, u, opp: cost_function_jax(s, u, waypoints, lr, opp)
+    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence, opponents)
+    
+    # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
+    control_diff = control_sequence[1:] - control_sequence[:-1]
+    
+    # Individual step smoothness costs
+    step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
+    step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
+    step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
+    
+    # Add individual smoothness penalties to corresponding cost elements
+    total_costs = standard_costs.at[1:].add(step_smoothness_costs)
+    
+    # Also add overall smoothness penalty to first element for extra emphasis
+    total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
+    total_costs = total_costs.at[0].add(total_smoothness_penalty)
     
     return total_costs
 
