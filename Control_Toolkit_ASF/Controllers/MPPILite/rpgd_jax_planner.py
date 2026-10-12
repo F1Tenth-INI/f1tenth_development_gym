@@ -19,6 +19,10 @@ from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
 
 T_CONTROL = 0.04  # Control timestep
+ego_params = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+EGO_WIDTH = float(ego_params.width)
+EGO_LENGTH = float(ego_params.length)
+SAFE_WALL_DISTANCE = EGO_WIDTH/2.0
 """
 RPGD Planner Optimizations for Performance:
 
@@ -583,7 +587,23 @@ def cost_function_jax(state, control, waypoints, lr):
     angular_quadratic_penalty = control[0] ** 2 * 0.0  # Heavy penalty for large steering angles
     # translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
     translational_quadratic_penalty = 0
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost
+
+    # Add a penalty for crashing into the wall (based on lateral distance to wall). Enables safer overtaking maneuvers.
+    waypoint = waypoints[min_idx]
+    psi = waypoint[WP_PSI_IDX]
+    unit_left = jnp.array([-jnp.sin(psi), jnp.cos(psi)])
+    ego_position = state[POSE_X_IDX:POSE_Y_IDX+1]
+
+    offset = jnp.dot(ego_position - waypoint[WP_X_IDX:WP_Y_IDX+1], unit_left)   #Project distance between current position and waypoint onto the unit left vector
+
+    safe_distance = SAFE_WALL_DISTANCE + 0.05   #SAFE_WALL_DISTANCE is the minimum lateral offset to avoid crash with the wall.
+    crash_weight = 1000
+
+    left_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_LEFT_IDX] - offset))
+    right_crash = jnp.maximum(0, safe_distance - (waypoint[WP_D_RIGHT_IDX] + offset))
+    crash_cost = crash_weight*(left_crash**2 + right_crash**2)
+
+    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost + crash_cost
 
 @jax.jit
 def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
@@ -616,7 +636,7 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
     ego_position = state_sequence[:, POSE_X_IDX:POSE_Y_IDX+1]
     dist_squared = jnp.sum((ego_position - opponent_predictions)**2, axis=-1)
     proximity_weight = 20
-    radius = 0.2
+    radius = 0.15
     '''
     Explanation:
 
@@ -636,9 +656,9 @@ def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
 
     #Crash cost
     '''
-    The ego tends to crash into the opponents on straight. We add a large (but finite) crash cost to avoid that.
+    The ego tends to crash into the opponents on straights. We add a large (but finite) crash cost to avoid that.
     '''
-    safe_distance = 0.3       #Increase this to increase gap between ego and opponent. Might make overtaking infeasible.
+    safe_distance = 0.15       #Increase this to increase gap between ego and opponent. Might make overtaking infeasible.
     crash_weight = 1000
     crash_cost = crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2
     total_costs += crash_cost
