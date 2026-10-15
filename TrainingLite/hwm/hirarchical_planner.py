@@ -176,11 +176,15 @@ class HirarchicalPlanner(template_planner):
         # Episode rows are kept until on_step_end() sees done; see _reset_episode_state().
         self._generation += 1
         self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
+        
     def _ensure_waypoints(self) -> None:
-        waypoints = getattr(self.waypoint_utils, "waypoints", None)
+        utils = getattr(self, "waypoint_utils", None)
+        waypoints = None if utils is None else getattr(utils, "waypoints", None)
         if waypoints is None or getattr(self, "_waypoints_n", 0) == len(waypoints):
             return
         self.waypoints = torch.as_tensor(np.asarray(waypoints), dtype=torch.float32)  # (N, 10)
+        self._waypoint_xy = self.waypoints[:, 1:3].contiguous()
+        self._waypoints_n = int(self.waypoints.shape[0])
 
     def _refresh_display_models(self) -> None:
         """Copy the live actor and LLD into the modules the background paths roll out."""
@@ -188,7 +192,7 @@ class HirarchicalPlanner(template_planner):
             self._display_actor.load_state_dict(self.models["actor"].state_dict())
             self._display_lld.load_state_dict(self.models["LLD"].state_dict())
 
-    def _preview_job(self, **kwargs: Any) -> tuple[np.ndarray, torch.Tensor, torch.Tensor]:
+    def _preview_job(self, **kwargs: Any) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
         self._refresh_display_models()
         return self.lld_preview.compute(**kwargs)
     
@@ -198,6 +202,56 @@ class HirarchicalPlanner(template_planner):
         pos = state[:, [POSE_X_IDX, POSE_Y_IDX]]                 # (B, 2)
         dist = (self._waypoint_xy.unsqueeze(0) - pos.unsqueeze(1)).pow(2).sum(-1)  # (B, N)
         return dist.argmin(dim=-1)
+
+    def rollout_waypoint_states(self, states: torch.Tensor, closest_index: int | torch.Tensor) -> torch.Tensor:
+        """For each rollout, which of its states is closest to each upcoming waypoint.
+
+        ``states`` is ``(B, T, state_dim)``. ``closest_index`` is the raceline index closest to
+        the start, one integer or ``(B,)``. Waypoint ``j`` of a trajectory is
+        ``closest_index + j`` along the raceline, including the closest point itself.
+
+        How many waypoints: the trajectory's average speed over ground, times the rollout
+        duration ``(T - 1) * TIMESTEP_CONTROL``, divided by the 0.1 m waypoint spacing, plus one.
+        Waypoints past that, and any waypoint left after every state has been used once, are NaN.
+
+        Returns ``(B, J)`` float. Entry ``[k, j]`` is the state index in rollout ``k`` closest to
+        that waypoint. Each state is used for at most one waypoint, waypoints in order, so the
+        earlier waypoint keeps the state when two of them want it.
+        """
+        self._ensure_waypoints()
+        if not hasattr(self, "_waypoint_xy"):
+            raise RuntimeError("waypoints are not loaded")
+        states = torch.as_tensor(states, dtype=torch.float32)
+        if states.ndim != 3:
+            raise ValueError(f"states must be (B, T, state_dim), got {tuple(states.shape)}")
+        batch, steps, _ = (int(states.shape[0]), int(states.shape[1]), int(states.shape[2]))
+        closest = torch.as_tensor(closest_index, dtype=torch.long)
+        if closest.ndim == 0:
+            closest = closest.expand(batch)
+        speed = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).mean(dim=1)
+        duration = max(steps - 1, 0) * float(Settings.TIMESTEP_CONTROL)
+        counts = torch.floor(speed * duration / 0.1).to(torch.long) + 1
+        counts = counts.clamp(min=1, max=self._waypoints_n)
+        look = int(counts.max()) if batch else 0
+        out = states.new_full((batch, look), float("nan"))
+        if look == 0 or steps == 0:
+            return out
+        offset = torch.arange(look)
+        wp = self._waypoint_xy[(closest[:, None] + offset) % self._waypoints_n]
+        pos = states[:, :, [POSE_X_IDX, POSE_Y_IDX]]
+        dist = (pos.unsqueeze(2) - wp.unsqueeze(1)).pow(2).sum(dim=-1)
+        in_range = offset.unsqueeze(0) < counts.unsqueeze(1)
+        dist = dist.masked_fill(~in_range.unsqueeze(1), float("inf"))
+        taken = torch.zeros(batch, steps, dtype=torch.bool)
+        for j in range(look):
+            column = dist[:, :, j].masked_fill(taken, float("inf"))
+            best = column.argmin(dim=1)
+            reachable = in_range[:, j] & torch.isfinite(column.gather(1, best.unsqueeze(1)).squeeze(1))
+            out[reachable, j] = best[reachable].to(out.dtype)
+            mark = torch.zeros_like(taken)
+            mark.scatter_(1, best.unsqueeze(1), reachable.unsqueeze(1))
+            taken |= mark
+        return out
 
     # ------------------------------------------------------------------
     # INSERTION POINTS

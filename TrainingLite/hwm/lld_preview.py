@@ -298,6 +298,8 @@ class LLDPreview:
         self._drawn = (plan_xy, mean.numpy(), ellipses.numpy(), residual_xy)
         self._offset = min(max(int(age), 0), plan_xy.shape[0] - 1)
         self._draw(render_utils)
+        render_utils.label_dict.pop("LLD rollout n_soft_norm avg", None)
+        render_utils.label_dict.pop("LLD rollout n_soft_norm min", None)
         render_utils.set_label_dict({"LLD end error [m]": float(np.linalg.norm(mean[-1].numpy() - plan_xy[-1]))})
 
     def advance(self, render_utils: Optional[Any]) -> None:

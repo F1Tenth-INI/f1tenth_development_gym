@@ -400,7 +400,7 @@ class Settings():
     TEST_TRACK = False                # True: drive this arena instead of MAP_NAME, with the open-loop steer and accel below. The LLD is not trained and its weights stay as they were at the start
     TEST_TRACK_ACCEL = 1.5             # constant acceleration [m/s^2], held from the start
     TEST_TRACK_STEER_SLOPE =.05 #0.2      # [rad/s]. Steering amplitude is this times the time since the episode start
-    TEST_TRACK_STORE_MEMORY = True    # True: the drive is still written into memory and streamed. The LLD weights are not updated either way
+    TEST_TRACK_STORE_MEMORY = False    # True: the drive is still written into memory and streamed. The LLD weights are not updated either way
 
     HWM_LLD_ENCODER_DIM = 10            # dimensionality of the encoder's latent vector (the embedding that attention distances, keys and the density are computed in). Changing it needs a new model: the encoder's last layer changes width
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
