@@ -88,15 +88,15 @@ class HWMLearnerServer:
         else:
             # Random init: first broadcast happens in _train_loop once learning_starts is reached.
             self._weights_blob = None
-        self.memory = MemoryManager(device=self.device, overlap=bool(Settings.HWM_MEMORY_OVERLAP_TRAIN))
+        self.memory = MemoryManager(device=self.device)
         lld = self.models["LLD"]
-        self.memory.attach_projector(lld.key_encoder(), lld.query_encoder())
+        self.memory.attach_projector(lld.attention_norm_projector)
         memory_path = resolve_model_dir(self.load_model_name or self.save_model_name) / "memory.pt"
         if memory_path.is_file():
             imported = self.memory.import_rows(torch.load(memory_path, weights_only=True))
             print(f"[server] Loaded {imported} memory rows from {memory_path}")
         # After .to(device) and checkpoint load, so each Adam tracks the tensors that training updates.
-        # Only the LLD is trained here. The actor, value head and the rest keep the weights they were
+        # Only the LLD is trained here. The actor and the rest keep the weights they were
         # loaded with (or their random initialization).
         lr = float(Settings.HWM_LEARNING_RATE)
         self.optimizers: dict[str, torch.optim.Optimizer] = {
@@ -213,7 +213,7 @@ class HWMLearnerServer:
         target = self._lld_target(current[:, :state_dim].to(device), nxt[:, :state_dim].to(device))
         lld = self.models["LLD"]
         dist = lld(obs)
-        return -dist.log_prob(target).mean() + lld.encoder_nll(target)
+        return -dist.log_prob(target).mean() + lld.encoder_nll(target) + lld.encoder_l1(target)
 
     def _lld_alone_loss(self, current: torch.Tensor, nxt: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
         """``g(q)`` matches the delta; the retrieval encoder is trained to help, with ``g`` held fixed.
@@ -241,7 +241,7 @@ class HWMLearnerServer:
         lld = self.models["LLD"]
         residual = lld._correct(obs["current_super_state"])
         dist = lld(obs, detach_correction=True)
-        return lld.alone_loss(residual, dist, target) - dist.log_prob(target).mean() + lld.encoder_nll(target)
+        return lld.alone_loss(residual, dist, target) - dist.log_prob(target).mean() + lld.encoder_nll(target) + lld.encoder_l1(target)
 
     def _lld_target(self, states: torch.Tensor, next_states: torch.Tensor) -> torch.Tensor:
         return lld_delta(states, next_states)

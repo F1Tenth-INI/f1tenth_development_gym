@@ -14,7 +14,7 @@
   "show_metrics": true,
   "state_name": "pose_theta_cos",
   "selected_other_data": [],
-  "comparison_start_index": 500,
+  "comparison_start_index": 50,
   "default_car_model": "Residual Dynamics Model",
   "default_car_parameters": "gym_car_parameters_finetune.yml",
   "theme": "dark"

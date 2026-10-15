@@ -4,27 +4,22 @@ Rows are ``[state_t, action_t]``: the raw 10-d car state at control step ``t`` a
 action in network output units (``physical / action_denorm``). Not clipped to
 ``[-1, 1]``. Nothing else is stored.
 
-All rows live in one ring buffer of ``Settings.HWM_MEMORY_MAX_ROWS`` slots. Row ``g``
-(its global insertion index) sits in slot ``g % capacity``; once the buffer is full,
-every new row overwrites the oldest one. Rows arrive in time order from a single
-actor, so one episode occupies consecutive indices.
+Rows are never evicted. Row ``g`` (its global insertion index) sits in slot
+``g % capacity``; ``capacity`` starts at ``Settings.HWM_MEMORY_MAX_ROWS`` and the row arrays
+double when more rows arrive. Rows arrive in time order from a single actor, so one episode
+occupies consecutive indices.
 
-Every stored superstate (``S = HWM_SUPER_STATE_SIZE`` consecutive rows of one episode)
-also has an embedding from the LLD ``attention_norm_projector``, kept in the slot of its
-last row. New rows are embedded on arrival and ``refresh_embeddings`` re-embeds all of
-them after the projector weights change. Embeddings are computed without gradients.
-
-With ``Settings.HWM_MEMORY_BANK`` the rows are never evicted: the row arrays grow, row ``g`` sits in
-slot ``g`` (``g % capacity`` as before, ``capacity`` only grows). The LLD's keys (superstates) are
-then a separate, limited array of ``HWM_MEMORY_BANK_SIZE`` indices into the rows, each ending a window of
-``S`` rows plus the step it predicts (one episode; windows may overlap). Every row that completes a window
-is offered as a key. When the bank is full an offered key replaces the key with the highest n_soft (its
-kernel mass among the other keys) only if its own n_soft is lower, so dense regions are thinned first.
-Embeddings and every n_soft are recomputed by ``refresh_embeddings``.
+The LLD's keys (superstates) are a separate, limited array of ``HWM_MEMORY_BANK_SIZE`` indices into
+the rows, each ending a window of ``S = HWM_SUPER_STATE_SIZE`` rows plus the step it predicts (one
+episode; windows may overlap). Every row that completes a window is offered as a key. When the bank
+is full an offered key replaces the key with the highest n_soft (its kernel mass among the other
+keys) only if its own n_soft is lower, so dense regions are thinned first. Embeddings come from the
+LLD ``attention_norm_projector``. They are computed without gradients when a key arrives, and
+``refresh_embeddings`` re-embeds all keys and recomputes every n_soft after the projector weights change.
 
 The client appends one row per control step and streams row slices to the learner;
 the learner appends the received slices. Both sides therefore hold the same rows
-(modulo dropped frames).
+(modulo dropped frames), and each keeps its own key bank.
 """
 
 from __future__ import annotations
@@ -36,11 +31,10 @@ import numpy as np
 import torch
 from torch import nn
 
-from TrainingLite.hwm.shared.observation import _normalize_rows, lld_rows_for_super, lld_super_flat_dim
+from TrainingLite.hwm.shared.observation import _normalize_rows, lld_delta, lld_rows_for_super, lld_super_flat_dim
 from utilities.Settings import Settings
 
-# Slots scanned per distance block; temporaries are (B, _SEARCH_CHUNK) floats.
-_SEARCH_CHUNK = 65536
+# Keys embedded per projector call.
 _EMBED_CHUNK = 65536
 
 
@@ -52,14 +46,11 @@ class MemoryManager:
         device: str | torch.device = "cpu",
         capacity: Optional[int] = None,
         superstate_size: Optional[int] = None,
-        overlap: bool = False,
-        bank: Optional[bool] = None,
     ):
-        # True: every row that ends a full window is a key (keys may share rows). False: tiled per episode.
-        self.overlap = bool(overlap)
         self.state_dim = int(Settings.HWM_STATE_DIM if state_dim is None else state_dim)
         self.action_dim = int(Settings.HWM_ACTION_DIM if action_dim is None else action_dim)
         self.row_dim = self.state_dim + self.action_dim
+        # Initial row allocation only: the row arrays double when full, nothing is evicted.
         self.capacity = int(Settings.HWM_MEMORY_MAX_ROWS if capacity is None else capacity)
         self.superstate_size = int(
             Settings.HWM_SUPER_STATE_SIZE if superstate_size is None else superstate_size
@@ -78,122 +69,65 @@ class MemoryManager:
         # Number of consecutive rows of the same episode ending at each row (1 at the episode start).
         self._run_len = torch.zeros((self.capacity,), dtype=torch.long, device=self.device)
         # True for the last HWM_MEMORY_DROP_FINAL_STEPS rows of a finished episode. Such rows
-        # are never a neighbor-bank transition and never inside a training batch.
+        # are never a key's next row and never inside a training batch.
         self._final = torch.zeros((self.capacity,), dtype=torch.bool, device=self.device)
-        # Kernel density of each stored key among the other keys, for HWM_LLD_DENSITY_WEIGHTING.
-        # NaN until computed; recomputed with the embeddings, filled in on demand for new rows.
-        self._density = torch.full((self.capacity,), float("nan"), dtype=torch.float32, device=self.device)
         self._projector: Optional[nn.Module] = None
-        self._query_projector: Optional[nn.Module] = None
-        self._emb: Optional[torch.Tensor] = None
         self._clock = 0
         self._size = 0
         self._open_episode: Optional[int] = None
         self._open_start = 0
         self._episodes_closed = 0
-        # HWM_MEMORY_BANK: rows are never evicted, the keys are a limited array of row indices.
-        self.bank = bool(getattr(Settings, "HWM_MEMORY_BANK", False)) if bank is None else bool(bank)
-        self.bank_size = int(getattr(Settings, "HWM_MEMORY_BANK_SIZE", 1000))
-        self.bank_exclude_overlap = bool(getattr(Settings, "HWM_MEMORY_BANK_EXCLUDE_OVERLAP", True))
-        if self.bank:
-            if self.bank_size <= 0:
-                raise ValueError(f"HWM_MEMORY_BANK_SIZE must be positive, got {self.bank_size}")
-            # Global index of the last row of each key (-1 empty), its embedding and its n_soft.
-            self._bank_rows = torch.full((self.bank_size,), -1, dtype=torch.long, device=self.device)
-            self._bank_emb: Optional[torch.Tensor] = None
-            self._bank_density = torch.zeros((self.bank_size,), dtype=torch.float32, device=self.device)
-            self._bank_count = 0
-            # Row slot -> position in the bank, -1 if the row ends no key.
-            self._bank_index = torch.full((self.capacity,), -1, dtype=torch.long, device=self.device)
+
+        # The key bank: rows are never evicted, the keys are a limited array of row indices.
+        self.bank_size = int(Settings.HWM_MEMORY_BANK_SIZE)
+        self.bank_exclude_overlap = bool(Settings.HWM_MEMORY_BANK_EXCLUDE_OVERLAP)
+        if self.bank_size <= 0:
+            raise ValueError(f"HWM_MEMORY_BANK_SIZE must be positive, got {self.bank_size}")
+        # Global index of the last row of each key (-1 empty), its embedding and its n_soft.
+        self._bank_rows = torch.full((self.bank_size,), -1, dtype=torch.long, device=self.device)
+        self._bank_emb: Optional[torch.Tensor] = None
+        self._bank_density = torch.zeros((self.bank_size,), dtype=torch.float32, device=self.device)
+        # Pose-free normalized superstate and the delta leaving it, written when the key enters.
+        # A rollout reads [:count], which is a view: the rows are not copied again.
+        self._bank_super: Optional[torch.Tensor] = None
+        self._bank_delta: Optional[torch.Tensor] = None
+        self._bank_count = 0
+        # Row slot -> position in the bank, -1 if the row ends no key.
+        self._bank_index = torch.full((self.capacity,), -1, dtype=torch.long, device=self.device)
 
     # ------------------------------------------------------------------
     # Embeddings
     # ------------------------------------------------------------------
-    def attach_projector(self, projector: nn.Module, query_projector: Optional[nn.Module] = None) -> None:
-        """Use ``projector`` for stored keys and ``query_projector`` for live queries.
-
-        ``query_projector`` defaults to ``projector``, which is the shared-encoder case.
-        Stored rows are embedded with the key projector.
-        """
+    def attach_projector(self, projector: nn.Module) -> None:
+        """Use ``projector`` (the LLD's ``attention_norm_projector``) to embed keys and queries."""
         with self._lock:
             self._projector = projector
-            self._query_projector = projector if query_projector is None else query_projector
             probe = self._embed(torch.zeros((1, lld_super_flat_dim()), device=self.device))
-            if self.bank:
-                self._emb = None
-                self._bank_emb = torch.zeros(
-                    (self.bank_size, int(probe.shape[-1])), dtype=torch.float32, device=self.device
-                )
-                self._bank_rebuild()
-                return
-            self._emb = torch.zeros(
-                (self.capacity, int(probe.shape[-1])), dtype=torch.float32, device=self.device
+            self._bank_emb = torch.zeros(
+                (self.bank_size, int(probe.shape[-1])), dtype=torch.float32, device=self.device
             )
-            self.refresh_embeddings()
+            self._bank_rebuild()
 
     def refresh_embeddings(self) -> None:
-        """Re-embed every stored superstate with the current projector weights."""
+        """Re-embed every key with the current projector weights and recompute every n_soft."""
         with self._lock:
             if self._projector is None:
                 return
-            if self.bank:
-                count = self._bank_count
-                for chunk in torch.arange(count, device=self.device).split(_EMBED_CHUNK):
-                    self._bank_emb[chunk] = self._embed(self._key_rows(self._bank_rows[chunk]))
-                self._bank_recompute_density()
-                return
-            slots = torch.nonzero(self._keyed_mask()).squeeze(1)
-            for chunk in slots.split(_EMBED_CHUNK):
-                self._emb[chunk] = self._embed(self._key_rows(self._steps[chunk]))
-            self._density.fill_(float("nan"))
-            if bool(getattr(Settings, "HWM_LLD_DENSITY_WEIGHTING", False)):
-                self._fill_density(torch.nonzero(self._match_mask()).squeeze(1))
-
-    @torch.no_grad()
-    def _fill_density(self, slots: torch.Tensor) -> None:
-        """Compute the missing densities of the match ``slots``.
-
-        The density of a key is ``sum_k exp(-||e_j - e_k|| / T)`` over every match key ``k``,
-        itself included, from the cached key embeddings and the LLD's attention temperature:
-        ``n_soft`` of the key. Keys that already have a value keep it.
-        """
-        if slots.numel() == 0:
-            return
-        missing = slots[torch.isnan(self._density[slots])]
-        if missing.numel() == 0:
-            return
-        temperature = float(Settings.HWM_LLD_ATTENTION_TEMPERATURE)
-        reference = self._emb[slots]
-        for chunk in missing.split(1024):
-            distance = torch.cdist(self._emb[chunk], reference)
-            self._density[chunk] = torch.exp(-distance / temperature).sum(dim=1)
+            count = self._bank_count
+            for chunk in torch.arange(count, device=self.device).split(_EMBED_CHUNK):
+                self._bank_emb[chunk] = self._embed(self._key_rows(self._bank_rows[chunk]))
+            self._bank_recompute_density()
 
     def embed(self, superstates: torch.Tensor) -> torch.Tensor:
-        """Key-encoder embedding ``(B, emb)`` of normalized flat superstates ``(B, S * row_dim)``."""
-        return self._embed_locked(self._projector, superstates)
-
-    def embed_query(self, superstates: torch.Tensor) -> torch.Tensor:
-        """Query-encoder embedding. The key encoder when no separate query projector was attached."""
-        projector = getattr(self, "_query_projector", None) or self._projector
-        return self._embed_locked(projector, superstates)
-
-    def _embed_locked(self, projector: nn.Module, superstates: torch.Tensor) -> torch.Tensor:
-        if torch.compiler.is_compiling():
-            # The lock only guards swapping the projector, which compiled code cannot trace.
-            return self._run_projector(projector, superstates.to(self.device))
+        """Embedding ``(B, emb)`` of normalized flat superstates ``(B, S * row_dim)``."""
         with self._lock:
-            if projector is None:
+            if self._projector is None:
                 raise RuntimeError("embed needs a projector; call attach_projector first")
-            return self._run_projector(projector, superstates.to(self.device))
+            return self._run_projector(self._projector, superstates.to(self.device))
 
     @torch.no_grad()
     def _embed(self, superstates: torch.Tensor) -> torch.Tensor:
         return self._run_projector(self._projector, superstates)
-
-    @torch.no_grad()
-    def _embed_query(self, superstates: torch.Tensor) -> torch.Tensor:
-        projector = getattr(self, "_query_projector", None) or self._projector
-        return self._run_projector(projector, superstates)
 
     def _run_projector(self, projector: nn.Module, superstates: torch.Tensor) -> torch.Tensor:
         param = next(projector.parameters())
@@ -202,53 +136,46 @@ class MemoryManager:
 
     def _key_rows(self, last_steps: torch.Tensor) -> torch.Tensor:
         """Normalized, flattened superstates ending at ``last_steps``, oldest row first."""
-        offset = torch.arange(self.superstate_size, device=self.device) - (self.superstate_size - 1)
-        rows = self._rows[(last_steps[:, None] + offset) % self.capacity]
-        return lld_rows_for_super(_normalize_rows(rows, self.state_dim), self.state_dim).flatten(start_dim=1)
+        return self._key_inputs(last_steps)[0]
 
-    def _keyed_mask(self) -> torch.Tensor:
-        """Slots whose superstate lies in one episode and is fully stored."""
-        first = self._steps - (self.superstate_size - 1)
-        return (first >= self._oldest) & (self._run_len >= self.superstate_size)
+    def _key_inputs(self, last_steps: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """``(super (K, flat), delta (K, d))`` of the windows ending at ``last_steps``.
 
-    def _match_mask(self) -> torch.Tensor:
-        """Slots that end a superstate whose next row is stored in the same episode.
-
-        Windows are ``S + 1`` rows (the superstate plus the step it predicts) and are
-        tiled per episode, so no two share a row. The first window is the first
-        ``S + 1`` rows; the next starts immediately after it.
+        ``super`` is the pose-free normalized window, oldest row first, without the next row.
+        ``delta`` is the LLD target from that window's last row to the next stored row.
         """
-        if self.bank:
-            return self._bank_index >= 0
-        g = self._steps
-        nxt = (g + 1) % self.capacity
         width = self.superstate_size + 1
-        run = self._run_len[nxt]
-        tiled = torch.ones_like(run, dtype=torch.bool) if self.overlap else (run % width == 0)
+        offset = torch.arange(width, device=self.device) - (self.superstate_size - 1)
+        windows = self._rows[(last_steps[:, None] + offset) % self.capacity]
+        state_dim = self.state_dim
+        delta = lld_delta(windows[..., -2, :state_dim], windows[..., -1, :state_dim])
+        packed = lld_rows_for_super(_normalize_rows(windows[..., :-1, :], state_dim), state_dim)
+        return packed.flatten(start_dim=1), delta
+
+    def _ensure_bank_inputs(self, flat: int, delta_dim: int) -> None:
+        if self._bank_super is not None:
+            return
+        self._bank_super = torch.zeros((self.bank_size, int(flat)), dtype=torch.float32, device=self.device)
+        self._bank_delta = torch.zeros((self.bank_size, int(delta_dim)), dtype=torch.float32, device=self.device)
+
+    def lld_bank(self) -> Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+        """Views of the key bank: superstates, deltas, n_soft, ending rows. None if it is empty.
+
+        The four tensors are slices of the bank storage, so a rollout can hold them for every
+        step without copying the memory rows.
+        """
+        count = self._bank_count
+        if count == 0 or self._bank_super is None:
+            return None
         return (
-            (g - (self.superstate_size - 1) >= self._oldest)
-            & (g + 1 < self._clock)
-            & (run >= width)
-            & tiled
-            & ~self._final
-            & ~self._final[nxt]
+            self._bank_super[:count],
+            self._bank_delta[:count],
+            self._bank_density[:count],
+            self._bank_rows[:count],
         )
 
-    def _key_emb(self, slots: torch.Tensor) -> torch.Tensor:
-        """Embeddings of the keys ending at row ``slots``."""
-        if self.bank:
-            return self._bank_emb[self._bank_index[slots]]
-        return self._emb[slots]
-
-    def _key_density(self, slots: torch.Tensor) -> torch.Tensor:
-        """n_soft of the keys ending at row ``slots``."""
-        if self.bank:
-            return self._bank_density[self._bank_index[slots]].clone()
-        self._fill_density(slots)
-        return self._density[slots].clone()
-
     # ------------------------------------------------------------------
-    # Key bank (HWM_MEMORY_BANK)
+    # Key bank
     # ------------------------------------------------------------------
     def _bank_kernel(self, emb: torch.Tensor, step: int, count: int) -> torch.Tensor:
         """Kernel ``exp(-d / T)`` of an embedding to the first ``count`` keys, ``(count,)``.
@@ -278,7 +205,9 @@ class MemoryManager:
             else:
                 self._bank_density[chunk] = kernel.sum(dim=1)  # includes the key itself
 
-    def _bank_offer(self, step: int, emb: torch.Tensor) -> bool:
+    def _bank_offer(
+        self, step: int, emb: torch.Tensor, super_row: torch.Tensor, delta_row: torch.Tensor
+    ) -> bool:
         """Offer the key ending at row ``step`` with embedding ``emb``. True if it entered the bank."""
         count = self._bank_count
         kernel = self._bank_kernel(emb, step, count)
@@ -300,6 +229,8 @@ class MemoryManager:
         self._bank_density[:count] += kernel
         self._bank_rows[slot] = int(step)
         self._bank_emb[slot] = emb
+        self._bank_super[slot] = super_row
+        self._bank_delta[slot] = delta_row
         self._bank_density[slot] = n_in
         self._bank_index[int(step) % self.capacity] = slot
         return True
@@ -307,9 +238,11 @@ class MemoryManager:
     def _bank_offer_steps(self, steps: torch.Tensor) -> None:
         """Offer the keys ending at the global rows ``steps`` (ascending), in order."""
         for chunk in steps.split(_EMBED_CHUNK):
-            emb = self._embed(self._key_rows(chunk))
-            for step, vector in zip(chunk.tolist(), emb):
-                self._bank_offer(step, vector)
+            supers, deltas = self._key_inputs(chunk)
+            self._ensure_bank_inputs(int(supers.shape[-1]), int(deltas.shape[-1]))
+            emb = self._embed(supers)
+            for step, vector, super_row, delta_row in zip(chunk.tolist(), emb, supers, deltas):
+                self._bank_offer(step, vector, super_row, delta_row)
 
     def _bank_candidates(self, first: int, last: int) -> torch.Tensor:
         """Rows ``g`` in ``[first, last]`` that end a complete window: ``S`` rows plus the next, one episode."""
@@ -345,11 +278,15 @@ class MemoryManager:
             return
         keep_rows = rows[~bad].clone()
         keep_emb = self._bank_emb[:count][~bad].clone()
+        keep_super = self._bank_super[:count][~bad].clone()
+        keep_delta = self._bank_delta[:count][~bad].clone()
         kept = int(keep_rows.numel())
         self._bank_index[rows % self.capacity] = -1
         self._bank_rows[:count] = -1
         self._bank_rows[:kept] = keep_rows
         self._bank_emb[:kept] = keep_emb
+        self._bank_super[:kept] = keep_super
+        self._bank_delta[:kept] = keep_delta
         self._bank_count = kept
         self._bank_index[keep_rows % self.capacity] = torch.arange(kept, device=self.device)
         self._bank_recompute_density()
@@ -359,7 +296,7 @@ class MemoryManager:
         self._bank_offer_steps(self._bank_candidates(before - 1, self._clock - 2))
 
     def _ensure_capacity(self, needed: int) -> None:
-        """Bank mode: grow the row arrays so ``needed`` rows fit; nothing is ever overwritten."""
+        """Grow the row arrays so ``needed`` rows fit; nothing is ever overwritten."""
         if needed <= self.capacity:
             return
         new = max(int(needed), 2 * self.capacity)
@@ -376,7 +313,6 @@ class MemoryManager:
         self._steps = moved(self._steps, -1)
         self._run_len = moved(self._run_len, 0)
         self._final = moved(self._final, False)
-        self._density = moved(self._density, float("nan"))
         self.capacity = new
         self._bank_index = torch.full((new,), -1, dtype=torch.long, device=self.device)
         count = self._bank_count
@@ -407,8 +343,7 @@ class MemoryManager:
             raise ValueError(f"states/actions length mismatch: {states.shape[0]} vs {actions.shape[0]}")
         rows = torch.as_tensor(np.concatenate((states, actions), axis=1), device=self.device)
         with self._lock:
-            if self.bank:
-                self._ensure_capacity(self._size + int(rows.shape[0]))
+            self._ensure_capacity(self._size + int(rows.shape[0]))
             # A single write must not hit the same slot twice.
             for chunk in rows.split(self.capacity):
                 self._append(chunk, int(episode_id))
@@ -432,18 +367,12 @@ class MemoryManager:
         slots = steps % self.capacity
         self._rows[slots] = rows
         self._steps[slots] = steps
-        self._density[slots] = float("nan")
         self._final[slots] = False
         self._run_len[slots] = prev_run + torch.arange(1, n + 1, device=self.device)
         self._clock += n
         self._size = min(self.capacity, self._size + n)
         if self._projector is not None:
-            if self.bank:
-                self._bank_ingest(self._clock - n)
-            else:
-                keyed = slots[self._run_len[slots] >= self.superstate_size]
-                if keyed.numel():
-                    self._emb[keyed] = self._embed(self._key_rows(self._steps[keyed]))
+            self._bank_ingest(self._clock - n)
 
     def end_episode(self, episode_id: int) -> None:
         """Close the open episode; the next row starts a new one."""
@@ -455,8 +384,7 @@ class MemoryManager:
                     if first < self._clock:
                         steps = torch.arange(first, self._clock, device=self.device)
                         self._final[steps % self.capacity] = True
-                        if self.bank:
-                            self._bank_purge_final()
+                        self._bank_purge_final()
                 self._open_episode = None
                 self._episodes_closed += 1
 
@@ -468,11 +396,10 @@ class MemoryManager:
             self._size = 0
             self._open_episode = None
             self._episodes_closed = 0
-            if self.bank:
-                self._bank_rows.fill_(-1)
-                self._bank_density.zero_()
-                self._bank_index.fill_(-1)
-                self._bank_count = 0
+            self._bank_rows.fill_(-1)
+            self._bank_density.zero_()
+            self._bank_index.fill_(-1)
+            self._bank_count = 0
 
     def export_rows(self) -> Optional[dict[str, torch.Tensor]]:
         """Stored rows oldest-first, for writing the neighbor bank to disk. None if empty."""
@@ -590,6 +517,27 @@ class MemoryManager:
                 pick = slots[torch.randint(int(slots.numel()), (count,), device=self.device)]
             return self._rows[pick].clone(), self._rows[(pick + 1) % self.capacity].clone(), self._steps[pick].clone()
 
+    def sample_batch(self, batch_size: Optional[int] = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """One run of ``batch_size`` consecutive ``[state, action]`` rows from one episode.
+
+        Returns ``(rows (batch_size, row_dim), steps (batch_size,))``. ``steps`` are the
+        global insertion indices, for ``get_all_matches(before=...)``. Every run that lies
+        inside one stored episode is equally likely. Raises if there is none.
+        """
+        length = int(Settings.HWM_LLD_BATCH_SIZE if batch_size is None else batch_size)
+        if length <= 0:
+            raise ValueError(f"batch_size must be positive, got {length}")
+        with self._lock:
+            ok = (self._steps - (length - 1) >= self._oldest) & (self._run_len >= length)
+            ends = torch.nonzero(ok).squeeze(1)
+            if ends.numel() == 0:
+                raise RuntimeError(
+                    f"no episode has {length} consecutive steps; cannot sample a full LLD batch"
+                )
+            end = int(self._steps[ends[int(torch.randint(int(ends.numel()), ()))]])
+            steps = torch.arange(end - length + 1, end + 1, device=self.device)
+            return self._rows[steps % self.capacity].clone(), steps
+
     def preceding(
         self, steps: np.ndarray | torch.Tensor, length: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -631,121 +579,22 @@ class MemoryManager:
         """Rows currently stored."""
         return self._size
 
-    def get_similars(
-        self,
-        query: np.ndarray | torch.Tensor,
-        num_similars: int,
-        before: Optional[np.ndarray | torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Nearest stored superstates in projector space, each with its next row.
-
-        ``query`` is ``(S * row_dim,)`` or ``(B, S * row_dim)``: normalized superstates,
-        flattened oldest row first, as built in ``build_LLD_observation_inference``.
-        They are embedded with the attached projector and compared with the stored
-        embeddings by Euclidean distance. A match ending at row ``g`` returns rows
-        ``g - S + 1 .. g + 1``: the matched superstate, then the next step, all from one
-        episode.
-
-        ``before`` is ``(B,)`` global insertion indices (global row indices). If given,
-        query ``b`` only sees windows whose every row, including the next step, was
-        stored strictly before ``before[b]``.
-
-        Windows returned for one query never share a row: their matches are at least
-        ``S + 1`` steps apart. Each pick is the nearest window that does not overlap the
-        ones already picked. Only the embeddings are scanned, block by block; rows are
-        gathered for the picked windows alone.
-
-        Returns ``(windows (B, num_similars, S + 1, row_dim), distances (B, num_similars))``.
-        Windows hold the raw stored rows, oldest first. Missing matches are zero rows
-        with infinite distance.
-        """
-        width = self.superstate_size + 1
-        count = int(num_similars)
-        query = torch.as_tensor(query).detach().to(device=self.device, dtype=torch.float32)
-        if query.ndim == 1:
-            query = query.unsqueeze(0)
-        expected = lld_super_flat_dim()
-        if query.shape[-1] != expected:
-            raise ValueError(f"query last dim must be {expected}, got {query.shape[-1]}")
-        batch = int(query.shape[0])
-        windows = torch.zeros(
-            (batch, max(count, 0), width, self.row_dim), dtype=torch.float32, device=self.device
-        )
-        distances = torch.full((batch, max(count, 0)), float("inf"), device=self.device)
-        if count <= 0:
-            return windows, distances
-
-        cutoff = None
-        if before is not None:
-            cutoff = torch.as_tensor(before).to(device=self.device, dtype=torch.long).reshape(-1)
-            if int(cutoff.shape[0]) != batch:
-                raise ValueError(f"before must have {batch} entries, got {int(cutoff.shape[0])}")
-
-        with self._lock:
-            if self._projector is None:
-                raise RuntimeError("get_similars needs a projector; call attach_projector first")
-            slots = torch.nonzero(self._match_mask()).squeeze(1)
-            if slots.numel() == 0:
-                return windows, distances
-            q = self._embed_query(query)
-
-            # Each pick removes at most 2 * width - 1 candidates, so this many always yield `count` picks.
-            gap = 1 if self.overlap else width  # picks closer than this many steps are the same or overlapping
-            pool = count * (2 * gap - 1)
-            cand_d: list[torch.Tensor] = []
-            cand_slots: list[torch.Tensor] = []
-            for chunk in slots.split(_SEARCH_CHUNK):
-                d = torch.cdist(q, self._key_emb(chunk))
-                if cutoff is not None:
-                    d = d.masked_fill(self._steps[chunk][None, :] + 1 >= cutoff[:, None], float("inf"))
-                top_d, top_i = d.topk(min(pool, int(chunk.numel())), dim=1, largest=False)
-                cand_d.append(top_d)
-                cand_slots.append(chunk[top_i])
-            cand_dist = torch.cat(cand_d, dim=1)
-            cand_slot = torch.cat(cand_slots, dim=1)
-            cand_dist, order = cand_dist.topk(min(pool, int(cand_dist.shape[1])), dim=1, largest=False)
-            cand_slot = cand_slot.gather(1, order)
-            cand_step = self._steps[cand_slot]
-
-            alive = torch.isfinite(cand_dist)
-            picked = torch.zeros((batch, count), dtype=torch.long, device=self.device)
-            found = torch.zeros((batch, count), dtype=torch.bool, device=self.device)
-            for k in range(count):
-                has = alive.any(dim=1)
-                if not bool(has.any()):
-                    break
-                # Candidates are sorted, so the first alive one is the nearest.
-                first = alive.float().argmax(dim=1, keepdim=True)
-                picked[:, k] = cand_slot.gather(1, first).squeeze(1)
-                found[:, k] = has
-                alive &= (cand_step - cand_step.gather(1, first)).abs() >= gap
-
-            offset = torch.arange(width, device=self.device) - (self.superstate_size - 1)
-            match_steps = self._steps[picked]
-            gathered = self._rows[(match_steps[..., None] + offset) % self.capacity]
-            windows = gathered * found[..., None, None]
-            exact = torch.linalg.norm(self._key_emb(picked) - q[:, None, :], dim=-1)
-            distances = torch.where(found, exact, distances)
-        return windows, distances
-
     def get_all_matches(
         self,
         query: np.ndarray | torch.Tensor,
         before: Optional[np.ndarray | torch.Tensor] = None,
         after: Optional[np.ndarray | torch.Tensor] = None,
-        return_density: bool = False,
-    ) -> tuple[torch.Tensor, ...]:
-        """Every non-overlapping stored superstate that has a next row, for full-bank attention.
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Every key in the bank with its next row, for full-bank attention.
 
-        Returns ``(windows (N, S + 1, row_dim), valid (B, N), distances (B, N))``. The
-        windows are one bank shared by every query, not copied per query; ``N`` is the
-        number of match slots in the memory. ``before`` marks a window invalid for a
-        query unless its next row is strictly older than that query, preserving the
-        learner's no-future-data rule. ``after`` ``(B,)``, if given, additionally lets a
-        window through when its first row is at or after ``after[b]``: rows further in the
-        future than that. Windows between ``before`` and ``after`` stay invalid.
-        Invalid windows have infinite distance. With ``return_density`` a fourth result
-        ``(N,)`` holds the stored kernel density of each window (see ``_fill_density``).
+        Returns ``(windows (N, S + 1, row_dim), valid (B, N), distances (B, N), density (N,))``,
+        keys in the order their rows were stored. The windows are one bank shared by every query, not copied per query; ``N`` is the
+        number of keys in the bank. ``before`` marks a window invalid for a query unless
+        its next row is strictly older than that query, preserving the learner's
+        no-future-data rule. ``after`` ``(B,)``, if given, additionally lets a window
+        through when its first row is at or after ``after[b]``: rows further in the
+        future than that. Windows between ``before`` and ``after`` stay invalid. Invalid
+        windows have infinite distance. ``density`` is the stored n_soft of each key.
 
         No nearest-neighbor decision is made here. The LLD receives every returned
         superstate and computes its differentiable attention weights from the live
@@ -769,29 +618,29 @@ class MemoryManager:
         with self._lock:
             if self._projector is None:
                 raise RuntimeError("get_all_matches needs a projector; call attach_projector first")
-            slots = torch.nonzero(self._match_mask()).squeeze(1)
-            count = int(slots.numel())
+            count = self._bank_count
             if count == 0:
-                empty = (
+                return (
                     torch.zeros((0, width, self.row_dim), dtype=torch.float32, device=self.device),
                     torch.zeros((batch, 0), dtype=torch.bool, device=self.device),
                     torch.full((batch, 0), float("inf"), device=self.device),
+                    torch.ones(0, device=self.device),
                 )
-                return empty + (torch.ones(0, device=self.device),) if return_density else empty
+            # Keys in the order their rows were stored, whatever the bank positions.
+            order = torch.argsort(self._bank_rows[:count])
+            last = self._bank_rows[:count][order]
             offset = torch.arange(width, device=self.device) - (self.superstate_size - 1)
-            windows = self._rows[(self._steps[slots, None] + offset) % self.capacity]
+            windows = self._rows[(last[:, None] + offset) % self.capacity]
             valid = torch.ones((batch, count), dtype=torch.bool, device=self.device)
             if cutoff is not None:
-                older = self._steps[slots][None, :] + 1 < cutoff[:, None]
+                older = last[None, :] + 1 < cutoff[:, None]
                 if after is not None:
                     restart = torch.as_tensor(after).to(device=self.device, dtype=torch.long).reshape(-1)
                     if int(restart.shape[0]) != batch:
                         raise ValueError(f"after must have {batch} entries, got {int(restart.shape[0])}")
-                    older = older | (self._steps[slots][None, :] - (self.superstate_size - 1) >= restart[:, None])
+                    older = older | (last[None, :] - (self.superstate_size - 1) >= restart[:, None])
                 valid &= older
-            q = self._embed_query(query)
-            distances = torch.cdist(q, self._key_emb(slots))
+            q = self._run_projector(self._projector, query)
+            distances = torch.cdist(q, self._bank_emb[:count][order])
             distances = distances.masked_fill(~valid, float("inf"))
-            if return_density:
-                return windows, valid, distances, self._key_density(slots)
-        return windows, valid, distances
+            return windows, valid, distances, self._bank_density[:count][order].clone()

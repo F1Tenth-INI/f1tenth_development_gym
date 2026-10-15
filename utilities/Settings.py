@@ -1,7 +1,5 @@
 import math
 import os
-
-from numpy import False_
 class Settings():
 
     ## Environment ##
@@ -183,7 +181,7 @@ class Settings():
 
     ## Pure Pursuit Controller ##
     PP_USE_CURVATURE_CORRECTION = False
-    PP_WAYPOINT_VELOCITY_FACTOR = 0.7
+    PP_WAYPOINT_VELOCITY_FACTOR = 0.65
     PP_LOOKAHEAD_DISTANCE = 1.62461887897713965  # lookahead distance [m], Seems not used
     PP_VEL2LOOKAHEAD = 0.6  # None for fixed lookahead distance (PP_LOOKAHEAD_DISTANCE)
     PP_FIXPOINT_FOR_CURVATURE_FACTOR = (0.2, 0.3)  # Second number big - big shortening of the lookahead distance, you can change from 0.2+ (no hyperbolic effect) to 1.0 (lookahead minimal already at minimal curvature)
@@ -345,7 +343,7 @@ class Settings():
 
     USE_CUSTOM_SAC_SAMPLING = False
 
-    ## Hierarchical world-model planner (TrainingLite/hwm) ## temporary, some will beredundant later
+    ## Hierarchical world-model planner (TrainingLite/hwm) 
     HWM_INFERENCE_MODEL_NAME = None      # None -> training mode (weights from learner over TCP); str -> load models/<name>/ from disk, no TCP
     HWM_AGENT_DEBUG = False
     HWM_STREAM_BATCH_SIZE = 16 #128           # stream [state, action] rows to the learner every N control steps
@@ -357,110 +355,59 @@ class Settings():
     HWM_LLD_BATCH_SIZE = 32              # independent random transitions per LLD update
     HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They stay stored. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
-    HWM_TARGET_POSITION_WEIGHT = 1.7     # progress-reward distance to the target state: weight per m of position error
-    HWM_TARGET_HEADING_WEIGHT = 0.5#1.0 / math.pi  # ... per rad of heading error (wrapped)
-    HWM_TARGET_SPEED_WEIGHT = 0.5        # ... per m/s of forward-speed error
-    HWM_TARGET_SPEED = 1.0               # forward speed of the waypoint target states, m/s
-    HWM_WAYPOINT_LOOKAHEAD = 20           # tracked target: the n-th waypoint ahead of the car, 1 = next one (about 0.1 m apart)
     HWM_PP_DRIVES = True                # Pure Pursuit drives instead of the actor; its rows still train the learner
     HWM_PP_UNTIL_WEIGHTS = True         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
-    HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor, GD coefficients, or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
+    HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
     HWM_SIM_USE_LLD = False              # the car is stepped by the LLD once per control step, instead of the Pacejka model. The action is the one just commanded, matching how the LLD is trained
     HWM_SIM_LLD_SAMPLE = False           # with HWM_SIM_USE_LLD: False -> the LLD mean (expected next state). True -> one sample from the LLD
     HWM_LLD_PREVIEW_SAMPLES = 10         # sampled LLD rollouts for the mean path and its uncertainty band
-    HWM_LLD_COSINE_ATTENTION = False     # False: attention is softmax of minus L2 distance over temperature, and n_soft is 1 + sum of exp(-distance/temperature), which scales the covariance and the uncertainty reward. True: attention is softmax of the raw inner product <k, q> over temperature, and n_soft is ignored (covariance is unscaled, uncertainty term is zero)
-    HWM_LLD_SEPARATE_ENCODERS = False   # False: one encoder for the query and the memory keys. True: a second encoder of the same shape encodes keys only; the query keeps attention_norm_projector. Works with inner product and L2. Needs a new model: the key encoder is extra weights
-    HWM_LLD_ROLLOUT_WINDOW = None       # None: a rollout attends over every memory key, same as LLD training. An integer: at every imagined step of a rollout, keep that many keys with the highest attention for that step's query and use only those. Training the LLD still uses the whole memory
-    HWM_LLD_STUDENT_T = True            # False: the LLD predicts a Gaussian. True: one multivariate Student-t with the same weighted mean and weighted covariance (no (1 + 1/n) factor, that is Gaussian only) and nu = max(HWM_LLD_T_MIN_DOF, n - d), d the delta dimension, n = n_soft (L2 attention) or the effective sample size 1 / sum(w^2) (dot-product attention, where n_soft is ignored). Training maximizes its log likelihood. The predicted mean, scale_tril and noise inversion keep their meaning; sample() draws from the t
-    HWM_LLD_CORRECTION_NET = True       # True: a 2-layer network g of the flat superstate corrects the LLD mean. Residual mode (HWM_LLD_CORRECTION_RESIDUAL True): mean = g(q) + sum_j w_j (delta_j - g(k_j)), covariance of the residuals. Additive mode: mean = attention mean + g([q, attention mean]), stored deltas and covariance untouched. The last layer starts at zero. g extrapolates where memory has no close neighbor. Needs a new model: g is extra weights
-    HWM_LLD_CORRECTION_RESIDUAL = True   # see HWM_LLD_CORRECTION_NET. Residual and additive models have different weight shapes
+    HWM_LLD_STUDENT_T = True            # False: the LLD predicts a Gaussian. True: one multivariate Student-t with the same weighted mean and weighted covariance (no (1 + 1/n) factor, that is Gaussian only) and nu = max(HWM_LLD_T_MIN_DOF, n - d), d the delta dimension, n = n_soft. Training maximizes its log likelihood. The predicted mean, scale_tril and noise inversion keep their meaning; sample() draws from the t
     HWM_LLD_DUMMY_DISTANCE_INIT = 2    # initial distance of the dummy token (its attention logit is -distance / HWM_LLD_ATTENTION_TEMPERATURE, then learned). With a small temperature the dummy starts far below every key (T=1/60: logit -120) and gets no gradient, so it never competes. Set it near the typical distance of the nearest key (about 12 T)
-    HWM_LLD_CORRECTION_INPUT_RESIDUAL = False  # residual mode only: the attention mean of the retrieved residuals (detached) is an extra input of g at the query (zero at the keys, whose residuals must not depend on it)
-    HWM_LLD_CORRECTION_INPUT_COV = False       # residual mode only: the retrieved covariance (its lower-triangular Cholesky factor, detached) is an extra input of g at the query, same as above
-    HWM_LLD_CORRECTION_HIDDEN = 64       # hidden width of that network
-    HWM_LLD_CORRECTION_DEEP = False      # residual mode only: one more hidden layer of HWM_LLD_CORRECTION_HIDDEN, added onto the previous activation (h + Linear(ReLU(h)), that linear starting at zero). The output layer still starts at zero. Needs a new model: the extra layer is extra weights
-    HWM_LLD_DENSITY_WEIGHTING = True    # True: the attention weight of every memory key is also divided by that key's own n_soft, the kernel mass sum_k exp(-||e_j - e_k|| / T) of the keys around it (a key in a dense region counts less). Computed from the stored key embeddings and kept in memory; refreshed with the embeddings. n_soft of the query (Student-t nu, Gaussian scale) is not changed. Ignored with HWM_LLD_COSINE_ATTENTION. Needs HWM_LLD_WHOLE_MEMORY_ATTENTION
+    HWM_LLD_CORRECTION_INPUT_RESIDUAL = False  # the attention mean of the retrieved residuals (detached) is an extra input of g at the query (zero at the keys, whose residuals must not depend on it)
+    HWM_LLD_CORRECTION_INPUT_COV = False       # the retrieved covariance (its lower-triangular Cholesky factor, detached) is an extra input of g at the query, same as above
+    HWM_LLD_CORRECTION_HIDDEN = 64       # hidden width of the residual net g
     HWM_LLD_GRAD_CLIP = 1.0             # max gradient norm of an LLD update
-    HWM_LLD_TRAIN_FUTURE_MARGIN = 25     # LLD training only: a sample may retrieve memory windows from the past and from the far future, but not from the rows right after it. Windows that start fewer than this many rows after the sample's next row are hidden (25 control steps = 1 s, about one curve). Needs HWM_LLD_WHOLE_MEMORY_ATTENTION. Inference still sees only the past
+    HWM_LLD_TRAIN_FUTURE_MARGIN = 25     # LLD training only: a sample may retrieve memory windows from the past and from the far future, but not from the rows right after it. Windows that start fewer than this many rows after the sample's next row are hidden (25 control steps = 1 s, about one curve). Inference still sees only the past
     HWM_LLD_SKIP_START_ROWS = 10         # LLD training ignores steps from the first N rows of each episode (padded history, delayed first commands)
     HWM_LLD_KINEMATIC_RESIDUAL = False   # position is the average-velocity integration, as without HWM_LLD_PREDICT_DISPLACEMENT, plus a correction the model predicts: the delta gets two more channels, the true car-frame displacement minus that integral (forward, left), and the prediction is added to the position. Yaw rate, vx, vy, steering and heading are predicted and reconstructed as without it (yaw rate = yaw rate + the predicted change). Takes the place of HWM_LLD_PREDICT_DISPLACEMENT if both are on. Needs a new model: two more delta channels
-    HWM_PLAN_MODE = "traj"             # "actor": the stochastic actor's own action, trained by imagination; "gd": gradient descent on the coefficient feedback law, the actor is trained on the optimized coefficients; "traj": a deterministic actor drives as is, trained on action sequences optimized by gradient descent under fixed LLD noise (HWM_TRAJ_*)
-    HWM_TRAJ_HORIZON = 20               # control steps n of every training trajectory
-    HWM_TRAJ_SAMPLES = 8                # trajectories K per root, each with its own noise vector held for all n steps and its own action sequence
-    HWM_TRAJ_ROOTS = 4                  # rows of each sampled LLD batch used as roots; None -> all HWM_LLD_BATCH_SIZE rows. Cost scales with roots * samples * (gd steps + 2)
-    HWM_TRAJ_GD_STEPS = 5               # gradient steps on the action sequences per training step
-    HWM_TRAJ_GD_LR = 1.0                # multiplies d(reward)/d(action); the step is also capped by HWM_TRAJ_ACTION_STEP
-    HWM_TRAJ_ACTION_STEP = 0.3          # max |Δaction| per gradient step, network units (actions live in [-1, 1])
-    HWM_TRAJ_NOISE_CLIP = 10.0           # trajectory noise and the inferred transition noise are clamped to ±this many standard deviations
-    HWM_TRAJ_NOISE_EMA = 0.95            # inference: actor noise input = this * previous + (1 - this) * noise inferred from the last transition; 0 -> last transition only. Zeros at every episode start. Training feeds each trajectory's noise as a constant
-    HWM_TRAJ_WALL_WEIGHT = 10.0         # multiplies the trajectory's summed wall punishment (meters, zero or negative) against its summed waypoint progress
-    HWM_TRAJ_ACTION_REG = 0.01          # subtracted from the reward: this times the summed squared distance from the actor's actions
-    HWM_TRAJ_DRIVE_OPTIMIZED = True    # the car plays one gradient-descent action sequence open-loop under the LLD mean (noise zero), and plans the next when it runs out. The actor is not used while this is on
-    HWM_TRAJ_TARGET_STEPS = 5        # actor regression uses only the first this many optimized actions of each trajectory. None -> the whole HWM_TRAJ_HORIZON
-    HWM_GD_HORIZON = 20                  # control steps one set of coefficients is rolled out; the car drives the action the law gives at the current state
-    HWM_GD_LR = 1.0                     # multiplies d(reward)/d(coefficient). The step is also capped by HWM_GD_COEFF_STEP, so a huge slope cannot flip a coefficient in one update
-    HWM_GD_COEFF_STEP = 0.1             # max |Δcoefficient| per gradient step. Coefficients live in [-1, 1]
-    HWM_GD_STEPS = 8                     # gradient steps per plan while training
-    HWM_GD_TIME_BUDGET_S = 0.4          # inference: no retrieval or gradient step starts after this many seconds; the coefficients so far are driven if time runs out first. None -> HWM_GD_STEPS
-    HWM_GD_ASYNC = True                 # inference: plans run back to back in a background thread, each from the newest state; every control step drives the feedback law with the latest finished coefficients instead of waiting. False -> one blocking plan per control step
-    HWM_GD_ASYNC_THREADS = 1            # torch intra-op threads once the background thread starts. Torch keeps one count per process, so the control thread uses it too
-    HWM_GD_PRINT_COEFFS = True          # print the optimized coefficients by name whenever a plan finishes
-    HWM_GD_SHOW_PLAN = True             # draw the plan's expected path (noise-free LLD rollout of the optimized coefficients) in blue; costs one extra rollout per plan
     
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 1                    # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
-    HWM_DISPLAY_PATH_STEPS = 25          # control steps of every drawn path: the preview's sim plan and LLD replay, and the blue GD expected path
+    HWM_SIM_SPEED = 1/4                  # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 1 / 5     # softmax/kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0
-    HWM_LLD_T_MIN_DOF = 10             # floor of nu. None: 2, the smallest nu with a finite covariance. Must be > 0
+    HWM_LLD_T_MIN_DOF = 5             # floor of nu. None: 2, the smallest nu with a finite covariance. Must be > 0
     HWM_LLD_ALONE_LIKELIHOOD = True    # with HWM_LLD_CORRECTION_ALONE. False: g(q) is trained by the squared error against the recorded delta. True: by the log-likelihood of the delta with g(q) alone as the mean (Student-t / Gaussian as the LLD), the scale and df being those of the LLD prediction, detached. Bounded gradient for large errors, channels weighted by the covariance
-    HWM_LLD_CORRECTION_ALONE = True    # residual mode only. True: g is trained so g(q) equals the recorded delta, with no gradient from the retrieved samples. The retrieval encoder is trained on the full residual prediction g(q) + sum_j w_j (delta_j - g(k_j)) with g held fixed, so it learns to help g. At inference that sum is used, and delta - g(key) is evaluated with the current g, not stored. False: g and the memory residuals are trained together
+    HWM_LLD_CORRECTION_ALONE = True    # True: g is trained so g(q) equals the recorded delta, with no gradient from the retrieved samples. The retrieval encoder is trained on the full residual prediction g(q) + sum_j w_j (delta_j - g(k_j)) with g held fixed, so it learns to help g. At inference that sum is used, and delta - g(key) is evaluated with the current g, not stored. False: g and the memory residuals are trained together
     HWM_LLD_REFLECT = False              # TEST. Works with or without HWM_LLD_DIRECT_DELTA; it makes LLD and actor superstates pose-free by itself (no x, y, heading, sin, cos). Assume dynamics are symmetric about the car's x-axis: every LLD superstate row is mirrored on its own so its steering angle is not negative, the value tokens and training target are mirrored by the steering sign of the row they leave, and the predicted delta (mean, covariance, noise) is mirrored back. Actor inputs stay in the true frame. Needs a new model: the memory embeddings and LLD weights change meaning
     HWM_LLD_T_GRAD_THROUGH_N = False     # False: n (hence nu) is detached, so the encoder is trained only through the attention weights of the mean and covariance. True: gradients also flow through n into the attention
-    HWM_LLD_STANDALONE_ENCODER = True   # True: a single encoder (overrides HWM_LLD_SEPARATE_ENCODERS and HWM_LLD_COV_HEAD) is trained only on its own likelihood: the attention-weighted mean and covariance of the stored deltas (no g, no residuals, own dummy value), Student-t / Gaussian as set, on the recorded delta. The rest of the model (residual tokens, covariance, g's training, inference) uses that encoder and its dummy distance detached. n_soft and keys50 of this encoder are the ones logged. Needs a new model: one extra dummy value
-    HWM_LLD_COV_CENTER_TRANSITIONS = False  # with HWM_LLD_COV_HEAD. True (a): the covariance is the spread of the stored transitions delta_j about the final prediction g(q) + mu, so it also contains how much g differs between the neighbor and the query, g(k_j) - g(q). False (b): the spread of the residual tokens delta_j - g(k_j) (g(k_j) detached) about their weighted mean mu, the error scatter of g at the neighbors only. Residual mode; without it both are the same
-    HWM_LLD_COV_DETACH_TOKENS = True     # residual mode only. True: the residual tokens delta_j - g(k_j) are constants everywhere (mean and covariance), so g is trained only through g(q) of the current state and the retrieval encoders only through the attention weights. Without HWM_LLD_COV_HEAD the covariance (of the retrieved tokens around their weighted mean) is not trained at all. False: g also gets gradient through the tokens, and the covariance is trained
+    HWM_LLD_STANDALONE_ENCODER = True   # True: a single encoder (overrides HWM_LLD_COV_HEAD) is trained only on its own likelihood: the attention-weighted mean and covariance of the stored deltas (no g, no residuals, own dummy value), Student-t / Gaussian as set, on the recorded delta. The rest of the model (residual tokens, covariance, g's training, inference) uses that encoder and its dummy distance detached. n_soft and keys50 of this encoder are the ones logged. Needs a new model: one extra dummy value
+    HWM_LLD_COV_CENTER_TRANSITIONS = False  # with HWM_LLD_COV_HEAD. True (a): the covariance is the spread of the stored transitions delta_j about the final prediction g(q) + mu, so it also contains how much g differs between the neighbor and the query, g(k_j) - g(q). False (b): the spread of the residual tokens delta_j - g(k_j) (g(k_j) detached) about their weighted mean mu, the error scatter of g at the neighbors only. 
+    HWM_LLD_COV_DETACH_TOKENS = True     # True: the residual tokens delta_j - g(k_j) are constants everywhere (mean and covariance), so g is trained only through g(q) of the current state and the retrieval encoders only through the attention weights. Without HWM_LLD_COV_HEAD the covariance (of the retrieved tokens around their weighted mean) is not trained at all. False: g also gets gradient through the tokens, and the covariance is trained
     HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder and dummy distance, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
-    HWM_LLD_WHOLE_MEMORY_ATTENTION = True  # True -> pass every valid memory window to the LLD's differentiable attention instead of hard top-50 retrieval. Keep HWM_MEMORY_MAX_ROWS around 1000: training expands this bank over the whole batch
-    HWM_LLD_DIRECT_DELTA = True         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD and the actor noise input change width
-    HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD and the actor noise input change width
-
-    HWM_MEMORY_OVERLAP_TRAIN = True  # learner memory: True -> every row that ends a full window (S rows plus the step it predicts, one episode) is a key, so keys overlap. False -> keys are tiled per episode, one every S+1 rows, and never share a row. Whole-memory attention and the density use this key set; top-50 retrieval also stops excluding neighbours within S+1 rows of an earlier pick
-    HWM_MEMORY_OVERLAP_INFERENCE = True  # same, for the planner's memory (driving, test track, previews). True gives a repeated lap a twin key at every step instead of every S+1th
-
-    HWM_MEMORY_BANK = True           # TEST. True: the memory never evicts rows. The LLD's keys (superstates) are a separate array of HWM_MEMORY_BANK_SIZE indices into the rows; every row that completes a window (S rows plus the step it predicts) is offered, and when the bank is full it replaces the key with the highest n_soft, but only if its own n_soft is lower, so dense regions are thinned first. Embeddings and all n_soft are recomputed when the encoder changes. Ignores HWM_MEMORY_OVERLAP_*. Learner and planner each keep their own bank
-    HWM_MEMORY_MAX_ROWS = 3_000       # ring-buffer capacity of the memory; new rows overwrite the oldest. With HWM_MEMORY_BANK it is only the initial allocation: rows are never evicted
-
-    HWM_MEMORY_BANK_SIZE = 1000       # number of superstates (keys) kept with HWM_MEMORY_BANK. Whole-memory attention expands this bank over the whole LLD batch
+    HWM_LLD_DIRECT_DELTA = False         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD changes width
+    HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD changes width
+    HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation of the memory. Rows are never evicted: the row arrays double when full
+    HWM_LOW_LEVEL_DISCOUNT = 0.99        # per-control-step discount for low-level values, on top of crash survival
+    HWM_MEMORY_BANK_SIZE = 4000       # number of superstates (keys) kept in the memory's key bank. The LLD attends over all of them, expanded over the whole batch
     HWM_MEMORY_BANK_EXCLUDE_OVERLAP = True  # n_soft of a key ignores keys that share a row with it (|Δ row| <= S), which are near copies of it
+
     # Rectangular arena, 40 m long and 16 m wide: walls only on the border, inside free.
     # The car starts at the left end, centered, heading along the length, from rest.
     # It keeps accelerating, and the steering is (slope * t) * sin(2π t / 2 s), clipped at ±0.6 rad.
-    TEST_TRACK = True                # True: drive this arena instead of MAP_NAME, with the open-loop steer and accel below. The LLD is not trained and its weights stay as they were at the start
+    TEST_TRACK = False                # True: drive this arena instead of MAP_NAME, with the open-loop steer and accel below. The LLD is not trained and its weights stay as they were at the start
     TEST_TRACK_ACCEL = 1.5             # constant acceleration [m/s^2], held from the start
-    TEST_TRACK_STEER_SLOPE = 0.2      # [rad/s]. Steering amplitude is this times the time since the episode start
+    TEST_TRACK_STEER_SLOPE =.05 #0.2      # [rad/s]. Steering amplitude is this times the time since the episode start
     TEST_TRACK_STORE_MEMORY = True    # True: the drive is still written into memory and streamed. The LLD weights are not updated either way
 
+    HWM_LLD_ENCODER_DIM = 10            # dimensionality of the encoder's latent vector (the embedding that attention distances, keys and the density are computed in). Changing it needs a new model: the encoder's last layer changes width
+    HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
+    RUN_MPC_WITH_PACEJKA = True
     #--------------- end of important settings ---------------
 
-    HWM_GD_RESAMPLE_NEIGHBORS = True    # LLD re-retrieves its memory windows after every gradient step; False -> once, from the initial rollout, one window set per step
-    HWM_GD_WARM_START = True            # True: each plan starts from the previous plan's coefficients (zeros at the start of an episode) and gradient descent updates those. False: each plan starts from the actor's coefficients. The actor is not trained while this is True
-    HWM_GD_CRASH_SMOOTHING_M = 1.0      # sigmoid width (m) of the smooth wall test the gradient sees; the hard crash test has no gradient. Smaller is sharper and a weaker gradient
-    HWM_GD_WALL_WEIGHT = 10             # multiplies the plan's average wall punishment (meters, zero or negative). 1 = one meter of penetration counts like one meter of distance to the target
-    HWM_GD_COEFF_REG = 0.02             # subtracted from the reward: this times the sum of squared distance from the coefficients this plan started at
-    HWM_GD_INFERENCE_SAMPLES = 4        # LLD trajectories averaged per inference plan, one of them the mean (no noise)
-    HWM_GD_TRAIN_SAMPLES = 8            # same, while training the actor on the optimized coefficients
-    HWM_GD_NOISE_CLIP = 2.0             # LLD sample noise ε is clamped to ±this many standard deviations, and held fixed for every gradient step of a plan
-    HWM_STEERING_MULTIPLIER = 1.6       # car's steering_multiplier: wheel angle = network steering command * HWM_ACTION_DENORM[0] * this. 0.375 * 1.6 = 0.6 = s_max
-    # Gain on each order-1 feature. Steering then acceleration, same order as search/coefficients.py.
-    # Steering gains shift the desired wheel angle relative to the measured wheel; the simulator's servo enforces its physical rate limit.
-    HWM_COEFF_DENORM = [
-        1.0, 3.0, 2.0, 1.0, 1.5, 1.0, 1.5, 2.0, 1.0,  # steer: bias, lateral, heading, yaw rate, wheel, lat vel, wall side, wall push, clearance
-        1.0, 2.0, 1.0, 1.0, 2.0, 1.0,                 # accel: bias, speed error, speed, turn, urgency, clearance
-    ]
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer
     # Divisors for raw state channels, STATE_VARIABLES order. Observation uses state / scale.
     HWM_STATE_SCALE = [
@@ -492,7 +439,7 @@ class Settings():
     ]
     HWM_STATE_DIM = 10                   # car-state width stored in memory and predicted by the dynamics
     HWM_ACTION_DIM = 2                   # [angular, translational] action width
-    HWM_HIDDEN_DIM = 128                 # MLP width for actor, value, and the placeholder dynamics
+    HWM_HIDDEN_DIM = 128                 # MLP width for the actor and the placeholder dynamics
     HWM_ACTION_DENORM = [0.375, 5.0]     # network output ±1 -> physical [steering rad, translational]; 0.375 = s_max 0.6 / steering_multiplier 1.6 of the car, so ±1 is full lock
     HWM_CLIENT_MODULES = ["actor", "LLD"]       # modules the learner broadcasts to the planner after each train round
     

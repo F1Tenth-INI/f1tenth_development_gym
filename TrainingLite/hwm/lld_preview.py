@@ -1,13 +1,12 @@
 """Live check of the LLD against the driving controller's plan (``Settings.HWM_LLD_PREVIEW``).
 
-The controller that drives the car (the actor, the gradient-descent coefficients' feedback
-law, or Pure Pursuit) is rolled out closed loop for ``HWM_DISPLAY_PATH_STEPS``
+The controller that drives the car (the actor, Pure Pursuit, or on the test track its scripted
+open-loop command) is rolled out closed loop for ``HWM_DISPLAY_PATH_STEPS``
 through the simulator's own dynamics, with the simulator's control delay: that is its
 plan, states and actions. The LLD replays the plan's actions open loop from the same
 start, with ``HWM_LLD_PREVIEW_SAMPLES`` sampled rollouts. Rendered as scene layers: the
 plan as black dots, the LLD's mean path as orange dots and its 2σ position ellipses as a
-translucent orange band. A blue path is what the residual net alone would predict (no memory),
-when the LLD has one.
+translucent orange band. A blue path is what the residual net alone would predict (no memory).
 """
 
 from __future__ import annotations
@@ -21,20 +20,16 @@ import torch
 
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
 from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax_from_settings
-from TrainingLite.hwm.search.coefficients import actions_from_coefficients, frozen_reference
 from TrainingLite.hwm.shared.memory_manager import MemoryManager
 from TrainingLite.hwm.shared.observation import (
     build_actor_observation,
-    apply_rollout_window,
     build_LLD_observation_inference,
     lld_super_state,
-    build_traj_actor_observation,
-    traj_noise_dim,
 )
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.Settings import Settings
-from TrainingLite.hwm.shared.state_indices import POSE_THETA_COS_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_X_IDX, POSE_Y_IDX
+from utilities.state_utilities import POSE_THETA_COS_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_X_IDX, POSE_Y_IDX
 from utilities.test_track import command as test_track_command
 from utilities.waypoint_utils import WaypointUtils, jit_update_next_waypoints
 
@@ -88,18 +83,14 @@ class LLDPreview:
         nearest_index: int,
         correcting_index: int,
         use_actor: bool,
-        coefficients: Optional[torch.Tensor] = None,
-        noise: Optional[torch.Tensor] = None,
         scripted_time: Optional[float] = None,
-    ) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Plan from ``state`` after ``past`` (``past_rows``) and the LLD's replay of it.
 
-        ``coefficients`` ``(1, COEFF_DIM)``, if given, are the feedback law that drives
-        instead of the actor (gradient-descent planning). ``noise`` ``(1, d)`` is the
-        trajectory actor's noise input, held for the whole plan. Returns the plan's states
+        Returns the plan's states
         ``(H + 1, state_dim)``, the sampled LLD states ``(samples, H + 1, state_dim)`` for the
         band, the noise-free LLD mean states ``(H + 1, state_dim)`` for the orange line, and the
-        residual net's own states ``(H + 1, state_dim)`` for the blue line (None without a residual net).
+        residual net's own states ``(H + 1, state_dim)`` for the blue line.
         """
         width = int(Settings.HWM_SUPER_STATE_SIZE)
         state_dim = int(Settings.HWM_STATE_DIM)
@@ -114,8 +105,6 @@ class LLDPreview:
             nearest_index,
             correcting_index,
             use_actor,
-            coefficients,
-            noise,
             scripted_time,
         )
         start = torch.as_tensor(plan_states[0])
@@ -135,13 +124,9 @@ class LLDPreview:
         nearest_index: int,
         correcting_index: int,
         use_actor: bool,
-        coefficients: Optional[torch.Tensor] = None,
-        noise: Optional[torch.Tensor] = None,
         scripted_time: Optional[float] = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """The actor, ``coefficients``' feedback law, or Pure Pursuit closed loop in the simulator dynamics.
-
-        The feedback law takes its reference at every planned state, as the driving car does.
+        """The actor or Pure Pursuit closed loop in the simulator dynamics (or the scripted test-track command).
 
         ``past_actions`` ``(delay, 2)`` are the commands still in the delay line (zeros
         before the episode start, like the simulator's buffer). ``history`` ``(S-1, row_dim)``
@@ -176,10 +161,8 @@ class LLDPreview:
             if scripted_time is not None:
                 steer, accel = test_track_command(float(scripted_time) + k * dt)
                 a = np.array([steer, accel], dtype=np.float32) / self.denorm
-            elif coefficients is not None:
-                a = self._law_action(coefficients, s)
             elif use_actor:
-                a = self._actor_action(s, history, noise)
+                a = self._actor_action(s, history)
                 row = torch.cat((torch.as_tensor(s), torch.as_tensor(a))).to(history)
                 history = torch.cat((history, row[None, None]), dim=1)[:, 1:]
             else:
@@ -222,52 +205,12 @@ class LLDPreview:
         return np.stack(states), np.stack(actions)
 
     @torch.no_grad()
-    def _law_action(self, coefficients: torch.Tensor, state: np.ndarray) -> np.ndarray:
-        """Feedback-law action ``(2,)`` of ``coefficients`` ``(1, COEFF_DIM)`` at raw ``state``, reference taken there."""
-        state_t = torch.as_tensor(np.asarray(state, dtype=np.float32), device=coefficients.device)[None]
-        target, lookahead = frozen_reference(state_t, self.wall_geometry)
-        action = actions_from_coefficients(coefficients, state_t, target, lookahead, self.wall_geometry)
-        return action[0].cpu().numpy().astype(np.float32)
-
-    @torch.no_grad()
-    def _actor_action(
-        self, state: np.ndarray, history: torch.Tensor, noise: Optional[torch.Tensor] = None
-    ) -> np.ndarray:
-        """The actor's action ``(2,)`` in network units for raw ``state`` after ``history`` ``(1, S-1, row_dim)``.
-
-        The trajectory actor gets ``noise`` (zeros if None) as its noise input.
-        """
-        if getattr(self.actor, "trajectory", False):
-            if noise is None:
-                noise = torch.zeros(traj_noise_dim())
-            obs = build_traj_actor_observation(
-                torch.as_tensor(state), self.memory, self.wall_geometry, 0, noise, past_states=history
-            )
-            action, _ = self.actor(obs)
-            return action[0].cpu().numpy().astype(np.float32)
+    def _actor_action(self, state: np.ndarray, history: torch.Tensor) -> np.ndarray:
+        """The actor's action ``(2,)`` in network units for raw ``state`` after ``history`` ``(1, S-1, row_dim)``."""
         obs = build_actor_observation(torch.as_tensor(state), self.memory, self.wall_geometry, 0, past_states=history)
-        if getattr(self.actor, "coefficient", False):
-            coefficients, _ = self.actor(obs)
-            return self._law_action(coefficients, state)
-        dist, _ = self.actor(obs)
+        dist = self.actor(obs)
         action = dist.sample() if Settings.HWM_SAMPLE_ACTIONS else self.actor.deterministic_action(dist)
         return action[0].cpu().numpy().astype(np.float32)
-
-    def _windowed_bank(
-        self, obs: dict[str, torch.Tensor], bank: Optional[dict[str, torch.Tensor]] = None
-    ) -> dict[str, torch.Tensor]:
-        """The rollout's memory bank restricted to the attention window of this step's query.
-
-        ``bank`` is the one from the previous step (None at the first); the window is chosen
-        again from all its keys for the current query.
-        """
-        if bank is None:
-            bank = {
-                "similar_superstates": obs["similar_superstates"],
-                "similar_superstates_diff": obs["similar_superstates_diff"],
-                "valid": obs["similar_valid"],
-            }
-        return apply_rollout_window(self.lld, obs["current_super_state"].detach(), bank)
 
     @torch.no_grad()
     def predict(self, state: torch.Tensor, actions: torch.Tensor, history: torch.Tensor) -> torch.Tensor:
@@ -276,14 +219,9 @@ class LLDPreview:
         s = state.to(device).expand(self.samples, -1)
         history = history.to(device).expand(self.samples, -1, -1)
         states = [s]
-        bank = None
         for a in actions.to(device):
             a = a.expand(self.samples, -1)
-            obs = build_LLD_observation_inference(
-                s, a, self.memory, 0, past_states=history, neighbors=bank
-            )
-            bank = self._windowed_bank(obs, bank)
-            obs["similar_valid"] = bank["valid"]
+            obs = build_LLD_observation_inference(s, a, self.memory, 0, past_states=history)
             nxt = self.lld.reconstruct_next_state(s, self.lld(obs).sample())
             history = torch.cat((history, torch.cat((s, a), dim=-1)[:, None]), dim=1)[:, 1:]
             s = nxt
@@ -300,14 +238,9 @@ class LLDPreview:
         s = state.to(device).reshape(1, -1)
         history = history.to(device).reshape(1, history.shape[-2], history.shape[-1])
         states = [s[0]]
-        bank = None
         for a in actions.to(device):
             a = a.reshape(1, -1)
-            obs = build_LLD_observation_inference(
-                s, a, self.memory, 0, past_states=history, neighbors=bank
-            )
-            bank = self._windowed_bank(obs, bank)
-            obs["similar_valid"] = bank["valid"]
+            obs = build_LLD_observation_inference(s, a, self.memory, 0, past_states=history)
             nxt = self.lld.reconstruct_next_state(s, self.lld(obs).mean)
             history = torch.cat((history, torch.cat((s, a), dim=-1)[:, None]), dim=1)[:, 1:]
             s = nxt
@@ -317,11 +250,8 @@ class LLDPreview:
     @torch.no_grad()
     def residual_rollout(
         self, state: torch.Tensor, actions: torch.Tensor, history: torch.Tensor
-    ) -> Optional[torch.Tensor]:
-        """The residual net alone as the LLD (no memory) replaying ``actions``: states ``(H + 1, state_dim)``.
-
-        None when the LLD has no residual correction net.
-        """
+    ) -> torch.Tensor:
+        """The residual net alone as the LLD (no memory) replaying ``actions``: states ``(H + 1, state_dim)``."""
         device = self.memory.device
         s = state.to(device).reshape(1, -1)
         history = history.to(device).reshape(1, history.shape[-2], history.shape[-1])
@@ -330,8 +260,6 @@ class LLDPreview:
             a = a.reshape(1, -1)
             query, _ = lld_super_state(s, a, self.memory, 0, past_states=history)
             delta = self.lld.residual_mean(query)
-            if delta is None:
-                return None
             nxt = self.lld.reconstruct_next_state(s, delta)
             history = torch.cat((history, torch.cat((s, a), dim=-1)[:, None]), dim=1)[:, 1:]
             s = nxt

@@ -1,8 +1,6 @@
 """Observation builders shared by planner and learner.
 
 ``build_actor_observation`` feeds the actor, ``build_LLD_observation_inference`` the LLD.
-``build_observation`` is a placeholder for the value network; keep ``observation_dim``
-in sync with it.
 """
 
 from __future__ import annotations
@@ -13,10 +11,9 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 import torch
 
-from TrainingLite.hwm.shared.targets import build_target_states, target_index
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from utilities.Settings import Settings
-from TrainingLite.hwm.shared.state_indices import (
+from utilities.state_utilities import (
     ANGULAR_VEL_Z_IDX,
     LINEAR_VEL_X_IDX,
     LINEAR_VEL_Y_IDX,
@@ -33,26 +30,6 @@ if TYPE_CHECKING:
     from TrainingLite.hwm.shared.memory_manager import MemoryManager
 
 
-def lld_cosine_attention() -> bool:
-    """``HWM_LLD_COSINE_ATTENTION``: score encodings by the raw inner product instead of L2."""
-    return bool(getattr(Settings, "HWM_LLD_COSINE_ATTENTION", False))
-
-
-def encoding_cosine(query: torch.Tensor, keys: torch.Tensor) -> torch.Tensor:
-    """Raw inner product ``<k, q>`` for ``query`` ``(B, D)`` and ``keys`` ``(N, D)`` or ``(B, N, D)``.
-
-    Returns ``(B, N)``. The lengths of ``k`` and ``q`` are not divided out.
-    """
-    if keys.dim() == 2:
-        return query @ keys.T
-    return (keys * query.unsqueeze(1)).sum(dim=-1)
-
-
-def lld_density_weighting() -> bool:
-    """``HWM_LLD_DENSITY_WEIGHTING``: divide each key's attention weight by its own kernel density."""
-    return bool(getattr(Settings, "HWM_LLD_DENSITY_WEIGHTING", False)) and not lld_cosine_attention()
-
-
 def lld_direct_delta() -> bool:
     """Test switch ``HWM_LLD_DIRECT_DELTA``. False is the previous reduced-delta LLD."""
     return bool(getattr(Settings, "HWM_LLD_DIRECT_DELTA", False))
@@ -66,16 +43,12 @@ def lld_predict_displacement() -> bool:
 def lld_correction_alone() -> bool:
     """``HWM_LLD_CORRECTION_ALONE``: g matches the recorded delta; the encoder is trained to help it.
 
-    Residual mode with the correction net. g gets no gradient from the retrieved samples. The
+    g gets no gradient from the retrieved samples. The
     retrieval encoder is trained on the residual prediction with g held fixed. The residuals
     ``delta - g(key)`` depend on the current weights of g, so they are evaluated in the forward
     pass and not cached.
     """
-    return (
-        bool(getattr(Settings, "HWM_LLD_CORRECTION_ALONE", False))
-        and bool(getattr(Settings, "HWM_LLD_CORRECTION_NET", False))
-        and bool(getattr(Settings, "HWM_LLD_CORRECTION_RESIDUAL", False))
-    )
+    return bool(getattr(Settings, "HWM_LLD_CORRECTION_ALONE", False))
 
 
 def lld_kinematic_residual() -> bool:
@@ -89,18 +62,16 @@ def lld_displacement_channels() -> bool:
 
 
 def lld_pose_free() -> bool:
-    """True when LLD and actor superstates drop global pose: ``HWM_LLD_DIRECT_DELTA`` or ``HWM_LLD_REFLECT``.
+    """True when actor superstates drop global pose: ``HWM_LLD_DIRECT_DELTA`` or ``HWM_LLD_REFLECT``.
 
-    Mirroring a window row by row only makes sense without pose, so ``HWM_LLD_REFLECT``
-    drops it by itself. The value tokens and the next-state reconstruction still follow
+    LLD superstates drop it always (``lld_rows_for_super``). ``HWM_LLD_REFLECT`` still
+    mirrors each LLD row. The value tokens and the next-state reconstruction follow
     ``HWM_LLD_DIRECT_DELTA``.
     """
     return lld_direct_delta() or bool(getattr(Settings, "HWM_LLD_REFLECT", False))
 
 
-# Global pose. Dynamics do not depend on where the car is or which way it faces,
-# so these are dropped from LLD superstates while the test switch is on.
-# Sin and cos are the heading, so they go too.
+# Global pose. Never an input of the LLD: position and heading, and sin/cos of heading.
 _GLOBAL_POSE = (POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX)
 
 
@@ -134,20 +105,16 @@ def lld_dynamic_indices() -> list[int]:
 
 
 def lld_kept_state_index(device: torch.device) -> torch.Tensor:
-    """State channels kept in an LLD superstate row."""
+    """State channels kept in an LLD superstate row. Position and heading are never kept."""
     state_dim = int(Settings.HWM_STATE_DIM)
-    if not lld_pose_free():
-        keep = tuple(range(state_dim))
-    else:
-        dropped = set(_global_pose_channels())
-        keep = tuple(index for index in range(state_dim) if index not in dropped)
+    dropped = set(_global_pose_channels())
+    keep = tuple(index for index in range(state_dim) if index not in dropped)
     return _constant(keep, torch.long, device)
 
 
 def lld_super_row_dim() -> int:
     """Width of one ``[kept state, action]`` row inside an LLD superstate."""
-    kept = int(Settings.HWM_STATE_DIM) if not lld_pose_free() else int(lld_kept_state_index(torch.device("cpu")).shape[0])
-    return kept + int(Settings.HWM_ACTION_DIM)
+    return int(lld_kept_state_index(torch.device("cpu")).shape[0]) + int(Settings.HWM_ACTION_DIM)
 
 
 def lld_super_flat_dim() -> int:
@@ -156,7 +123,7 @@ def lld_super_flat_dim() -> int:
 
 
 def lld_reflect_on() -> bool:
-    """Test switch ``HWM_LLD_REFLECT``. It also makes the superstates pose-free (``lld_pose_free``)."""
+    """Test switch ``HWM_LLD_REFLECT``. It also makes the actor superstate pose-free (``lld_pose_free``)."""
     return bool(getattr(Settings, "HWM_LLD_REFLECT", False))
 
 
@@ -219,20 +186,15 @@ def lld_reflect(values: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
 
 
 def lld_rows_for_super(rows: torch.Tensor, state_dim: int, reflect: bool = True) -> torch.Tensor:
-    """Drop global pose from ``[state, action]`` rows. No-op unless the test switch is on.
+    """Drop position and heading from ``[state, action]`` rows. Always, for every LLD input.
 
     With ``HWM_LLD_REFLECT`` every row is also mirrored so its steering angle is not
-    negative (``reflect=False`` for the actor, which acts in the true frame).
+    negative. The actor does not use this when it keeps pose.
     """
-    if not lld_pose_free():
-        return rows
     if reflect and lld_reflect_on():
         rows = _reflect_rows(rows, state_dim)
     state = rows[..., :state_dim].index_select(-1, lld_kept_state_index(rows.device))
     return torch.cat((state, rows[..., state_dim:]), dim=-1)
-
-
-_BODY_IDX = [LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX, STEERING_ANGLE_IDX]
 
 
 @functools.lru_cache(maxsize=64)
@@ -360,33 +322,6 @@ def _normalize_rows(rows: torch.Tensor, state_dim: int) -> torch.Tensor:
     return out
 
 
-def observation_dim() -> int:
-    """Flat observation size produced by ``build_observation``."""
-    return len(_BODY_IDX) + 2 * int(Settings.HWM_WALL_POINTS) * 2
-
-
-def build_observation(
-    state: np.ndarray,
-    memory: MemoryManager,
-    wall_geometry: WallGeometry,
-    episode_id: int,
-    goal: Optional[np.ndarray] = None,
-) -> dict[str, torch.Tensor]:
-    """Builds and composes all observation types for inference"""
-    state_t = torch.as_tensor(np.asarray(state, dtype=np.float32))
-    body = _normalize_states(state_t)[_BODY_IDX]
-
-    pose = torch.stack(
-        (state_t[POSE_X_IDX], state_t[POSE_Y_IDX], state_t[POSE_THETA_IDX])
-    ).reshape(1, 3)
-    walls = wall_geometry.get_relative_wall_positions(pose, int(Settings.HWM_WALL_POINTS))
-    wall_features = torch.cat((walls["left"].reshape(-1), walls["right"].reshape(-1)))
-
-    # ``memory.recent(episode_id, Settings.HWM_CONTEXT_LEN)`` and ``goal`` are available here
-    # for history- or goal-conditioned observations.
-    return torch.cat((body, wall_features)).to(torch.float32)
-
-
 def _as_batch(value: np.ndarray | torch.Tensor) -> torch.Tensor:
     if torch.is_tensor(value):
         tensor = value.detach().to(dtype=torch.float32)
@@ -422,8 +357,8 @@ def _normalized_history(
 def actor_super_state_dim() -> int:
     """Width of the actor's ``current_super_state``.
 
-    When the LLD superstate is pose-free (``lld_pose_free``) the global pose channels are
-    dropped from every row, matching it. The current row is state only (no action yet).
+    Global pose is dropped from every row only while ``lld_pose_free``. The LLD drops it
+    always. The current row is state only (no action yet).
     """
     state_dim = int(Settings.HWM_STATE_DIM)
     if lld_pose_free():
@@ -438,39 +373,12 @@ def _actor_superstate(history: torch.Tensor, state: torch.Tensor) -> torch.Tenso
     """Flattened actor superstate. ``history`` is normalized ``[state, action]`` rows."""
     state_dim = int(Settings.HWM_STATE_DIM)
     current = _normalize_states(state)
-    past = lld_rows_for_super(history, state_dim, reflect=False)
     if lld_pose_free():
+        past = lld_rows_for_super(history, state_dim, reflect=False)
         current = current.index_select(-1, lld_kept_state_index(current.device))
+    else:
+        past = history
     return torch.cat((past.flatten(start_dim=1), current), dim=-1)
-
-
-ACTOR_TARGET_DIM = 4
-
-
-def _actor_target(state: torch.Tensor, wall_geometry: WallGeometry) -> torch.Tensor:
-    """The tracked waypoint's target state relative to raw ``state`` ``(B, state_dim)``: ``(B, 4)``.
-
-    ``[x, y, Δθ / π, Δv_x / scale]``: the target position in the car frame (x forward,
-    y left) in meters, the wrapped heading difference and the forward-speed difference
-    (target minus car), the speed scaled like the state.
-    """
-    raceline = wall_geometry.raceline_abs.to(device=state.device, dtype=state.dtype)
-    targets = build_target_states(raceline)[target_index(state[:, [POSE_X_IDX, POSE_Y_IDX]], raceline)]
-    theta = state[:, POSE_THETA_IDX]
-    dx = targets[:, POSE_X_IDX] - state[:, POSE_X_IDX]
-    dy = targets[:, POSE_Y_IDX] - state[:, POSE_Y_IDX]
-    d_theta = targets[:, POSE_THETA_IDX] - theta
-    d_theta = torch.atan2(torch.sin(d_theta), torch.cos(d_theta))
-    d_speed = targets[:, LINEAR_VEL_X_IDX] - state[:, LINEAR_VEL_X_IDX]
-    return torch.stack(
-        (
-            torch.cos(theta) * dx + torch.sin(theta) * dy,
-            -torch.sin(theta) * dx + torch.cos(theta) * dy,
-            d_theta / np.pi,
-            d_speed / float(Settings.HWM_STATE_SCALE[LINEAR_VEL_X_IDX]),
-        ),
-        dim=-1,
-    )
 
 
 def build_actor_observation(
@@ -491,9 +399,6 @@ def build_actor_observation(
     ``wall_points`` ``(B, 2 * HWM_WALL_POINTS, 3)``: the upcoming left wall points, then
     the right ones, as ``[x, y, side]`` with ``x, y`` in the car frame (x forward, y
     left) in meters and ``side`` +1 for the left wall, -1 for the right wall.
-
-    ``target`` ``(B, ACTOR_TARGET_DIM)``: the progress reward's tracked waypoint target
-    state relative to the car (``_actor_target``).
     """
     device = memory.device
     state_b = _as_batch(state).to(device)
@@ -510,62 +415,7 @@ def build_actor_observation(
         ),
         dim=1,
     )
-    target = _actor_target(state_b, wall_geometry)
-    return {"current_super_state": current_super_state, "wall_points": wall_points, "target": target}
-
-
-TRAJ_WALL_DIM = 3
-
-
-def traj_noise_dim() -> int:
-    """Width of the actor's ``noise`` input: one standard-normal coordinate per LLD delta channel."""
-    return len(lld_dynamic_indices())
-
-
-def build_traj_actor_observation(
-    state: np.ndarray | torch.Tensor,
-    memory: MemoryManager,
-    wall_geometry: WallGeometry,
-    episode_id: int,
-    noise: torch.Tensor,
-    past_states: Optional[torch.Tensor] = None,
-) -> dict[str, torch.Tensor]:
-    """Observation of the deterministic actor of ``HWM_PLAN_MODE`` ``"traj"``.
-
-    ``current_super_state`` and ``target`` as in ``build_actor_observation`` (the target is
-    the waypoint tracked from this very state). ``walls`` ``(B, TRAJ_WALL_DIM)`` are the
-    coefficient controller's ``(wall_side, urgency, clearance)``. ``noise`` ``(B, d)`` or
-    ``(d,)`` is the LLD noise in standard deviations, ``lld_dynamic_indices`` order.
-    """
-    device = memory.device
-    state_b = _as_batch(state).to(device)
-    batch = int(state_b.shape[0])
-    history = _normalized_history(memory, episode_id, past_states, batch)
-    walls = torch.stack(wall_geometry.controller_wall_features(state_b), dim=-1).to(device)
-    noise = torch.as_tensor(noise, dtype=torch.float32, device=device).reshape(-1, traj_noise_dim()).expand(batch, -1)
-    return {
-        "current_super_state": _actor_superstate(history, state_b),
-        "target": _actor_target(state_b, wall_geometry),
-        "walls": walls,
-        "noise": noise,
-    }
-
-
-def transition_noise(
-    prediction: torch.distributions.MultivariateNormal, delta: torch.Tensor, clip: Optional[float] = None
-) -> torch.Tensor:
-    """The standard-normal draw ``ε`` with ``delta = μ + L ε``: ``L⁻¹ (delta - μ)``, ``(B, d)``.
-
-    ``delta`` ``(B, d)`` is the observed change in LLD delta units (``lld_delta``). ``ε`` is
-    the reparameterization noise that reproduces it exactly, so each entry is in standard
-    deviations of the whitened prediction. ``clip`` > 0 clamps it to ``±clip``.
-    """
-    residual = (delta - prediction.mean).unsqueeze(-1)
-    eps = torch.linalg.solve_triangular(prediction.scale_tril, residual, upper=False).squeeze(-1)
-    eps = torch.nan_to_num(eps, nan=0.0, posinf=0.0, neginf=0.0)
-    if clip is not None and clip > 0:
-        eps = eps.clamp(-clip, clip)
-    return eps
+    return {"current_super_state": current_super_state, "wall_points": wall_points}
 
 
 def build_LLD_observation_inference(
@@ -575,7 +425,6 @@ def build_LLD_observation_inference(
     episode_id: int,
     past_states: Optional[torch.Tensor] = None,
     before_steps: Optional[torch.Tensor] = None,
-    neighbors: Optional[dict[str, torch.Tensor]] = None,
     future_margin: Optional[int] = None,
 ) -> dict[str, torch.Tensor]:
     """Build the LLD observation.
@@ -587,47 +436,28 @@ def build_LLD_observation_inference(
 
     Retrieved windows were stored completely before the first row of the current
     superstate, so they never share a row with it and never come from its future.
-    Retrieval ranks by distance in the memory's cached projector embeddings.
 
     ``future_margin`` (training only): besides the past, windows that start more than that
     many rows after the sample's next row are allowed, so the LLD sees the whole memory
     except the sample's immediate future (see ``retrieve_LLD_neighbors``).
 
-    ``neighbors`` (from ``retrieve_LLD_neighbors``, one entry per row of ``state``)
-    replaces the retrieval: the observation uses those windows whatever the current
-    superstate is. ``before_steps`` is then ignored.
-
     ``n_soft`` ``(B,)`` is ``1 + Σ exp(-d / temperature)`` from the memory embeddings.
-    With ``HWM_LLD_COSINE_ATTENTION`` it is unused and returned as ones.
     """
     current_super_state, current_state_action = lld_super_state(state, action, memory, episode_id, past_states)
     temperature = float(Settings.HWM_LLD_ATTENTION_TEMPERATURE)
     if temperature <= 0:
         raise ValueError(f"HWM_LLD_ATTENTION_TEMPERATURE must be positive, got {temperature}")
-    if neighbors is None:
-        neighbors = retrieve_LLD_neighbors(current_super_state, memory, before_steps, future_margin=future_margin)
-    if lld_cosine_attention():
-        n_soft = current_super_state.new_ones(int(current_super_state.shape[0]))
-    elif neighbors.get("embeddings") is None:
-        # A rollout window keeps the keys and the valid mask, not the retrieval distances.
-        if "distances" not in neighbors:
-            n_soft = current_super_state.new_ones(int(current_super_state.shape[0]))
-        else:
-            n_soft = 1.0 + torch.exp(-neighbors["distances"] / temperature).sum(dim=-1)
-    else:
-        distance = torch.linalg.norm(neighbors["embeddings"] - memory.embed_query(current_super_state)[:, None], dim=-1)
-        n_soft = 1.0 + (torch.exp(-distance / temperature) * neighbors["valid"]).sum(dim=-1)
-    observation = {
+    neighbors = retrieve_LLD_neighbors(current_super_state, memory, before_steps, future_margin=future_margin)
+    n_soft = 1.0 + torch.exp(-neighbors["distances"] / temperature).sum(dim=-1)
+    return {
         "current_super_state": current_super_state,
         "similar_superstates": neighbors["similar_superstates"],
         "similar_superstates_diff": neighbors["similar_superstates_diff"],
         "similar_valid": neighbors["valid"],
+        "similar_density": neighbors["density"],
         "current_state_action": current_state_action,
         "n_soft": n_soft,
     }
-    if neighbors.get("density") is not None:
-        observation["similar_density"] = neighbors["density"]
-    return observation
 
 
 def lld_super_state(
@@ -648,61 +478,33 @@ def lld_super_state(
     history = _normalized_history(memory, episode_id, past_states, int(state_b.shape[0]))
     current_state_action = torch.cat((_normalize_states(state_b), action_b), dim=-1)
     # Past [state, action] rows, then the current [state, action]. Keys use that same order.
-    # Global pose is dropped here when HWM_LLD_DIRECT_DELTA is on. current_state_action stays full.
+    # Position and heading are always dropped. current_state_action stays full.
     state_dim = int(Settings.HWM_STATE_DIM)
     past = lld_rows_for_super(history, state_dim)
     current = lld_rows_for_super(current_state_action, state_dim)
     return torch.cat((past.flatten(start_dim=1), current), dim=-1), current_state_action
 
 
-def apply_rollout_window(
-    lld: torch.nn.Module,
-    current_super_state: torch.Tensor,
-    bank: dict[str, torch.Tensor],
-) -> dict[str, torch.Tensor]:
-    """Keep the ``HWM_LLD_ROLLOUT_WINDOW`` keys with the highest attention for this query.
-
-    Call it at every imagined step with that step's query ``current_super_state``: the
-    window is chosen again each time, from all the keys the bank had at the first call
-    (stored once as ``_full_valid``), so it follows the rollout instead of staying where
-    it started. The mask is written into ``bank["valid"]``. ``None`` leaves the bank
-    unchanged, which is also what LLD training uses.
-    """
-    window = getattr(Settings, "HWM_LLD_ROLLOUT_WINDOW", None)
-    if window is None or int(window) <= 0:
-        return bank
-    full = bank.setdefault("_full_valid", bank["valid"])
-    bank["valid"] = lld.top_key_mask(current_super_state, bank["similar_superstates"], full, int(window))
-    return bank
-
-
 def retrieve_LLD_neighbors(
     current_super_state: torch.Tensor,
     memory: MemoryManager,
     before_steps: Optional[torch.Tensor] = None,
-    with_embeddings: bool = False,
     future_margin: Optional[int] = None,
 ) -> dict[str, torch.Tensor]:
-    """Stored windows for the normalized superstates ``(B, S * row_dim)``.
+    """Every key of the memory's bank for the normalized superstates ``(B, S * row_dim)``.
 
-    Normally this is the nearest 50 non-overlapping windows. With
-    ``HWM_LLD_WHOLE_MEMORY_ATTENTION`` it is every valid window in memory: no hard
-    nearest-neighbor choice is made, and the LLD's attention can move differentiably
-    between all of them as the live state or action changes.
+    No hard nearest-neighbor choice is made: the LLD's attention can move differentiably
+    between all keys as the live state or action changes.
 
     ``before_steps`` as in ``build_LLD_observation_inference``; None means everything
-    stored so far. ``future_margin`` (whole-memory attention only, training): windows from
-    the far future are allowed again. Keys whose first row is more than ``future_margin``
-    rows after the sample's next row stay available; the windows in between do not.
-    Returns per row ``similar_superstates`` ``(B, N, S * row_dim)``
-    (normalized), ``similar_superstates_diff`` ``(B, N, prediction_dim)`` (the step
-    leaving each window), ``valid`` ``(B, N)`` (0 for missing matches) and the
-    embedding ``distances`` ``(B, N)`` to the query. ``with_embeddings`` adds the
-    windows' memory ``embeddings`` ``(B, N, emb)``, which reusing them for other
-    queries (``neighbors`` of ``build_LLD_observation_inference``) needs. With the
-    whole-memory option the window entries drop the batch dimension (one shared bank,
-    ``(N, ...)``); ``valid`` and ``distances`` stay per row. Use
-    ``select_neighbor_rows`` / ``repeat_neighbor_rows`` to index or repeat them.
+    stored so far. ``future_margin`` (training): windows from the far future are allowed
+    again. Keys whose first row is more than ``future_margin`` rows after the sample's
+    next row stay available; the windows in between do not.
+    Returns ``similar_superstates`` ``(N, S * row_dim)`` (normalized),
+    ``similar_superstates_diff`` ``(N, prediction_dim)`` (the step leaving each window) and
+    ``density`` ``(N,)`` (the stored n_soft of each key): one bank shared by every row,
+    not copied per row. ``valid`` ``(B, N)`` (0 for keys this row may not see) and the
+    embedding ``distances`` ``(B, N)`` to the query are per row.
     """
     width = int(Settings.HWM_SUPER_STATE_SIZE)
     state_dim = int(Settings.HWM_STATE_DIM)
@@ -713,63 +515,20 @@ def retrieve_LLD_neighbors(
         current_step = torch.as_tensor(before_steps).to(dtype=torch.long).reshape(-1)
     # The current superstate starts S-1 rows before the current one.
     superstate_start = current_step - (width - 1)
-    # One row after the match. The value token is the step that leaves it.
-    if Settings.HWM_LLD_WHOLE_MEMORY_ATTENTION:
-        # A key window starting after the sample's next row (current_step + 1) plus the margin.
-        after = None if future_margin is None else current_step + 2 + int(future_margin)
-        matches = memory.get_all_matches(
-            current_super_state, before=superstate_start, after=after, return_density=lld_density_weighting()
-        )
-        similar_rows, valid, similar_distances = matches[:3]
-        valid = valid.to(similar_distances.dtype)
-    else:
-        if future_margin is not None:
-            raise ValueError("future_margin needs HWM_LLD_WHOLE_MEMORY_ATTENTION")
-        similar_rows, similar_distances = memory.get_similars(
-            current_super_state,
-            num_similars=50,
-            before=superstate_start,
-        )
-        valid = torch.isfinite(similar_distances).to(similar_distances.dtype)
+    # A key window starting after the sample's next row (current_step + 1) plus the margin.
+    after = None if future_margin is None else current_step + 2 + int(future_margin)
+    similar_rows, valid, similar_distances, density = memory.get_all_matches(
+        current_super_state, before=superstate_start, after=after
+    )
+    valid = valid.to(similar_distances.dtype)
     # Step from the matched state to the next stored state.
     similar_superstates_diff = lld_delta(similar_rows[..., -2, :state_dim], similar_rows[..., -1, :state_dim])
     similar_rows = lld_rows_for_super(_normalize_rows(similar_rows, state_dim), state_dim)
     similar_superstates = similar_rows[..., :-1, :].flatten(start_dim=-2)
-    neighbors = {
+    return {
         "similar_superstates": similar_superstates,
         "similar_superstates_diff": similar_superstates_diff,
         "valid": valid,
         "distances": similar_distances,
-    }
-    if Settings.HWM_LLD_WHOLE_MEMORY_ATTENTION and lld_density_weighting():
-        neighbors["density"] = matches[3]
-    if with_embeddings:
-        flat = memory.embed(similar_superstates.reshape(-1, int(similar_superstates.shape[-1])))
-        neighbors["embeddings"] = flat.view(*similar_superstates.shape[:-1], int(flat.shape[-1]))
-    return neighbors
-
-
-# With HWM_LLD_WHOLE_MEMORY_ATTENTION these entries hold one bank (N, ...) shared by every
-# row; "valid" and "distances" are always per row (B, N).
-_BANK_KEYS = ("similar_superstates", "similar_superstates_diff", "embeddings", "density")
-
-
-def _is_shared_bank(neighbors: dict[str, torch.Tensor]) -> bool:
-    return neighbors["similar_superstates"].dim() == 2
-
-
-def select_neighbor_rows(neighbors: dict[str, torch.Tensor], index: torch.Tensor) -> dict[str, torch.Tensor]:
-    """The neighbor entries of rows ``index``; a shared bank is kept whole."""
-    shared = _is_shared_bank(neighbors)
-    return {key: value if shared and key in _BANK_KEYS else value[index] for key, value in neighbors.items()}
-
-
-def repeat_neighbor_rows(neighbors: dict[str, torch.Tensor], repeats: int) -> dict[str, torch.Tensor]:
-    """Each row's neighbor entries ``repeats`` times in a row; a shared bank is not copied."""
-    if repeats == 1:
-        return neighbors
-    shared = _is_shared_bank(neighbors)
-    return {
-        key: value if shared and key in _BANK_KEYS else value.repeat_interleave(repeats, dim=0)
-        for key, value in neighbors.items()
+        "density": density,
     }
