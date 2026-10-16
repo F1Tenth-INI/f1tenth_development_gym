@@ -797,6 +797,12 @@ class CarSystem:
             }
         polynomial_raceline = self._compute_polynomial_raceline_global(relative)
 
+        nearest = self.waypoint_utils.nearest_waypoint_index
+        planner = getattr(self, "planner", None)
+        if planner is not None and type(planner).__name__ == "HirarchicalPlanner":
+            planner._ensure_waypoints()
+            if getattr(planner, "_waypoints_n", 0) > 0:
+                nearest = int(planner.nearest_waypoint_index(car_state).reshape(-1)[0])
         label_dict = {
             "0: angular_control": self.angular_control,
             "1: translational_control": self.translational_control,
@@ -806,7 +812,7 @@ class CarSystem:
             "6: Reward": self.reward,
             "Distance to raceline": self.waypoint_utils.current_distance_to_raceline,
             "speed": car_state[LINEAR_VEL_X_IDX],
-            "Wp_idx": self.waypoint_utils.nearest_waypoint_index,
+            "Wp_idx": nearest,
             **poly_info,
         }
         label_dict.update(IMUUtilities.overlay_label_dict(self.imu))
@@ -814,6 +820,15 @@ class CarSystem:
             label_dict[f"reward: {name}"] = float(value)
         label_dict["reward: total"] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
+        stored = self.waypoint_utils.waypoints
+        if nearest is not None and stored is not None and len(stored) > 0:
+            point = stored[int(nearest) % len(stored), (WP_X_IDX, WP_Y_IDX)]
+            self.render_utils.scene.set_dynamic_points(
+                "closest_waypoint",
+                np.asarray(point, dtype=np.float32).reshape(1, 2),
+                color=(255, 220, 0),
+                radius=5.0,
+            )
 
         virtual_opponent_poses = get_virtual_opponent_poses_for_render(self)
         if virtual_opponent_poses is None:

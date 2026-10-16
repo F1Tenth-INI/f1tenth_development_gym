@@ -158,7 +158,7 @@ class Settings():
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
-    IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
+    IGNORE_STEPS = 5                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 10.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
     WAYPOINT_LOCAL_SEARCH_BACK = 10   # Local nearest-wpt search behind last index (was 3)
@@ -355,14 +355,13 @@ class Settings():
     HWM_LLD_BATCH_SIZE = 32              # independent random transitions per LLD update
     HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They stay stored. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
-    HWM_PP_DRIVES = True                # Pure Pursuit drives instead of the actor; its rows still train the learner
+    HWM_PP_DRIVES = False                # Pure Pursuit drives instead of the actor; its rows still train the learner
     HWM_PP_UNTIL_WEIGHTS = True         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
     HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
     HWM_SIM_USE_LLD = False              # the car is stepped by the LLD once per control step, instead of the Pacejka model. The action is the one just commanded, matching how the LLD is trained
     HWM_SIM_LLD_SAMPLE = False           # with HWM_SIM_USE_LLD: False -> the LLD mean (expected next state). True -> one sample from the LLD
     HWM_LLD_PREVIEW_SAMPLES = 10         # sampled LLD rollouts for the mean path and its uncertainty band
     HWM_LLD_STUDENT_T = True            # False: the LLD predicts a Gaussian. True: one multivariate Student-t with the same weighted mean and weighted covariance (no (1 + 1/n) factor, that is Gaussian only) and nu = max(HWM_LLD_T_MIN_DOF, n - d), d the delta dimension, n = n_soft. Training maximizes its log likelihood. The predicted mean, scale_tril and noise inversion keep their meaning; sample() draws from the t
-    HWM_LLD_DUMMY_DISTANCE_INIT = 2    # initial distance of the dummy token (its attention logit is -distance / HWM_LLD_ATTENTION_TEMPERATURE, then learned). With a small temperature the dummy starts far below every key (T=1/60: logit -120) and gets no gradient, so it never competes. Set it near the typical distance of the nearest key (about 12 T)
     HWM_LLD_CORRECTION_INPUT_RESIDUAL = False  # the attention mean of the retrieved residuals (detached) is an extra input of g at the query (zero at the keys, whose residuals must not depend on it)
     HWM_LLD_CORRECTION_INPUT_COV = False       # the retrieved covariance (its lower-triangular Cholesky factor, detached) is an extra input of g at the query, same as above
     HWM_LLD_CORRECTION_HIDDEN = 64       # hidden width of the residual net g
@@ -374,7 +373,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 1/4                  # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 1 / 5     # softmax/kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0
@@ -383,10 +382,10 @@ class Settings():
     HWM_LLD_CORRECTION_ALONE = True    # True: g is trained so g(q) equals the recorded delta, with no gradient from the retrieved samples. The retrieval encoder is trained on the full residual prediction g(q) + sum_j w_j (delta_j - g(k_j)) with g held fixed, so it learns to help g. At inference that sum is used, and delta - g(key) is evaluated with the current g, not stored. False: g and the memory residuals are trained together
     HWM_LLD_REFLECT = False              # TEST. Works with or without HWM_LLD_DIRECT_DELTA; it makes LLD and actor superstates pose-free by itself (no x, y, heading, sin, cos). Assume dynamics are symmetric about the car's x-axis: every LLD superstate row is mirrored on its own so its steering angle is not negative, the value tokens and training target are mirrored by the steering sign of the row they leave, and the predicted delta (mean, covariance, noise) is mirrored back. Actor inputs stay in the true frame. Needs a new model: the memory embeddings and LLD weights change meaning
     HWM_LLD_T_GRAD_THROUGH_N = False     # False: n (hence nu) is detached, so the encoder is trained only through the attention weights of the mean and covariance. True: gradients also flow through n into the attention
-    HWM_LLD_STANDALONE_ENCODER = True   # True: a single encoder (overrides HWM_LLD_COV_HEAD) is trained only on its own likelihood: the attention-weighted mean and covariance of the stored deltas (no g, no residuals, own dummy value), Student-t / Gaussian as set, on the recorded delta. The rest of the model (residual tokens, covariance, g's training, inference) uses that encoder and its dummy distance detached. n_soft and keys50 of this encoder are the ones logged. Needs a new model: one extra dummy value
+    HWM_LLD_STANDALONE_ENCODER = True   # True: a single encoder (overrides HWM_LLD_COV_HEAD) is trained only on its own likelihood: the attention-weighted mean and covariance of the stored deltas (no g, no residuals), Student-t / Gaussian as set, on the recorded delta. The rest of the model (residual tokens, covariance, g's training, inference) uses that encoder detached. n_soft and keys50 of this encoder are the ones logged
     HWM_LLD_COV_CENTER_TRANSITIONS = False  # with HWM_LLD_COV_HEAD. True (a): the covariance is the spread of the stored transitions delta_j about the final prediction g(q) + mu, so it also contains how much g differs between the neighbor and the query, g(k_j) - g(q). False (b): the spread of the residual tokens delta_j - g(k_j) (g(k_j) detached) about their weighted mean mu, the error scatter of g at the neighbors only. 
     HWM_LLD_COV_DETACH_TOKENS = True     # True: the residual tokens delta_j - g(k_j) are constants everywhere (mean and covariance), so g is trained only through g(q) of the current state and the retrieval encoders only through the attention weights. Without HWM_LLD_COV_HEAD the covariance (of the retrieved tokens around their weighted mean) is not trained at all. False: g also gets gradient through the tokens, and the covariance is trained
-    HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder and dummy distance, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
+    HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
     HWM_LLD_DIRECT_DELTA = False         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD changes width
     HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD changes width
     HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation of the memory. Rows are never evicted: the row arrays double when full
@@ -406,6 +405,10 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
+    MPC_NUM_OF_TRAJECTORIES = 50 
+    MPC_TRAJECTORY_LENGTH = 50 # number of control steps in each trajectory
+    MPC_ACTION_CORRELATION = 0.95  # 0: independent. 1: the first sample is held for the whole sequence
+    MPC_TEMPERATURE = 1   # temperature for the softmax function
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer

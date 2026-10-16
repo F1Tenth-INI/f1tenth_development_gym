@@ -164,7 +164,6 @@ class HWMLearnerServer:
                 "lld_n_soft": float(self.models["LLD"].last_n_soft),
                 "lld_top_keys": float(self.models["LLD"].last_top_keys),
                 "lld_n_soft_norm": float(self.models["LLD"].last_n_soft_norm),
-                "lld_dummy_pct": 100.0 * float(self.models["LLD"].last_dummy_share),
             }
             if self.models["LLD"].cov_head:
                 metrics["lld_cov_n_soft"] = float(self.models["LLD"].last_cov_n_soft)
@@ -290,7 +289,6 @@ class HWMLearnerServer:
                     ("lld_n_soft", "n_soft"),
                     ("lld_top_keys", "keys50"),
                     ("lld_n_soft_norm", "n_soft_norm"),
-                    ("lld_dummy_pct", "dummy%"),
                     ("lld_cov_n_soft", "cov_n_soft"),
                     ("lld_cov_top_keys", "cov_keys50"),
                 )

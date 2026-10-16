@@ -63,6 +63,17 @@ from utilities.state_utilities import (
     STEERING_ANGLE_IDX,
 )
 
+WP_RACELINE_IDX = 0
+WP_X_IDX = 1
+WP_Y_IDX = 2
+WP_HEADING_IDX = 3
+WP_CURVATURE_IDX = 4
+WP_TARGET_SPEED_IDX = 5
+WP_TARGET_ACCEL_IDX = 6
+WP_GLOBAL_IDX = 7
+WP_DISTANCE_RIGH_WALL_IDX = 8
+WP_DISTANCE_LEFT_WALL_IDX = 9
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
@@ -164,6 +175,8 @@ class HirarchicalPlanner(template_planner):
         self._stream_send_idx = 0
         self._stream_batch_size = int(Settings.HWM_STREAM_BATCH_SIZE)
         self._bootstrap_sent = False
+        
+        self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
 
         self.reset()
 
@@ -176,6 +189,7 @@ class HirarchicalPlanner(template_planner):
         # Episode rows are kept until on_step_end() sees done; see _reset_episode_state().
         self._generation += 1
         self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
+        self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         
     def _ensure_waypoints(self) -> None:
         utils = getattr(self, "waypoint_utils", None)
@@ -197,18 +211,47 @@ class HirarchicalPlanner(template_planner):
         return self.lld_preview.compute(**kwargs)
     
     def nearest_waypoint_index(self, state: torch.Tensor) -> torch.Tensor:
-        """Closest raceline index for each state ``(B, 10)``. Returns ``(B,)`` long."""
-        #self._ensure_waypoints()
-        pos = state[:, [POSE_X_IDX, POSE_Y_IDX]]                 # (B, 2)
-        dist = (self._waypoint_xy.unsqueeze(0) - pos.unsqueeze(1)).pow(2).sum(-1)  # (B, N)
-        return dist.argmin(dim=-1)
+        """First raceline index ahead of each state along the track. Returns ``(B,)`` long.
+
+        ``state`` is ``(state_dim,)`` or ``(B, state_dim)``. The position is projected
+        onto the raceline segments, including the segment that closes the loop. The
+        returned index is the waypoint at the end of that segment, so a point the car
+        has already passed is not used.
+        """
+        self._ensure_waypoints()
+        state = torch.as_tensor(state, dtype=torch.float32)
+        if state.ndim == 1:
+            state = state.unsqueeze(0)
+        pos = state[:, [POSE_X_IDX, POSE_Y_IDX]]
+        xy = self._waypoint_xy
+        p0 = xy
+        p1 = torch.roll(xy, shifts=-1, dims=0)
+        segment = p1 - p0
+        length2 = segment.pow(2).sum(dim=-1).clamp_min(1e-12)
+        offset = pos.unsqueeze(1) - p0.unsqueeze(0)
+        progress = (offset * segment.unsqueeze(0)).sum(dim=-1) / length2
+        progress = progress.clamp(0.0, 1.0)
+        projection = p0.unsqueeze(0) + progress.unsqueeze(-1) * segment.unsqueeze(0)
+        distance2 = (pos.unsqueeze(1) - projection).pow(2).sum(dim=-1)
+        segment_index = distance2.argmin(dim=-1)
+        along = progress.gather(1, segment_index.unsqueeze(1)).squeeze(1)
+        # End of the segment is still ahead. A projection clamped to that end means
+        # the car is already on or past it, so the following waypoint is the one in front.
+        ahead = torch.where(
+            along <= 0,
+            segment_index,
+            torch.where(along >= 1, segment_index + 2, segment_index + 1),
+        )
+        # Same skip as jit_update_next_waypoints: the first waypoint it returns is IGNORE_STEPS ahead.
+        ahead = ahead + int(Settings.IGNORE_STEPS)
+        return ahead.remainder(xy.shape[0])
 
     def rollout_waypoint_states(self, states: torch.Tensor, closest_index: int | torch.Tensor) -> torch.Tensor:
         """For each rollout, which of its states is closest to each upcoming waypoint.
 
-        ``states`` is ``(B, T, state_dim)``. ``closest_index`` is the raceline index closest to
-        the start, one integer or ``(B,)``. Waypoint ``j`` of a trajectory is
-        ``closest_index + j`` along the raceline, including the closest point itself.
+        ``states`` is ``(B, T, state_dim)``. ``closest_index`` is the first raceline index
+        ahead of the start, one integer or ``(B,)``. Waypoint ``j`` of a trajectory is
+        ``closest_index + j`` along the raceline, including that first waypoint ahead.
 
         How many waypoints: the trajectory's average speed over ground, times the rollout
         duration ``(T - 1) * TIMESTEP_CONTROL``, divided by the 0.1 m waypoint spacing, plus one.
@@ -226,8 +269,8 @@ class HirarchicalPlanner(template_planner):
             raise ValueError(f"states must be (B, T, state_dim), got {tuple(states.shape)}")
         batch, steps, _ = (int(states.shape[0]), int(states.shape[1]), int(states.shape[2]))
         closest = torch.as_tensor(closest_index, dtype=torch.long)
-        if closest.ndim == 0:
-            closest = closest.expand(batch)
+        if closest.numel() == 1:
+            closest = closest.reshape(()).expand(batch)
         speed = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).mean(dim=1)
         duration = max(steps - 1, 0) * float(Settings.TIMESTEP_CONTROL)
         counts = torch.floor(speed * duration / 0.1).to(torch.long) + 1
@@ -253,9 +296,59 @@ class HirarchicalPlanner(template_planner):
             taken |= mark
         return out
 
-    # ------------------------------------------------------------------
-    # INSERTION POINTS
-    # ------------------------------------------------------------------
+    def MPC_reward(self, states : torch.tensor, nearest_waypoint_indices: torch.tensor, nearest_waypoint: int) -> torch.tensor:
+        """Rewards of each trajectory for the MPC policy.
+        
+        Args:
+            states: (B, T, state_dim)
+            nearest_waypoint_indices: (B,) 
+            nearest_waypoint: int (index of the closest waypoint)
+        Returns:
+            reward: (B,num_of_reward_types)
+        """
+        num_valid_waypoints = nearest_waypoint_indices.shape[1] - nearest_waypoint_indices.isnan().sum(dim=1)
+        rewards = torch.zeros(states.shape[0])
+        start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
+        for i in range(num_valid_waypoints.shape[0]):
+            count = int(num_valid_waypoints[i])
+            if count == 0:
+                continue
+            indices = nearest_waypoint_indices[i, :count].long()
+            local_waypoints = self.waypoints[(torch.arange(count) + start) % self._waypoints_n]
+            position = states[i, indices][:, [POSE_X_IDX, POSE_Y_IDX]] - local_waypoints[:, [WP_X_IDX, WP_Y_IDX]]
+            distance_reward = torch.linalg.norm(position, dim=1).sum()
+            heading_error = states[i, indices, POSE_THETA_IDX] - local_waypoints[:, WP_HEADING_IDX]
+            heading_error = torch.atan2(torch.sin(heading_error), torch.cos(heading_error))
+            heading_reward = heading_error.abs().sum()
+            speed = torch.hypot(states[i, indices, LINEAR_VEL_X_IDX], states[i, indices, LINEAR_VEL_Y_IDX])
+            speed_reward = (speed - local_waypoints[:, WP_TARGET_SPEED_IDX]).abs().sum()
+            reward = 10*distance_reward +  0 * heading_reward  + speed_reward
+            reward += 1000 * (count < 3)
+            min_speed = states[i, indices, LINEAR_VEL_X_IDX].min()
+            reward += abs(min_speed) * 100 if min_speed < 0 else 0
+            rewards[i] = reward / count**2
+            
+
+
+            """ print(f"Reward: {reward}, Count: {count}")
+            print(f"Distance Reward: {distance_reward/count**2}, Heading Reward: {heading_reward/count**2}, Speed Reward: {speed_reward/count**2}")
+            print(f"Nearest Waypoint: {nearest_waypoint}")
+            print(f"Num Valid Waypoints: {num_valid_waypoints[i]}")"""
+
+        poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
+        crashed = self.wall_geometry.in_wall(poses) 
+        big_number = torch.max(rewards) * 10
+        has_crash = crashed.any(dim=1)                       # (B,)
+        first = crashed.float().argmax(dim=1)                # (B,) long, first True along time
+        first = torch.where(has_crash, first, torch.full_like(first, -1)) + 1
+        rewards = rewards * (1 + big_number * first)
+
+        return -1 * rewards
+
+
+
+
+
     def build_observation(self, state: np.ndarray) -> dict[str, torch.Tensor]:
         """Actor input for the current raw state. Shared implementation with the learner."""
         return build_actor_observation(
@@ -281,13 +374,67 @@ class HirarchicalPlanner(template_planner):
             return self._fallback_action()
 
         with torch.no_grad():
-            actor = self.models["actor"]
-            dist = actor(obs)
-            if Settings.HWM_SAMPLE_ACTIONS:
-                action = dist.sample()[0]
+
+            #actor = self.models["actor"]
+            #dist = actor(obs)
+            #if Settings.HWM_SAMPLE_ACTIONS:
+            #    action = dist.sample()[0]
+            #else:
+            #    action = actor.deterministic_action(dist)[0]
+            
+            #actions = torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, Settings.MPC_TRAJECTORY_LENGTH, 2) + torch.tensor([0, 0.1]).unsqueeze(0).unsqueeze(0)
+
+            """count = int(Settings.MPC_NUM_OF_TRAJECTORIES)
+            length = int(Settings.MPC_TRAJECTORY_LENGTH)
+            rho = min(max(float(Settings.MPC_ACTION_CORRELATION), 0.0), 0.999)
+            noise = torch.randn(count, length, 2)
+            if rho > 0.0:
+                fresh = (1.0 - rho * rho) ** 0.5
+                for t in range(1, length):
+                    noise[:, t] = rho * noise[:, t - 1] + fresh * noise[:, t]
+            actions = noise #+ torch.tensor([0.0, 0.1])
+"""         
+
+            # [0.1, 0.5] is the noise std in physical units. The buffer is in network units.
+            noise_std = torch.tensor([0.1, 0.5]) / torch.as_tensor(self.action_denormalization_array) * 5
+            actions = self.action_buffer + torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, Settings.MPC_TRAJECTORY_LENGTH, 2) * noise_std
+            #actions[:, :, 1] = actions[:, :, 1].abs() #no backwards driving
+            #actions[:, :, 0] = actions[:, :, 0] * 3
+
+            if Settings.RUN_MPC_WITH_PACEJKA:
+                trajectories = self.rollout_pacejka(state, actions)
             else:
-                action = actor.deterministic_action(dist)[0]
-        return action.cpu().numpy().astype(np.float32).reshape(-1)
+                trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
+
+            nearest_waypoint_idx = self.nearest_waypoint_index(state)
+            trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+            rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
+            weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
+            action_seq = (weights[:, None, None] * actions).sum(dim=0)
+            # Next step samples around this plan with its first command dropped and its last command repeated.
+            self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
+            pacejka = self.rollout_pacejka(state, action_seq)
+            self._draw_mpc_trajectories(trajectories, weights, pacejka)
+            return action_seq[0].cpu().numpy().astype(np.float32)
+
+    def _draw_mpc_trajectories(
+        self, trajectories: torch.Tensor, weights: torch.Tensor, pacejka: torch.Tensor
+    ) -> None:
+        """MPC samples, their weighted mean, and Pacejka driven by that whole mean action sequence."""
+        if getattr(self, "render_utils", None) is None:
+            return
+        xy = trajectories[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu()
+        scene = self.render_utils.scene
+        caps = {"max_trajectories": int(xy.shape[0]), "max_points_per_trajectory": int(xy.shape[1])}
+        scene.set_trajectories("hwm.mpc_samples", xy.numpy(), color=(140, 140, 140), width=1.0, **caps)
+        mean_xy = (weights.detach().cpu()[:, None, None] * xy).sum(dim=0)
+        scene.set_trajectories("hwm.mpc_plan", mean_xy.numpy()[None], color=(20, 20, 20), width=3.0, **caps)
+        pace_xy = pacejka[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy()
+        scene.set_trajectories(
+            "hwm.mpc_pacejka", pace_xy, color=(230, 90, 0), width=3.0,
+            max_trajectories=int(pace_xy.shape[0]), max_points_per_trajectory=int(pace_xy.shape[1]),
+        )
+            
 
     @torch.no_grad()
     def rollout_lld(self, state, actions):
@@ -298,7 +445,7 @@ class HirarchicalPlanner(template_planner):
 
         Returns ``states`` ``(B, N + 1, state_dim)``, and ``n_soft`` and ``n_soft_norm`` ``(B, N)``.
         Row ``k`` of those two is the attention mass at ``states[:, k]`` under ``actions[:, k]``.
-        ``n_soft`` counts keys by ``exp(-distance / temperature)``, plus 1 for the dummy.
+        ``n_soft`` is the sum of ``exp(-distance / temperature)`` over the keys.
         ``n_soft_norm`` divides each key's kernel by that key's stored n_soft before summing.
 
         The key bank is read once, as views. Imagined rows stay in a small history and are not
@@ -329,7 +476,7 @@ class HirarchicalPlanner(template_planner):
         bank = self.memory.lld_bank()
         if bank is None:
             key_emb = s.new_zeros((0, lld.attention_norm_projector[-1].out_features))
-            tokens = lld.dummy_value.unsqueeze(0)
+            tokens = s.new_zeros((0, lld.prediction_dim))
             density = s.new_zeros((0,))
             valid = torch.zeros((0,), dtype=torch.bool, device=s.device)
         else:
@@ -337,8 +484,7 @@ class HirarchicalPlanner(template_planner):
             cutoff = int(self.memory.next_step) - (width - 1)
             valid = rows + 1 < cutoff
             key_emb = lld.attention_norm_projector(supers)
-            residuals = deltas - lld._correct(supers)
-            tokens = torch.cat((residuals, lld.dummy_value.unsqueeze(0)), dim=0)
+            tokens = deltas - lld._correct(supers)
 
         states = [s]
         n_softs = []
@@ -349,7 +495,8 @@ class HirarchicalPlanner(template_planner):
                 torch.cat((_normalize_states(s), a), dim=-1), state_dim
             )
             query = torch.cat((history.flatten(start_dim=1), current), dim=-1)
-            delta, n_soft, n_soft_norm = lld.mean_delta(query, key_emb, tokens, density, valid)
+            step = getattr(lld, "mean_delta_compiled", lld.mean_delta)
+            delta, n_soft, n_soft_norm = step(query, key_emb, tokens, density, valid)
             s = lld.reconstruct_next_state(s, delta)
             history = torch.cat((history[:, 1:], current.unsqueeze(1)), dim=1)
             states.append(s)
@@ -359,9 +506,30 @@ class HirarchicalPlanner(template_planner):
         n_soft_norm = torch.stack(n_soft_norms, dim=1) if n_soft_norms else n_soft
         return torch.stack(states, dim=1), n_soft, n_soft_norm
 
+    def _pacejka_batch_step(self):
+        """One Pacejka control step, jitted and mapped over a batch of states and physical controls."""
+        step = getattr(self, "_pacejka_batch", None)
+        if step is None:
+            import jax
+            import jax.numpy as jnp
+            from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax_from_settings
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+
+            car_params = jnp.asarray(VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array())
+            dt = float(Settings.TIMESTEP_CONTROL)
+            substeps = int(round(dt / float(Settings.TIMESTEP_SIM)))
+
+            def one(state, control):
+                return car_dynamics_pacejka_jax_from_settings(state, control, car_params, dt, substeps)
+
+            step = jax.jit(jax.vmap(one))
+            self._pacejka_batch = step
+        return step
+
     def rollout_pacejka(self, state, actions):
         """states (B, N+1, 10) for the same actions. Applies the command from 2 control steps ago. For testing the Planner with ground truth model in simulation."""
         import jax
+        import jax.numpy as jnp
         actions = np.asarray(actions, dtype=np.float32)
         if actions.ndim == 2:
             actions = actions[None]
@@ -379,7 +547,7 @@ class HirarchicalPlanner(template_planner):
             applied = pending[:, 0] * denorm
             pending = pending[:, 1:]
             applied[:, 1] = np.clip(applied[:, 1], -cap, cap)
-            s = np.asarray(step(jnp.asarray(s), jnp.asarray(applied)), dtype=np.float32)
+            s = np.array(step(jnp.asarray(s), jnp.asarray(applied)), dtype=np.float32, copy=True)
             s[:, POSE_THETA_IDX] = np.arctan2(s[:, POSE_THETA_SIN_IDX], s[:, POSE_THETA_COS_IDX])
             states.append(s.copy())
         return torch.as_tensor(np.stack(states, axis=1))
@@ -389,9 +557,9 @@ class HirarchicalPlanner(template_planner):
         lld = self.models["LLD"]
         tag = " (single encoder)" if lld.standalone else ""
         text = f"[attention]{tag} keys for top 50% weight: {float(lld.last_top_keys):.1f} n_soft: {float(lld.last_n_soft):.2f}"
-        text += f" n_soft_norm: {float(lld.last_n_soft_norm):.2f} dummy: {100.0 * float(lld.last_dummy_share):.1f}%"
+        text += f" n_soft_norm: {float(lld.last_n_soft_norm):.2f}"
         if lld.cov_head:
-            text += f" | cov head: keys50 {float(lld.last_cov_top_keys):.1f} n_soft {float(lld.last_cov_n_soft):.2f} dummy {100.0 * float(lld.last_cov_dummy_share):.1f}%"
+            text += f" | cov head: keys50 {float(lld.last_cov_top_keys):.1f} n_soft {float(lld.last_cov_n_soft):.2f}"
         self._log_info(text)
 
     @torch.no_grad()
@@ -513,6 +681,9 @@ class HirarchicalPlanner(template_planner):
         """
         if self.preview_worker is None or not (self._received_weights or test_track_enabled()):
             return
+        # MPC draws its own rollouts. The actor preview stays only while Pure Pursuit drives.
+        if self.autonomous_driving and not test_track_enabled():
+            return
         result = self.preview_worker.pop_result()
         if result is not None and result.generation != self._generation:
             result = None
@@ -610,9 +781,9 @@ class HirarchicalPlanner(template_planner):
     def _seed_memory(self, model_name: Optional[str]) -> None:
         """Load the learner's saved neighbor bank once, while this memory is still empty.
 
-        The LLD's prediction is the average of stored transitions. With an empty bank the
-        only token is the zero dummy, the predicted step is zero, and a car that starts at
-        rest never moves. Driving that zero step back into memory keeps it there.
+        The LLD's prediction is g(q) plus the average of stored residuals. With an empty bank
+        that average is zero and g starts at zero, so the predicted step is zero and a car
+        that starts at rest never moves. Driving that zero step back into memory keeps it there.
         """
         if not model_name or self.memory.total_steps > 0:
             return
@@ -712,6 +883,7 @@ class HirarchicalPlanner(template_planner):
         self._generation += 1
         self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
         self._test_rows = []
+        self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
 
     def _terminate_server_with_retry(self) -> None:
         delivered = False

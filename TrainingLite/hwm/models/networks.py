@@ -175,10 +175,10 @@ def _attention_encoder(in_dim: int) -> nn.Sequential:
 class LLD(nn.Module):
     """Low-Level dynamics model.
 
-    The next-state delta is an attention-weighted average over every key of the memory bank plus
-    a dummy token, with a residual net ``g`` of the superstate correcting the mean:
-    ``mean = g(q) + sum_j w_j (delta_j - g(k_j))``. Weights are the softmax of minus the L2 distance of
-    the encodings over the temperature, each key's weight divided by its own n_soft (density).
+    The next-state delta is an attention-weighted average over every key of the memory bank, with a
+    residual net ``g`` of the superstate correcting the mean:
+    ``mean = g(q) + sum_j w_j (delta_j - g(k_j))``. A key's weight is ``exp(-distance / temperature)``
+    divided by that key's own n_soft (density), then normalised over the keys.
     """
 
     def __init__(self):
@@ -198,9 +198,6 @@ class LLD(nn.Module):
         # HWM_LLD_DIRECT_DELTA: every state channel. Otherwise yaw rate, body velocity, steering, heading.
         prediction_dim = len(lld_dynamic_indices())
         self.prediction_dim = prediction_dim
-        # Prior token in the attention set: a learned value at a learned, query-independent
-        # distance. It takes the weight when no stored neighbor is close.
-        self.dummy_value = nn.Parameter(torch.zeros(prediction_dim))
         # The residual net g: a small network on the flat superstate. The attention average models stored
         # deltas minus g's output at each key. Its last layer starts at zero, so training begins at the plain
         # attention model.
@@ -220,15 +217,9 @@ class LLD(nn.Module):
         )
         nn.init.zeros_(self.correction_net[-1].weight)
         nn.init.zeros_(self.correction_net[-1].bias)
-        self.dummy_distance = nn.Parameter(torch.tensor(float(getattr(Settings, "HWM_LLD_DUMMY_DISTANCE_INIT", 2.0))))
-        if self.standalone:
-            # Prior token of the encoder's own likelihood, in stored-delta space (the final model keeps dummy_value).
-            self.encoder_dummy_value = nn.Parameter(torch.zeros(prediction_dim))
         self.last_n_soft = torch.zeros(())
         self.last_top_keys = torch.zeros(())
         self.last_n_soft_norm = torch.zeros(())
-        self.last_dummy_share = torch.zeros(())
-        self.last_cov_dummy_share = torch.zeros(())
         # HWM_LLD_COV_HEAD: the covariance has its own attention, see Settings. The head's own
         # parameters exist only when it is on, so older checkpoints load.
         self.cov_head = (not self.standalone) and bool(getattr(Settings, "HWM_LLD_COV_HEAD", False))
@@ -242,15 +233,11 @@ class LLD(nn.Module):
             raise ValueError("HWM_LLD_COV_HEAD centres on g(q), so HWM_LLD_CORRECTION_INPUT_COV (g's input) would be circular")
         if self.cov_head:
             self.cov_norm_projector = _attention_encoder(super_state_dim)
-            self.cov_dummy_distance = nn.Parameter(
-                torch.tensor(float(getattr(Settings, "HWM_LLD_DUMMY_DISTANCE_INIT", 2.0)))
-            )
+        self._compile_rollout_step(super_state_dim)
 
     def _covariance_override(
         self,
         stored_deltas: torch.Tensor,
-        weights: torch.Tensor,
-        dummy_residual: torch.Tensor,
         prediction: torch.Tensor,
         correction: torch.Tensor,
         chol_scale: torch.Tensor,
@@ -260,50 +247,73 @@ class LLD(nn.Module):
     ) -> torch.Tensor:
         """Cholesky factor of the covariance of the covariance head (HWM_LLD_COV_HEAD).
 
-        The weights are the head's own softmax (encoder + dummy distance, last column the dummy).
+        The weights are this head's own normalised kernels (no density division).
         ``mu = prediction - correction`` is the main head's weighted residual mean. With
         HWM_LLD_COV_CENTER_TRANSITIONS (a) the covariance is the weighted second moment of the stored
         transitions ``delta_j`` (``stored_deltas`` ``(N, d)``) about the
         detached final prediction ``prediction`` ``(B, d)`` = ``g(q) + mu``. Without it (b) the tokens are
         the residuals ``delta_j - g(k_j)`` (``stored_deltas`` then holds those, detached) about ``mu``.
-        The dummy token deviates by ``dummy_residual - mu`` in both. Nothing but the head's weights
-        carries gradient (the dummy value only when HWM_LLD_COV_DETACH_TOKENS is off).
         """
-        batch = int(current_super_state.shape[0])
+        if int(stored_deltas.shape[0]) == 0:
+            return self._scaled_cholesky(
+                prediction, prediction.new_zeros(int(prediction.shape[0]), self.prediction_dim, self.prediction_dim), chol_scale
+            )[1]
         query = self.cov_norm_projector(current_super_state)
         keys = self.cov_norm_projector(similar_superstates)
         memory_logit = self._memory_logits(query, keys, valid)
-        logits = torch.cat(
-            (memory_logit, -self.cov_dummy_distance.expand(batch, 1) / self.attention_temperature),
-            dim=-1,
-        )
-        weights = torch.softmax(logits, dim=-1)
-        # Same statistics as the main head, for logging: kernel mass (+1 for the dummy) and keys for half the weight.
-        finite = memory_logit > torch.finfo(memory_logit.dtype).min / 2
-        self.last_cov_n_soft = (1.0 + torch.exp(memory_logit.detach()).masked_fill(~finite, 0).sum(dim=-1)).mean()
+        kernel = torch.exp(memory_logit)
+        mass = kernel.sum(dim=-1, keepdim=True)
+        weights = kernel / mass.clamp_min(1e-12)
+        weights = torch.where(mass > 0, weights, torch.zeros_like(weights))
+        self.last_cov_n_soft = mass.detach().squeeze(-1).mean()
         self.last_cov_top_keys = self._keys_for_half_weight(weights.detach()).mean()
-        self.last_cov_dummy_share = weights[:, -1].detach().mean()
-        mean_residual = (prediction - correction).detach()
-        center = prediction.detach() if self.cov_center_transitions else mean_residual
-        key_weights, dummy_weight = weights[:, :-1], weights[:, -1]
+        center = prediction.detach() if self.cov_center_transitions else (prediction - correction).detach()
         shift = stored_deltas.mean(dim=0)
         x = stored_deltas - shift
         c = center - shift
-        first = key_weights @ x
+        first = weights @ x
         d = self.prediction_dim
-        second = (key_weights @ (x.unsqueeze(-1) * x.unsqueeze(-2)).reshape(-1, d * d)).view(-1, d, d)
-        total = key_weights.sum(dim=-1)[:, None, None]
+        second = (weights @ (x.unsqueeze(-1) * x.unsqueeze(-2)).reshape(-1, d * d)).view(-1, d, d)
+        total = weights.sum(dim=-1)[:, None, None]
         cov = (
             second
             - first.unsqueeze(-1) * c.unsqueeze(-2)
             - c.unsqueeze(-1) * first.unsqueeze(-2)
             + total * c.unsqueeze(-1) * c.unsqueeze(-2)
         )
-        dummy_residual = dummy_residual.detach() if self.detach_tokens else dummy_residual
-        # deviation of the dummy transition g(q) + dummy_residual from the prediction g(q) + mu
-        deviation = dummy_residual.unsqueeze(0) - mean_residual
-        cov = cov + dummy_weight[:, None, None] * deviation.unsqueeze(-1) * deviation.unsqueeze(-2)
         return self._scaled_cholesky(prediction, cov, chol_scale)[1]
+
+    def _compile_rollout_step(self, super_state_dim: int) -> None:
+        """Compile the rollout attention step now, so the first rollout does not pay for it.
+
+        Batch size and key count are marked dynamic. The warmup runs one step at the bank size
+        from settings.
+        """
+        try:
+            # Dimensions that change between rollouts (batch, key count) are dynamic, so the
+            # warmup graph is reused instead of compiling again on the first real call.
+            static_by_default = torch._dynamo.config.assume_static_by_default
+            torch._dynamo.config.assume_static_by_default = False
+            compiled = torch.compile(self._mean_delta_core, dynamic=True)
+            emb = int(self.attention_norm_projector[-1].out_features)
+            # Two shapes: a full bank, and a short one. Dynamic sizes near either one
+            # reuse that graph, so a later rollout does not compile.
+            for batch, n_keys in ((32, max(int(Settings.HWM_MEMORY_BANK_SIZE), 1)), (4, 32)):
+                query = torch.zeros(batch, int(super_state_dim))
+                keys = torch.zeros(n_keys, emb)
+                tokens = torch.zeros(n_keys, self.prediction_dim)
+                density = torch.ones(n_keys)
+                valid = torch.ones(n_keys, dtype=torch.bool)
+                for tensor in (query, keys, tokens, density, valid):
+                    torch._dynamo.mark_dynamic(tensor, 0)
+                compiled(query, keys, tokens, density, valid)
+        except Exception as error:
+            print(f"[LLD] rollout step stays eager: {error}")
+            compiled = self._mean_delta_core
+        finally:
+            if "static_by_default" in locals():
+                torch._dynamo.config.assume_static_by_default = static_by_default
+        self.mean_delta_compiled = compiled
 
     def forward(
         self, LLD_observation: dict[str, torch.Tensor], *, detach_correction: bool = False
@@ -324,30 +334,11 @@ class LLD(nn.Module):
         )
         valid = LLD_observation["similar_valid"] > 0
         memory_logit = self._memory_logits(query, keys, valid)
-        # Attention logits: the kernel logits, minus log(density) of each key (a key's weight is divided by
-        # its own n_soft, which was stored in memory). n_soft below still counts the uncorrected kernel mass.
         density = LLD_observation["similar_density"]
-        attention_logit = self._density_corrected(memory_logit, density, valid)
-        # Kernel count of stored neighbors only; the +1 stands in for the dummy.
-        # Invalid keys were filled with the dtype minimum, so they add nothing.
-        finite = memory_logit > torch.finfo(memory_logit.dtype).min / 2
-        n_soft = 1.0 + torch.exp(memory_logit).masked_fill(~finite, 0).sum(dim=-1)
-        # Batch mean of the last forward pass, for logging.
+        weights, n_soft, n_soft_norm = self._key_weights(memory_logit, density)
         self.last_n_soft = n_soft.detach().mean()
-        # Density-normalised n_soft: every key's kernel divided by its own density (as the weights are),
-        # plus the dummy's 1.
-        with torch.no_grad():
-            share = torch.exp(memory_logit.detach()) / density.to(memory_logit).clamp_min(1.0)
-            self.last_n_soft_norm = (1.0 + share.masked_fill(~finite, 0).sum(dim=-1)).mean()
-        logits = torch.cat(
-            (attention_logit, -self.dummy_distance.expand(batch, 1) / self.attention_temperature),
-            dim=-1,
-        )
-        weights = torch.softmax(logits, dim=-1)
-        # How many memory keys sit in the smallest set of top weights that holds half the mass.
+        self.last_n_soft_norm = n_soft_norm.detach().mean()
         self.last_top_keys = self._keys_for_half_weight(weights).detach().mean()
-        # Share of the total attention weight (softmax over keys and dummy) that the dummy token gets.
-        self.last_dummy_share = weights[:, -1].detach().mean()
         df = None
         if bool(getattr(Settings, "HWM_LLD_STUDENT_T", False)):
             # One Student-t from n samples in d dimensions: nu = max(floor, n - d). The scale matrix
@@ -361,15 +352,14 @@ class LLD(nn.Module):
             chol_scale = n.new_ones(batch)
         else:
             # Covariance x (1 + 1/n) for a mean estimated from n samples.
-            chol_scale = torch.sqrt(1.0 + 1.0 / n_soft)
+            chol_scale = torch.sqrt(1.0 + 1.0 / n_soft.clamp_min(1.0))
         stored_deltas = similar_superstates_diff
         if self.standalone:
             # The encoder's own distribution: attention-weighted mean and covariance of the stored deltas (no
             # g, no residuals), Student-t / Gaussian as above. Only training needs it.
             self.encoder_dist = None
             if torch.is_grad_enabled():
-                encoder_tokens = torch.cat((stored_deltas, self.encoder_dummy_value.unsqueeze(0)), dim=0)
-                encoder_mu, encoder_factor = self._shared_neighbor_gaussian(encoder_tokens, weights, chol_scale)
+                encoder_mu, encoder_factor = self._shared_neighbor_gaussian(stored_deltas, weights, chol_scale)
                 if df is not None:
                     self.encoder_dist = MultivariateStudentT(loc=encoder_mu, scale_tril=encoder_factor, df=df)
                 else:
@@ -385,7 +375,7 @@ class LLD(nn.Module):
         if detach_correction or self.detach_tokens:
             correction = correction.detach()
         similar_superstates_diff = similar_superstates_diff - correction
-        tokens = torch.cat((similar_superstates_diff, self.dummy_value.unsqueeze(0)), dim=0)
+        tokens = similar_superstates_diff
         if self.cov_head:
             # The main head only gives the mean; the covariance comes from the head's own weights, about
             # the detached final prediction g(q) + mu.
@@ -409,7 +399,7 @@ class LLD(nn.Module):
             # (a) stored transitions about g(q) + mu, or (b) the residual tokens (g(k_j) detached) about mu.
             cov_tokens = stored_deltas if self.cov_center_transitions else similar_superstates_diff.detach()
             factor = self._covariance_override(
-                cov_tokens, weights, self.dummy_value, mean, correction_q, chol_scale,
+                cov_tokens, mean, correction_q, chol_scale,
                 current_super_state, similar_superstates, valid,
             )
         mu = mean
@@ -455,29 +445,30 @@ class LLD(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Mean delta ``(B, d)`` plus per-row ``n_soft`` and density-normalised ``n_soft``.
 
-        ``query_super`` is ``(B, flat)``. ``key_emb`` ``(N, emb)`` and ``tokens`` ``(N + 1, d)``
-        (residual tokens, dummy last) are the whole bank, computed once for a rollout.
-        ``density`` and ``valid`` are ``(N,)``. This is the mean ``forward`` would return when
-        the residual net has no retrieved inputs. An empty bank gives ``g(q) + dummy``.
+        ``query_super`` is ``(B, flat)``. ``key_emb`` ``(N, emb)`` and ``tokens`` ``(N, d)`` are the
+        whole bank, computed once for a rollout. ``density`` and ``valid`` are ``(N,)``. This is the
+        mean ``forward`` would return when the residual net has no retrieved inputs. An empty bank
+        gives ``g(q)``.
         """
-        correction_q = self._correct(query_super)
-        batch = int(query_super.shape[0])
         if int(key_emb.shape[0]) == 0:
-            mean = correction_q + self.dummy_value
-            ones = correction_q.new_ones(batch)
-            return mean, ones, ones
+            correction_q = self._correct(query_super)
+            zeros = correction_q.new_zeros(int(query_super.shape[0]))
+            return correction_q, zeros, zeros
+        return self.mean_delta_compiled(query_super, key_emb, tokens, density, valid)
+
+    def _mean_delta_core(
+        self,
+        query_super: torch.Tensor,
+        key_emb: torch.Tensor,
+        tokens: torch.Tensor,
+        density: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """``mean_delta`` for a non-empty bank. This is what gets compiled at init."""
+        correction_q = self._correct(query_super)
         query = self.attention_norm_projector(query_super)
         memory_logit = self._memory_logits(query, key_emb, valid)
-        finite = memory_logit > torch.finfo(memory_logit.dtype).min / 2
-        kernel = torch.exp(memory_logit).masked_fill(~finite, 0)
-        n_soft = 1.0 + kernel.sum(dim=-1)
-        n_soft_norm = 1.0 + (kernel / density.to(kernel).clamp_min(1.0)).sum(dim=-1)
-        attention_logit = self._density_corrected(memory_logit, density, valid)
-        logits = torch.cat(
-            (attention_logit, -self.dummy_distance.expand(batch, 1) / self.attention_temperature),
-            dim=-1,
-        )
-        weights = torch.softmax(logits, dim=-1)
+        weights, n_soft, n_soft_norm = self._key_weights(memory_logit, density)
         return weights @ tokens + correction_q, n_soft, n_soft_norm
 
     def residual_mean(self, current_super_state: torch.Tensor) -> torch.Tensor:
@@ -498,59 +489,58 @@ class LLD(nn.Module):
     def _memory_logits(
         self, query: torch.Tensor, keys: torch.Tensor, valid: torch.Tensor
     ) -> torch.Tensor:
-        """Attention logits ``(B, N)`` of the memory keys ``(N, D)``, before the dummy token.
+        """Attention logits ``(B, N)`` of the memory keys ``(N, D)``.
 
         Minus L2 distance, divided by the temperature. Invalid keys get the
-        dtype minimum so the softmax ignores them.
+        dtype minimum so their kernel is zero.
         """
         logits = -torch.cdist(query, keys) / self.attention_temperature
         return logits.masked_fill(~valid, torch.finfo(logits.dtype).min)
 
     @staticmethod
-    def _density_corrected(
-        logits: torch.Tensor, density: torch.Tensor, valid: torch.Tensor
-    ) -> torch.Tensor:
-        """Every key's weight divided by its density, renormalised over the keys.
+    def _key_weights(
+        logits: torch.Tensor, density: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Normalised key weights ``(B, N)``, ``n_soft`` ``(B,)`` and density-normalised ``n_soft``.
 
-        ``logits`` ``(B, N)`` become ``logits - log(density)`` (density ``(N,)``), shifted
-        per row so the logsumexp over the memory keys is what it was: the total weight of the value
-        tokens against the dummy does not change, only how it is spread over the keys.
+        ``logits`` are ``-distance / temperature``, already at the dtype minimum for invalid keys.
+        A key's weight is ``exp(logit) / density``, then divided by the sum over the keys.
+        ``n_soft`` is the sum of ``exp(logit)`` before that division.
         """
-        lowest = torch.finfo(logits.dtype).min
-        divided = (logits - torch.log(density.to(logits).clamp_min(1.0))).masked_fill(~valid, lowest)
-        shift = torch.logsumexp(logits, dim=-1, keepdim=True) - torch.logsumexp(divided, dim=-1, keepdim=True)
-        return (divided + shift).masked_fill(~valid, lowest)
+        kernel = torch.exp(logits)
+        n_soft = kernel.sum(dim=-1)
+        divided = kernel / density.to(kernel).clamp_min(1.0)
+        n_soft_norm = divided.sum(dim=-1)
+        weights = divided / n_soft_norm.clamp_min(1e-12).unsqueeze(-1)
+        weights = torch.where(n_soft_norm.unsqueeze(-1) > 0, weights, torch.zeros_like(weights))
+        return weights, n_soft, n_soft_norm
 
     @staticmethod
     def _keys_for_half_weight(weights: torch.Tensor) -> torch.Tensor:
-        """``(B,)`` count of memory keys inside the top-weight prefix that first reaches mass 0.5.
-
-        ``weights`` is ``(B, N + 1)`` with the dummy last. The dummy can be inside that
-        prefix, but it is not counted.
-        """
-        n_keys = int(weights.shape[-1]) - 1
-        if n_keys <= 0:
+        """``(B,)`` count of keys inside the top-weight prefix that first reaches mass 0.5."""
+        if int(weights.shape[-1]) == 0:
             return weights.new_zeros(weights.shape[0])
         order = weights.argsort(dim=-1, descending=True)
         cumulative = weights.gather(-1, order).cumsum(-1)
         reached = cumulative >= 0.5
         first = reached.float().argmax(dim=-1)
         never = ~reached.any(dim=-1)
-        prefix = torch.where(never, torch.full_like(first, int(weights.shape[-1])), first + 1)
-        key_cumulative = (order < n_keys).float().cumsum(-1)
-        return key_cumulative.gather(-1, (prefix - 1).unsqueeze(-1)).squeeze(-1)
+        return torch.where(never, torch.zeros_like(first), first + 1).to(weights.dtype)
 
 
     def _shared_neighbor_gaussian(
         self, tokens: torch.Tensor, weights: torch.Tensor, chol_scale: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """``_neighbor_gaussian`` for one token set ``(N + 1, d)`` shared by all rows.
+        """``_neighbor_gaussian`` for one token set ``(N, d)`` shared by all rows.
 
         Uses the weighted first and second moments, so nothing of size ``(B, N, d)`` is
         built. Tokens are shifted by their plain mean first to keep ``E[xx'] - μμ'``
         from cancelling; the covariance does not depend on the shift.
         """
         d = self.prediction_dim
+        if int(tokens.shape[0]) == 0:
+            mu = weights.new_zeros(int(weights.shape[0]), d)
+            return self._scaled_cholesky(mu, mu.new_zeros(int(weights.shape[0]), d, d), chol_scale)
         shift = tokens.detach().mean(dim=0)
         x = tokens - shift
         mu = weights @ x

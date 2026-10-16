@@ -441,14 +441,14 @@ def build_LLD_observation_inference(
     many rows after the sample's next row are allowed, so the LLD sees the whole memory
     except the sample's immediate future (see ``retrieve_LLD_neighbors``).
 
-    ``n_soft`` ``(B,)`` is ``1 + Σ exp(-d / temperature)`` from the memory embeddings.
+    ``n_soft`` ``(B,)`` is ``Σ exp(-d / temperature)`` from the memory embeddings.
     """
     current_super_state, current_state_action = lld_super_state(state, action, memory, episode_id, past_states)
     temperature = float(Settings.HWM_LLD_ATTENTION_TEMPERATURE)
     if temperature <= 0:
         raise ValueError(f"HWM_LLD_ATTENTION_TEMPERATURE must be positive, got {temperature}")
     neighbors = retrieve_LLD_neighbors(current_super_state, memory, before_steps, future_margin=future_margin)
-    n_soft = 1.0 + torch.exp(-neighbors["distances"] / temperature).sum(dim=-1)
+    n_soft = torch.exp(-neighbors["distances"] / temperature).sum(dim=-1)
     return {
         "current_super_state": current_super_state,
         "similar_superstates": neighbors["similar_superstates"],
