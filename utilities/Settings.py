@@ -158,7 +158,7 @@ class Settings():
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
-    IGNORE_STEPS = 5                         # Number of interpolated waypoints to ignore starting at the closest one
+    IGNORE_STEPS = 1                         # Number of interpolated waypoints to ignore starting at the closest one
     INTERPOLATE_LOCA_WP = 1
     GLOBAL_WAYPOINTS_SEARCH_THRESHOLD = 10.0  # If there is a waypoint in cache with a distance to the car position smaller than this, only cache is searched for nearest waypoints, set None to always use global search
     WAYPOINT_LOCAL_SEARCH_BACK = 10   # Local nearest-wpt search behind last index (was 3)
@@ -405,10 +405,11 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 50 
-    MPC_TRAJECTORY_LENGTH = 50 # number of control steps in each trajectory
-    MPC_ACTION_CORRELATION = 0.95  # 0: independent. 1: the first sample is held for the whole sequence
-    MPC_TEMPERATURE = 1   # temperature for the softmax function
+    MPC_NUM_OF_TRAJECTORIES = 25 
+    MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
+    MPC_ACTION_CORRELATION = 0.6  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
+    MPC_TEMPERATURE = 0.1   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
+    MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer

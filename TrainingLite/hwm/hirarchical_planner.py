@@ -199,6 +199,9 @@ class HirarchicalPlanner(template_planner):
         self.waypoints = torch.as_tensor(np.asarray(waypoints), dtype=torch.float32)  # (N, 10)
         self._waypoint_xy = self.waypoints[:, 1:3].contiguous()
         self._waypoints_n = int(self.waypoints.shape[0])
+        step = (self._waypoint_xy[1:] - self._waypoint_xy[:-1]).norm(dim=-1)
+        positive = step[step > 1e-4]
+        self._waypoint_spacing = float(positive.median()) if positive.numel() else 0.1
 
     def _refresh_display_models(self) -> None:
         """Copy the live actor and LLD into the modules the background paths roll out."""
@@ -254,7 +257,7 @@ class HirarchicalPlanner(template_planner):
         ``closest_index + j`` along the raceline, including that first waypoint ahead.
 
         How many waypoints: the trajectory's average speed over ground, times the rollout
-        duration ``(T - 1) * TIMESTEP_CONTROL``, divided by the 0.1 m waypoint spacing, plus one.
+        duration ``(T - 1) * TIMESTEP_CONTROL``, divided by the stored waypoint spacing, plus one.
         Waypoints past that, and any waypoint left after every state has been used once, are NaN.
 
         Returns ``(B, J)`` float. Entry ``[k, j]`` is the state index in rollout ``k`` closest to
@@ -273,7 +276,8 @@ class HirarchicalPlanner(template_planner):
             closest = closest.reshape(()).expand(batch)
         speed = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).mean(dim=1)
         duration = max(steps - 1, 0) * float(Settings.TIMESTEP_CONTROL)
-        counts = torch.floor(speed * duration / 0.1).to(torch.long) + 1
+        spacing = max(float(getattr(self, "_waypoint_spacing", 0.1)), 1e-3)
+        counts = torch.floor(speed * duration / spacing).to(torch.long) + 1
         counts = counts.clamp(min=1, max=self._waypoints_n)
         look = int(counts.max()) if batch else 0
         out = states.new_full((batch, look), float("nan"))
@@ -314,19 +318,30 @@ class HirarchicalPlanner(template_planner):
             if count == 0:
                 continue
             indices = nearest_waypoint_indices[i, :count].long()
-            local_waypoints = self.waypoints[(torch.arange(count) + start) % self._waypoints_n]
+            wp_index = (torch.arange(count) + start) % self._waypoints_n
+            local_waypoints = self.waypoints[wp_index]
             position = states[i, indices][:, [POSE_X_IDX, POSE_Y_IDX]] - local_waypoints[:, [WP_X_IDX, WP_Y_IDX]]
             distance_reward = torch.linalg.norm(position, dim=1).sum()
-            heading_error = states[i, indices, POSE_THETA_IDX] - local_waypoints[:, WP_HEADING_IDX]
+            # Heading of travel is the direction to the next stored point, same convention as pose_theta (0 along +x).
+            nxt = self._waypoint_xy[(wp_index + 1) % self._waypoints_n]
+            cur = self._waypoint_xy[wp_index]
+            wp_heading = torch.atan2(nxt[:, 1] - cur[:, 1], nxt[:, 0] - cur[:, 0])
+            heading_error = states[i, indices, POSE_THETA_IDX] - wp_heading
             heading_error = torch.atan2(torch.sin(heading_error), torch.cos(heading_error))
             heading_reward = heading_error.abs().sum()
-            speed = torch.hypot(states[i, indices, LINEAR_VEL_X_IDX], states[i, indices, LINEAR_VEL_Y_IDX])
-            speed_reward = (speed - local_waypoints[:, WP_TARGET_SPEED_IDX]).abs().sum()
-            reward = 10*distance_reward +  0 * heading_reward  + speed_reward
-            reward += 1000 * (count < 3)
-            min_speed = states[i, indices, LINEAR_VEL_X_IDX].min()
-            reward += abs(min_speed) * 100 if min_speed < 0 else 0
-            rewards[i] = reward / count**2
+            speed = states[i, indices, LINEAR_VEL_X_IDX]
+            # Raceline targets reach ~10 m/s. Chasing that through the sampled horizon leaves the track.
+            target_speed = local_waypoints[:, WP_TARGET_SPEED_IDX].clamp(max=3.0)
+            speed_reward = (speed - target_speed).abs().sum()
+            # Mean over matched waypoints. Dividing by count**2 was washing out a reverse penalty
+            # on any trajectory fast enough to be matched to many points.
+            reward = (10 * distance_reward + 2 * heading_reward + speed_reward) / count
+            if count < 3:
+                reward = reward + 1000
+            min_speed = float(speed.min())
+            if min_speed < 0:
+                reward = reward + 100 * abs(min_speed)
+            rewards[i] = reward
             
 
 
@@ -336,12 +351,15 @@ class HirarchicalPlanner(template_planner):
             print(f"Num Valid Waypoints: {num_valid_waypoints[i]}")"""
 
         poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
-        crashed = self.wall_geometry.in_wall(poses) 
+        crashed = self.wall_geometry.in_wall(poses)
         big_number = torch.max(rewards) * 10
-        has_crash = crashed.any(dim=1)                       # (B,)
-        first = crashed.float().argmax(dim=1)                # (B,) long, first True along time
-        first = torch.where(has_crash, first, torch.full_like(first, -1)) + 1
-        rewards = rewards * (1 + big_number * first)
+        has_crash = crashed.any(dim=1)
+        first = crashed.float().argmax(dim=1)
+        horizon = crashed.shape[1]
+        # Steps until impact. A clean rollout survives the whole horizon. An earlier hit costs more,
+        # so a plan that follows the corner and clips late beats one that drives into the wall now.
+        survived = torch.where(has_crash, first, torch.full_like(first, horizon))
+        rewards = rewards + big_number * (horizon - survived)
 
         return -1 * rewards
 
@@ -395,9 +413,24 @@ class HirarchicalPlanner(template_planner):
             actions = noise #+ torch.tensor([0.0, 0.1])
 """         
 
-            # [0.1, 0.5] is the noise std in physical units. The buffer is in network units.
-            noise_std = torch.tensor([0.1, 0.5]) / torch.as_tensor(self.action_denormalization_array) * 5
-            actions = self.action_buffer + torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, Settings.MPC_TRAJECTORY_LENGTH, 2) * noise_std
+            # Each command follows the one before it. rho is the weight on the previous
+            # action; the rest is this step of the warm-started plan, plus fresh noise.
+            # Noise std is physical (steering rad, m/s²), then converted to network units.
+            rho = min(max(float(Settings.MPC_ACTION_CORRELATION), 0.0), 0.999)
+            noise_std = torch.tensor([0.08, 1.5]) / torch.as_tensor(self.action_denormalization_array)
+            eps = torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, Settings.MPC_TRAJECTORY_LENGTH, 2)
+            nominal = self.action_buffer
+            actions = nominal + eps * noise_std
+            if rho > 0.0:
+                fresh = (1.0 - rho * rho) ** 0.5
+                actions[:, 0] = nominal[0] + eps[:, 0] * noise_std
+                for t in range(1, eps.shape[1]):
+                    actions[:, t] = rho * actions[:, t - 1] + (1.0 - rho) * nominal[t] + fresh * noise_std * eps[:, t]
+            # ±1 steering is full lock. Acceleration stays inside HWM_MAX_TRANSLATIONAL_CONTROL.
+            steer_limit = 1.0
+            accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
+            actions[..., 0].clamp_(-steer_limit, steer_limit)
+            actions[..., 1].clamp_(-accel_limit, accel_limit)
             #actions[:, :, 1] = actions[:, :, 1].abs() #no backwards driving
             #actions[:, :, 0] = actions[:, :, 0] * 3
 
@@ -426,7 +459,10 @@ class HirarchicalPlanner(template_planner):
         xy = trajectories[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu()
         scene = self.render_utils.scene
         caps = {"max_trajectories": int(xy.shape[0]), "max_points_per_trajectory": int(xy.shape[1])}
-        scene.set_trajectories("hwm.mpc_samples", xy.numpy(), color=(140, 140, 140), width=1.0, **caps)
+        if Settings.MPC_DRAW_SAMPLES:
+            scene.set_trajectories("hwm.mpc_samples", xy.numpy(), color=(140, 140, 140), width=1.0, **caps)
+        else:
+            scene.set_trajectories("hwm.mpc_samples", None)
         mean_xy = (weights.detach().cpu()[:, None, None] * xy).sum(dim=0)
         scene.set_trajectories("hwm.mpc_plan", mean_xy.numpy()[None], color=(20, 20, 20), width=3.0, **caps)
         pace_xy = pacejka[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy()
