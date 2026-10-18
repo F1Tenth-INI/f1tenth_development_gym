@@ -373,7 +373,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 3                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 1 / 5     # softmax/kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0
@@ -408,11 +408,15 @@ class Settings():
     MPC_NUM_OF_TRAJECTORIES = 50 
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
     MPC_ACTION_CORRELATION = 0.5  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
-    MPC_TEMPERATURE = 0.1   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
+    MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
     MPC_WAYPOINT_UPDTE_EMA = 0.5
-    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead; commit it once the car has passed it
-    MPC_WAYPOINT_SEARCH_ITERS = 50  # unused by the live update; kept so an older search call still has a count
+    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead
+    MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
+    MPC_WAYPOINT_UPDATE_DISTANCE = 0.5  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint
+    MPC_WAYPOINT_UPDATE_RESUME_DELAY = 5.0  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
+    MPC_WAYPOINT_REWARD_DROP = 0.2  # discard staged updates and hold for that delay when the reward EMA falls by more than this fraction of its previous value
+    HWM_MIN_BORDER_DISTANCE = 0.15  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer

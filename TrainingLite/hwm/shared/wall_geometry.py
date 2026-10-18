@@ -124,10 +124,12 @@ class WallGeometry:
         self.origin_cos, self.origin_sin = math.cos(float(origin[2])), math.sin(float(origin[2]))
         self.map_height, self.map_width = int(free.shape[0]), int(free.shape[1])
 
-        # Same distance transform and threshold as check_body_map_collision.
+        # Same distance transform as check_body_map_collision. The boolean mask stays at the
+        # simulator margin for the wall polylines. The planner compares the distances themselves.
         distance = self.resolution * ndimage.distance_transform_edt(free)
         blocked = distance < self.collision_margin
         self.blocked = torch.as_tensor(blocked, device=self.device)
+        self.wall_distance = torch.as_tensor(distance, dtype=torch.float32, device=self.device)
         return blocked
 
     @staticmethod
@@ -321,7 +323,7 @@ class WallGeometry:
         return torch.stack((x, y), dim=-1)
 
     def corners_in_wall(self, poses: ArrayLike) -> torch.Tensor:
-        """``(..., 4)`` bool: body corners in a blocked cell or outside the map (or NaN)."""
+        """``(..., 4)`` bool: a body corner closer to a wall than ``HWM_MIN_BORDER_DISTANCE``, or outside the map."""
         corners = self.corners(poses)
         if Settings.BLANK_MAP:
             return torch.zeros(corners.shape[:-1], dtype=torch.bool, device=self.device)
@@ -336,10 +338,11 @@ class WallGeometry:
         )
         cols = (x_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_width - 1).long()
         rows = (y_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_height - 1).long()
-        return ~inside | self.blocked[rows, cols]
+        limit = float(Settings.HWM_MIN_BORDER_DISTANCE)
+        return ~inside | (self.wall_distance[rows, cols] < limit)
 
     def in_wall(self, poses: ArrayLike) -> torch.Tensor:
-        """``(...)`` bool: any body corner in a wall or outside the map."""
+        """``(...)`` bool: any body corner closer to a wall than ``HWM_MIN_BORDER_DISTANCE``, or outside the map."""
         return self.corners_in_wall(poses).any(dim=-1)
 
     def crash_probability(

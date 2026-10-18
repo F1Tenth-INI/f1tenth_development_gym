@@ -29,6 +29,7 @@ class EpisodeTerminator:
         *,
         ignore_leave_track: bool = False,
         ignore_episode_length: bool = False,
+        crash_only: bool = False,
     ) -> dict:
         car_state = np.asarray(controller_obs["car_state"])
         frenet_coordinates = np.asarray(controller_obs["frenet_coordinates"])
@@ -97,6 +98,10 @@ class EpisodeTerminator:
         # The sim's own done flag is collision or that same length cutoff.
         external_done = bool(driver_obs.get("done", False))
         if ignore_episode_length:
+            external_done = collision or interrupted
+        if crash_only:
+            # HWM keeps driving through a spin or a stop. Only a crash ends the episode.
+            truncated = bool(collision or virtual_opponent_collision or interrupted)
             external_done = collision or interrupted
         done = bool(
             truncated

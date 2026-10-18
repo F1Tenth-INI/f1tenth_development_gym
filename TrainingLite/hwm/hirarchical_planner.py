@@ -73,6 +73,7 @@ WP_TARGET_ACCEL_IDX = 6
 WP_GLOBAL_IDX = 7
 WP_DISTANCE_RIGH_WALL_IDX = 8
 WP_DISTANCE_LEFT_WALL_IDX = 9
+WP_TARGET_DRIFT_IDX = 10  # m/s. Target speed along the car y axis. HWM only; the shared raceline stays 10 columns.
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -180,9 +181,18 @@ class HirarchicalPlanner(template_planner):
         
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self.former_nearest_waypoint = None
+        # Turns on when the car leaves the raceline or the reward EMA drops. Updates stay
+        # refused until the car has been close again for MPC_WAYPOINT_UPDATE_RESUME_DELAY.
+        self._waypoint_updates_held = False
+        self._waypoint_update_close_since = None
+        self._waypoint_off_raceline = False
+        self._reward_drop_warned = False
+        self.recover_mode = False
+        self.off_track = False
         self._wp_speed_cap_applied = False
         self._last_opt_wp = None
         self._wp_recording = None
+        self._reward_EMA = 1
         self.reset()
 
     def reset(self):
@@ -268,7 +278,12 @@ class HirarchicalPlanner(template_planner):
         waypoints = None if utils is None else getattr(utils, "waypoints", None)
         if waypoints is None or getattr(self, "_waypoints_n", 0) == len(waypoints):
             return
-        self.waypoints = torch.as_tensor(np.asarray(waypoints), dtype=torch.float32)  # (N, 10)
+        source = np.asarray(waypoints)
+        owned = np.zeros((source.shape[0], WP_TARGET_DRIFT_IDX + 1), dtype=np.float32)
+        width = min(int(source.shape[1]), WP_TARGET_DRIFT_IDX)
+        owned[:, :width] = source[:, :width]
+        self._raceline_np = source
+        self.waypoints = torch.as_tensor(owned)  # (N, 11). Column 10 is the HWM drift target, starting at 0.
         self._waypoint_xy = self.waypoints[:, 1:3]
         self._waypoints_n = int(self.waypoints.shape[0])
         if not self._wp_speed_cap_applied:
@@ -279,6 +294,11 @@ class HirarchicalPlanner(template_planner):
         nxt = torch.roll(self._waypoint_xy, shifts=-1, dims=0)
         delta = nxt - self._waypoint_xy
         self.waypoints[:, WP_HEADING_IDX] = torch.atan2(delta[:, 1], delta[:, 0])
+        # Fixed at load. Later edits may move a point, but only along this cross-track line.
+        heading0 = self.waypoints[:, WP_HEADING_IDX]
+        self._wp_anchor_xy = self._waypoint_xy.detach().clone()
+        self._wp_tangent = torch.stack((torch.cos(heading0), torch.sin(heading0)), dim=1)
+        self._wp_ortho = torch.stack((-torch.sin(heading0), torch.cos(heading0)), dim=1)
         step = (self._waypoint_xy[1:] - self._waypoint_xy[:-1]).norm(dim=-1)
         positive = step[step > 1e-4]
         self._waypoint_spacing = float(positive.median()) if positive.numel() else 0.1
@@ -290,6 +310,15 @@ class HirarchicalPlanner(template_planner):
         self._wp_action_dist = torch.full((self._waypoints_n,), float("inf"))
         self._wp_recording = None
         self.last_wp_distance = np.inf
+        self._write_raceline()
+
+    def _write_raceline(self) -> None:
+        """Copy the shared raceline fields back. The drift column stays on the HWM copy."""
+        source = getattr(self, "_raceline_np", None)
+        if source is None or not hasattr(self, "waypoints"):
+            return
+        width = min(int(source.shape[1]), WP_TARGET_DRIFT_IDX)
+        source[:, :width] = self.waypoints[:, :width].detach().cpu().numpy()
 
     def _hwm_policy_drives(self) -> bool:
         """True only while this planner's own policy is commanding the car."""
@@ -402,17 +431,14 @@ class HirarchicalPlanner(template_planner):
         nearest_waypoint_indices: torch.tensor,
         nearest_waypoint: int,
         ignore_waypoint: int | None = None,
-        raise_speed: bool = False,
+        optimize_waypoints: bool = False,
     ) -> torch.tensor:
         """Rewards of each trajectory for the MPC policy.
-        
-        Args:
-            states: (B, T, state_dim)
-            nearest_waypoint_indices: (B,) 
-            nearest_waypoint: int (index of the closest waypoint)
-        Returns:
-            reward: (B,num_of_reward_types)
+
+        ``optimize_waypoints`` is false for the action the car drives and true for a
+        waypoint-optimization search. Both use this formula.
         """
+        del optimize_waypoints
         num_valid_waypoints = nearest_waypoint_indices.shape[1] - nearest_waypoint_indices.isnan().sum(dim=1)
         rewards = torch.zeros(states.shape[0])
         start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
@@ -437,39 +463,19 @@ class HirarchicalPlanner(template_planner):
             heading_reward = heading_error.abs().sum()
             speed = states[i, indices, LINEAR_VEL_X_IDX]
             target_speed = local_waypoints[:, WP_TARGET_SPEED_IDX]
-            # Driving matches the stored target. A waypoint update instead pays for getting up to the
-            # speed the local bend can hold, so a straight's target can rise and a corner's cannot.
-            if raise_speed or True:
-                #cap = self._lateral_speed_cap(wp_index)
-                #shortfall = (cap - speed).clamp(min=0).sum()
-                #overspeed = (speed - cap).clamp(min=0).sum()
-                # A faster line that is a few centimetres off must beat the slow line that sits on
-                # the old points. The position itself only moves by the EMA, so this cannot jump.
-
-                #reward = (2 * distance_reward + 2 * heading_reward + 4 * shortfall + 3 * overspeed) / count"""
-                
-                shortfall = (target_speed - speed).clamp(min=0).sum()
-                overspeed = (speed - target_speed).clamp(min=0).sum()
-                reward = (10 * distance_reward + 2 * heading_reward + shortfall * 2 + overspeed) / count + 0.12 * indices.float().mean()
-            else:
-                speed_reward = (speed - target_speed).abs().sum()
-                # Every matched waypoint: a smaller state index was reached sooner. Kept smaller than
-                # the distance term so cutting the line to arrive early does not beat staying on it.
-                reward = (
-                    10 * distance_reward + 2 * heading_reward + speed_reward
-                ) / count + 0.12 * indices.float().mean()
-  
-            min_speed = float(speed.min())
-            if min_speed < 0:
-                reward = reward + 100 * abs(min_speed)
-            rewards[i] = reward
+            drift = states[i, indices, LINEAR_VEL_Y_IDX]
+            target_drift = local_waypoints[:, WP_TARGET_DRIFT_IDX]
+            drift_error = (drift - target_drift).abs().sum()
+            shortfall = (target_speed - speed).clamp(min=0).sum()
+            overspeed = (speed - target_speed).clamp(min=0).sum()
+            reward = (10 * distance_reward + 2 * heading_reward + shortfall * 2 + overspeed * 2 + 0.5 * drift_error + 0.5 * 20 * indices.float().max()) / count # #0.12 * indices.float().mean()
             
-
-
-            """ print(f"Reward: {reward}, Count: {count}")
-            print(f"Distance Reward: {distance_reward/count**2}, Heading Reward: {heading_reward/count**2}, Speed Reward: {speed_reward/count**2}")
-            print(f"Nearest Waypoint: {nearest_waypoint}")
-            print(f"Num Valid Waypoints: {num_valid_waypoints[i]}")"""
+            if not self.off_track:
+                min_speed = float(speed.min())
+                if min_speed < 0:
+                    reward = reward + 30 * abs(min_speed) #100 * abs(min_speed)
+            
+            rewards[i] = reward
 
         poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
         crashed = self.wall_geometry.in_wall(poses)
@@ -517,7 +523,9 @@ class HirarchicalPlanner(template_planner):
             else:
                 trajectories = self.rollout_lld(start, actions)[0]
             matched = self.rollout_waypoint_states(trajectories, origin)
-            rewards = self.MPC_reward(trajectories, matched, origin, ignore_waypoint=wp_idx, raise_speed=True)
+            rewards = self.MPC_reward(
+                trajectories, matched, origin, ignore_waypoint=wp_idx, optimize_waypoints=True
+            )
             weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
             action_seq = (weights[:, None, None] * actions).sum(dim=0)
             nominal = action_seq.detach()
@@ -593,24 +601,141 @@ class HirarchicalPlanner(template_planner):
         actions[..., 1].clamp_(-accel_limit, accel_limit)
         return actions
 
+    def _state_on_orthogonal_line(self, path: torch.Tensor, idx: int):
+        """Blend the two path states nearest the waypoint's fixed cross-track line.
+
+        The line passes through the original waypoint and is perpendicular to its original
+        heading. The result is projected onto that line, so the point cannot leave it.
+        Returns ``None`` when the path never comes near the line.
+        """
+        anchor = self._wp_anchor_xy[idx]
+        tangent = self._wp_tangent[idx]
+        ortho = self._wp_ortho[idx]
+        pos = path[:, [POSE_X_IDX, POSE_Y_IDX]]
+        distance = (pos - anchor).matmul(tangent).abs()
+        count = int(path.shape[0])
+        if count < 2:
+            return None
+        if float(distance.min()) > 0.5:
+            return None
+        nearest = torch.topk(distance, k=2, largest=False).indices
+        d1 = distance[nearest[0]]
+        d2 = distance[nearest[1]]
+        if float(d1 + d2) < 1e-8:
+            w1 = w2 = 0.5
+        else:
+            w1 = d2 / (d1 + d2)
+            w2 = d1 / (d1 + d2)
+        first = path[nearest[0]]
+        second = path[nearest[1]]
+        xy = w1 * first[[POSE_X_IDX, POSE_Y_IDX]] + w2 * second[[POSE_X_IDX, POSE_Y_IDX]]
+        slide = (xy - anchor).dot(ortho)
+        xy = anchor + slide * ortho
+        heading = torch.atan2(
+            w1 * torch.sin(first[POSE_THETA_IDX]) + w2 * torch.sin(second[POSE_THETA_IDX]),
+            w1 * torch.cos(first[POSE_THETA_IDX]) + w2 * torch.cos(second[POSE_THETA_IDX]),
+        )
+        speed = (w1 * first[LINEAR_VEL_X_IDX] + w2 * second[LINEAR_VEL_X_IDX]).clamp(min=0.0)
+        drift = w1 * first[LINEAR_VEL_Y_IDX] + w2 * second[LINEAR_VEL_Y_IDX]
+        return xy, heading, speed, drift
+
+    def _waypoint_resume_steps(self) -> int:
+        return max(1, int(round(
+            float(Settings.MPC_WAYPOINT_UPDATE_RESUME_DELAY) / float(Settings.TIMESTEP_CONTROL)
+        )))
+
+    def _hold_waypoint_updates(self) -> None:
+        """Drop every staged waypoint and refuse new ones until the resume delay has elapsed."""
+        if hasattr(self, "_wp_staged"):
+            self._wp_staged.zero_()
+        self._waypoint_updates_held = True
+        self._waypoint_update_close_since = None
+
+    def _note_reward(self, reward_mean: torch.Tensor) -> None:
+        """Track the softmax-weighted reward. A sharp drop holds waypoint updates.
+
+        The value is the negation of a cost, so a smaller EMA is a worse plan. The first
+        steps are skipped: the EMA is still leaving its initial value.
+        """
+        previous = float(self._reward_EMA)
+        self._reward_EMA = 0.8 * self._reward_EMA + 0.2 * reward_mean
+        if self.episode_timesteps < 100:
+            return
+        drop = previous - float(self._reward_EMA)
+        if drop > float(Settings.MPC_WAYPOINT_REWARD_DROP) * abs(previous):
+            if not getattr(self, "_reward_drop_warned", False):
+                self._reward_drop_warned = True
+                self._log_info(
+                    "[HirarchicalPlanner] Warning: reward EMA fell from "
+                    f"{previous:.4f} to {float(self._reward_EMA):.4f}. Staged waypoint updates discarded."
+                )
+            self._hold_waypoint_updates()
+            self._update_recover_mode(bool(getattr(self, "_waypoint_off_raceline", False)))
+
+    def _update_recover_mode(self, off_track: bool) -> None:
+        """True while the car is off the raceline or a reward-EMA drop is still in effect."""
+        self.recover_mode = bool(off_track or getattr(self, "_reward_drop_warned", False))
+
+    def _waypoint_update_accepted(self, nearest_distance: float) -> bool:
+        """Refuse a new waypoint while the car is off the raceline, and for a fixed time after it returns.
+
+        Going farther than ``MPC_WAYPOINT_UPDATE_DISTANCE`` turns the hold on and drops every
+        staged update. The resume clock stays unset while the car is away, including during a
+        hold that the reward EMA started. It starts once the car is close, and leaving clears
+        it, so the full delay has to elapse while the car stays close.
+        """
+        self.off_track = nearest_distance > float(Settings.MPC_WAYPOINT_UPDATE_DISTANCE)
+        if self.off_track:
+            if not getattr(self, "_waypoint_off_raceline", False):
+                self._waypoint_off_raceline = True
+                self._log_info(
+                    "[HirarchicalPlanner] Warning: car left the raceline "
+                    f"({nearest_distance:.3f} m from the nearest waypoint). Staged waypoint updates discarded."
+                )
+            just_left = (not self._waypoint_updates_held) or self._waypoint_update_close_since is not None
+            if just_left:
+                self._hold_waypoint_updates()
+            self._waypoint_update_close_since = None
+            self._update_recover_mode(True)
+            return False
+        self._waypoint_off_raceline = False
+        if not self._waypoint_updates_held:
+            self._update_recover_mode(False)
+            return True
+        if self._waypoint_update_close_since is None:
+            self._waypoint_update_close_since = int(self.total_timesteps)
+        wait = self._waypoint_resume_steps()
+        if int(self.total_timesteps) - int(self._waypoint_update_close_since) < wait:
+            self._update_recover_mode(False)
+            return False
+        self._waypoint_updates_held = False
+        self._waypoint_update_close_since = None
+        self._reward_drop_warned = False
+        self._update_recover_mode(False)
+        return True
+
     def _update_from_driven_plan(self, state: np.ndarray, pacejka: torch.Tensor) -> None:
         """Stage the car's own plan at the waypoint ``k`` steps ahead, and commit it once passed."""
-        if self.episode_timesteps < 100 or not hasattr(self, "waypoints"):
+        if not hasattr(self, "waypoints"):
             return
         path = pacejka[0] if pacejka.ndim == 3 else pacejka
-        traj = path.unsqueeze(0)
         nearest = int(self.nearest_waypoint_index(state).reshape(-1)[0])
+        car_xy = torch.as_tensor(state, dtype=torch.float32).reshape(-1)[[POSE_X_IDX, POSE_Y_IDX]]
+        nearest_distance = float((self._waypoint_xy - car_xy).norm(dim=-1).min())
         k = max(1, int(Settings.MPC_WAYPOINT_AHEAD))
         target = (nearest + k) % self._waypoints_n
-        matched = self.rollout_waypoint_states(traj, nearest)
-        reached = k < int(matched.shape[1]) and bool(torch.isfinite(matched[0, k]))
-        if reached:
-            chosen = path[int(matched[0, k])]
+        accepted = self._waypoint_update_accepted(nearest_distance)
+        on_line = None
+        if self.episode_timesteps >= 100 and accepted:
+            on_line = self._state_on_orthogonal_line(path, target)
+        if on_line is not None:
+            xy, heading, speed, drift = on_line
             row = self.waypoints[target].clone()
-            row[WP_X_IDX] = chosen[POSE_X_IDX]
-            row[WP_Y_IDX] = chosen[POSE_Y_IDX]
-            row[WP_HEADING_IDX] = chosen[POSE_THETA_IDX]
-            row[WP_TARGET_SPEED_IDX] = chosen[LINEAR_VEL_X_IDX].clamp(min=0.0)
+            row[WP_X_IDX] = xy[0]
+            row[WP_Y_IDX] = xy[1]
+            row[WP_HEADING_IDX] = heading
+            row[WP_TARGET_SPEED_IDX] = speed
+            row[WP_TARGET_DRIFT_IDX] = drift
             self.waypoints_update_staged[target] = row
             self._wp_staged[target] = True
         self._commit_staged_waypoints(nearest)
@@ -620,12 +745,13 @@ class HirarchicalPlanner(template_planner):
         """Copy a staged waypoint onto the raceline once the car has driven past it."""
         if not hasattr(self, "_wp_staged"):
             return
-        k = max(1, int(Settings.MPC_WAYPOINT_AHEAD))
+        lag = max(1, int(Settings.MPC_WAYPOINT_COMMIT_LAG))
         gamma = float(Settings.MPC_WAYPOINT_UPDTE_EMA)
         n = self._waypoints_n
         for idx in torch.nonzero(self._wp_staged).flatten().tolist():
             passed = (int(nearest) - int(idx)) % n
-            if not 1 <= passed <= k:
+            # passed > n/2 means the waypoint is still ahead; the difference wrapped the long way.
+            if not lag <= passed <= n // 2:
                 continue
             current = self.waypoints[idx].clone()
             staged = self.waypoints_update_staged[idx]
@@ -634,10 +760,14 @@ class HirarchicalPlanner(template_planner):
             self.waypoints[idx, WP_TARGET_SPEED_IDX] = (
                 (1.0 - gamma) * current[WP_TARGET_SPEED_IDX] + gamma * staged[WP_TARGET_SPEED_IDX]
             )
+            self.waypoints[idx, WP_TARGET_DRIFT_IDX] = (
+                (1.0 - gamma) * current[WP_TARGET_DRIFT_IDX] + gamma * staged[WP_TARGET_DRIFT_IDX]
+            )
             self.waypoints[idx, WP_HEADING_IDX] = self._blend_heading(
                 current[WP_HEADING_IDX], staged[WP_HEADING_IDX], gamma
             )
             self._wp_staged[idx] = False
+        self._write_raceline()
         self._publish_waypoint_display()
 
     def _draw_driven_plan(self, path: torch.Tensor) -> None:
@@ -653,7 +783,6 @@ class HirarchicalPlanner(template_planner):
             max_trajectories=1, max_points_per_trajectory=int(chosen.shape[0]),
         )
         
-
     def _publish_waypoint_display(self) -> None:
         """Push the stored raceline, and an arrow of its heading and target speed, to the viewer.
 
@@ -719,8 +848,13 @@ class HirarchicalPlanner(template_planner):
                 trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
             nearest_waypoint_idx = self.nearest_waypoint_index(state)
             trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
-            rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
+            rewards = self.MPC_reward(
+                trajectories, trajectry_waypoin_matching, nearest_waypoint_idx, optimize_waypoints=False
+            )
             weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
+            reward_mean = torch.sum(rewards * weights, dim=0)
+            self._note_reward(reward_mean)
+           # if not self.total_timesteps % 12: print(self._reward_EMA)
             action_seq = (weights[:, None, None] * actions).sum(dim=0)
             # Next step samples around this plan with its first command dropped and its last command repeated.
             self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
@@ -1093,6 +1227,8 @@ class HirarchicalPlanner(template_planner):
 
         done = bool(driver_obs.get("done", False))
         if done:
+            if hasattr(self, "_wp_staged"):
+                self._wp_staged.zero_()
             n_rows = self.memory.open_length(self._episode_id)
             self._flush_stream_send(episode_end=True)
             self.memory.end_episode(self._episode_id)

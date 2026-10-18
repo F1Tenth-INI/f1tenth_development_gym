@@ -434,6 +434,7 @@ class CarSystem:
             post_step_driver_observation,
             ignore_leave_track=hwm,
             ignore_episode_length=hwm,
+            crash_only=hwm,
         )
         if hwm and episode_termination["done"]:
             reasons = [
