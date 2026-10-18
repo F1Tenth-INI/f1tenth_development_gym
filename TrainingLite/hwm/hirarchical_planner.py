@@ -504,9 +504,8 @@ class HirarchicalPlanner(template_planner):
         rounds = max(1, int(Settings.MPC_WAYPOINT_SEARCH_ITERS))
         trajectories = None
         action_seq = nominal
-        step_std = None
         for _ in range(rounds):
-            actions = self._sample_actions(nominal, step_std)
+            actions = self._sample_mpc_actions(nominal)
             if Settings.RUN_MPC_WITH_PACEJKA:
                 trajectories = self.rollout_pacejka(start, actions, use_control_delay=False)
             else:
@@ -515,8 +514,6 @@ class HirarchicalPlanner(template_planner):
             rewards = self.MPC_reward(trajectories, matched, origin, ignore_waypoint=wp_idx, raise_speed=True)
             weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
             action_seq = (weights[:, None, None] * actions).sum(dim=0)
-            if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
-                step_std = self._weighted_action_std(actions, weights)
             nominal = action_seq.detach()
         if Settings.RUN_MPC_WITH_PACEJKA:
             path = self.rollout_pacejka(start, action_seq, use_control_delay=False)[0]
@@ -571,17 +568,6 @@ class HirarchicalPlanner(template_planner):
         state[LINEAR_VEL_X_IDX] = float(wp[WP_TARGET_SPEED_IDX])
         return state
 
-    def _sample_actions(self, mean: torch.Tensor, step_std: torch.Tensor | None = None) -> torch.Tensor:
-        """Draw the action sequences. Weighted-variance mode samples each step from the previous round's diagonal covariance."""
-        if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
-            if step_std is None:
-                base = torch.tensor([0.08, 1.5], dtype=mean.dtype) / torch.as_tensor(
-                    self.action_denormalization_array, dtype=mean.dtype
-                )
-                step_std = base.expand(int(mean.shape[0]), int(mean.shape[-1]))
-            return self._sample_from_step_covariance(mean, step_std)
-        return self._sample_mpc_actions(mean)
-
     def _sample_mpc_actions(self, nominal: torch.Tensor | None = None) -> torch.Tensor:
         """Correlated action samples around ``nominal``, clipped like ``select_action``."""
         if nominal is None:
@@ -595,22 +581,6 @@ class HirarchicalPlanner(template_planner):
             actions[:, 0] = nominal[0] + eps[:, 0] * noise_std
             for t in range(1, eps.shape[1]):
                 actions[:, t] = rho * actions[:, t - 1] + (1.0 - rho) * nominal[t] + fresh * noise_std * eps[:, t]
-        steer_limit = 1.0
-        accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
-        actions[..., 0].clamp_(-steer_limit, steer_limit)
-        actions[..., 1].clamp_(-accel_limit, accel_limit)
-        return actions
-
-    def _weighted_action_std(self, actions: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
-        """Softmax-weighted diagonal std of ``actions`` at each time step, shape ``(H, 2)``."""
-        mean = (weights[:, None, None] * actions).sum(dim=0)
-        var = (weights[:, None, None] * (actions - mean.unsqueeze(0)).pow(2)).sum(dim=0)
-        return var.clamp(min=0.0).sqrt()
-
-    def _sample_from_step_covariance(self, mean: torch.Tensor, step_std: torch.Tensor) -> torch.Tensor:
-        """Independent sample at each step from the weighted diagonal covariance."""
-        eps = torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, int(mean.shape[0]), int(mean.shape[1]))
-        actions = mean.unsqueeze(0) + eps * step_std.unsqueeze(0) * 2
         steer_limit = 1.0
         accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
         actions[..., 0].clamp_(-steer_limit, steer_limit)
@@ -711,26 +681,16 @@ class HirarchicalPlanner(template_planner):
 
         self.update_waypoints(self.nearest_waypoint_index(state) - int(Settings.IGNORE_STEPS), state)
         with torch.no_grad():
-            nominal = self.action_buffer
-            rounds = max(1, int(Settings.MPC_WAYPOINT_SEARCH_ITERS)) if Settings.MPC_ACTION_WEIGHTED_VARIANCE else 1
-            step_std = None
-            trajectories = None
-            weights = None
-            action_seq = nominal
-            for _ in range(rounds):
-                actions = self._sample_actions(nominal, step_std)
-                if Settings.RUN_MPC_WITH_PACEJKA:
-                    trajectories = self.rollout_pacejka(state, actions)
-                else:
-                    trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
-                nearest_waypoint_idx = self.nearest_waypoint_index(state)
-                trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
-                rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
-                weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
-                action_seq = (weights[:, None, None] * actions).sum(dim=0)
-                if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
-                    step_std = self._weighted_action_std(actions, weights)
-                nominal = action_seq.detach()
+            actions = self._sample_mpc_actions()
+            if Settings.RUN_MPC_WITH_PACEJKA:
+                trajectories = self.rollout_pacejka(state, actions)
+            else:
+                trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
+            nearest_waypoint_idx = self.nearest_waypoint_index(state)
+            trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+            rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
+            weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
+            action_seq = (weights[:, None, None] * actions).sum(dim=0)
             # Next step samples around this plan with its first command dropped and its last command repeated.
             self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
             pacejka = self.rollout_pacejka(state, action_seq)
