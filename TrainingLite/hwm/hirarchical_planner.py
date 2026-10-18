@@ -182,6 +182,7 @@ class HirarchicalPlanner(template_planner):
         self.former_nearest_waypoint = None
         self._wp_speed_cap_applied = False
         self._last_opt_wp = None
+        self._wp_recording = None
         self.reset()
 
     def reset(self):
@@ -200,20 +201,68 @@ class HirarchicalPlanner(template_planner):
     def _lateral_speed_cap(self, wp_index: torch.Tensor) -> torch.Tensor:
         """Speed a bend can hold, ``sqrt(a_lat / curvature)``. A straight is at the high cap."""
         idx = wp_index.long() % self._waypoints_n
-        prev_h = self.waypoints[(idx - 1) % self._waypoints_n, WP_HEADING_IDX]
-        here_h = self.waypoints[idx, WP_HEADING_IDX]
-        turn = torch.atan2(torch.sin(here_h - prev_h), torch.cos(here_h - prev_h)).abs()
+        prev_xy = self._waypoint_xy[(idx - 1) % self._waypoints_n]
+        here_xy = self._waypoint_xy[idx]
+        next_xy = self._waypoint_xy[(idx + 1) % self._waypoints_n]
+        incoming = torch.atan2(here_xy[:, 1] - prev_xy[:, 1], here_xy[:, 0] - prev_xy[:, 0])
+        outgoing = torch.atan2(next_xy[:, 1] - here_xy[:, 1], next_xy[:, 0] - here_xy[:, 0])
+        turn = torch.atan2(torch.sin(outgoing - incoming), torch.cos(outgoing - incoming)).abs()
         spacing = max(float(getattr(self, "_waypoint_spacing", 0.1)), 1e-3)
         kappa = turn / spacing
-        cap = torch.sqrt(torch.tensor(6.0, dtype=self.waypoints.dtype) / kappa.clamp(min=1e-3))
-        return cap.clamp(max=8.0)
+        cap = torch.sqrt(torch.tensor(5.0, dtype=self.waypoints.dtype) / kappa.clamp(min=1e-3))
+        return cap.clamp(max=9.0)
 
-    def _set_chord_heading(self, idx: int) -> None:
-        """Point the arrow along the segment to the next waypoint."""
-        nxt = (int(idx) + 1) % self._waypoints_n
-        delta = self._waypoint_xy[nxt] - self._waypoint_xy[int(idx)]
-        self.waypoints[int(idx), WP_HEADING_IDX] = torch.atan2(delta[1], delta[0])
-        
+    def _blend_heading(self, old: torch.Tensor, new: torch.Tensor, gamma: float) -> torch.Tensor:
+        """Circular blend. A linear mix of two angles flips when they sit on opposite sides of ±π."""
+        return torch.atan2(
+            (1.0 - gamma) * torch.sin(old) + gamma * torch.sin(new),
+            (1.0 - gamma) * torch.cos(old) + gamma * torch.cos(new),
+        )
+
+    def _arrival(self, path: torch.Tensor, target_xy: torch.Tensor) -> tuple[int, float]:
+        """``(step, speed)`` when ``path`` first comes within 0.5 m of ``target_xy``.
+
+        A path that hits a wall first, or never arrives, reports a step past the horizon.
+        """
+        position = path[:, [POSE_X_IDX, POSE_Y_IDX]]
+        close = (position - target_xy).pow(2).sum(dim=-1) <= 0.5 ** 2
+        poses = path[:, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
+        crashed = self.wall_geometry.in_wall(poses)
+        crash_at = int(crashed.float().argmax()) if bool(crashed.any()) else int(path.shape[0])
+        if not bool(close.any()):
+            return int(path.shape[0]), 0.0
+        arrived = int(close.float().argmax())
+        if arrived >= crash_at:
+            return int(path.shape[0]), 0.0
+        return arrived, float(path[arrived, LINEAR_VEL_X_IDX].clamp(min=0.0))
+
+    def _record_waypoint_action(self, state: np.ndarray, action_seq: torch.Tensor) -> None:
+        """Keep the plan from the state that came closest to each waypoint on this pass.
+
+        Leaving a waypoint reopens it, so the next pass replaces that sequence instead of
+        keeping the closest approach ever.
+        """
+        self._ensure_waypoints()
+        if not hasattr(self, "_wp_actions"):
+            return
+        pos = torch.as_tensor(state, dtype=torch.float32).reshape(-1)[[POSE_X_IDX, POSE_Y_IDX]]
+        dist = (self._waypoint_xy - pos).pow(2).sum(dim=-1)
+        idx = int(dist.argmin())
+        if self._wp_recording != idx:
+            if self._wp_recording is not None:
+                self._wp_action_dist[self._wp_recording] = float("inf")
+            self._wp_recording = idx
+            self._wp_action_dist[idx] = float("inf")
+        best = float(dist[idx])
+        if best > float(self._wp_action_dist[idx]):
+            return
+        seq = torch.as_tensor(action_seq, dtype=torch.float32).reshape(-1, 2)
+        horizon = int(self._wp_actions.shape[1])
+        if int(seq.shape[0]) < horizon:
+            seq = torch.cat((seq, seq[-1:].expand(horizon - int(seq.shape[0]), -1)), dim=0)
+        self._wp_actions[idx] = seq[:horizon]
+        self._wp_action_dist[idx] = best
+
     def _ensure_waypoints(self) -> None:
         utils = getattr(self, "waypoint_utils", None)
         waypoints = None if utils is None else getattr(utils, "waypoints", None)
@@ -235,6 +284,10 @@ class HirarchicalPlanner(template_planner):
         self._waypoint_spacing = float(positive.median()) if positive.numel() else 0.1
 
         self.waypoints_update_staged = self.waypoints.clone()
+        horizon = int(Settings.MPC_TRAJECTORY_LENGTH)
+        self._wp_actions = torch.zeros((self._waypoints_n, horizon, 2), dtype=torch.float32)
+        self._wp_action_dist = torch.full((self._waypoints_n,), float("inf"))
+        self._wp_recording = None
         self.last_wp_distance = np.inf
 
     def _hwm_policy_drives(self) -> bool:
@@ -394,10 +447,11 @@ class HirarchicalPlanner(template_planner):
                 reward = (2 * distance_reward + 2 * heading_reward + 4 * shortfall + 3 * overspeed) / count
             else:
                 speed_reward = (speed - target_speed).abs().sum()
-                # Mean over matched waypoints. Dividing by count**2 was washing out a reverse penalty
-                # on any trajectory fast enough to be matched to many points.
-                faster_driving_reward = indices[0] / 10
-                reward = (10 * distance_reward + 2 * heading_reward + speed_reward + faster_driving_reward * 5) / count
+                # Every matched waypoint: a smaller state index was reached sooner. Kept smaller than
+                # the distance term so cutting the line to arrive early does not beat staying on it.
+                reward = (
+                    10 * distance_reward + 2 * heading_reward + speed_reward
+                ) / count + 0.12 * indices.float().mean()
   
             min_speed = float(speed.min())
             if min_speed < 0:
@@ -434,46 +488,54 @@ class HirarchicalPlanner(template_planner):
             )
 
     def optimize_waypoint(self, wp_idx: int) -> torch.Tensor:
-        """A slightly faster state for ``wp_idx``, from a rollout that starts further back along the line.
+        """A slightly faster state for ``wp_idx``, searched around the actions the car used there.
 
-        Samples use the live sampler around the car's current action sequence, shifted toward
-        accelerating. The position is the path state closest to this waypoint. The stored speed
-        is the fastest that path gets afterwards, limited by how sharp the bend is. The heading
-        is filled in by the caller from the segment, not from the car's yaw.
+        The rollout starts four waypoints back, close enough that a one-second horizon still
+        reaches ``wp_idx``. The returned row is unchanged when the search is no faster than
+        replaying those stored actions, or when it hits a wall before the point.
         """
         self._ensure_waypoints()
         wp_idx = int(wp_idx) % self._waypoints_n
-        # Far enough behind that the car can speed up before it reaches this point.
-        # One spacing back only records the speed it already had.
-        origin = (wp_idx - 8) % self._waypoints_n
+        origin = (wp_idx - 4) % self._waypoints_n
         start = self._state_from_waypoint(origin)
-        # Same sampler as the live plan, shifted toward accelerating. Noise around a plan that
-        # merely holds speed is symmetric, and braking is stronger than acceleration, so those
-        # samples slow down and the stored speed never rises.
-        nominal = self.action_buffer.clone()
-        nominal[:, 1] = nominal[:, 1] + 1.5 / float(self.action_denormalization_array[1])
-        actions = self._sample_mpc_actions(nominal)
-        if Settings.RUN_MPC_WITH_PACEJKA:
-            trajectories = self.rollout_pacejka(start, actions, use_control_delay=False)
-        else:
-            trajectories = self.rollout_lld(start, actions)[0]
-        matched = self.rollout_waypoint_states(trajectories, origin)
-        rewards = self.MPC_reward(trajectories, matched, origin, ignore_waypoint=wp_idx, raise_speed=True)
-        weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
-        action_seq = (weights[:, None, None] * actions).sum(dim=0)
+        # The plan recorded when the car was last closest to this start waypoint.
+        driven = self._wp_actions[origin].clone()
+        nominal = driven
+        rounds = max(1, int(Settings.MPC_WAYPOINT_SEARCH_ITERS))
+        trajectories = None
+        action_seq = nominal
+        step_std = None
+        for _ in range(rounds):
+            actions = self._sample_actions(nominal, step_std)
+            if Settings.RUN_MPC_WITH_PACEJKA:
+                trajectories = self.rollout_pacejka(start, actions, use_control_delay=False)
+            else:
+                trajectories = self.rollout_lld(start, actions)[0]
+            matched = self.rollout_waypoint_states(trajectories, origin)
+            rewards = self.MPC_reward(trajectories, matched, origin, ignore_waypoint=wp_idx, raise_speed=True)
+            weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
+            action_seq = (weights[:, None, None] * actions).sum(dim=0)
+            if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
+                step_std = self._weighted_action_std(actions, weights)
+            nominal = action_seq.detach()
         if Settings.RUN_MPC_WITH_PACEJKA:
             path = self.rollout_pacejka(start, action_seq, use_control_delay=False)[0]
+            baseline = self.rollout_pacejka(start, driven, use_control_delay=False)[0]
         else:
             path = self.rollout_lld(start, action_seq)[0][0]
+            baseline = self.rollout_lld(start, driven)[0][0]
+        self._draw_optimize_trajectories(trajectories, path)
         target = self.waypoints[wp_idx, [WP_X_IDX, WP_Y_IDX]]
+        opt_step, opt_speed = self._arrival(path, target)
+        base_step, base_speed = self._arrival(baseline, target)
+        faster = opt_step < base_step or (opt_step == base_step and opt_speed > base_speed + 0.05)
+        # A wall after this point belongs to the next bend. Rejecting it kept every straight
+        # that can see the following corner from ever raising its speed.
+        if not faster or opt_step >= int(path.shape[0]):
+            return self.waypoints[wp_idx].clone()
         position = path[:, [POSE_X_IDX, POSE_Y_IDX]]
-        if int(position.shape[0]) < 2:
-            return self.waypoints[wp_idx].clone()
-        dist2 = (position[1:] - target).pow(2).sum(dim=-1)
-        # A path that never reaches this point must not drag the waypoint back to where it stopped.
-        if float(dist2.min()) > 0.6 ** 2:
-            return self.waypoints[wp_idx].clone()
-        closest = int(dist2.argmin()) + 1
+        dist2 = (position - target).pow(2).sum(dim=-1)
+        closest = int(dist2.argmin())
         chosen = path[closest]
         new_xy = chosen[[POSE_X_IDX, POSE_Y_IDX]]
         prev_xy = self.waypoints[(wp_idx - 1) % self._waypoints_n, [WP_X_IDX, WP_Y_IDX]]
@@ -485,13 +547,15 @@ class HirarchicalPlanner(template_planner):
         ):
             return self.waypoints[wp_idx].clone()
         row = self.waypoints[wp_idx].clone()
-        cap = float(self._lateral_speed_cap(torch.tensor([wp_idx]))[0])
         row[WP_X_IDX] = chosen[POSE_X_IDX]
         row[WP_Y_IDX] = chosen[POSE_Y_IDX]
-        # The arrow follows the segment, not this state's yaw. Yaw from one sample points off the line.
-        # Speed is the fastest the chosen path gets from here on, so a straight keeps the speed it
-        # builds up to instead of the speed it still had at the moment it passed this point.
-        row[WP_TARGET_SPEED_IDX] = path[closest:, LINEAR_VEL_X_IDX].clamp(min=0.0).max().clamp(max=cap)
+        row[WP_HEADING_IDX] = chosen[POSE_THETA_IDX]
+        cap = float(self._lateral_speed_cap(torch.tensor([wp_idx]))[0])
+        old_speed = float(row[WP_TARGET_SPEED_IDX])
+        achieved = float(chosen[LINEAR_VEL_X_IDX].clamp(min=0.0))
+        # Raise by at most 1.2 m/s in one pass. A larger jump carries that speed into the
+        # next corner before the one-second plan can brake.
+        row[WP_TARGET_SPEED_IDX] = min(cap, max(achieved, old_speed), old_speed + 1.2)
         return row
 
     def _state_from_waypoint(self, index: int) -> np.ndarray:
@@ -507,6 +571,17 @@ class HirarchicalPlanner(template_planner):
         state[LINEAR_VEL_X_IDX] = float(wp[WP_TARGET_SPEED_IDX])
         return state
 
+    def _sample_actions(self, mean: torch.Tensor, step_std: torch.Tensor | None = None) -> torch.Tensor:
+        """Draw the action sequences. Weighted-variance mode samples each step from the previous round's diagonal covariance."""
+        if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
+            if step_std is None:
+                base = torch.tensor([0.08, 1.5], dtype=mean.dtype) / torch.as_tensor(
+                    self.action_denormalization_array, dtype=mean.dtype
+                )
+                step_std = base.expand(int(mean.shape[0]), int(mean.shape[-1]))
+            return self._sample_from_step_covariance(mean, step_std)
+        return self._sample_mpc_actions(mean)
+
     def _sample_mpc_actions(self, nominal: torch.Tensor | None = None) -> torch.Tensor:
         """Correlated action samples around ``nominal``, clipped like ``select_action``."""
         if nominal is None:
@@ -520,6 +595,22 @@ class HirarchicalPlanner(template_planner):
             actions[:, 0] = nominal[0] + eps[:, 0] * noise_std
             for t in range(1, eps.shape[1]):
                 actions[:, t] = rho * actions[:, t - 1] + (1.0 - rho) * nominal[t] + fresh * noise_std * eps[:, t]
+        steer_limit = 1.0
+        accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
+        actions[..., 0].clamp_(-steer_limit, steer_limit)
+        actions[..., 1].clamp_(-accel_limit, accel_limit)
+        return actions
+
+    def _weighted_action_std(self, actions: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+        """Softmax-weighted diagonal std of ``actions`` at each time step, shape ``(H, 2)``."""
+        mean = (weights[:, None, None] * actions).sum(dim=0)
+        var = (weights[:, None, None] * (actions - mean.unsqueeze(0)).pow(2)).sum(dim=0)
+        return var.clamp(min=0.0).sqrt()
+
+    def _sample_from_step_covariance(self, mean: torch.Tensor, step_std: torch.Tensor) -> torch.Tensor:
+        """Independent sample at each step from the weighted diagonal covariance."""
+        eps = torch.randn(Settings.MPC_NUM_OF_TRAJECTORIES, int(mean.shape[0]), int(mean.shape[1]))
+        actions = mean.unsqueeze(0) + eps * step_std.unsqueeze(0) * 2
         steer_limit = 1.0
         accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
         actions[..., 0].clamp_(-steer_limit, steer_limit)
@@ -546,13 +637,18 @@ class HirarchicalPlanner(template_planner):
         optimized = self.optimize_waypoint(idx)
         gamma = float(Settings.MPC_WAYPOINT_UPDTE_EMA)
         current = self.waypoints[idx].clone()
-        self.waypoints[idx, WP_X_IDX] = (1.0 - gamma) * current[WP_X_IDX] + gamma * optimized[WP_X_IDX]
-        self.waypoints[idx, WP_Y_IDX] = (1.0 - gamma) * current[WP_Y_IDX] + gamma * optimized[WP_Y_IDX]
+        proposed = (1.0 - gamma) * current[[WP_X_IDX, WP_Y_IDX]] + gamma * optimized[[WP_X_IDX, WP_Y_IDX]]
+        self.waypoints[idx, WP_X_IDX] = proposed[0]
+        self.waypoints[idx, WP_Y_IDX] = proposed[1]
+        speed_gamma = max(gamma, 0.5)
         self.waypoints[idx, WP_TARGET_SPEED_IDX] = (
-            (1.0 - gamma) * current[WP_TARGET_SPEED_IDX] + gamma * optimized[WP_TARGET_SPEED_IDX]
+            (1.0 - speed_gamma) * current[WP_TARGET_SPEED_IDX] + speed_gamma * optimized[WP_TARGET_SPEED_IDX]
         )
-        self._set_chord_heading((idx - 1) % self._waypoints_n)
-        self._set_chord_heading(idx)
+        # The new heading is the yaw of one state on the rollout of the optimized actions.
+        # Blend it on the circle so a sample near ±π does not swing the arrow the long way.
+        self.waypoints[idx, WP_HEADING_IDX] = self._blend_heading(
+            current[WP_HEADING_IDX], optimized[WP_HEADING_IDX], gamma
+        )
         self._publish_waypoint_display()
         
 
@@ -594,6 +690,8 @@ class HirarchicalPlanner(template_planner):
         if scene is None:
             return
         scene.set_trajectories("hwm.waypoint_arrows", None)
+        scene.set_trajectories("hwm.opt_samples", None)
+        scene.set_trajectories("hwm.opt_plan", None)
         scene.set_dynamic_points("hwm.waypoints", None)
 
     def select_action(self, obs: dict[str, torch.Tensor], state: np.ndarray) -> np.ndarray:
@@ -613,24 +711,33 @@ class HirarchicalPlanner(template_planner):
 
         self.update_waypoints(self.nearest_waypoint_index(state) - int(Settings.IGNORE_STEPS), state)
         with torch.no_grad():
-            actions = self._sample_mpc_actions()
-  
-
-            if Settings.RUN_MPC_WITH_PACEJKA:
-                trajectories = self.rollout_pacejka(state, actions)
-            else:
-                trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
-
-            nearest_waypoint_idx = self.nearest_waypoint_index(state)
-            trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
-            rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
-            weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
-            action_seq = (weights[:, None, None] * actions).sum(dim=0)
+            nominal = self.action_buffer
+            rounds = max(1, int(Settings.MPC_WAYPOINT_SEARCH_ITERS)) if Settings.MPC_ACTION_WEIGHTED_VARIANCE else 1
+            step_std = None
+            trajectories = None
+            weights = None
+            action_seq = nominal
+            for _ in range(rounds):
+                actions = self._sample_actions(nominal, step_std)
+                if Settings.RUN_MPC_WITH_PACEJKA:
+                    trajectories = self.rollout_pacejka(state, actions)
+                else:
+                    trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
+                nearest_waypoint_idx = self.nearest_waypoint_index(state)
+                trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+                rewards = self.MPC_reward(trajectories, trajectry_waypoin_matching, nearest_waypoint_idx)
+                weights = torch.softmax(rewards / Settings.MPC_TEMPERATURE, dim=0)
+                action_seq = (weights[:, None, None] * actions).sum(dim=0)
+                if Settings.MPC_ACTION_WEIGHTED_VARIANCE:
+                    step_std = self._weighted_action_std(actions, weights)
+                nominal = action_seq.detach()
             # Next step samples around this plan with its first command dropped and its last command repeated.
             self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
             pacejka = self.rollout_pacejka(state, action_seq)
             self._draw_mpc_trajectories(trajectories, weights, pacejka)
-            return action_seq[0].cpu().numpy().astype(np.float32)
+            action = action_seq[0].cpu().numpy().astype(np.float32)
+            self._record_waypoint_action(state, action_seq.detach())
+            return action
 
     def _draw_mpc_trajectories(
         self, trajectories: torch.Tensor, weights: torch.Tensor, pacejka: torch.Tensor
@@ -652,7 +759,25 @@ class HirarchicalPlanner(template_planner):
             "hwm.mpc_pacejka", pace_xy, color=(230, 90, 0), width=3.0,
             max_trajectories=int(pace_xy.shape[0]), max_points_per_trajectory=int(pace_xy.shape[1]),
         )
-            
+
+    def _draw_optimize_trajectories(self, trajectories: torch.Tensor, path: torch.Tensor) -> None:
+        """Search rollouts and the chosen one, both beginning at the waypoint the search starts from."""
+        render = getattr(self, "render_utils", None)
+        if render is None:
+            return
+        scene = getattr(render, "scene", None)
+        if scene is None:
+            return
+        xy = trajectories[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy()
+        scene.set_trajectories(
+            "hwm.opt_samples", xy, color=(120, 170, 230), width=1.0,
+            max_trajectories=int(xy.shape[0]), max_points_per_trajectory=int(xy.shape[1]),
+        )
+        chosen = path[:, [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy()
+        scene.set_trajectories(
+            "hwm.opt_plan", chosen[None], color=(25, 70, 190), width=3.0,
+            max_trajectories=1, max_points_per_trajectory=int(chosen.shape[0]),
+        )
 
     @torch.no_grad()
     def rollout_lld(self, state, actions):

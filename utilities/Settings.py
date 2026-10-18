@@ -410,7 +410,9 @@ class Settings():
     MPC_ACTION_CORRELATION = 0.5  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.1   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.4
+    MPC_WAYPOINT_UPDTE_EMA = 0.5
+    MPC_WAYPOINT_SEARCH_ITERS = 5  # optimize search: sample, softmax-average the actions, resample around that, this many times
+    MPC_ACTION_WEIGHTED_VARIANCE = True  # optimize resample: noise std at each step is the softmax-weighted variance of the previous samples, not the fixed std
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer
