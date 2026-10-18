@@ -1161,13 +1161,14 @@
       return bounds;
     }
 
-    function staticLayerSignature(static) {
+    function staticLayerSignature(static, skipWaypoints) {
       const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
       return [
         zoom.toFixed(2),
         showMap ? 1 : 0,
         showTrackBorders ? 1 : 0,
-        globalWaypoints?.length || 0,
+        skipWaypoints ? 0 : (globalWaypoints?.length || 0),
+        skipWaypoints ? 1 : 0,
         static.waypoints_alternative?.length || 0,
         static.track_border_points?.length || 0,
         static.track_border_lines?.length || 0,
@@ -1206,7 +1207,7 @@
       bctx.stroke();
     }
 
-    function rebuildStaticLayerBake(static) {
+    function rebuildStaticLayerBake(static, skipWaypoints) {
       // Bake vector overlays only. The occupancy map is drawn from mapImg each
       // frame so zoom never softens it via an undersampled offscreen canvas.
       const bounds = computeStaticWorldBounds(static);
@@ -1230,12 +1231,14 @@
         ppm,
         widthPx,
         heightPx,
-        sig: staticLayerSignature(static),
+        sig: staticLayerSignature(static, skipWaypoints),
       };
 
       const colors = static.colors || {};
       const globalWaypoints = static.global_waypoints || static.waypoints_global || static.waypoints;
-      bakePointsOnLayer(bctx, globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, bake);
+      if (!skipWaypoints) {
+        bakePointsOnLayer(bctx, globalWaypoints, rgb(colors.waypoints, "rgb(64, 190, 255)"), 2.0, bake);
+      }
       bakePointsOnLayer(bctx, static.waypoints_alternative, "rgb(170,170,170)", 1.5, bake);
       if (showTrackBorders) {
         const borderColor = rgb(colors.track_border, "rgb(255,0,0)");
@@ -1270,11 +1273,12 @@
       ctx.restore();
     }
 
-    function drawStaticLayerBake(cx, cy, static) {
+    function drawStaticLayerBake(cx, cy, static, dyn) {
       drawMapLayer(cx, cy);
-      const sig = staticLayerSignature(static);
+      const skipWaypoints = !!(dyn && dyn.layers && dyn.layers["hwm.waypoint_arrows"]);
+      const sig = staticLayerSignature(static, skipWaypoints);
       if (!staticLayerBake || staticLayerBake.sig !== sig) {
-        rebuildStaticLayerBake(static);
+        rebuildStaticLayerBake(static, skipWaypoints);
       }
       if (!staticLayerBake) return;
       const w = canvasCssW || canvas.getBoundingClientRect().width;
@@ -3246,7 +3250,11 @@
             drawLine(data, color, w, cx, cy);
           }
         } else if (kind === "trajectories") {
-          if (style.fill) {
+          if (style.stroke) {
+            if (Array.isArray(data)) {
+              for (const traj of data) drawLine(traj, color, w, cx, cy);
+            }
+          } else if (style.fill) {
             const alpha = Number(style.alpha);
             fillPolygons(data, color, Number.isFinite(alpha) ? alpha : 0.3, cx, cy);
           } else {
@@ -3844,11 +3852,13 @@
         const dyn = frame.web_overlay || {};
         const colors = static.colors || dyn.colors || {};
 
-        drawStaticLayerBake(cx, cy, static);
+        drawStaticLayerBake(cx, cy, static, dyn);
 
-        // Dynamic overlays (per-frame from WebSocket)
-        drawPoints(dyn.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
-        drawPoints(dyn.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
+        const waypointArrows = !!(dyn.layers && dyn.layers["hwm.waypoint_arrows"]);
+        if (!waypointArrows) {
+          drawPoints(dyn.next_waypoints_alternative, rgb(colors.next_waypoints_alternative, "rgb(127,0,127)"), 2.0, cx, cy);
+          drawPoints(dyn.next_waypoints, rgb(colors.next_waypoints, "rgb(0,127,0)"), 2.2, cx, cy);
+        }
         if (showPolynomialRaceline) {
           drawLine(dyn.next_waypoints_polynomial, rgb(colors.next_waypoints_polynomial, "rgb(255,200,0)"), 4.5, cx, cy);
         }

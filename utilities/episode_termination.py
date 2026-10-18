@@ -22,7 +22,14 @@ class EpisodeTerminator:
         self.spin_counter = 0
         self.stuck_counter = 0
 
-    def evaluate(self, controller_obs: dict, driver_obs: dict) -> dict:
+    def evaluate(
+        self,
+        controller_obs: dict,
+        driver_obs: dict,
+        *,
+        ignore_leave_track: bool = False,
+        ignore_episode_length: bool = False,
+    ) -> dict:
         car_state = np.asarray(controller_obs["car_state"])
         frenet_coordinates = np.asarray(controller_obs["frenet_coordinates"])
         next_waypoints = np.asarray(controller_obs["next_waypoints"])
@@ -43,7 +50,7 @@ class EpisodeTerminator:
         leave_track = bool(
             d < -(wp_distances_r + leave_slack) or d > (wp_distances_l + leave_slack)
         )
-        if not bool(getattr(Settings, "TRUNCATE_ON_LEAVE_TRACK", True)):
+        if not bool(getattr(Settings, "TRUNCATE_ON_LEAVE_TRACK", True)) or ignore_leave_track:
             leave_track = False
 
         speed = math.sqrt(
@@ -70,7 +77,9 @@ class EpisodeTerminator:
         max_episode_length = int(getattr(Settings, "MAX_EPISODE_LENGTH", 0) or 0)
         control_index = int(controller_obs.get("control_index", 0))
         episode_length_reached = (
-            max_episode_length > 0 and control_index >= max_episode_length
+            not ignore_episode_length
+            and max_episode_length > 0
+            and control_index >= max_episode_length
         )
 
         truncated = bool(

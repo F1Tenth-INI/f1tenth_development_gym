@@ -956,6 +956,10 @@ def get_distance_to_raceline_jit(waypoints, nearest_waypoint_index, car_position
 
     norm1 = np.linalg.norm(diff1)
     norm2 = np.linalg.norm(diff2)
+    if norm1 < 1e-6:
+        norm1 = 1e-6
+    if norm2 < 1e-6:
+        norm2 = 1e-6
 
     current_distance_to_last = np.abs(cross2d(diff1, last_waypoint_position - car_position)) / norm1
     current_distance_to_next = np.abs(cross2d(diff2, nearest_waypoint_position - car_position)) / norm2

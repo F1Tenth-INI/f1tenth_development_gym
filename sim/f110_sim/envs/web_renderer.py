@@ -1875,6 +1875,8 @@ class WebEnvRenderer:
                     data = self._downsample_points(data, max_pts)
                 elif kind == "poses":
                     data = self._downsample_points(data, max(8, min(max_pts, 64)))
+                elif kind == "trajectories" and name == "hwm.waypoint_arrows":
+                    pass
                 elif kind == "trajectories":
                     data = self._downsample_trajectories(
                         data,

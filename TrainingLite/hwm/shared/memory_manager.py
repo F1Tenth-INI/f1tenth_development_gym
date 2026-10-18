@@ -4,10 +4,11 @@ Rows are ``[state_t, action_t]``: the raw 10-d car state at control step ``t`` a
 action in network output units (``physical / action_denorm``). Not clipped to
 ``[-1, 1]``. Nothing else is stored.
 
-Rows are never evicted. Row ``g`` (its global insertion index) sits in slot
-``g % capacity``; ``capacity`` starts at ``Settings.HWM_MEMORY_MAX_ROWS`` and the row arrays
-double when more rows arrive. Rows arrive in time order from a single actor, so one episode
-occupies consecutive indices.
+Row ``g`` (its global insertion index) sits in slot ``g % capacity``; ``capacity`` starts at
+``Settings.HWM_MEMORY_MAX_ROWS`` and the row arrays double when more rows arrive. Rows arrive in
+time order from a single actor, so one episode occupies consecutive indices. A row is kept only
+while a key in the bank still reads it (the key's ``S`` rows and the next row). Rows whose key was
+rejected or replaced are dropped once the episode closes, and they are not written to disk.
 
 The LLD's keys (superstates) are a separate, limited array of ``HWM_MEMORY_BANK_SIZE`` indices into
 the rows, each ending a window of ``S = HWM_SUPER_STATE_SIZE`` rows plus the step it predicts (one
@@ -50,7 +51,7 @@ class MemoryManager:
         self.state_dim = int(Settings.HWM_STATE_DIM if state_dim is None else state_dim)
         self.action_dim = int(Settings.HWM_ACTION_DIM if action_dim is None else action_dim)
         self.row_dim = self.state_dim + self.action_dim
-        # Initial row allocation only: the row arrays double when full, nothing is evicted.
+        # Initial row allocation. Closed-episode rows that no kept key uses are dropped.
         self.capacity = int(Settings.HWM_MEMORY_MAX_ROWS if capacity is None else capacity)
         self.superstate_size = int(
             Settings.HWM_SUPER_STATE_SIZE if superstate_size is None else superstate_size
@@ -331,11 +332,18 @@ class MemoryManager:
         )
 
     def add_batch(
-        self, states: np.ndarray, actions: np.ndarray, episode_id: int, episode_end: bool = False
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        episode_id: int,
+        episode_end: bool = False,
+        offer: bool = True,
     ) -> int:
         """Append a block of rows and optionally close the episode.
 
         Rows for an episode other than the open one start a new episode.
+        ``offer`` is false while restoring a saved bank, so closing the episode does not
+        drop the rows before those keys are installed.
         """
         states = np.asarray(states, dtype=np.float32).reshape(-1, self.state_dim)
         actions = np.asarray(actions, dtype=np.float32).reshape(-1, self.action_dim)
@@ -346,12 +354,12 @@ class MemoryManager:
             self._ensure_capacity(self._size + int(rows.shape[0]))
             # A single write must not hit the same slot twice.
             for chunk in rows.split(self.capacity):
-                self._append(chunk, int(episode_id))
+                self._append(chunk, int(episode_id), offer=offer)
             if episode_end:
-                self.end_episode(episode_id)
+                self.end_episode(episode_id, compact=offer)
         return int(rows.shape[0])
 
-    def _append(self, rows: torch.Tensor, episode_id: int) -> None:
+    def _append(self, rows: torch.Tensor, episode_id: int, offer: bool = True) -> None:
         n = int(rows.shape[0])
         if n == 0:
             return
@@ -371,11 +379,14 @@ class MemoryManager:
         self._run_len[slots] = prev_run + torch.arange(1, n + 1, device=self.device)
         self._clock += n
         self._size = min(self.capacity, self._size + n)
-        if self._projector is not None:
+        if offer and self._projector is not None:
             self._bank_ingest(self._clock - n)
 
-    def end_episode(self, episode_id: int) -> None:
-        """Close the open episode; the next row starts a new one."""
+    def end_episode(self, episode_id: int, compact: bool = True) -> None:
+        """Close the open episode; the next row starts a new one.
+
+        With ``compact``, rows that no remaining key reads are dropped.
+        """
         with self._lock:
             if self._open_episode == int(episode_id):
                 drop = int(getattr(Settings, "HWM_MEMORY_DROP_FINAL_STEPS", 0) or 0)
@@ -387,6 +398,8 @@ class MemoryManager:
                         self._bank_purge_final()
                 self._open_episode = None
                 self._episodes_closed += 1
+                if compact:
+                    self._compact_kept_rows()
 
     def clear(self) -> None:
         with self._lock:
@@ -401,29 +414,142 @@ class MemoryManager:
             self._bank_index.fill_(-1)
             self._bank_count = 0
 
+    def _bank_covered_steps(self) -> torch.Tensor:
+        """Global steps a current key still reads: its ``S`` rows and the next row."""
+        count = self._bank_count
+        if count == 0:
+            return torch.zeros(0, dtype=torch.long, device=self.device)
+        offset = torch.arange(1 - self.superstate_size, 2, device=self.device)
+        covered = (self._bank_rows[:count][:, None] + offset).reshape(-1)
+        known = (covered >= self._oldest) & (covered < self._clock)
+        covered = covered[known]
+        if covered.numel() == 0:
+            return covered
+        stored = self._steps[covered % self.capacity] == covered
+        return torch.unique(covered[stored], sorted=True)
+
+    def _kept_steps(self, include_open: bool) -> torch.Tensor:
+        """Steps to keep. The open episode stays whole so streaming offsets still match."""
+        parts = [self._bank_covered_steps()]
+        if include_open and self._open_episode is not None and self._clock > self._open_start:
+            parts.append(torch.arange(self._open_start, self._clock, device=self.device))
+        parts = [part for part in parts if part.numel()]
+        if not parts:
+            return torch.zeros(0, dtype=torch.long, device=self.device)
+        return torch.unique(torch.cat(parts), sorted=True)
+
+    def _pack_steps(self, kept: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """``(rows, run_len)`` of ``kept`` global steps, one run per contiguous same-episode span."""
+        source = kept % self.capacity
+        rows = self._rows[source]
+        old_run = self._run_len[source]
+        count = int(kept.shape[0])
+        breaks = torch.ones(count, dtype=torch.bool, device=self.device)
+        if count > 1:
+            breaks[1:] = (kept[1:] != kept[:-1] + 1) | (old_run[1:] != old_run[:-1] + 1)
+        index = torch.arange(count, device=self.device)
+        start = torch.cummax(torch.where(breaks, index, torch.zeros(count, dtype=torch.long, device=self.device)), 0).values
+        return rows, index - start + 1
+
+    def _compact_kept_rows(self) -> None:
+        """Drop closed-episode rows that no key reads, and point the bank at what remains.
+
+        Caller holds ``self._lock``. Key embeddings and n_soft stay on their slots: only the
+        row index of each key changes, and a kept window stays consecutive.
+        """
+        kept = self._kept_steps(include_open=True)
+        if (
+            kept.numel() == self._size
+            and self._size > 0
+            and int(kept[0]) == self._oldest
+            and int(kept[-1]) == self._clock - 1
+        ):
+            return
+        count = self._bank_count
+        open_episode = self._open_episode
+        open_start = self._open_start
+        if kept.numel() == 0:
+            capacity = max(int(Settings.HWM_MEMORY_MAX_ROWS), 1)
+            self._rows = torch.zeros((capacity, self.row_dim), dtype=torch.float32, device=self.device)
+            self._steps = torch.full((capacity,), -1, dtype=torch.long, device=self.device)
+            self._run_len = torch.zeros((capacity,), dtype=torch.long, device=self.device)
+            self._final = torch.zeros((capacity,), dtype=torch.bool, device=self.device)
+            self.capacity = capacity
+            self._clock = 0
+            self._size = 0
+            self._open_episode = None
+            self._open_start = 0
+            self._episodes_closed = 0
+            self._bank_rows.fill_(-1)
+            self._bank_density.zero_()
+            self._bank_count = 0
+            self._bank_index = torch.full((capacity,), -1, dtype=torch.long, device=self.device)
+            return
+        packed, run_len = self._pack_steps(kept)
+        stored = int(kept.shape[0])
+        capacity = max(stored, int(Settings.HWM_MEMORY_MAX_ROWS))
+        self._rows = torch.zeros((capacity, self.row_dim), dtype=torch.float32, device=self.device)
+        self._steps = torch.full((capacity,), -1, dtype=torch.long, device=self.device)
+        self._run_len = torch.zeros((capacity,), dtype=torch.long, device=self.device)
+        self._final = torch.zeros((capacity,), dtype=torch.bool, device=self.device)
+        self._rows[:stored] = packed
+        self._steps[:stored] = torch.arange(stored, device=self.device)
+        self._run_len[:stored] = run_len
+        self.capacity = capacity
+        self._clock = stored
+        self._size = stored
+        if count:
+            self._bank_rows[:count] = torch.searchsorted(kept, self._bank_rows[:count].clone())
+            self._bank_rows[count:] = -1
+        if open_episode is not None and open_start < int(kept[-1]) + 1:
+            self._open_episode = open_episode
+            self._open_start = int(torch.searchsorted(kept, torch.tensor(open_start, device=self.device)))
+        else:
+            self._open_episode = None
+            self._open_start = stored
+        closed = self._open_start if self._open_episode is not None else stored
+        breaks = torch.ones(stored, dtype=torch.bool, device=self.device)
+        if stored > 1:
+            breaks[1:] = self._run_len[1:stored] == 1
+        self._episodes_closed = int(breaks[:closed].sum()) if closed else 0
+        self._bank_index = torch.full((capacity,), -1, dtype=torch.long, device=self.device)
+        if count:
+            self._bank_index[self._bank_rows[:count]] = torch.arange(count, device=self.device)
+
     def export_rows(self) -> Optional[dict[str, torch.Tensor]]:
-        """Stored rows oldest-first, for writing the neighbor bank to disk. None if empty."""
+        """Rows a kept key still reads, oldest first. None if the bank is empty.
+
+        ``bank_ends`` are the positions of those keys in ``rows`` (the last row of each
+        superstate). A reload offers those keys only, so a discarded window that sits
+        inside a neighbour's rows does not come back.
+        """
         with self._lock:
-            if self._size == 0:
+            kept = self._bank_covered_steps()
+            if kept.numel() == 0 or self._bank_count == 0:
                 return None
-            order = (torch.arange(self._size, device=self.device) + self._oldest) % self.capacity
+            rows, run_len = self._pack_steps(kept)
             return {
-                "rows": self._rows[order].detach().cpu().clone(),
-                "run_len": self._run_len[order].detach().cpu().clone(),
+                "rows": rows.detach().cpu().clone(),
+                "run_len": run_len.detach().cpu().clone(),
+                "bank_ends": torch.searchsorted(kept.cpu(), self._bank_rows[: self._bank_count].detach().cpu()),
             }
 
     def import_rows(self, payload: dict[str, torch.Tensor], episode_id_base: int = 1_000_000) -> int:
-        """Load a bank from ``export_rows`` as closed episodes. No-op if this memory already has rows."""
+        """Load ``export_rows``. A file without ``bank_ends`` is admitted, then discarded rows are dropped.
+
+        No-op if this memory already has rows. Returns the number of rows still stored.
+        """
         if payload is None or self.total_steps > 0:
             return 0
         rows = payload["rows"]
         run = payload["run_len"].reshape(-1)
+        bank_ends = payload.get("bank_ends")
         starts = [0]
         for index in range(1, int(run.shape[0])):
             if int(run[index]) == 1:
                 starts.append(index)
         starts.append(int(run.shape[0]))
-        imported = 0
+        restore = bank_ends is not None
         for episode, (begin, end) in enumerate(zip(starts, starts[1:])):
             block = rows[begin:end]
             self.add_batch(
@@ -431,9 +557,15 @@ class MemoryManager:
                 block[:, self.state_dim :].numpy(),
                 int(episode_id_base) + episode,
                 episode_end=True,
+                offer=not restore,
             )
-            imported += end - begin
-        return imported
+        if restore:
+            ends = torch.as_tensor(bank_ends, dtype=torch.long, device=self.device).reshape(-1)
+            with self._lock:
+                if int(ends.numel()):
+                    self._bank_offer_steps(ends)
+                self._compact_kept_rows()
+        return self._size
 
     # ------------------------------------------------------------------
     # Reading

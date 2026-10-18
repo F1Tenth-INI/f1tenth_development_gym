@@ -233,7 +233,8 @@ class LLD(nn.Module):
             raise ValueError("HWM_LLD_COV_HEAD centres on g(q), so HWM_LLD_CORRECTION_INPUT_COV (g's input) would be circular")
         if self.cov_head:
             self.cov_norm_projector = _attention_encoder(super_state_dim)
-        self._compile_rollout_step(super_state_dim)
+        self._rollout_super_state_dim = int(super_state_dim)
+        self.mean_delta_compiled = None
 
     def _covariance_override(
         self,
@@ -284,7 +285,7 @@ class LLD(nn.Module):
         return self._scaled_cholesky(prediction, cov, chol_scale)[1]
 
     def _compile_rollout_step(self, super_state_dim: int) -> None:
-        """Compile the rollout attention step now, so the first rollout does not pay for it.
+        """Compile the rollout attention step. Called only when an LLD rollout is actually run.
 
         Batch size and key count are marked dynamic. The warmup runs one step at the bank size
         from settings.
@@ -454,7 +455,8 @@ class LLD(nn.Module):
             correction_q = self._correct(query_super)
             zeros = correction_q.new_zeros(int(query_super.shape[0]))
             return correction_q, zeros, zeros
-        return self.mean_delta_compiled(query_super, key_emb, tokens, density, valid)
+        step = self.mean_delta_compiled if self.mean_delta_compiled is not None else self._mean_delta_core
+        return step(query_super, key_emb, tokens, density, valid)
 
     def _mean_delta_core(
         self,

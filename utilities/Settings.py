@@ -353,7 +353,7 @@ class Settings():
     HWM_CONTEXT_LEN = 16                 # recent [state, action] rows available to the observation builder
     HWM_SUPER_STATE_SIZE = 3             # [state, action] steps in one LLD superstate
     HWM_LLD_BATCH_SIZE = 32              # independent random transitions per LLD update
-    HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They stay stored. 0 -> keep everything
+    HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They are dropped with the other unreferenced rows once the episode closes. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
     HWM_PP_DRIVES = False                # Pure Pursuit drives instead of the actor; its rows still train the learner
     HWM_PP_UNTIL_WEIGHTS = True         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
@@ -388,7 +388,7 @@ class Settings():
     HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
     HWM_LLD_DIRECT_DELTA = False         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD changes width
     HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD changes width
-    HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation of the memory. Rows are never evicted: the row arrays double when full
+    HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation. Rows no kept key uses are dropped; the arrays grow when more rows arrive
     HWM_LOW_LEVEL_DISCOUNT = 0.99        # per-control-step discount for low-level values, on top of crash survival
     HWM_MEMORY_BANK_SIZE = 4000       # number of superstates (keys) kept in the memory's key bank. The LLD attends over all of them, expanded over the whole batch
     HWM_MEMORY_BANK_EXCLUDE_OVERLAP = True  # n_soft of a key ignores keys that share a row with it (|Δ row| <= S), which are near copies of it
@@ -405,11 +405,12 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 25 
+    MPC_NUM_OF_TRAJECTORIES = 50 
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
-    MPC_ACTION_CORRELATION = 0.6  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
+    MPC_ACTION_CORRELATION = 0.5  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.1   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
+    MPC_WAYPOINT_UPDTE_EMA = 0.4
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer

@@ -425,8 +425,15 @@ class CarSystem:
     def _evaluate_episode(
         self, post_step_controller_observation: dict[str, Any], post_step_driver_observation: dict
     ) -> tuple[dict, float, dict[str, Any], dict[str, Any]]:
+        hwm = (
+            getattr(self, "planner", None) is not None
+            and type(self.planner).__name__ == "HirarchicalPlanner"
+        )
         episode_termination = self.episode_terminator.evaluate(
-            post_step_controller_observation, post_step_driver_observation
+            post_step_controller_observation,
+            post_step_driver_observation,
+            ignore_leave_track=hwm,
+            ignore_episode_length=hwm,
         )
         post_step_controller_observation["episode_termination"] = episode_termination
         post_step_controller_observation["cbf_info"] = self.cbf_info
@@ -799,7 +806,12 @@ class CarSystem:
 
         nearest = self.waypoint_utils.nearest_waypoint_index
         planner = getattr(self, "planner", None)
-        if planner is not None and type(planner).__name__ == "HirarchicalPlanner":
+        hwm_drives = (
+            planner is not None
+            and type(planner).__name__ == "HirarchicalPlanner"
+            and planner._hwm_policy_drives()
+        )
+        if hwm_drives:
             planner._ensure_waypoints()
             if getattr(planner, "_waypoints_n", 0) > 0:
                 nearest = int(planner.nearest_waypoint_index(car_state).reshape(-1)[0])
@@ -821,7 +833,7 @@ class CarSystem:
         label_dict["reward: total"] = float(self.reward)
         self.render_utils.set_label_dict(label_dict)
         stored = self.waypoint_utils.waypoints
-        if nearest is not None and stored is not None and len(stored) > 0:
+        if nearest is not None and stored is not None and len(stored) > 0 and not hwm_drives:
             point = stored[int(nearest) % len(stored), (WP_X_IDX, WP_Y_IDX)]
             self.render_utils.scene.set_dynamic_points(
                 "closest_waypoint",

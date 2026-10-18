@@ -93,8 +93,17 @@ class HWMLearnerServer:
         self.memory.attach_projector(lld.attention_norm_projector)
         memory_path = resolve_model_dir(self.load_model_name or self.save_model_name) / "memory.pt"
         if memory_path.is_file():
-            imported = self.memory.import_rows(torch.load(memory_path, weights_only=True))
+            payload = torch.load(memory_path, weights_only=True)
+            n_file = int(payload["rows"].shape[0])
+            imported = self.memory.import_rows(payload)
             print(f"[server] Loaded {imported} memory rows from {memory_path}")
+            if imported < n_file:
+                snapshot = self.memory.export_rows()
+                if snapshot is not None:
+                    tmp = memory_path.with_name("memory.pt.tmp")
+                    torch.save(snapshot, tmp)
+                    tmp.replace(memory_path)
+                    print(f"[server] Stored {imported} non-discarded memory rows (dropped {n_file - imported})")
         # After .to(device) and checkpoint load, so each Adam tracks the tensors that training updates.
         # Only the LLD is trained here. The actor and the rest keep the weights they were
         # loaded with (or their random initialization).
@@ -170,7 +179,7 @@ class HWMLearnerServer:
                 metrics["lld_cov_top_keys"] = float(self.models["LLD"].last_cov_top_keys)
             for name, value in metrics.items():
                 totals[name] = totals.get(name, 0.0) + value
-        self.memory.refresh_embeddings()
+       # self.memory.refresh_embeddings()
         return {"steps": n_steps, **{name: value / n_steps for name, value in totals.items()}}
 
     def _lld_nll(self, current: torch.Tensor, nxt: torch.Tensor, steps: torch.Tensor) -> torch.Tensor:
