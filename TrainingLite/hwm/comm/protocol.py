@@ -7,6 +7,7 @@ client -> server
     raw_batch    {episode_id, episode_end, state: blob(N, S), action: blob(N, A)}
     clear_buffer {}
     terminate    {}
+    lap_time     {lap_time, mean_distance, std_distance, max_distance}
 
 server -> client
     ack            {msg}
@@ -41,6 +42,7 @@ MSG_HANDSHAKE = "handshake"
 MSG_WEIGHTS = "weights"
 MSG_TRAINING_INFO = "training_info"
 MSG_BATCH_ACK = "batch_ack"
+MSG_LAP_TIME = "lap_time"
 
 
 def pack_raw_batch(states: np.ndarray, actions: np.ndarray, episode_id: int, episode_end: bool) -> dict:

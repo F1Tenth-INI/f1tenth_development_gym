@@ -21,6 +21,7 @@ from TrainingLite.hwm.comm.protocol import (
     MSG_HANDSHAKE,
     MSG_TERMINATE,
     MSG_TERMINATE_ACK,
+    MSG_LAP_TIME,
     MSG_TRAINING_INFO,
     MSG_WEIGHTS,
     pack_raw_batch,
@@ -93,6 +94,22 @@ class HWMTCPClient:
                     f"(total_drops={self._send_drops})."
                 )
             return False
+
+    def send_lap_time(
+        self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float
+    ) -> None:
+        try:
+            self._send_q.put_nowait(
+                pack_simple(
+                    MSG_LAP_TIME,
+                    lap_time=float(lap_time),
+                    mean_distance=float(mean_distance),
+                    std_distance=float(std_distance),
+                    max_distance=float(max_distance),
+                )
+            )
+        except queue.Full:
+            pass
 
     def send_clear_buffer(self) -> None:
         try:

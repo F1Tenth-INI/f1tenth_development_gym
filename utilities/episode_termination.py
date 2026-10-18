@@ -40,7 +40,11 @@ class EpisodeTerminator:
             controller_obs.get("virtual_opponent_collision", False)
         )
         interrupted = bool(driver_obs.get("interrupted", False))
+        # The sim sets this when its own step counter passes EXPERIMENT_MAX_LENGTH
+        # (4000 physics steps, 40 s). It is a run-length cutoff, not a driving failure.
         terminated = bool(driver_obs.get("terminated", False))
+        if ignore_episode_length:
+            terminated = False
 
         wp_distances_l = next_waypoints[0, WP_D_LEFT_IDX]
         wp_distances_r = next_waypoints[0, WP_D_RIGHT_IDX]
@@ -90,11 +94,15 @@ class EpisodeTerminator:
             or spinning
             or stuck
         )
+        # The sim's own done flag is collision or that same length cutoff.
+        external_done = bool(driver_obs.get("done", False))
+        if ignore_episode_length:
+            external_done = collision or interrupted
         done = bool(
             truncated
             or terminated
             or episode_length_reached
-            or driver_obs.get("done", False)
+            or external_done
         )
 
         return {

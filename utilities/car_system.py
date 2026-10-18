@@ -435,6 +435,19 @@ class CarSystem:
             ignore_leave_track=hwm,
             ignore_episode_length=hwm,
         )
+        if hwm and episode_termination["done"]:
+            reasons = [
+                name
+                for name in (
+                    "collision",
+                    "stuck",
+                    "spinning",
+                    "virtual_opponent_collision",
+                    "interrupted",
+                )
+                if episode_termination.get(name)
+            ]
+            print(f"[HirarchicalPlanner] Episode reset: {', '.join(reasons) or 'done'}")
         post_step_controller_observation["episode_termination"] = episode_termination
         post_step_controller_observation["cbf_info"] = self.cbf_info
         post_step_controller_observation["mpc_info"] = self.mpc_info
@@ -925,6 +938,10 @@ class CarSystem:
             f"Lap time: {lap_time}, Error: Mean: {mean_distance}, "
             f"std: {std_distance}, max: {max_distance}"
         )
+        planner = getattr(self, "planner", None)
+        report = getattr(planner, "report_lap_time", None)
+        if report is not None:
+            report(lap_time, mean_distance, std_distance, max_distance)
 
         stop_recording_after = getattr(Settings, "STOP_RECORDING_AFTER_N_LAPS", None)
         if (

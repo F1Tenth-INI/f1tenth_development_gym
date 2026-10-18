@@ -27,6 +27,7 @@ from TrainingLite.hwm.comm.protocol import (
     MSG_BATCH_ACK,
     MSG_CLEAR_BUFFER,
     MSG_CLEAR_BUFFER_ACK,
+    MSG_LAP_TIME,
     MSG_RAW_BATCH,
     MSG_TERMINATE,
     MSG_TERMINATE_ACK,
@@ -291,23 +292,6 @@ class HWMLearnerServer:
                 **{k: v for k, v in metrics.items() if isinstance(v, (int, float, str, bool))},
             }
             self._latest_training_info = payload
-            loss_text = "".join(
-                f" {label}={float(payload[key]):.4f}"
-                for key, label in (
-                    ("lld_loss", "loss"),
-                    ("lld_n_soft", "n_soft"),
-                    ("lld_top_keys", "keys50"),
-                    ("lld_n_soft_norm", "n_soft_norm"),
-                    ("lld_cov_n_soft", "cov_n_soft"),
-                    ("lld_cov_top_keys", "cov_keys50"),
-                )
-                if isinstance(payload.get(key), (int, float))
-            )
-            self._status(
-                f"rows={payload['total_rows']} eps={payload['episodes']} "
-                f"updates={payload['total_updates']}{loss_text} round={dt:.2f}s"
-            )
-
             self._weights_blob = pack_frame(pack_weights(self.models.state_dicts(self.client_modules())))
             await self._broadcast_raw(self._weights_blob)
             await self._broadcast_raw(pack_frame(pack_simple(MSG_TRAINING_INFO, **payload)))
@@ -387,7 +371,14 @@ class HWMLearnerServer:
                 typ = msg.get("type")
                 data = msg.get("data", {}) or {}
 
-                if typ == MSG_RAW_BATCH:
+                if typ == MSG_LAP_TIME:
+                    print(
+                        f"[server] Lap time: {float(data.get('lap_time', 0.0)):.2f}s, "
+                        f"Error: Mean: {float(data.get('mean_distance', 0.0))}, "
+                        f"std: {float(data.get('std_distance', 0.0))}, "
+                        f"max: {float(data.get('max_distance', 0.0))}"
+                    )
+                elif typ == MSG_RAW_BATCH:
                     states, actions, episode_id, episode_end = unpack_raw_batch(data)
                     n = self.on_ingest(states, actions, episode_id, episode_end)
                     self.total_rows += n
