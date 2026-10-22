@@ -573,7 +573,7 @@ class HirarchicalPlanner(template_planner):
                 break
             drive_reward = (10 * distance_reward.sum()  + 2 * heading_reward.sum() + shortfall.sum() * 1 + overspeed.sum() * 2 + 0.25 * drift_error + 0.5 * fast_driving_reward) / count #+ travel_further_reward
             optimize_reward = (10 * distance_reward + 0 * drift_error ) / count # + 0.5 * fast_driving_reward / count
-            optimize_reward += (0.5 * (heading_reward * update_mask).sum() + (shortfall * update_mask).sum() * 2 + (overspeed * update_mask).sum() * 2) / update_mask.sum().clamp(min=1)
+            optimize_reward += (0 * 0.5 * (heading_reward * update_mask).sum() + (shortfall * update_mask).sum() * 2 + (overspeed * update_mask).sum() * 2) / update_mask.sum().clamp(min=1)
             optimize_reward += (shortfall * ~update_mask).sum() * 10 / (~update_mask).sum().clamp(min=1)
             #if not self.episode_timesteps % 24: print(optimize_reward - 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN)
             optimize_reward += 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN
