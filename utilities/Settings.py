@@ -407,15 +407,18 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 100 
+    MPC_NUM_OF_TRAJECTORIES = 50 
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
     MPC_ACTION_CORRELATION = 0.5  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.9
-    MPC_WAYPOINT_AHEAD_SPAN = 1  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
-    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
-    MPC_WAYPOINT_REVERT = 15  # on an EMA drop or leaving the raceline, roll back this many waypoints ahead and this many behind
+    MPC_WAYPOINT_UPDTE_EMA = 0.99
+    MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 3  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
+    MPC_WAYPOINT_AHEAD_SPAN = 3  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
+    MPC_WAYPOINT_AHEAD = 0  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
+    MPC_WAYPOINT_REVERT_STEPS = 2  # how many committed updates (of state and of action sequence) each of those waypoints goes back per revert. Stops at the oldest one
+    MPC_WAYPOINT_REVERT_AHEAD = 5  # on an EMA drop, a stall or leaving the raceline, roll back this many waypoints in front of the car's nearest one (and the nearest one itself)
+    MPC_WAYPOINT_REVERT_BEHIND = 23  # same, this many waypoints behind it
     MPC_WAYPOINT_REVERT_HOLD = 0 # 3  # laps those rolled-back waypoints and their action sequences stay frozen
     MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
     MPC_WAYPOINT_UPDATE_DISTANCE = 0.3 #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
@@ -424,7 +427,8 @@ class Settings():
     MPC_STALL_REVERSE_STEPS = 50  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
     MPC_STALL_BACKTRACK_WAYPOINTS = 10  # the backtrack phase drives to the waypoint this many behind the car
     MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
-    MPC_WAYPOINT_REWARD_DROP = 0.2   # discard staged updates and hold for that delay when the reward EMA falls by more than this fraction of its previous value
+    MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA. (The waypoint EMA setting works the other way round: its gamma weighs the new value)
+    MPC_WAYPOINT_REWARD_DROP = 2   # discard staged updates and hold for that delay when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
     HWM_MIN_BORDER_DISTANCE = 0.2  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
     MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.2  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
 
@@ -433,6 +437,7 @@ class Settings():
     MPC_WAYPOINT_REJECT_OPT_OFF_TRACK_UPDATE = False  # True: a waypoint target-state update is rejected when the optimizer's trajectory (opt reward, not the drive reward) leaves the raceline (farther than MPC_WAYPOINT_UPDATE_DISTANCE). Only the state update at that waypoint is dropped; other waypoints and the action sequence at that waypoint are not affected
     MPC_WAYPOINT_REJECT_OFF_TRACK = False  # True: a stored action sequence whose path leaves the track (farther than MPC_WAYPOINT_UPDATE_DISTANCE from the raceline) counts as bad too, like a wall hit. Handled as the flag above says: restore the last good one if that flag is on, else delete. False: only walls count
     MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS = False  # True: when a waypoint's action update is rejected, its state (position, speed, heading, drift, steer, yaw rate, slip) goes back to the last good one with it. When its sequence is deleted, the state is reset to the loaded raceline. False: only the action sequence is touched
+    HWM_SEED_FROM_ROLLOUT = True  # True: once stored sequences exist, the sampling seed is not the blend of the two neighbouring waypoints' sequences. That blend is rolled out with the model, and action k becomes the mix of the first stored actions of the two waypoints around rollout state k (the running plan's action k where neither has one)
     HWM_SHOW_WAYPOINT_PATHS = False  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
     HWM_GRADIENT_MPC = False  # True: instead of 70 random samples, the HWM planner descends the MPC cost by gradient (Adam through the Pacejka rollout) from a few noisy copies of the nominal plan. Needs RUN_MPC_WITH_PACEJKA
     HWM_GRAD_SAMPLES = 16  # parallel action sequences in gradient mode (one of them is the noise-free nominal)
