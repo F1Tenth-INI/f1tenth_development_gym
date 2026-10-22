@@ -3177,6 +3177,19 @@
       }
     }
 
+    function drawPointTexts(points, texts, color, cx, cy) {
+      if (!Array.isArray(points) || points.length === 0) return;
+      ctx.fillStyle = "rgb(0,0,0)";
+      ctx.font = "12px sans-serif";
+      ctx.textBaseline = "alphabetic";
+      for (let i = 0; i < points.length && i < texts.length; i++) {
+        const p = points[i];
+        if (!Array.isArray(p) || p.length < 2) continue;
+        const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
+        ctx.fillText(String(texts[i]), sx + 3, sy - 3);
+      }
+    }
+
     function drawSinglePoint(pointList, color, radius, cx, cy) {
       if (!Array.isArray(pointList) || pointList.length === 0) return;
       const p = pointList[0];
@@ -3243,6 +3256,7 @@
         const w = Number.isFinite(width) ? width : 1.5;
         if (kind === "points") {
           drawPoints(data, color, r, cx, cy);
+          if (Array.isArray(style.texts)) drawPointTexts(data, style.texts, color, cx, cy);
         } else if (kind === "polyline") {
           if (Array.isArray(data) && data.length > 0 && Array.isArray(data[0]) && Array.isArray(data[0][0])) {
             for (const line of data) drawLine(line, color, w, cx, cy);
@@ -3252,7 +3266,14 @@
         } else if (kind === "trajectories") {
           if (style.stroke) {
             if (Array.isArray(data)) {
-              for (const traj of data) drawLine(traj, color, w, cx, cy);
+              const perTrajectory = style.colors;
+              for (let i = 0; i < data.length; i++) {
+                let trajColor = color;
+                if (Array.isArray(perTrajectory) && Array.isArray(perTrajectory[i]) && perTrajectory[i].length >= 3) {
+                  trajColor = `rgb(${perTrajectory[i][0]},${perTrajectory[i][1]},${perTrajectory[i][2]})`;
+                }
+                drawLine(data[i], trajColor, w, cx, cy);
+              }
             }
           } else if (style.fill) {
             const alpha = Number(style.alpha);

@@ -96,7 +96,8 @@ class HWMTCPClient:
             return False
 
     def send_lap_time(
-        self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float
+        self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float,
+        wp_discarded: int = 0, wp_rejected: int = 0,
     ) -> None:
         try:
             self._send_q.put_nowait(
@@ -106,6 +107,8 @@ class HWMTCPClient:
                     mean_distance=float(mean_distance),
                     std_distance=float(std_distance),
                     max_distance=float(max_distance),
+                    wp_discarded=int(wp_discarded),
+                    wp_rejected=int(wp_rejected),
                 )
             )
         except queue.Full:

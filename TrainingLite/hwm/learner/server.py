@@ -376,7 +376,9 @@ class HWMLearnerServer:
                         f"[server] Lap time: {float(data.get('lap_time', 0.0)):.2f}s, "
                         f"Error: Mean: {float(data.get('mean_distance', 0.0))}, "
                         f"std: {float(data.get('std_distance', 0.0))}, "
-                        f"max: {float(data.get('max_distance', 0.0))}"
+                        f"max: {float(data.get('max_distance', 0.0))}, "
+                        f"reset wp actions: {int(data.get('wp_discarded', 0))}, "
+                        f"rejected wp updates: {int(data.get('wp_rejected', 0))}"
                     )
                 elif typ == MSG_RAW_BATCH:
                     states, actions, episode_id, episode_end = unpack_raw_batch(data)

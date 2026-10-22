@@ -341,6 +341,60 @@ class WallGeometry:
         limit = float(Settings.HWM_MIN_BORDER_DISTANCE)
         return ~inside | (self.wall_distance[rows, cols] < limit)
 
+    def distance_at(self, xy: ArrayLike) -> torch.Tensor:
+        """Distance in meters from points ``(..., 2)`` to the nearest wall, from the same grid as the collision check.
+
+        Points outside the map give 0. A blank map gives infinity.
+        """
+        p = torch.as_tensor(xy, device=self.device).to(torch.float64)
+        if Settings.BLANK_MAP:
+            return torch.full(p.shape[:-1], float("inf"), dtype=torch.float32, device=self.device)
+        x_t = p[..., 0] - self.origin_x
+        y_t = p[..., 1] - self.origin_y
+        x_rot = x_t * self.origin_cos + y_t * self.origin_sin
+        y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
+        inside = (
+            (x_rot >= 0) & (x_rot < self.map_width * self.resolution)
+            & (y_rot >= 0) & (y_rot < self.map_height * self.resolution)
+        )
+        cols = (x_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_width - 1).long()
+        rows = (y_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_height - 1).long()
+        distance = self.wall_distance[rows, cols]
+        return torch.where(inside, distance, torch.zeros_like(distance))
+
+    def soft_wall_penalty(self, poses: torch.Tensor, margin: float) -> torch.Tensor:
+        """``(...)`` differentiable: summed over the body corners, how far each is inside ``margin`` of a wall.
+
+        ``poses`` is ``(..., 3)`` ``[x, y, theta]`` and keeps its autograd graph. The distance to the
+        walls is the map's distance grid, bilinearly interpolated so it has a gradient in x and y.
+        Corners outside the map count as distance 0.
+        """
+        if Settings.BLANK_MAP:
+            return poses.new_zeros(poses.shape[:-1])
+        p = poses.to(torch.float32)
+        cos_t, sin_t = torch.cos(p[..., 2:3]), torch.sin(p[..., 2:3])
+        cx, cy = self._corner_x.to(torch.float32), self._corner_y.to(torch.float32)
+        x = p[..., 0:1] + cos_t * cx - sin_t * cy
+        y = p[..., 1:2] + sin_t * cx + cos_t * cy
+        x_t, y_t = x - self.origin_x, y - self.origin_y
+        x_rot = x_t * self.origin_cos + y_t * self.origin_sin
+        y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
+        inside = (
+            (x_rot >= 0) & (x_rot < self.map_width * self.resolution)
+            & (y_rot >= 0) & (y_rot < self.map_height * self.resolution)
+        )
+        fc = (x_rot / self.resolution - 0.5).clamp(0, self.map_width - 1.001)
+        fr = (y_rot / self.resolution - 0.5).clamp(0, self.map_height - 1.001)
+        c0, r0 = fc.detach().floor().long(), fr.detach().floor().long()
+        wc, wr = fc - c0, fr - r0
+        grid = self.wall_distance
+        d = (
+            grid[r0, c0] * (1 - wc) * (1 - wr) + grid[r0, c0 + 1] * wc * (1 - wr)
+            + grid[r0 + 1, c0] * (1 - wc) * wr + grid[r0 + 1, c0 + 1] * wc * wr
+        )
+        d = torch.where(inside, d, torch.zeros_like(d))
+        return (float(margin) - d).clamp(min=0.0).sum(dim=-1)
+
     def in_wall(self, poses: ArrayLike) -> torch.Tensor:
         """``(...)`` bool: any body corner closer to a wall than ``HWM_MIN_BORDER_DISTANCE``, or outside the map."""
         return self.corners_in_wall(poses).any(dim=-1)

@@ -251,6 +251,8 @@ class Settings():
     GLOBALLY_DISABLE_COMPILATION = False # Disable TF Compilation
     DISABLE_GPU = True # Disable GPU usage for TF
 
+    RANDOM_SEED = None                   # int: seed python, numpy and torch in every process that parses Settings (run.py, the HWM learner). None: unseeded
+
     ## SAC Agent planner
     ACTOR_ID = 0                         # RL actor index (TCP learner + web renderer port offset)
     LEARNER_TCP_HOST = "127.0.0.1"       # learner server address for sac_agent training client
@@ -405,18 +407,41 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 50 
+    MPC_NUM_OF_TRAJECTORIES = 100 
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
     MPC_ACTION_CORRELATION = 0.5  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.8
-    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead
+    MPC_WAYPOINT_UPDTE_EMA = 0.9
+    MPC_WAYPOINT_AHEAD_SPAN = 1  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
+    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
+    MPC_WAYPOINT_REVERT = 15  # on an EMA drop or leaving the raceline, roll back this many waypoints ahead and this many behind
+    MPC_WAYPOINT_REVERT_HOLD = 0 # 3  # laps those rolled-back waypoints and their action sequences stay frozen
     MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
-    MPC_WAYPOINT_UPDATE_DISTANCE = 0.5  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint
-    MPC_WAYPOINT_UPDATE_RESUME_DELAY = 5.0  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
+    MPC_WAYPOINT_UPDATE_DISTANCE = 0.3 #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
+    MPC_STALL_DISTANCE = 0.5  # [m] the car counts as stalled, and goes into recovery, when it moved less than this in MPC_STALL_TIME
+    MPC_STALL_TIME = 3.5  # [s]
+    MPC_STALL_REVERSE_STEPS = 50  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
+    MPC_STALL_BACKTRACK_WAYPOINTS = 10  # the backtrack phase drives to the waypoint this many behind the car
+    MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
     MPC_WAYPOINT_REWARD_DROP = 0.2   # discard staged updates and hold for that delay when the reward EMA falls by more than this fraction of its previous value
-    HWM_MIN_BORDER_DISTANCE = 0.15  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
+    HWM_MIN_BORDER_DISTANCE = 0.2  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
+    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.2  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
+
+    MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
+    MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
+    MPC_WAYPOINT_REJECT_OPT_OFF_TRACK_UPDATE = False  # True: a waypoint target-state update is rejected when the optimizer's trajectory (opt reward, not the drive reward) leaves the raceline (farther than MPC_WAYPOINT_UPDATE_DISTANCE). Only the state update at that waypoint is dropped; other waypoints and the action sequence at that waypoint are not affected
+    MPC_WAYPOINT_REJECT_OFF_TRACK = False  # True: a stored action sequence whose path leaves the track (farther than MPC_WAYPOINT_UPDATE_DISTANCE from the raceline) counts as bad too, like a wall hit. Handled as the flag above says: restore the last good one if that flag is on, else delete. False: only walls count
+    MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS = False  # True: when a waypoint's action update is rejected, its state (position, speed, heading, drift, steer, yaw rate, slip) goes back to the last good one with it. When its sequence is deleted, the state is reset to the loaded raceline. False: only the action sequence is touched
+    HWM_SHOW_WAYPOINT_PATHS = False  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
+    HWM_GRADIENT_MPC = False  # True: instead of 70 random samples, the HWM planner descends the MPC cost by gradient (Adam through the Pacejka rollout) from a few noisy copies of the nominal plan. Needs RUN_MPC_WITH_PACEJKA
+    HWM_GRAD_SAMPLES = 16  # parallel action sequences in gradient mode (one of them is the noise-free nominal)
+    HWM_GRAD_STEPS = 30  # gradient steps per control step
+    HWM_GRAD_LR = 0.05  # Adam step in normalized action units
+    HWM_GRAD_WALL_MARGIN = 0.4  # [m] the soft wall penalty (gradient mode only) starts when a body corner is closer to a wall than this
+    HWM_GRAD_WALL_WEIGHT = 50.0  # weight of that penalty against the MPC cost
+    HWM_LIMIT_INITIAL_WP_SPEED = True # Limits initial target speed of Waypoints to 
+    HWM_INITIAL_SPEED_LIMIT = 3 # [m/s]
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer

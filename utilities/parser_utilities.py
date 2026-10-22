@@ -345,6 +345,20 @@ def parse_settings_args(description: Optional[str] = None, verbose: bool = True,
     if hasattr(Settings, "recalculate_paths"):
         Settings.recalculate_paths()
 
+    seed = getattr(Settings, "RANDOM_SEED", None)
+    if seed is not None:
+        import random
+        random.seed(int(seed))
+        if NUMPY_AVAILABLE:
+            np.random.seed(int(seed))
+        try:
+            import torch
+            torch.manual_seed(int(seed))
+        except ImportError:
+            pass
+        if verbose:
+            print(f"Seeded python, numpy and torch with RANDOM_SEED={int(seed)}")
+
     # Save settings snapshot after parsing
     if save_snapshot:
         try:
