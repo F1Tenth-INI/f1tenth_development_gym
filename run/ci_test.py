@@ -88,6 +88,10 @@ if __name__ == "__main__":
             [*base, "--CONTROLLER", "rpgd-lite-jax", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
         ),
         (
+            "mpc-acados",
+            [*base, "--CONTROLLER", "mpc-acados", "--GLOBAL_WAYPOINT_VEL_FACTOR", "1.0", "--CONTROL_DELAY", "0.08"],
+        ),
+        (
             "SAC agent",
             [
                 "--MAP_NAME", "RCA1",

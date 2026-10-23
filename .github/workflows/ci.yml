@@ -12,6 +12,8 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      ACADOS_COMMIT: 5b74695a51c09637664318f7c9b2f1ee2efa05b7
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,6 +51,30 @@ jobs:
           # Editable installs fail because SI_Toolkit pins setuptools<PEP660;
           # installing the wheel still uses the repo copy checked out above.
           python -m pip install ./SI_Toolkit
+
+      - name: Cache acados
+        id: cache-acados
+        uses: actions/cache@v4
+        with:
+          path: ~/acados
+          key: ${{ runner.os }}-acados-${{ env.ACADOS_COMMIT }}
+
+      - name: Build acados
+        if: steps.cache-acados.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/acados/acados.git ~/acados
+          cd ~/acados
+          git checkout "$ACADOS_COMMIT"
+          git submodule update --init --recursive
+          mkdir -p build && cd build
+          cmake .. -DACADOS_WITH_QPOASES=OFF -DACADOS_WITH_OPENMP=OFF
+          make install -j"$(nproc)"
+
+      - name: Install acados Python interface
+        run: |
+          python -m pip install -e ~/acados/interfaces/acados_template
+          echo "ACADOS_SOURCE_DIR=$HOME/acados" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/acados/lib" >> $GITHUB_ENV
 
       - name: Add project root to PYTHONPATH
         run: |
