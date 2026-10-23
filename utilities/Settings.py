@@ -144,7 +144,7 @@ class Settings():
     NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    # NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     # NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     

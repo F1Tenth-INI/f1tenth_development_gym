@@ -19,6 +19,7 @@ QP_COND_BLOCK = 4              # HPIPM partial condensing: stages per condensed 
 NLP_TOL = 1.0e-4               # SQP stops early once converged (eq / ineq / complementarity)
 NLP_TOL_STAT = 1.0e-2
 FEASIBILITY_TOL = 1.0e-3       # max OCP constraint violation of a rolled-out input sequence
+SOLVER_TIGHTENING = 0.10       # solver limits are this fraction tighter than the checked ones
 
 # --- Track constraints ------------------------------------------------------------
 BORDER_MARGIN = 0.10           # [m] every car corner keeps this distance to the border
@@ -40,7 +41,8 @@ OCP_LAT_FORCE_SMOOTH = 0.3     # [N] |F_y| ~ sqrt(F_y^2 + eps^2) - eps
 # --- Cost weights -----------------------------------------------------------------
 W_LATERAL = 15.0
 W_HEADING = 0.0
-W_SPEED = 20.0  # on the relative error 1 - vx / v_ref
+W_PROGRESS = 3.0               # reward on progress rate s_dot (m/s); the MPC picks its own speed
+W_SPEED = 0.0                  # optional tracking of the relative error 1 - vx / v_ref
 W_YAW_ERR = 0.00
 W_VY = 0.0
 W_STEER_RATE = 0.05            # on servo rate (rad/s)

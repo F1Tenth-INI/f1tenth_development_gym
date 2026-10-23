@@ -181,18 +181,19 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     ocp.solver_options.tf = N * dt
 
     # --- cost ---------------------------------------------------------------------
-    ocp.cost.cost_type = "NONLINEAR_LS"
+    # Stage: reward progress along the raceline (the speed is limited only by the constraints)
+    # plus quadratic regularisation.  The optional speed term uses the relative error, because an
+    # absolute error (vx - v_ref)^2 makes progress into fast sections expensive.
+    ocp.cost.cost_type = "EXTERNAL"
     ocp.cost.cost_type_e = "NONLINEAR_LS"
-    # Relative speed error: with the forced terminal stop, an absolute error (vx - v_ref)^2 makes
-    # progress expensive (v_ref grows after corners) and the optimum parks in the slowest corner.
+    s_dot = (vx * ca.cos(mu) - vy * ca.sin(mu)) / (1.0 - n * kappa)
     speed_err = 1.0 - vx / ca.fmax(v_ref, 1.0)
-    model.cost_y_expr = ca.vertcat(n, mu, speed_err, yaw_err, vy, servo_rate, accel, accel - accel_prev)
-    model.cost_y_expr_e = ca.vertcat(n, mu)
+    y = ca.vertcat(n, mu, speed_err, yaw_err, vy, servo_rate, accel, accel - accel_prev)
     w = np.array([cfg.W_LATERAL, cfg.W_HEADING, cfg.W_SPEED, cfg.W_YAW_ERR, cfg.W_VY,
                   cfg.W_STEER_RATE, cfg.W_ACCEL, cfg.W_ACCEL_RATE])
-    ocp.cost.W = np.diag(w)
+    model.cost_expr_ext_cost = 0.5 * ca.dot(y, w * y) - cfg.W_PROGRESS * s_dot
+    model.cost_y_expr_e = ca.vertcat(n, mu)
     ocp.cost.W_e = cfg.W_TERMINAL_SCALE * np.diag(w[:2])
-    ocp.cost.yref = np.zeros(len(w))
     ocp.cost.yref_e = np.zeros(2)
 
     # --- input / state bounds ------------------------------------------------------
@@ -242,23 +243,29 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
         slip_h = 0.0 * slip_h
     slip_ub = np.array([cfg.MAX_SLIP_FRONT, cfg.MAX_SLIP_REAR])
 
+    # The solver gets limits tightened by SOLVER_TIGHTENING; the rollout check uses the nominal
+    # ones, so plans that are only approximately converged still pass it.
+    tight = 1.0 - cfg.SOLVER_TIGHTENING
+    border_uh_ocp = (1.0 + cfg.SOLVER_TIGHTENING) * border_uh
+
     model.con_h_expr_0 = accel_h
-    ocp.constraints.lh_0 = accel_lh
-    ocp.constraints.uh_0 = accel_uh
+    ocp.constraints.lh_0 = tight * accel_lh
+    ocp.constraints.uh_0 = tight * accel_uh
 
     model.con_h_expr = ca.vertcat(border_h, slip_h, accel_h)
-    ocp.constraints.lh = np.concatenate([border_lh, -slip_ub, accel_lh])
-    ocp.constraints.uh = np.concatenate([border_uh, slip_ub, accel_uh])
+    ocp.constraints.lh = np.concatenate([border_lh, -slip_ub, tight * accel_lh])
+    ocp.constraints.uh = np.concatenate([border_uh_ocp, slip_ub, tight * accel_uh])
     ocp.constraints.idxsh = np.arange(n_border + 2)
 
     # --- terminal set: inside the track, v_x <= waypoint speed, heading near the raceline ----
     mu_max = np.deg2rad(cfg.TERMINAL_MAX_HEADING_DEG)
-    terminal_h = ca.vertcat(border_h, vx - cfg.TERMINAL_SPEED_FACTOR * interp["v_wp"](s), mu)
+    v_term = cfg.TERMINAL_SPEED_FACTOR * interp["v_wp"](s)
+    terminal_h = ca.vertcat(border_h, vx - v_term, mu)
     terminal_lh = np.concatenate([border_lh, [-1e3, -mu_max]])
     terminal_uh = np.concatenate([border_uh, [0.0, mu_max]])
-    model.con_h_expr_e = terminal_h
-    ocp.constraints.lh_e = terminal_lh
-    ocp.constraints.uh_e = terminal_uh
+    model.con_h_expr_e = ca.vertcat(border_h, vx - tight * v_term, mu)
+    ocp.constraints.lh_e = np.concatenate([border_lh, [-1e3, -tight * mu_max]])
+    ocp.constraints.uh_e = np.concatenate([border_uh_ocp, [0.0, tight * mu_max]])
     ns_e = n_border + 2
     ocp.constraints.idxsh_e = np.arange(ns_e)
 
