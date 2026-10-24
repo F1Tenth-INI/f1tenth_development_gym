@@ -1,0 +1,165 @@
+HWM control-step profile (250 steps measured; dynamics=lld, samples=200, horizon=25)
+controller step: mean 103.878 ms, median 103.007, p95 113.169, max 121.308, min 97.388
+full loop period (controller + simulator + render + anything else): mean 106.737 ms, median 105.917, p95 116.032, max 124.578  -> 9.4 control steps/s
+outside the controller (simulator, rendering, glue): 2.859 ms/step
+
+section                                                                calls/stp   mean ms    med ms    p95 ms    max ms   ms/step self/step  %step  self%
+  _maybe_handle_server_terminate                                            1.00     0.001     0.001     0.001     0.006     0.001     0.001    0.0    0.0
+  _sync_from_server                                                         1.00     0.001     0.001     0.001     0.001     0.001     0.001    0.0    0.0
+  get_car_state                                                             1.00     0.002     0.002     0.002     0.009     0.002     0.002    0.0    0.0
+      memory.recent                                                         1.00     0.044     0.043     0.051     0.066     0.044     0.044    0.0    0.0
+    build_actor_observation                                                 1.00     0.321     0.316     0.351     0.564     0.321     0.277    0.3    0.3
+  build_observation                                                         1.00     0.325     0.321     0.356     0.571     0.325     0.005    0.3    0.0
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.001     0.003     0.001     0.001    0.0    0.0
+      _update_stall                                                         1.00     0.013     0.014     0.017     0.028     0.013     0.013    0.0    0.0
+      _update_recover_mode                                                  1.00     0.001     0.001     0.001     0.001     0.001     0.001    0.0    0.0
+    _refresh_recovery                                                       1.00     0.208     0.205     0.234     0.363     0.208     0.193    0.2    0.2
+    _interpolated_waypoint_actions                                          1.00     0.088     0.086     0.097     0.147     0.088     0.088    0.1    0.1
+      noise_draw                                                            1.00     0.061     0.059     0.069     0.131     0.061     0.061    0.1    0.1
+      temporal_correlation_loop                                             1.00     0.476     0.469     0.489     1.177     0.476     0.476    0.5    0.5
+      clamp                                                                 1.00     0.016     0.016     0.019     0.027     0.016     0.016    0.0    0.0
+    _sample_mpc_actions                                                     1.00     0.564     0.554     0.588     1.332     0.564     0.011    0.5    0.0
+          memory.recent                                                     1.00     0.035     0.034     0.042     0.070     0.035     0.035    0.0    0.0
+        setup                                                               1.00     0.109     0.106     0.126     0.190     0.109     0.074    0.1    0.1
+          memory.lld_bank                                                   1.00     0.006     0.005     0.007     0.013     0.006     0.006    0.0    0.0
+          LLD._correct                                                      1.00     0.123     0.119     0.152     0.230     0.123     0.123    0.1    0.1
+        bank_and_key_embedding                                              1.00     0.274     0.268     0.332     0.461     0.274     0.146    0.3    0.1
+          build_query_superstate                                           25.00     0.043     0.042     0.050     0.094     1.083     1.083    1.0    1.0
+              LLD._correct                                                 25.00     0.063     0.060     0.076     0.149     1.565     1.565    1.5    1.5
+            LLD._mean_delta_core                                           25.00     1.020     1.015     1.099     1.627    25.506    23.941   24.6   23.0
+          mean_delta_step                                                  25.00     1.048     1.042     1.129     1.665    26.200     0.693   25.2    0.7
+            LLD.reconstruct_next_state                                     25.00     0.149     0.147     0.161     0.325     3.737     3.737    3.6    3.6
+          reconstruct_next_state                                           25.00     0.153     0.151     0.165     0.331     3.828     0.091    3.7    0.1
+          history_update                                                   25.00     0.015     0.015     0.016     0.044     0.383     0.383    0.4    0.4
+        horizon_loop                                                        1.00    31.813    31.663    34.450    40.624    31.813     0.320   30.6    0.3
+      rollout_lld                                                           1.00    32.294    32.152    35.050    41.391    32.294     0.098   31.1    0.1
+    rollout_of_samples                                                      1.00    32.298    32.157    35.054    41.396    32.298     0.004   31.1    0.0
+      _ensure_waypoints                                                     1.00     0.002     0.002     0.003     0.005     0.002     0.002    0.0    0.0
+    nearest_waypoint_index                                                  1.00     0.140     0.138     0.172     0.190     0.140     0.138    0.1    0.1
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.001     0.009     0.001     0.001    0.0    0.0
+    rollout_waypoint_states                                                 1.00     1.557     1.545     1.687     1.907     1.557     1.556    1.5    1.5
+      per_rollout_waypoint_reward_loop                                      1.00    44.087    43.864    45.250    51.246    44.087    44.087   42.4   42.4
+        wall.in_wall                                                        1.00     0.597     0.592     0.656     0.853     0.597     0.597    0.6    0.6
+        wall.distance_at                                                    1.00     0.155     0.154     0.165     0.221     0.155     0.155    0.1    0.1
+      crash_and_wall_terms                                                  1.00     0.939     0.933     1.017     1.301     0.939     0.186    0.9    0.2
+    MPC_reward                                                              1.00    45.072    44.840    46.424    52.597    45.072     0.047   43.4    0.0
+    softmax_weights_and_plan                                                1.00     0.021     0.020     0.024     0.033     0.021     0.021    0.0    0.0
+    _note_reward                                                            1.00     0.012     0.012     0.014     0.020     0.012     0.012    0.0    0.0
+    mean_action_sequence                                                    1.00     0.025     0.025     0.030     0.041     0.025     0.025    0.0    0.0
+            memory.recent                                                   1.00     0.042     0.041     0.047     0.062     0.042     0.042    0.0    0.0
+          setup                                                             1.00     0.097     0.096     0.113     0.146     0.097     0.055    0.1    0.1
+            delay_queue_and_clip                                           25.00     0.021     0.020     0.028     0.061     0.530     0.530    0.5    0.5
+            jax_step_incl_transfer_and_sync                                25.00     0.130     0.122     0.149     0.348     3.239     3.239    3.1    3.1
+            heading_fix_and_store                                          25.00     0.005     0.004     0.006     0.020     0.114     0.114    0.1    0.1
+          horizon_loop                                                      1.00     4.099     4.079     4.230     5.004     4.099     0.216    3.9    0.2
+          stack_to_torch                                                    1.00     0.032     0.032     0.039     0.045     0.032     0.032    0.0    0.0
+        rollout_pacejka                                                     1.00     4.243     4.224     4.402     5.158     4.243     0.015    4.1    0.0
+      pacejka_of_mean_sequence                                              1.00     4.246     4.227     4.406     5.162     4.246     0.003    4.1    0.0
+            memory.recent                                                   1.00     0.043     0.042     0.050     0.068     0.043     0.043    0.0    0.0
+          setup                                                             1.00     0.125     0.123     0.143     0.175     0.125     0.081    0.1    0.1
+            memory.lld_bank                                                 1.00     0.007     0.007     0.008     0.014     0.007     0.007    0.0    0.0
+            LLD._correct                                                    1.00     0.118     0.117     0.136     0.158     0.118     0.118    0.1    0.1
+          bank_and_key_embedding                                            1.00     0.293     0.290     0.333     0.392     0.293     0.168    0.3    0.2
+            build_query_superstate                                         25.00     0.029     0.028     0.037     0.078     0.730     0.730    0.7    0.7
+                LLD._correct                                               25.00     0.043     0.040     0.051     0.203     1.081     1.081    1.0    1.0
+              LLD._mean_delta_core                                         25.00     0.150     0.143     0.177     0.474     3.761     2.680    3.6    2.6
+            mean_delta_step                                                25.00     0.177     0.169     0.208     0.520     4.426     0.665    4.3    0.6
+              LLD.reconstruct_next_state                                   25.00     0.135     0.132     0.150     0.280     3.379     3.379    3.3    3.3
+            reconstruct_next_state                                         25.00     0.139     0.136     0.154     0.286     3.466     0.087    3.3    0.1
+            history_update                                                 25.00     0.010     0.010     0.012     0.033     0.262     0.262    0.3    0.3
+          horizon_loop                                                      1.00     9.180     9.125     9.395    12.752     9.180     0.296    8.8    0.3
+        rollout_lld                                                         1.00     9.657     9.600     9.949    13.230     9.657     0.060    9.3    0.1
+      lld_of_mean_sequence                                                  1.00     9.663     9.606     9.955    13.237     9.663     0.006    9.3    0.0
+      _draw_mpc_trajectories                                                1.00     0.100     0.098     0.116     0.185     0.100     0.100    0.1    0.1
+    display_rollouts                                                        1.00    14.020    13.939    14.593    17.614    14.020     0.011   13.5    0.0
+      _weighted_state_trajectory                                            2.00     0.034     0.036     0.045     0.068     0.067     0.067    0.1    0.1
+    optimistic_plan                                                         1.00     0.089     0.087     0.104     0.136     0.089     0.022    0.1    0.0
+        _ensure_waypoints                                                   1.00     0.002     0.002     0.003     0.004     0.002     0.002    0.0    0.0
+      nearest_waypoint_index                                                1.00     0.129     0.128     0.149     0.168     0.129     0.127    0.1    0.1
+        _ensure_waypoints                                                   1.00     0.001     0.001     0.001     0.007     0.001     0.001    0.0    0.0
+      rollout_waypoint_states                                               1.00     0.653     0.658     0.713     0.833     0.653     0.652    0.6    0.6
+        per_rollout_waypoint_reward_loop                                    1.00     0.489     0.487     0.511     0.583     0.489     0.489    0.5    0.5
+          wall.in_wall                                                      1.00     0.134     0.132     0.148     0.170     0.134     0.134    0.1    0.1
+          wall.distance_at                                                  1.00     0.078     0.078     0.085     0.096     0.078     0.078    0.1    0.1
+        crash_and_wall_terms                                                1.00     0.312     0.310     0.335     0.394     0.312     0.100    0.3    0.1
+      MPC_reward                                                            1.00     0.844     0.840     0.888     1.021     0.844     0.043    0.8    0.0
+    _accept_waypoint_update                                                 1.00     1.664     1.657     1.780     2.029     1.664     0.039    1.6    0.0
+    optimistic_sequence                                                     1.00     0.015     0.015     0.017     0.023     0.015     0.015    0.0    0.0
+          memory.recent                                                     1.00     0.037     0.036     0.043     0.049     0.037     0.037    0.0    0.0
+        setup                                                               1.00     0.080     0.078     0.097     0.138     0.080     0.043    0.1    0.0
+          delay_queue_and_clip                                             25.00     0.021     0.020     0.026     0.065     0.516     0.516    0.5    0.5
+          jax_step_incl_transfer_and_sync                                  25.00     0.126     0.122     0.145     0.353     3.149     3.149    3.0    3.0
+          heading_fix_and_store                                            25.00     0.005     0.004     0.005     0.020     0.113     0.113    0.1    0.1
+        horizon_loop                                                        1.00     3.989     3.965     4.115     4.800     3.989     0.211    3.8    0.2
+        stack_to_torch                                                      1.00     0.029     0.029     0.036     0.052     0.029     0.029    0.0    0.0
+      rollout_pacejka                                                       1.00     4.110     4.084     4.262     4.932     4.110     0.012    4.0    0.0
+    pacejka_of_optimistic_sequence                                          1.00     4.114     4.087     4.266     4.937     4.114     0.003    4.0    0.0
+        _ensure_waypoints                                                   1.00     0.001     0.001     0.002     0.007     0.001     0.001    0.0    0.0
+      nearest_waypoint_index                                                1.00     0.132     0.129     0.145     0.222     0.132     0.131    0.1    0.1
+      _update_recover_mode                                                  1.00     0.001     0.001     0.002     0.009     0.001     0.001    0.0    0.0
+        _commit_staged_actions                                              1.00     0.006     0.006     0.010     0.017     0.006     0.006    0.0    0.0
+        _publish_waypoint_display                                           1.00     0.343     0.342     0.363     0.426     0.343     0.343    0.3    0.3
+      _commit_staged_waypoints                                              1.00     0.418     0.386     0.671     0.716     0.418     0.060    0.4    0.1
+    _update_from_driven_plan                                                1.00     1.540     1.820     2.116     2.264     1.540     0.758    1.5    0.7
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.001     0.007     0.001     0.001    0.0    0.0
+    _record_waypoint_action                                                 1.00     0.072     0.074     0.092     0.104     0.072     0.071    0.1    0.1
+      _refresh_waypoint_paths                                               1.00     0.486     0.007     0.010    13.423     0.486     0.011    0.5    0.0
+    _discard_wall_sequences                                                 1.00     0.497     0.011     0.019    13.639     0.497     0.011    0.5    0.0
+    first_action_to_numpy                                                   1.00     0.007     0.007     0.009     0.015     0.007     0.007    0.0    0.0
+  select_action                                                             1.00   103.071   102.190   112.315   120.224   103.071     0.093   99.2    0.1
+  _apply_normalized_action                                                  1.00     0.022     0.022     0.024     0.029     0.022     0.022    0.0    0.0
+  _maybe_update_lld_preview                                                 1.00     0.002     0.001     0.002     0.003     0.002     0.002    0.0    0.0
+    memory.add_step                                                         1.00     0.401     0.395     0.457     0.574     0.401     0.401    0.4    0.4
+    _maybe_bootstrap_send                                                   1.00     0.001     0.001     0.002     0.002     0.001     0.001    0.0    0.0
+    _maybe_stream_send                                                      1.00     0.001     0.001     0.001     0.007     0.001     0.001    0.0    0.0
+  _record_step                                                              1.00     0.417     0.411     0.474     0.593     0.417     0.014    0.4    0.0
+process_observation                                                         1.00   103.874   103.004   113.165   121.303   103.874     0.033  100.0    0.0
+_ensure_waypoints                                                           1.00     0.001     0.001     0.001     0.003     0.001     0.001    0.0    0.0
+  _ensure_waypoints                                                         1.00     0.001     0.001     0.001     0.001     0.001     0.001    0.0    0.0
+nearest_waypoint_index                                                      1.00     0.139     0.136     0.154     0.212     0.139     0.139    0.1    0.1
+_maybe_handle_server_terminate                                              1.00     0.001     0.001     0.001     0.008     0.001     0.001    0.0    0.0
+          memory.recent                                                     0.22     0.036     0.036     0.043     0.044     0.008     0.008    0.0    0.0
+        setup                                                               0.22     0.075     0.073     0.084     0.089     0.016     0.008    0.0    0.0
+          delay_queue_and_clip                                              5.50     0.021     0.020     0.025     0.059     0.114     0.114    0.1    0.1
+          jax_step_incl_transfer_and_sync                                   5.50     0.127     0.122     0.158     0.254     0.697     0.697    0.7    0.7
+          heading_fix_and_store                                             5.50     0.005     0.004     0.005     0.014     0.025     0.025    0.0    0.0
+        horizon_loop                                                        0.22     4.021     3.939     4.806     5.067     0.885     0.049    0.9    0.0
+        stack_to_torch                                                      0.22     0.028     0.027     0.033     0.040     0.006     0.006    0.0    0.0
+      rollout_pacejka                                                       0.22     4.134     4.048     4.939     5.182     0.909     0.002    0.9    0.0
+    _rollout_seeded_actions                                                 0.22     4.425     4.337     5.305     5.492     0.973     0.064    0.9    0.1
+          setup                                                             0.04     0.021     0.021     0.024     0.026     0.001     0.001    0.0    0.0
+            delay_queue_and_clip                                            1.00     0.032     0.032     0.040     0.064     0.032     0.032    0.0    0.0
+            jax_step_incl_transfer_and_sync                                 1.00     0.417     0.414     0.501     0.588     0.417     0.417    0.4    0.4
+            heading_fix_and_store                                           1.00     0.009     0.009     0.011     0.013     0.009     0.009    0.0    0.0
+          horizon_loop                                                      0.04    11.740    11.929    13.000    13.185     0.470     0.011    0.5    0.0
+          stack_to_torch                                                    0.04     0.084     0.077     0.117     0.132     0.003     0.003    0.0    0.0
+        rollout_pacejka                                                     0.04    11.857    12.066    13.120    13.314     0.474     0.000    0.5    0.0
+      wall.distance_at                                                      2.85     0.081     0.078     0.092     0.113     0.230     0.230    0.2    0.2
+        wall.distance_at                                                    0.12     0.077     0.077     0.084     0.085     0.009     0.009    0.0    0.0
+
+Self time ranking (ms per control step):
+     44.087 ms   42.4%  process_observation > select_action > MPC_reward > per_rollout_waypoint_reward_loop
+     23.941 ms   23.0%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > mean_delta_step > LLD._mean_delta_core
+      3.737 ms    3.6%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > reconstruct_next_state > LLD.reconstruct_next_state
+      3.379 ms    3.3%  process_observation > select_action > display_rollouts > lld_of_mean_sequence > rollout_lld > horizon_loop > reconstruct_next_state > LLD.reconstruct_next_state
+      3.239 ms    3.1%  process_observation > select_action > display_rollouts > pacejka_of_mean_sequence > rollout_pacejka > horizon_loop > jax_step_incl_transfer_and_sync
+      3.149 ms    3.0%  process_observation > select_action > pacejka_of_optimistic_sequence > rollout_pacejka > horizon_loop > jax_step_incl_transfer_and_sync
+      2.680 ms    2.6%  process_observation > select_action > display_rollouts > lld_of_mean_sequence > rollout_lld > horizon_loop > mean_delta_step > LLD._mean_delta_core
+      1.565 ms    1.5%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > mean_delta_step > LLD._mean_delta_core > LLD._correct
+      1.556 ms    1.5%  process_observation > select_action > rollout_waypoint_states
+      1.083 ms    1.0%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > build_query_superstate
+      1.081 ms    1.0%  process_observation > select_action > display_rollouts > lld_of_mean_sequence > rollout_lld > horizon_loop > mean_delta_step > LLD._mean_delta_core > LLD._correct
+      0.758 ms    0.7%  process_observation > select_action > _update_from_driven_plan
+      0.730 ms    0.7%  process_observation > select_action > display_rollouts > lld_of_mean_sequence > rollout_lld > horizon_loop > build_query_superstate
+      0.697 ms    0.7%  process_observation > select_action > _rollout_seeded_actions > rollout_pacejka > horizon_loop > jax_step_incl_transfer_and_sync
+      0.693 ms    0.7%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > mean_delta_step
+      0.665 ms    0.6%  process_observation > select_action > display_rollouts > lld_of_mean_sequence > rollout_lld > horizon_loop > mean_delta_step
+      0.652 ms    0.6%  process_observation > select_action > _accept_waypoint_update > rollout_waypoint_states
+      0.597 ms    0.6%  process_observation > select_action > MPC_reward > crash_and_wall_terms > wall.in_wall
+      0.530 ms    0.5%  process_observation > select_action > display_rollouts > pacejka_of_mean_sequence > rollout_pacejka > horizon_loop > delay_queue_and_clip
+      0.516 ms    0.5%  process_observation > select_action > pacejka_of_optimistic_sequence > rollout_pacejka > horizon_loop > delay_queue_and_clip
+      0.489 ms    0.5%  process_observation > select_action > _accept_waypoint_update > MPC_reward > per_rollout_waypoint_reward_loop
+      0.476 ms    0.5%  process_observation > select_action > _sample_mpc_actions > temporal_correlation_loop
+      0.417 ms    0.4%  process_observation > select_action > _discard_wall_sequences > _refresh_waypoint_paths > rollout_pacejka > horizon_loop > jax_step_incl_transfer_and_sync
+      0.401 ms    0.4%  process_observation > _record_step > memory.add_step
+      0.383 ms    0.4%  process_observation > select_action > rollout_of_samples > rollout_lld > horizon_loop > history_update

@@ -163,6 +163,11 @@ class MultivariateStudentT(torch.distributions.MultivariateNormal):
             return self.rsample(sample_shape)
 
 
+def residual_only_inference() -> bool:
+    """``Settings.HWM_LLD_RESIDUAL_ONLY``: inference uses the residual net ``g(q)`` alone, with no memory."""
+    return bool(getattr(Settings, "HWM_LLD_RESIDUAL_ONLY", False))
+
+
 def _attention_encoder(in_dim: int) -> nn.Sequential:
     """Superstate encoder: used for queries and keys alike."""
     return nn.Sequential(
@@ -320,6 +325,18 @@ class LLD(nn.Module):
         self, LLD_observation: dict[str, torch.Tensor], *, detach_correction: bool = False
     ) -> torch.distributions.MultivariateNormal:
         current_super_state = LLD_observation["current_super_state"]
+        if residual_only_inference() and not self.training:
+            # Residual net alone: no memory, no retrieval. The covariance is a fixed isotropic scale.
+            mean = self.residual_mean(current_super_state)
+            scale = float(Settings.HWM_LLD_RESIDUAL_ONLY_STD) * torch.eye(
+                self.prediction_dim, dtype=mean.dtype, device=mean.device
+            )
+            zero = mean.new_zeros(())
+            self.last_n_soft = self.last_n_soft_norm = self.last_top_keys = zero
+            self.last_cov_n_soft = self.last_cov_top_keys = zero
+            return torch.distributions.MultivariateNormal(
+                loc=mean, scale_tril=scale.expand(mean.shape[0], -1, -1)
+            )
         similar_superstates = LLD_observation["similar_superstates"]
         similar_superstates_diff = LLD_observation["similar_superstates_diff"]
         query = self.attention_norm_projector(current_super_state)
@@ -451,7 +468,7 @@ class LLD(nn.Module):
         mean ``forward`` would return when the residual net has no retrieved inputs. An empty bank
         gives ``g(q)``.
         """
-        if int(key_emb.shape[0]) == 0:
+        if int(key_emb.shape[0]) == 0 or residual_only_inference():
             correction_q = self._correct(query_super)
             zeros = correction_q.new_zeros(int(query_super.shape[0]))
             return correction_q, zeros, zeros

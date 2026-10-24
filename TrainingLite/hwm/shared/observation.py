@@ -447,6 +447,19 @@ def build_LLD_observation_inference(
     temperature = float(Settings.HWM_LLD_ATTENTION_TEMPERATURE)
     if temperature <= 0:
         raise ValueError(f"HWM_LLD_ATTENTION_TEMPERATURE must be positive, got {temperature}")
+    if before_steps is None and future_margin is None and getattr(Settings, "HWM_LLD_RESIDUAL_ONLY", False):
+        # Memory-free inference (HWM_LLD_RESIDUAL_ONLY): the LLD uses only the current superstate.
+        batch = int(current_super_state.shape[0])
+        empty = current_super_state.new_zeros((0, current_super_state.shape[-1]))
+        return {
+            "current_super_state": current_super_state,
+            "similar_superstates": empty,
+            "similar_superstates_diff": current_super_state.new_zeros((0, 0)),
+            "similar_valid": current_super_state.new_zeros((batch, 0)),
+            "similar_density": current_super_state.new_zeros((0,)),
+            "current_state_action": current_state_action,
+            "n_soft": current_super_state.new_ones((batch,)),
+        }
     neighbors = retrieve_LLD_neighbors(current_super_state, memory, before_steps, future_margin=future_margin)
     n_soft = torch.exp(-neighbors["distances"] / temperature).sum(dim=-1)
     return {
