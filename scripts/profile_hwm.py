@@ -20,7 +20,7 @@ MODES = {
 }
 
 
-def child(mode: str, model: str, steps: int, out: str, skip: int, samples: int | None) -> None:
+def child(mode: str, model: str, steps: int, out: str, skip: int, samples: int | None, overrides: list[str]) -> None:
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
     sys.path.insert(0, os.getcwd())
@@ -39,6 +39,9 @@ def child(mode: str, model: str, steps: int, out: str, skip: int, samples: int |
         Settings.MPC_NUM_OF_TRAJECTORIES = int(samples)
     for key, value in MODES[mode].items():
         setattr(Settings, key, value)
+    for item in overrides:
+        key, value = item.split("=", 1)
+        setattr(Settings, key, eval(value))  # e.g. HWM_LIVE_MODE=True
     Settings.SIMULATION_LENGTH = steps + skip  # counted in control steps by the simulation loop
 
     from run.run_simulation import RacingSimulation
@@ -54,16 +57,17 @@ def main() -> None:
     parser.add_argument("--mode", nargs="+", default=list(MODES), choices=list(MODES))
     parser.add_argument("--out", default="hwm_profile")
     parser.add_argument("--samples", type=int, default=None, help="MPC_NUM_OF_TRAJECTORIES override")
+    parser.add_argument("--set", nargs="*", default=[], help="Settings overrides, e.g. HWM_LIVE_MODE=True")
     parser.add_argument("--child", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.child:
-        child(args.child, args.model, args.steps, args.out, args.skip, args.samples)
+        child(args.child, args.model, args.steps, args.out, args.skip, args.samples, args.set)
         return
     for mode in args.mode:
         print(f"=== profiling mode: {mode}", flush=True)
         subprocess.run(
             [sys.executable, __file__, "--model", args.model, "--steps", str(args.steps), "--skip", str(args.skip),
-             "--out", args.out, "--child", mode] + (["--samples", str(args.samples)] if args.samples else []),
+             "--out", args.out, "--child", mode] + (["--samples", str(args.samples)] if args.samples else []) + (["--set", *args.set] if args.set else []),
             check=False,
         )
 

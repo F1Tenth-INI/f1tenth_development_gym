@@ -141,12 +141,12 @@ class Settings():
     CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
-    #NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-    NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
+    NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    #NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
     #NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
-    # NOISE_EVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
+    #NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
+    NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
     #NOISE_LEVEL_CONTROL = [0.1, 0.7] # noise level [angular, translational]
 
     
@@ -406,13 +406,13 @@ class Settings():
     HWM_LLD_ENCODER_DIM = 10            # dimensionality of the encoder's latent vector (the embedding that attention distances, keys and the density are computed in). Changing it needs a new model: the encoder's last layer changes width
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
-    RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 25 
+    RUN_MPC_WITH_PACEJKA = False
+    MPC_NUM_OF_TRAJECTORIES = 50 
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
-    MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
+    MPC_ACTION_CORRELATION = 0.6  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.99#0.3
+    MPC_WAYPOINT_UPDTE_EMA = 0.3
     MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 1.414  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
     MPC_WAYPOINT_AHEAD_SPAN = 3  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
     MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
@@ -429,8 +429,8 @@ class Settings():
     MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
     MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA. (The waypoint EMA setting works the other way round: its gamma weighs the new value)
     MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # discard staged updates and hold for that delay when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
-    HWM_MIN_BORDER_DISTANCE = 0.2  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
-    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.2  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
+    HWM_MIN_BORDER_DISTANCE = 0.3  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
+    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.5  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
 
     MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
     MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
@@ -443,6 +443,11 @@ class Settings():
     HWM_PROFILE = False  # time every part of the HWM control step and write a report (HWM_PROFILE_FILE .txt/.json) at exit. See TrainingLite/hwm/profiling.py and scripts/profile_hwm.py
     HWM_PROFILE_FILE = "hwm_profile"  # path prefix of the report
     HWM_PROFILE_SKIP_STEPS = 30  # control steps ignored at the start (JIT/torch.compile warmup, empty memory)
+    HWM_LIVE_MODE = True  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
+    HWM_SEED_FROM_MEAN_STATES = True  # TEST. True: no rollout for the seed. At the end of every step, the softmax-averaged states of the samples give the next step's seed: for each averaged state, the mix of the first stored actions of the two waypoints around it (like HWM_SEED_FROM_ROLLOUT, but the states are the averages instead of a model rollout of the blended sequence). Replaces HWM_SEED_FROM_ROLLOUT
+    HWM_UPDATE_FROM_OPT_MEAN_STATES = True  # TEST. True: no optimistic rollout. The waypoint update takes the optimistic-reward softmax-averaged states as the path, and interpolates the two of them nearest to the waypoint's line
+    MPC_WALL_DISTANCE_WEIGHT = 7  # reward per meter of distance to the nearest wall, averaged over each sampled rollout (every state counts, crash or not). Added to the drive reward only. 0: off
+    MPC_WALL_DISTANCE_CAP = 1.0  # [m] distances above this earn nothing more
     HWM_SHOW_LLD_PATH = True  # draw the black path: the LLD's mean prediction of the driven action sequence from the current state (the orange path is the same sequence in Pacejka). Costs one LLD rollout per control step
     HWM_SHOW_WAYPOINT_PATHS = False  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
     HWM_GRADIENT_MPC = False  # True: instead of 70 random samples, the HWM planner descends the MPC cost by gradient (Adam through the Pacejka rollout) from a few noisy copies of the nominal plan. Needs RUN_MPC_WITH_PACEJKA

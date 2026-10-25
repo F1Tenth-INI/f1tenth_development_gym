@@ -1,0 +1,39 @@
+MPC_WALL_DISTANCE_WEIGHT grid (Pacejka, 3 seeds, 30-lap target). A crash is an HWM episode reset (collision, stuck, spinning).
+
+  weight   laps  mean lap  std lap     min     max  crashes crash/lap   sim h  wall min
+    0.00     90    21.716    2.527  20.040  32.040        0     0.000    0.54      24.0
+         seed 0    30 laps,  21.552s mean,   0 crashes {}
+         seed 1    30 laps,  22.035s mean,   0 crashes {}
+         seed 2    30 laps,  21.563s mean,   0 crashes {}
+    0.25     90    21.488    2.374  19.720  31.240        3     0.033    0.45      24.1
+         seed 0    30 laps,  21.489s mean,   2 crashes {'collision': 2}
+         seed 1    30 laps,  21.483s mean,   1 crashes {'collision': 1}
+         seed 2    30 laps,  21.491s mean,   0 crashes {}
+    0.50     90    21.812    3.253  19.960  43.320        7     0.078    0.46      25.9
+         seed 0    30 laps,  21.540s mean,   0 crashes {}
+         seed 1    30 laps,  22.172s mean,   3 crashes {'collision': 3}
+         seed 2    30 laps,  21.724s mean,   4 crashes {'collision': 4}
+    1.00     90    21.476    2.428  19.840  30.640        3     0.033    0.39      24.0
+         seed 0    30 laps,  21.436s mean,   2 crashes {'collision': 2}
+         seed 1    30 laps,  21.532s mean,   0 crashes {}
+         seed 2    30 laps,  21.461s mean,   1 crashes {'collision': 1}
+    2.00     90    21.312    2.480  19.600  31.400        0     0.000    0.53      23.8
+         seed 0    30 laps,  21.295s mean,   0 crashes {}
+         seed 1    30 laps,  21.367s mean,   0 crashes {}
+         seed 2    30 laps,  21.276s mean,   0 crashes {}
+    4.00     90    21.218    2.495  19.160  30.640        1     0.011    0.41      23.5
+         seed 0    30 laps,  21.368s mean,   0 crashes {}
+         seed 1    30 laps,  21.237s mean,   1 crashes {'collision': 1}
+         seed 2    30 laps,  21.048s mean,   0 crashes {}
+
+Last-10-lap mean (after waypoints have adapted) is the better speed number.
+sim_time in the per-run JSON is only the last episode (a crash resets the clock).
+
+Interpretation:
+- 0.0: no crashes, last10 20.33 s. Baseline.
+- 0.25 / 1.0: a bit faster, 3 collisions each (3/90 laps).
+- 0.5: worst: 7 collisions, one slow outlier lap (43 s).
+- 2.0: no crashes and faster than baseline (last10 19.92 s). Best of this grid on both axes.
+- 4.0: fastest (last10 19.62 s), 1 collision.
+
+The term is + weight * mean_t min(wall_distance(state_t), 1.0 m), added to the drive reward only.

@@ -187,7 +187,7 @@ class HirarchicalPlanner(template_planner):
         self.lld_preview: Optional[LLDPreview] = None
         self.preview_worker: Optional[BackgroundPreview] = None
         self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
-        if Settings.HWM_LLD_PREVIEW:
+        if Settings.HWM_LLD_PREVIEW and not Settings.HWM_LIVE_MODE:
             self.lld_preview = LLDPreview(self._display_lld, self._display_actor, self.memory, self.wall_geometry)
             self.preview_worker = BackgroundPreview(self._preview_job)
 
@@ -221,6 +221,10 @@ class HirarchicalPlanner(template_planner):
         self._last_opt_wp = None
         self._wp_recording = None
         self._reward_EMA = 1
+        self._mean_state_seed: torch.Tensor | None = None
+        self._grid_crashes = 0
+        self._grid_crash_reasons: dict[str, int] = {}
+        self._grid_laps: list[float] = []
         self.reset()
         self._setup_profiling()
 
@@ -242,10 +246,10 @@ class HirarchicalPlanner(template_planner):
             "_gradient_optimize", "_sample_mpc_actions", "rollout_pacejka", "rollout_lld",
             "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_recovery_cost",
             "_backtrack_cost", "_note_reward", "_draw_mpc_trajectories", "_weighted_state_trajectory",
-            "_accept_waypoint_update", "_update_from_driven_plan", "_commit_staged_waypoints",
+            "_update_from_driven_plan", "_commit_staged_waypoints",
             "_commit_staged_actions", "_record_waypoint_action", "_discard_wall_sequences",
             "_paths_leave_track", "_publish_waypoint_display", "_refresh_waypoint_paths",
-            "_ensure_waypoints", "build_observation", "_apply_normalized_action",
+            "_seed_from_states", "_ensure_waypoints", "build_observation", "_apply_normalized_action",
             "_maybe_update_lld_preview", "_record_step", "_sync_from_server", "_maybe_handle_server_terminate",
             "get_car_state", "_fallback_action", "_update_stall", "_update_recover_mode",
             "_maybe_stream_send", "_maybe_bootstrap_send", "_log_attention_test_track",
@@ -281,6 +285,7 @@ class HirarchicalPlanner(template_planner):
         self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self._last_opt_wp = None
+        self._mean_state_seed = None
         self._reset_stall()
 
     def _blend_heading(self, old: torch.Tensor, new: torch.Tensor, gamma: float) -> torch.Tensor:
@@ -376,6 +381,16 @@ class HirarchicalPlanner(template_planner):
         """
         horizon = int(nominal.shape[0])
         path = self.rollout_pacejka(state, nominal)[0, :horizon]  # (H, state_dim), the state each action starts from
+        return self._seed_from_states(path)
+
+    def _seed_from_states(self, path: torch.Tensor) -> torch.Tensor:
+        """Seed ``(H, 2)`` for the states ``path`` ``(H, state_dim)``, the state each action starts from.
+
+        Action ``k`` is the mix, by position between them, of the first stored actions of the two
+        raceline waypoints around state ``k``. Where neither waypoint has a stored sequence, it is
+        action ``k`` of the running plan (``action_buffer``).
+        """
+        horizon = int(path.shape[0])
         pos = path[:, [POSE_X_IDX, POSE_Y_IDX]]
         xy = self._waypoint_xy
         segment = torch.roll(xy, shifts=-1, dims=0) - xy
@@ -617,7 +632,7 @@ class HirarchicalPlanner(template_planner):
             fast_driving_reward = indices.float().max()
             legal = indices.float()[~update_mask]  # the states matched to the waypoints in the AHEAD window
             fast_driving_legal_reward = legal.max() if legal.numel() else indices.new_zeros(()).float()
-            travel_further_reward = -count**0.5 #1 / (1 + count**0.5)
+            travel_further_reward =  (speed * ~update_mask).mean()
             if self.off_track:
                 break
             drive_reward = (10 * distance_reward.sum()  + 2 * heading_reward.sum() + shortfall.sum() * 1 + overspeed.sum() * 2 + 0.25 * drift_error + 0.5 * fast_driving_reward) / count #+ travel_further_reward
@@ -626,6 +641,7 @@ class HirarchicalPlanner(template_planner):
             optimize_reward += (shortfall * ~update_mask).sum() * 10 / (~update_mask).sum().clamp(min=1)
             #if not self.episode_timesteps % 24: print(optimize_reward - 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN)
             optimize_reward += 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN
+            optimize_reward -= travel_further_reward 
             #optimize_reward = (10 * distance_reward.sum()  + 2 * heading_reward.sum() + 5 * shortfall.sum() + overspeed.sum() * 0 + 0.25 * drift_error + 2 * fast_driving_reward) / count
             
 
@@ -655,7 +671,8 @@ class HirarchicalPlanner(template_planner):
         survived = torch.where(has_crash, first, torch.full_like(first, horizon))
         late = horizon - survived
         # The optimize reward also counts a car position closer to a wall than the waypoints may be.
-        close = crashed | (self.wall_geometry.distance_at(poses[..., :2]).to(crashed.device) < float(Settings.MPC_WAYPOINT_MIN_WALL_DISTANCE))
+        wall_distance = self.wall_geometry.distance_at(poses[..., :2]).to(crashed.device)  # (B, T) per state
+        close = crashed | (wall_distance < float(Settings.MPC_WAYPOINT_MIN_WALL_DISTANCE))
         first_close = close.float().argmax(dim=1)
         survived_opt = torch.where(close.any(dim=1), first_close, torch.full_like(first_close, horizon))
         late_opt = horizon - survived_opt
@@ -666,6 +683,12 @@ class HirarchicalPlanner(template_planner):
 
         drive_reward, drive_crash = _split(drive, late)
         optimize_reward, optimize_crash = _split(optimize, late_opt)
+        wall_weight = float(Settings.MPC_WALL_DISTANCE_WEIGHT)
+        if wall_weight != 0.0:
+            # General reward for staying away from the walls, crash or not: the mean over the rollout of
+            # the distance of each state to the nearest wall, capped. Drive reward only.
+            cap = float(Settings.MPC_WALL_DISTANCE_CAP)
+            drive_reward = drive_reward + wall_weight * wall_distance.clamp(max=cap).mean(dim=1).to(drive_reward)
         PROF.end()
         return (drive_reward, optimize_reward), (drive_crash, optimize_crash)
 
@@ -1088,30 +1111,7 @@ class HirarchicalPlanner(template_planner):
         mean[:, POSE_THETA_IDX] = torch.atan2(mean[:, POSE_THETA_SIN_IDX], mean[:, POSE_THETA_COS_IDX])
         return mean
 
-    def _accept_waypoint_update(
-        self,
-        rewards: tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]],
-        averaged: tuple[torch.Tensor, torch.Tensor],
-    ) -> bool:
-        """Score the driving and optimization mean trajectories.
-
-        ``rewards`` is the sample split, ``((drive, optimize), (drive_crash, optimize_crash))``.
-        ``averaged`` is those two weighted state rollouts. False skips the waypoint target
-        computed on this step.
-        """
-        drive_trajectory, optimize_trajectory = averaged
-        states = torch.stack((drive_trajectory, optimize_trajectory), dim=0)
-        nearest = int(self.nearest_waypoint_index(states[0, 0]).reshape(-1)[0])
-        matching = self.rollout_waypoint_states(states, nearest)
-        (drive_reward, optimize_reward), (drive_crash, optimize_crash) = self.MPC_reward(
-            states, matching, nearest, waypoint_off_track_counts=self._wp_off_track_count
-        )
-        #if not self.total_timesteps % 12: print(f"drive reward of drive: {drive_reward[0].item():.4f}, drive reward of optimized: {drive_reward[1].item():.4f}, optimizer reward of drive: {optimize_reward[0].item():.4f}, optimizer reward of optimized: {optimize_reward[1].item():.4f}")
-        return drive_reward[0].item() < drive_reward[1].item() / 1.3 or True
-
-    def _update_from_driven_plan(
-        self, state: np.ndarray, pacejka: torch.Tensor, apply_update: bool = True
-    ) -> None:
+    def _update_from_driven_plan(self, state: np.ndarray, pacejka: torch.Tensor) -> None:
         """Stage the car's own plan at the waypoint ``k`` steps ahead, and commit it once passed."""
         if not hasattr(self, "waypoints"):
             return
@@ -1129,7 +1129,7 @@ class HirarchicalPlanner(template_planner):
             and bool(self._paths_leave_track(path[None, :, [POSE_X_IDX, POSE_Y_IDX]].detach().cpu())[0])
         )  # Only the target-state updates are dropped; the action sequences are untouched.
         span = max(0, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
-        if self.episode_timesteps >= 100 and accepted and not reject and apply_update:
+        if self.episode_timesteps >= 100 and accepted and not reject:
             # Each waypoint from nearest + AHEAD to nearest + AHEAD + SPAN takes the state where the path crosses its own line.
             for offset in range(span + 1):
                 target = (nearest + k + offset) % self._waypoints_n
@@ -1253,7 +1253,7 @@ class HirarchicalPlanner(template_planner):
                 "hwm.waypoint_off_track", xy, color=(235, 235, 235), radius=0.5,
                 texts=[str(int(c)) for c in counts.tolist()],
             )
-        paths = self._waypoint_paths() if Settings.HWM_SHOW_WAYPOINT_PATHS else None
+        paths = self._waypoint_paths() if Settings.HWM_SHOW_WAYPOINT_PATHS and not Settings.HWM_LIVE_MODE else None
         if paths is None:
             scene.set_trajectories("hwm.waypoint_paths", None)
         else:
@@ -1332,6 +1332,8 @@ class HirarchicalPlanner(template_planner):
         the planner's own crash rule (``HWM_MIN_BORDER_DISTANCE``). A forgotten sequence is written
         again, without averaging, the next time the car passes that waypoint.
         """
+        if not (Settings.MPC_WAYPOINT_DISCARD_WALL_SEQUENCES or bool(getattr(Settings, "MPC_WAYPOINT_REJECT_OFF_TRACK", False))):
+            return  # no check is on, so nothing would be marked bad: skip the rollout from every waypoint
         self._refresh_waypoint_paths()
         states = getattr(self, "_wp_path_states", None)
         if states is None or getattr(self, "_wp_paths_checked", None) == self._wp_paths_step:
@@ -1431,7 +1433,11 @@ class HirarchicalPlanner(template_planner):
             # Recovery samples around the previous plan. Stored waypoint sequences are only
             # used once the car is back out of recovery.
             nominal = None if self.recover_mode else self._interpolated_waypoint_actions(state)
-            if nominal is not None and Settings.HWM_SEED_FROM_ROLLOUT:
+            if nominal is not None and Settings.HWM_SEED_FROM_MEAN_STATES:
+                # Seed stored at the end of the previous step from its mean states: no rollout now.
+                if self._mean_state_seed is not None and int(self._mean_state_seed.shape[0]) == int(nominal.shape[0]):
+                    nominal = self._mean_state_seed
+            elif nominal is not None and Settings.HWM_SEED_FROM_ROLLOUT:
                 nominal = self._rollout_seeded_actions(state, nominal)
             if Settings.HWM_GRADIENT_MPC and Settings.RUN_MPC_WITH_PACEJKA:
                 actions = self._gradient_optimize(state, nominal)
@@ -1459,33 +1465,45 @@ class HirarchicalPlanner(template_planner):
                 action_seq = (weights[:, None, None] * actions).sum(dim=0)
                 # Next step samples around this plan with its first command dropped and its last command repeated.
                 self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
-            with PROF.section("display_rollouts"):
-                with PROF.section("pacejka_of_mean_sequence"):
-                    pacejka = self.rollout_pacejka(state, action_seq)
-                lld_path = None
-                if Settings.HWM_SHOW_LLD_PATH and getattr(self, "render_utils", None) is not None:
-                    with PROF.section("lld_of_mean_sequence"):
-                        lld_path = self.rollout_lld(state, action_seq)[0][0]
-                self._draw_mpc_trajectories(trajectories, pacejka, lld_path)
+            if not Settings.HWM_LIVE_MODE:
+                with PROF.section("display_rollouts"):
+                    with PROF.section("pacejka_of_mean_sequence"):
+                        pacejka = self.rollout_pacejka(state, action_seq)
+                    lld_path = None
+                    if Settings.HWM_SHOW_LLD_PATH and getattr(self, "render_utils", None) is not None:
+                        with PROF.section("lld_of_mean_sequence"):
+                            lld_path = self.rollout_lld(state, action_seq)[0][0]
+                    self._draw_mpc_trajectories(trajectories, pacejka, lld_path)
             if self._stall_phase == 1:
                 # Backtracking: no waypoint staging or recording from this plan.
                 self._reverse_left -= 1
+                self._mean_state_seed = None
                 return action_seq[0].cpu().numpy().astype(np.float32)
-            with PROF.section("optimistic_plan"):
-                opt_weights = torch.softmax(opt_total / Settings.MPC_TEMPERATURE, dim=0)
-                drive_mean = self._weighted_state_trajectory(trajectories, weights)
-                opt_mean = self._weighted_state_trajectory(trajectories, opt_weights)
-            apply_update = self._accept_waypoint_update(
-                ((drive_rewards, opt_rewards), (drive_crash, opt_crash)),
-                (drive_mean, opt_mean),
-            )
-            with PROF.section("optimistic_sequence"):
-                opt_seq = (opt_weights[:, None, None] * actions).sum(dim=0)
-            with PROF.section("pacejka_of_optimistic_sequence"):
-                opt_pacejka = self.rollout_pacejka(state, opt_seq)
-            self._update_from_driven_plan(state, opt_pacejka, apply_update)
+            opt_weights = torch.softmax(opt_total / Settings.MPC_TEMPERATURE, dim=0)
+            drive_mean = None
+            if Settings.HWM_SEED_FROM_MEAN_STATES or Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
+                with PROF.section("mean_state_trajectories"):
+                    if Settings.HWM_SEED_FROM_MEAN_STATES:
+                        drive_mean = self._weighted_state_trajectory(trajectories, weights)
+                    if Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
+                        opt_mean = self._weighted_state_trajectory(trajectories, opt_weights)
+            if Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
+                # The waypoint update reads the optimistic softmax-averaged states directly: no rollout.
+                opt_path = opt_mean
+            else:
+                with PROF.section("optimistic_sequence"):
+                    opt_seq = (opt_weights[:, None, None] * actions).sum(dim=0)
+                with PROF.section("pacejka_of_optimistic_sequence"):
+                    opt_path = self.rollout_pacejka(state, opt_seq)
+            self._update_from_driven_plan(state, opt_path)
             self._record_waypoint_action(state, action_seq.detach())
             self._discard_wall_sequences()
+            if Settings.HWM_SEED_FROM_MEAN_STATES:
+                # Next step's seed: the stored first actions at the waypoints around each averaged state
+                # (the state the next step's action k starts from is state k + 1 of this plan).
+                # Built after the waypoint sequences above were recorded or committed, so a fresh one is used at once.
+                horizon = int(action_seq.shape[0])
+                self._mean_state_seed = self._seed_from_states(drive_mean[1 : 1 + horizon].detach())
             with PROF.section("first_action_to_numpy"):
                 action = action_seq[0].cpu().numpy().astype(np.float32)
             return action
@@ -1883,7 +1901,7 @@ class HirarchicalPlanner(template_planner):
         A new preview starts at most every ``HWM_LLD_PREVIEW_EVERY`` steps, once LLD
         weights exist and the previous one has finished.
         """
-        if self.preview_worker is None or not (self._received_weights or test_track_enabled()):
+        if self.preview_worker is None or Settings.HWM_LIVE_MODE or not (self._received_weights or test_track_enabled()):
             return
         # MPC draws its own rollouts. The actor preview stays only while Pure Pursuit drives.
         if self.autonomous_driving and not test_track_enabled():
@@ -1940,6 +1958,19 @@ class HirarchicalPlanner(template_planner):
 
         done = bool(driver_obs.get("done", False))
         if done:
+            term = driver_obs.get("episode_termination") or driver_obs
+            reasons = [
+                name
+                for name in ("collision", "stuck", "spinning", "virtual_opponent_collision", "interrupted")
+                if term.get(name)
+            ]
+            if reasons:
+                self._grid_crashes = int(getattr(self, "_grid_crashes", 0)) + 1
+                counts = getattr(self, "_grid_crash_reasons", None)
+                if counts is None:
+                    counts = self._grid_crash_reasons = {}
+                for name in reasons:
+                    counts[name] = int(counts.get(name, 0)) + 1
             if hasattr(self, "_wp_staged"):
                 self._wp_staged.zero_()
             if hasattr(self, "_wp_action_staged"):
@@ -2057,6 +2088,10 @@ class HirarchicalPlanner(template_planner):
     def report_lap_time(self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float) -> None:
         """Forward a finished lap to the learner so it is printed there, not on every train step."""
         self._completed_laps = int(getattr(self, "_completed_laps", 0)) + 1
+        laps = getattr(self, "_grid_laps", None)
+        if laps is None:
+            laps = self._grid_laps = []
+        laps.append(float(lap_time))
         discarded = int(getattr(self, "_wp_discarded_lap", 0))
         rejected = int(getattr(self, "_wp_rejected_lap", 0))
         self._wp_discarded_lap = 0
