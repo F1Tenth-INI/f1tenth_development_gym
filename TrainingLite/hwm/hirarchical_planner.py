@@ -317,6 +317,11 @@ class HirarchicalPlanner(template_planner):
             self._wp_recording = idx
             self._wp_action_dist[idx] = float("inf")
         best = float(dist[idx])
+        if getattr(self, "_wp_laptime_frozen", False):
+            # The live table stays at the last best lap. This lap's plan is kept aside and
+            # installed only if the lap beats that best.
+            self._capture_frozen_action(idx, best, action_seq)
+            return
         if best > float(self._wp_action_dist[idx]) or self._waypoint_frozen(idx):
             return
         seq = torch.as_tensor(action_seq, dtype=torch.float32).reshape(-1, 2)
@@ -1033,10 +1038,140 @@ class HirarchicalPlanner(template_planner):
         self._publish_waypoint_display()
 
     def _waypoint_frozen(self, idx: int) -> bool:
+        if getattr(self, "_wp_laptime_frozen", False):
+            return True  # MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT: the whole table is held at the last improving lap
         until = getattr(self, "_wp_frozen_until", None)
         if until is None:
             return False
         return int(getattr(self, "_completed_laps", 0)) < int(until[int(idx)])
+
+    def _waypoint_snapshot(self) -> dict:
+        """Everything a lap-time reset has to put back: the targets, the action sequences and their bookkeeping."""
+        return {
+            "waypoints": self.waypoints.clone(),
+            "actions": self._wp_actions.clone(),
+            "known": self._wp_action_known.clone(),
+            "vehicle_state_set": self._wp_vehicle_state_set.clone(),
+        }
+
+    def _restore_waypoint_snapshot(self, snapshot: dict) -> None:
+        self.waypoints.copy_(snapshot["waypoints"])
+        self._wp_actions.copy_(snapshot["actions"])
+        self._wp_action_known.copy_(snapshot["known"])
+        self._wp_vehicle_state_set.copy_(snapshot["vehicle_state_set"])
+        self._wp_staged.zero_()
+        self._wp_action_staged.zero_()
+        self._wp_action_dist.fill_(float("inf"))
+        self._wp_action_snapped.zero_()
+        for history in self._wp_hist_state:
+            history.clear()
+        for history in self._wp_hist_actions:
+            history.clear()
+        self._write_raceline()
+        self._publish_waypoint_display()
+
+    def _reset_lap_capture(self) -> None:
+        """Empty the buffer that holds one frozen lap's plans. The live table is not touched."""
+        n = self._waypoints_n
+        horizon = int(self._wp_actions.shape[1])
+        self._lap_actions = torch.zeros((n, horizon, 2), dtype=torch.float32)
+        self._lap_action_known = torch.zeros((n,), dtype=torch.bool)
+        self._lap_action_dist = torch.full((n,), float("inf"))
+        self._lap_rows = self.waypoints.clone()
+        self._lap_state_known = torch.zeros((n,), dtype=torch.bool)
+
+    def _capture_frozen_action(self, idx: int, distance: float, action_seq: torch.Tensor) -> None:
+        """Closest plan seen at waypoint ``idx`` during the frozen lap."""
+        if not hasattr(self, "_lap_actions"):
+            self._reset_lap_capture()
+        if (
+            bool(getattr(self, "recover_mode", False))
+            or bool(getattr(self, "_waypoint_updates_held", False))
+            or self.episode_timesteps < 100
+        ):
+            return
+        if distance > float(self._lap_action_dist[idx]):
+            return
+        seq = torch.as_tensor(action_seq, dtype=torch.float32).reshape(-1, 2)
+        horizon = int(self._lap_actions.shape[1])
+        if int(seq.shape[0]) < horizon:
+            seq = torch.cat((seq, seq[-1:].expand(horizon - int(seq.shape[0]), -1)), dim=0)
+        self._lap_actions[idx] = seq[:horizon]
+        self._lap_action_known[idx] = True
+        self._lap_action_dist[idx] = distance
+
+    def _capture_frozen_state(self, idx: int, row: torch.Tensor) -> None:
+        """Target state staged for waypoint ``idx`` during the frozen lap."""
+        if not hasattr(self, "_lap_rows"):
+            self._reset_lap_capture()
+        self._lap_rows[idx] = row
+        self._lap_state_known[idx] = True
+
+    def _install_frozen_lap(self) -> tuple[int, int]:
+        """Copy this lap's captured states and action sequences onto the live table.
+
+        A waypoint the lap never recorded keeps the frozen value.
+        """
+        states = actions = 0
+        if hasattr(self, "_lap_state_known"):
+            known = self._lap_state_known
+            self.waypoints[known] = self._lap_rows[known]
+            self._wp_vehicle_state_set |= known
+            states = int(known.sum())
+        if hasattr(self, "_lap_action_known"):
+            known = self._lap_action_known
+            self._wp_actions[known] = self._lap_actions[known]
+            self._wp_action_known |= known
+            actions = int(known.sum())
+        self._wp_staged.zero_()
+        self._wp_action_staged.zero_()
+        self._wp_action_dist.fill_(float("inf"))
+        self._wp_action_snapped.zero_()
+        for history in self._wp_hist_state:
+            history.clear()
+        for history in self._wp_hist_actions:
+            history.clear()
+        self._write_raceline()
+        self._publish_waypoint_display()
+        return states, actions
+
+    def _update_laptime_freeze(self, lap_time: float) -> None:
+        """Keep the waypoints of the fastest lap so far, and freeze them after two laps without a faster one.
+
+        While frozen the live table is held, but the lap's own target states and action sequences are
+        recorded aside. A frozen lap that beats the best replaces the table with those, and updates resume.
+        """
+        if not getattr(Settings, "MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT", False) or not hasattr(self, "_wp_actions"):
+            return
+        frozen = bool(getattr(self, "_wp_laptime_frozen", False))
+        best = getattr(self, "_wp_best_lap", None)
+        if best is None or float(lap_time) < best:
+            if frozen:
+                n_states, n_actions = self._install_frozen_lap()
+                self._log_info(
+                    f"[HirarchicalPlanner] Lap {lap_time:.3f}s is a new best: "
+                    f"installed its {n_states} waypoint states and {n_actions} action sequences"
+                )
+            self._wp_best_lap = float(lap_time)
+            self._wp_best_snapshot = self._waypoint_snapshot()
+            self._wp_laps_since_best = 0
+            self._wp_laptime_frozen = False
+            self._reset_lap_capture()
+            return
+        since = int(getattr(self, "_wp_laps_since_best", 0)) + 1
+        self._wp_laps_since_best = since
+        if frozen:
+            self._reset_lap_capture()
+            return
+        if since < 2:
+            return
+        self._restore_waypoint_snapshot(self._wp_best_snapshot)
+        self._wp_laptime_frozen = True
+        self._reset_lap_capture()
+        self._log_info(
+            f"[HirarchicalPlanner] No faster lap for {since} laps (best {best:.3f}s): "
+            "waypoints reset to that lap and frozen"
+        )
 
     def _note_reward(self, reward_mean: torch.Tensor) -> None:
         """Track the softmax-weighted reward. A reward far under its EMA holds waypoint updates.
@@ -1257,8 +1392,6 @@ class HirarchicalPlanner(template_planner):
             # Each waypoint from nearest + AHEAD to nearest + AHEAD + SPAN takes the state where the path crosses its own line.
             for offset in range(span + 1):
                 target = (nearest + k + offset) % self._waypoints_n
-                if self._waypoint_frozen(target):
-                    continue
                 on_line = self._state_on_orthogonal_line(path, target)
                 if on_line is None:
                     continue
@@ -1273,6 +1406,11 @@ class HirarchicalPlanner(template_planner):
                 row[WP_TARGET_STEER_IDX] = steer
                 row[WP_TARGET_YAW_RATE_IDX] = yaw_rate
                 row[WP_TARGET_SLIP_IDX] = slip
+                if getattr(self, "_wp_laptime_frozen", False):
+                    self._capture_frozen_state(target, row)
+                    continue
+                if self._waypoint_frozen(target):
+                    continue
                 self.waypoints_update_staged[target] = row
                 self._wp_staged[target] = True
         self._commit_staged_waypoints(nearest)
@@ -2276,6 +2414,7 @@ class HirarchicalPlanner(template_planner):
         if laps is None:
             laps = self._grid_laps = []
         laps.append(float(lap_time))
+        self._update_laptime_freeze(float(lap_time))
         discarded = int(getattr(self, "_wp_discarded_lap", 0))
         rejected = int(getattr(self, "_wp_rejected_lap", 0))
         self._wp_discarded_lap = 0

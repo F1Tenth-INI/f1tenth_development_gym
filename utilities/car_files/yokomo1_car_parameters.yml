@@ -1,6 +1,6 @@
 # Yokomo1 — parameters used by jax_pacejka / ODE_TF and simulation geometry
 
-mu: 0.9  # friction coefficient [-]
+mu: 0.5  # friction coefficient [-]
 
 lf: 0.13  # distance from CoG to front axle [m]
 lr: 0.12  # distance from CoG to rear axle [m]
