@@ -467,6 +467,7 @@ class HirarchicalPlanner(template_planner):
         self._wp_recording = None
         self.last_wp_distance = np.inf
         self._write_raceline()
+        self._publish_waypoint_display()
 
     def _write_raceline(self) -> None:
         """Copy the shared raceline fields back. The drift column stays on the HWM copy."""

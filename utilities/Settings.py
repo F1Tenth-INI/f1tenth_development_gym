@@ -9,8 +9,8 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
-    MAP_PATH = os.path.join("utilities", "maps", MAP_NAME)
+    MAP_NAME = "IPZ50"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
     WAYPOINT_SPACING = None  # Resample spacing [m] after MAP_SCALE; None = median spacing from CSV
@@ -18,7 +18,7 @@ class Settings():
     BLANK_MAP = False  # If True, skip setting map for all sensors (no borders, no scans, no crashes possible)
 
     # Controller Settings
-    CONTROLLER = 'sac_MidlineReturner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner', 'HirarchicalPlanner'
+    CONTROLLER = 'HirarchicalPlanner' # Options: 'manual','mpc','ftg',neural,'pp','stanley', 'mppi-lite', 'mppi-lite-jax', 'sac_agent', 'rpgd-lite-jax', 'example', 'sac_MidlineReturner', 'HirarchicalPlanner'
     MOTOR_PID_IN_CAR_MODEL = False  # If True: control[1] is desired speed and PI is used. If False: control[1] is direct acceleration.
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
@@ -154,7 +154,7 @@ class Settings():
     CONTROL_NOISE_DURATION = 10 # Number of timesteps for which the control noise is applied
 
     ## waypoints generation ##
-    MIN_CURV_SAFETY_WIDTH = 0.6             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
+    MIN_CURV_SAFETY_WIDTH = 0.4             # Safety width [m] incliding car width for the Waypoint generation /utilities/run_create_min_curve_waypoints.py  
     LOOK_AHEAD_STEPS = 30                    # Number of original waypoints that are considered for cost
     INTERPOLATION_STEPS = 1                  # >= 1 Interpolation steps to increase waypoint resolution
     DECREASE_RESOLUTION_FACTOR = 4           # >= 1 Only take every n^th waypoint to decrease resolution
@@ -358,7 +358,7 @@ class Settings():
     HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They are dropped with the other unreferenced rows once the episode closes. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
     HWM_PP_DRIVES = False                # Pure Pursuit drives instead of the actor; its rows still train the learner
-    HWM_PP_UNTIL_WEIGHTS = True         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
+    HWM_PP_UNTIL_WEIGHTS = False         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
     HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
     HWM_SIM_USE_LLD = False              # the car is stepped by the LLD once per control step, instead of the Pacejka model. The action is the one just commanded, matching how the LLD is trained
     HWM_SIM_LLD_SAMPLE = False           # with HWM_SIM_USE_LLD: False -> the LLD mean (expected next state). True -> one sample from the LLD
@@ -390,7 +390,7 @@ class Settings():
     HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
     HWM_LLD_DIRECT_DELTA = False         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD changes width
     HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD changes width
-    MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT = True  # after two finished laps without a new best lap time, the waypoints (state targets and action sequences) are put back to what they were right after the last lap that improved the best, and then frozen. While frozen the live table stays put, but each lap's own target states and action sequences are recorded aside; a lap that beats the best replaces the table with those and updates resume. A slower frozen lap is discarded. The best starts unset, so the first two laps can never trigger it
+    MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT = False  # after two finished laps without a new best lap time, the waypoints (state targets and action sequences) are put back to what they were right after the last lap that improved the best, and then frozen. While frozen the live table stays put, but each lap's own target states and action sequences are recorded aside; a lap that beats the best replaces the table with those and updates resume. A slower frozen lap is discarded. The best starts unset, so the first two laps can never trigger it
     HWM_LLD_TRAIN_ON_ALL_ROWS = True  # the learner keeps every incoming row (except the dropped final rows of an episode) and the residual net and encoder train on all of them. The key bank still limits which windows can be retrieved as neighbors. False: rows no kept key reads are dropped, so training sees only the bank's windows. memory.pt then holds all rows too
     HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation. Rows no kept key uses are dropped; the arrays grow when more rows arrive
     HWM_LOW_LEVEL_DISCOUNT = 0.99        # per-control-step discount for low-level values, on top of crash survival
@@ -413,8 +413,8 @@ class Settings():
     MPC_TRAJECTORY_LENGTH = 25 # number of control steps in each trajectory
     MPC_ACTION_CORRELATION = 0.6  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
-    MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.45
+    MPC_DRAW_SAMPLES = True  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
+    MPC_WAYPOINT_UPDTE_EMA = 0.0
     MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 1.414  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
     MPC_WAYPOINT_AHEAD_SPAN = 3  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
     MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
@@ -423,7 +423,7 @@ class Settings():
     MPC_WAYPOINT_REVERT_BEHIND = 23  # same, this many waypoints behind it
     MPC_WAYPOINT_REVERT_HOLD = 0 # 3  # laps those rolled-back waypoints and their action sequences stay frozen
     MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
-    MPC_WAYPOINT_UPDATE_DISTANCE = 1.1 #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
+    MPC_WAYPOINT_UPDATE_DISTANCE = 0.3 #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
     MPC_STALL_DISTANCE = 0.5  # [m] the car counts as stalled, and goes into recovery, when it moved less than this in MPC_STALL_TIME
     MPC_STALL_TIME = 3.5  # [s]
     MPC_STALL_REVERSE_STEPS = 50  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
@@ -431,8 +431,8 @@ class Settings():
     MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
     MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA. (The waypoint EMA setting works the other way round: its gamma weighs the new value)
     MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # discard staged updates and hold for that delay when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
-    HWM_MIN_BORDER_DISTANCE = 0.15  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
-    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.15  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
+    HWM_MIN_BORDER_DISTANCE = 0.0  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
+    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.0  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
 
     MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
     MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
@@ -447,7 +447,7 @@ class Settings():
     HWM_PROFILE = False  # time every part of the HWM control step and write a report (HWM_PROFILE_FILE .txt/.json) at exit. See TrainingLite/hwm/profiling.py and scripts/profile_hwm.py
     HWM_PROFILE_FILE = "hwm_profile"  # path prefix of the report
     HWM_PROFILE_SKIP_STEPS = 30  # control steps ignored at the start (JIT/torch.compile warmup, empty memory)
-    HWM_LIVE_MODE = True  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
+    HWM_LIVE_MODE = False  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
     HWM_SEED_FROM_MEAN_STATES = True  # TEST. True: no rollout for the seed. At the end of every step, the softmax-averaged states of the samples give the next step's seed: for each averaged state, the mix of the first stored actions of the two waypoints around it (like HWM_SEED_FROM_ROLLOUT, but the states are the averages instead of a model rollout of the blended sequence). Replaces HWM_SEED_FROM_ROLLOUT
     HWM_UPDATE_FROM_OPT_MEAN_STATES = True  # TEST. True: no optimistic rollout. The waypoint update takes the optimistic-reward softmax-averaged states as the path, and interpolates the two of them nearest to the waypoint's line
     MPC_REWARD_INTERPOLATED_TARGETS = False  # True: every rollout state gets a target by blending the targets (position, heading, speed, drift) of its 2 closest waypoints, weighted toward the closer one; its error to that target is the cost, averaged over the rollout's states. False: legacy, each waypoint is matched to its closest rollout state
@@ -456,7 +456,7 @@ class Settings():
     MPC_WALL_DISTANCE_WEIGHT = 0  # reward per meter of distance to the nearest wall, averaged over each sampled rollout (every state counts, crash or not). Added to the drive reward only. 0: off
     MPC_WALL_DISTANCE_CAP = 0.3  # [m] distances above this earn nothing more
     HWM_SHOW_LLD_PATH = True  # draw the black path: the LLD's mean prediction of the driven action sequence from the current state (the orange path is the same sequence in Pacejka). Costs one LLD rollout per control step
-    HWM_SHOW_WAYPOINT_PATHS = False  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
+    HWM_SHOW_WAYPOINT_PATHS = True  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
     HWM_GRADIENT_MPC = False  # True: instead of 70 random samples, the HWM planner descends the MPC cost by gradient (Adam through the Pacejka rollout) from a few noisy copies of the nominal plan. Needs RUN_MPC_WITH_PACEJKA
     HWM_GRAD_SAMPLES = 16  # parallel action sequences in gradient mode (one of them is the noise-free nominal)
     HWM_GRAD_STEPS = 30  # gradient steps per control step
@@ -464,7 +464,7 @@ class Settings():
     HWM_GRAD_WALL_MARGIN = 0.4  # [m] the soft wall penalty (gradient mode only) starts when a body corner is closer to a wall than this
     HWM_GRAD_WALL_WEIGHT = 50.0  # weight of that penalty against the MPC cost
     HWM_LIMIT_INITIAL_WP_SPEED = True # Limits initial target speed of Waypoints to 
-    HWM_INITIAL_SPEED_LIMIT = 3 # [m/s]
+    HWM_INITIAL_SPEED_LIMIT = 1.5 # [m/s]
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer
@@ -525,7 +525,7 @@ class Settings():
     @classmethod
     def recalculate_paths(cls) -> None:
         """Recompute path dependent settings after attribute overrides."""
-        cls.MAP_PATH = os.path.join("utilities", "maps", cls.MAP_NAME)
+        cls.MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", cls.MAP_NAME)
         cls.MAP_CONFIG_FILE = os.path.join(cls.MAP_PATH, cls.MAP_NAME + ".yaml")
         cls.RECORDING_PATH = os.path.join(cls.RECORDING_FOLDER, cls.RECORDING_NAME)
 
