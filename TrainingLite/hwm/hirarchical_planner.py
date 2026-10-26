@@ -244,7 +244,7 @@ class HirarchicalPlanner(template_planner):
         PROF.instrument(self, [
             "_refresh_recovery", "_interpolated_waypoint_actions", "_rollout_seeded_actions",
             "_gradient_optimize", "_sample_mpc_actions", "rollout_pacejka", "rollout_lld",
-            "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_recovery_cost",
+            "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_interpolated_target_costs", "_matched_waypoint_costs", "_recovery_cost",
             "_backtrack_cost", "_note_reward", "_draw_mpc_trajectories", "_weighted_state_trajectory",
             "_update_from_driven_plan", "_commit_staged_waypoints",
             "_commit_staged_actions", "_record_waypoint_action", "_discard_wall_sequences",
@@ -286,6 +286,7 @@ class HirarchicalPlanner(template_planner):
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self._last_opt_wp = None
         self._mean_state_seed = None
+        self._action_buffer_valid = False
         self._reset_stall()
 
     def _blend_heading(self, old: torch.Tensor, new: torch.Tensor, gamma: float) -> torch.Tensor:
@@ -575,6 +576,177 @@ class HirarchicalPlanner(template_planner):
             taken |= mark
         return out
 
+    def _matched_waypoint_costs(
+        self,
+        states: torch.Tensor,
+        nearest_waypoint_indices: torch.Tensor,
+        nearest_waypoint: int,
+        ignore_waypoint: int | None,
+        waypoint_off_track_counts: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Legacy costs (``MPC_REWARD_INTERPOLATED_TARGETS`` False): each waypoint is matched to its closest rollout state.
+
+        Batched over the rollouts. Rollout ``i`` uses its ``count_i`` matched waypoints (``nearest_waypoint_indices``
+        is NaN padded); padded or ignored slots are masked out of every sum, max and count.
+        """
+        batch = int(states.shape[0])
+        drive = torch.zeros(batch)
+        optimize = torch.zeros(batch)
+        if self.off_track:
+            # The loop used to stop at the first rollout that has a waypoint, leaving every cost at zero.
+            return drive, optimize
+        width = int(nearest_waypoint_indices.shape[1])
+        if width == 0:
+            return drive, optimize
+        start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
+        n = self._waypoints_n
+        wp_index = (torch.arange(width) + start) % n  # (J,)
+        has_index = ~nearest_waypoint_indices.isnan()
+        valid = has_index.clone()
+        if ignore_waypoint is not None:
+            valid &= (wp_index != (int(ignore_waypoint) % n))[None, :]
+        count = valid.sum(dim=1)  # (B,)
+        # Position of each kept waypoint among the kept ones (the AHEAD window is counted in that order).
+        position_in_list = valid.long().cumsum(dim=1) - 1
+        ahead = int(Settings.MPC_WAYPOINT_AHEAD)
+        span = int(Settings.MPC_WAYPOINT_AHEAD_SPAN)
+        window = valid & (position_in_list >= ahead) & (position_in_list < ahead + span)  # ~update_mask
+        update = valid & ~window  # update_mask
+
+        PROF.begin("batched_waypoint_reward")
+        indices = torch.where(has_index, nearest_waypoint_indices, torch.zeros_like(nearest_waypoint_indices)).long()
+        matched = states[torch.arange(batch)[:, None], indices]  # (B, J, D)
+        local_waypoints = self.waypoints[wp_index]  # (J, 14)
+        zero = matched.new_zeros(())
+
+        position = matched[..., [POSE_X_IDX, POSE_Y_IDX]] - local_waypoints[None, :, [WP_X_IDX, WP_Y_IDX]]
+        distance = torch.where(valid, torch.linalg.norm(position, dim=-1), zero).sum(dim=1)
+        heading_error = matched[..., POSE_THETA_IDX] - local_waypoints[None, :, WP_HEADING_IDX]
+        heading_error = torch.atan2(torch.sin(heading_error), torch.cos(heading_error))
+        heading = torch.where(valid, heading_error.abs(), zero)
+        speed = matched[..., LINEAR_VEL_X_IDX]
+        target_speed = local_waypoints[None, :, WP_TARGET_SPEED_IDX]
+        drift_error = torch.where(
+            valid, (matched[..., LINEAR_VEL_Y_IDX] - local_waypoints[None, :, WP_TARGET_DRIFT_IDX]).abs(), zero
+        ).sum(dim=1)
+        shortfall = torch.where(valid, (target_speed - speed).clamp(min=0), zero)
+        overspeed = torch.where(valid, (speed - target_speed).clamp(min=0), zero)
+
+        index_f = indices.float()
+        neg_inf = torch.full_like(index_f, float("-inf"))
+        fast_driving = torch.where(valid, index_f, neg_inf).max(dim=1).values
+        legal = torch.where(window, index_f, neg_inf).max(dim=1).values
+        fast_driving_legal = torch.where(window.any(dim=1), legal, torch.zeros_like(legal))
+
+        update_f, window_f = update.to(speed.dtype), window.to(speed.dtype)
+        counts = count.clamp(min=1).to(speed.dtype)
+        drive_cost = (
+            10 * distance + 2 * heading.sum(dim=1) + shortfall.sum(dim=1) + overspeed.sum(dim=1) * 2
+            + 0.25 * drift_error + 0.5 * fast_driving
+        ) / counts
+        optimize_cost = (10 * distance) / counts
+        optimize_cost = optimize_cost + (
+            (shortfall * update_f).sum(dim=1) * 2 + (overspeed * update_f).sum(dim=1) * 2
+        ) / update_f.sum(dim=1).clamp(min=1)
+        optimize_cost = optimize_cost + (shortfall * window_f).sum(dim=1) * 10 / window_f.sum(dim=1).clamp(min=1)
+        optimize_cost = optimize_cost + 0.5 * fast_driving_legal / Settings.MPC_WAYPOINT_AHEAD_SPAN
+
+        min_speed = torch.where(valid, speed, torch.full_like(speed, float("inf"))).min(dim=1).values
+        reverse = torch.where(min_speed < 0, 100 * min_speed.abs(), torch.zeros_like(min_speed))
+        drive_cost = drive_cost + reverse
+        optimize_cost = optimize_cost + reverse
+        PROF.end()
+        active = count > 0
+        drive = torch.where(active, drive_cost, drive)
+        optimize = torch.where(active, optimize_cost, optimize)
+        return drive, optimize
+
+    def _interpolated_target_costs(
+        self, states: torch.Tensor, start: int, ignore_waypoint: int | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Drive and optimize costs ``(B,)`` (lower is better) with a target for every rollout state.
+
+        Each state takes its two closest waypoints (among those from ``start - 4`` to as far ahead
+        as the fastest rollout can travel). Their target position, heading, speed and drift are
+        blended with weights that favour the closer one, and the state's error to that blended
+        target is the cost. Every term is averaged over the ``T`` rollout states.
+        """
+        n = self._waypoints_n
+        batch, steps, _ = (int(states.shape[0]), int(states.shape[1]), int(states.shape[2]))
+        spacing = max(float(getattr(self, "_waypoint_spacing", 0.1)), 1e-3)
+        dt = float(Settings.TIMESTEP_CONTROL)
+        speed_over_ground = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).detach()
+        travel = float(speed_over_ground.mean(dim=1).max()) * max(steps - 1, 0) * dt
+        behind = 4
+        ahead = min(int(travel / spacing) + 8, n - behind - 1)
+        offsets = torch.arange(-behind, max(ahead, 2) + 1)
+        index = (start + offsets) % n
+        rows = self.waypoints[index]  # (K, 14)
+        wp_xy = rows[:, [WP_X_IDX, WP_Y_IDX]]
+        pos = states[..., [POSE_X_IDX, POSE_Y_IDX]]  # (B, T, 2)
+        delta = pos[:, :, None, :] - wp_xy[None, None]
+        distance = (delta.pow(2).sum(dim=-1) + 1e-12).sqrt()  # (B, T, K)
+        if ignore_waypoint is not None:
+            distance = distance.masked_fill((index == (int(ignore_waypoint) % n))[None, None], float("inf"))
+        nearest = torch.topk(distance.detach(), k=2, dim=-1, largest=False).indices  # (B, T, 2)
+        d1 = distance.gather(-1, nearest[..., :1])[..., 0]
+        d2 = distance.gather(-1, nearest[..., 1:])[..., 0]
+        total = d1 + d2
+        w1 = torch.where(total > 1e-6, d2 / total.clamp_min(1e-6), torch.full_like(total, 0.5))
+        w2 = 1.0 - w1
+        row1, row2 = rows[nearest[..., 0]], rows[nearest[..., 1]]  # (B, T, 14)
+
+        def blend(column: int) -> torch.Tensor:
+            return w1 * row1[..., column] + w2 * row2[..., column]
+
+        target_x, target_y = blend(WP_X_IDX), blend(WP_Y_IDX)
+        target_heading = torch.atan2(
+            w1 * torch.sin(row1[..., WP_HEADING_IDX]) + w2 * torch.sin(row2[..., WP_HEADING_IDX]),
+            w1 * torch.cos(row1[..., WP_HEADING_IDX]) + w2 * torch.cos(row2[..., WP_HEADING_IDX]),
+        )
+        target_speed, target_drift = blend(WP_TARGET_SPEED_IDX), blend(WP_TARGET_DRIFT_IDX)
+        along = w1 * offsets[nearest[..., 0]].to(w1.dtype) + w2 * offsets[nearest[..., 1]].to(w1.dtype)  # waypoints past ``start``
+
+        distance_cost = ((pos[..., 0] - target_x).pow(2) + (pos[..., 1] - target_y).pow(2) + 1e-12).sqrt()
+        heading_error = states[..., POSE_THETA_IDX] - target_heading
+        heading_cost = torch.atan2(torch.sin(heading_error), torch.cos(heading_error)).abs()
+        speed = states[..., LINEAR_VEL_X_IDX]
+        shortfall = (target_speed - speed).clamp(min=0)
+        overspeed = (speed - target_speed).clamp(min=0)
+        drift_cost = (states[..., LINEAR_VEL_Y_IDX] - target_drift).abs()
+
+        # Replaces the old "time of the farthest matched waypoint": waypoints advanced per rollout step.
+        progress = (along[:, -1] - along[:, 0]) / max(steps - 1, 1)
+        drive = (
+            10 * distance_cost.sum(dim=1) + 2 * heading_cost.sum(dim=1) + shortfall.sum(dim=1)
+            + 2 * overspeed.sum(dim=1) + 0.25 * drift_cost.sum(dim=1)
+        ) / steps - 0.5 * progress
+
+        if self.off_track:
+            optimize = torch.zeros(batch)
+        else:
+            first = int(Settings.MPC_WAYPOINT_AHEAD)
+            span = int(Settings.MPC_WAYPOINT_AHEAD_SPAN)
+            # States lying at the waypoints whose targets the update stages (start + AHEAD ... + SPAN - 1).
+            inside = (along >= first - 0.5) & (along < first + span - 0.5)
+            outside = ~inside
+            inside_f, outside_f = inside.to(speed.dtype), outside.to(speed.dtype)
+            optimize = 10 * distance_cost.sum(dim=1) / steps
+            optimize = optimize + (
+                2 * (shortfall * outside_f).sum(dim=1) + 2 * (overspeed * outside_f).sum(dim=1)
+            ) / outside_f.sum(dim=1).clamp(min=1)
+            optimize = optimize + 10 * (shortfall * inside_f).sum(dim=1) / inside_f.sum(dim=1).clamp(min=1)
+            # Time (rollout step) at which the last waypoint of that window is passed; the whole horizon if never.
+            passed = along >= first + span - 1.5
+            reach = torch.where(
+                passed.any(dim=1), passed.to(torch.int8).argmax(dim=1), torch.full((batch,), steps - 1)
+            ).to(speed.dtype)
+            if span > 0:
+                optimize = optimize + 0.5 * reach / span
+            optimize = optimize - (speed * inside_f).sum(dim=1) / steps
+        reverse = 100 * (-speed.min(dim=1).values).clamp(min=0)
+        return drive + reverse, optimize + reverse
+
     def MPC_reward(
         self,
         states: torch.tensor,
@@ -582,78 +754,21 @@ class HirarchicalPlanner(template_planner):
         nearest_waypoint: int,
         ignore_waypoint: int | None = None,
         waypoint_off_track_counts: torch.Tensor | None = None,
+        actions: torch.Tensor | None = None,
     ) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
         """Driving and waypoint rewards, each split into the normal part and the crash part.
 
         The caller adds the two parts. The crash part is left out of the reward EMA.
         """
-        batch = int(states.shape[0])
-        num_valid_waypoints = nearest_waypoint_indices.shape[1] - nearest_waypoint_indices.isnan().sum(dim=1)
-        drive = torch.zeros(batch)
-        optimize = torch.zeros(batch)
         start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
-        if waypoint_off_track_counts is None:
-            waypoint_off_track_counts = torch.zeros(self._waypoints_n)
-        PROF.begin("per_rollout_waypoint_reward_loop")
-        for i in range(num_valid_waypoints.shape[0]):
-            count = int(num_valid_waypoints[i])
-            if count == 0:
-                continue
-            indices = nearest_waypoint_indices[i, :count].long()
-            wp_index = (torch.arange(count) + start) % self._waypoints_n
-            if ignore_waypoint is not None:
-                keep = wp_index != (int(ignore_waypoint) % self._waypoints_n)
-                if not bool(keep.any()):
-                    continue
-                indices = indices[keep]
-                wp_index = wp_index[keep]
-                count = int(indices.shape[0])
-            local_waypoints = self.waypoints[wp_index]
-            # How many times the car was already off track at each of these waypoints, same order as ``local_waypoints``.
-            local_off_track_counts = waypoint_off_track_counts[wp_index]
-            update_mask = torch.zeros_like(states[i, indices, 0], dtype=torch.bool)
-            update_mask[:] = True
-            update_mask[Settings.MPC_WAYPOINT_AHEAD : Settings.MPC_WAYPOINT_AHEAD + Settings.MPC_WAYPOINT_AHEAD_SPAN] = False
-            position = states[i, indices][:, [POSE_X_IDX, POSE_Y_IDX]] - local_waypoints[:, [WP_X_IDX, WP_Y_IDX]]
-            distance_reward = torch.linalg.norm(position, dim=1) #torch.linalg.norm(position * (1 + local_off_track_counts)[:, None], dim=1)
-            #distance_reward[-3:] = distance_reward[-3:]*3
-            distance_reward = distance_reward.sum()
-            heading_error = states[i, indices, POSE_THETA_IDX] - local_waypoints[:, WP_HEADING_IDX]
-            heading_error = torch.atan2(torch.sin(heading_error), torch.cos(heading_error))
-            heading_reward = heading_error.abs()
-            speed = states[i, indices, LINEAR_VEL_X_IDX]
-            target_speed = local_waypoints[:, WP_TARGET_SPEED_IDX]
-            drift = states[i, indices, LINEAR_VEL_Y_IDX]
-            target_drift = local_waypoints[:, WP_TARGET_DRIFT_IDX]
-            drift_error = (drift - target_drift).abs().sum()
-            shortfall = (target_speed - speed).clamp(min=0)
-            overspeed = (speed - target_speed).clamp(min=0)
-
-            fast_driving_reward = indices.float().max()
-            legal = indices.float()[~update_mask]  # the states matched to the waypoints in the AHEAD window
-            fast_driving_legal_reward = legal.max() if legal.numel() else indices.new_zeros(()).float()
-            travel_further_reward =  (speed * ~update_mask).mean()
-            if self.off_track:
-                break
-            drive_reward = (10 * distance_reward.sum()  + 2 * heading_reward.sum() + shortfall.sum() * 1 + overspeed.sum() * 2 + 0.25 * drift_error + 0.5 * fast_driving_reward) / count #+ travel_further_reward
-            optimize_reward = (10 * distance_reward + 0 * drift_error ) / count # + 0.5 * fast_driving_reward / count
-            optimize_reward += (0 * 0.5 * (heading_reward * update_mask).sum() + (shortfall * update_mask).sum() * 2 + (overspeed * update_mask).sum() * 2) / update_mask.sum().clamp(min=1)
-            optimize_reward += (shortfall * ~update_mask).sum() * 10 / (~update_mask).sum().clamp(min=1)
-            #if not self.episode_timesteps % 24: print(optimize_reward - 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN)
-            optimize_reward += 0.5 * fast_driving_legal_reward / Settings.MPC_WAYPOINT_AHEAD_SPAN
-            optimize_reward -= travel_further_reward 
-            #optimize_reward = (10 * distance_reward.sum()  + 2 * heading_reward.sum() + 5 * shortfall.sum() + overspeed.sum() * 0 + 0.25 * drift_error + 2 * fast_driving_reward) / count
-            
-
-            min_speed = float(speed.min())
-            if min_speed < 0:
-                reverse = 100 * abs(min_speed)
-                drive_reward = drive_reward + reverse
-                optimize_reward = optimize_reward + reverse
-            drive[i] = drive_reward
-            optimize[i] = optimize_reward
-        PROF.end()
-       # print(f"distance_reward: {distance_reward/count}, heading_reward: {heading_reward/count}, shortfall: {shortfall/count}, overspeed: {overspeed/count}, drift_error: {drift_error/count}, fast_driving_legal_reward: {fast_driving_legal_reward/count}")
+        if Settings.MPC_REWARD_INTERPOLATED_TARGETS:
+            PROF.begin("interpolated_target_costs")
+            drive, optimize = self._interpolated_target_costs(states, start, ignore_waypoint)
+            PROF.end()
+        else:
+            drive, optimize = self._matched_waypoint_costs(
+                states, nearest_waypoint_indices, nearest_waypoint, ignore_waypoint, waypoint_off_track_counts
+            )
 
         if self.off_track:
             drive = self._recovery_cost(states, start)
@@ -689,6 +804,15 @@ class HirarchicalPlanner(template_planner):
             # the distance of each state to the nearest wall, capped. Drive reward only.
             cap = float(Settings.MPC_WALL_DISTANCE_CAP)
             drive_reward = drive_reward + wall_weight * wall_distance.clamp(max=cap).mean(dim=1).to(drive_reward)
+        deviation_weight = float(Settings.MPC_ACTION_DEVIATION_WEIGHT)
+        if deviation_weight != 0.0 and actions is not None and getattr(self, "_action_buffer_valid", False):
+            # Penalty for leaving last step's plan: ``action_buffer`` is that plan with the executed action
+            # popped and the last one repeated. Mean over the horizon of the weighted L1 distance, network units.
+            reference = self.action_buffer.to(actions)
+            if int(reference.shape[0]) == int(actions.shape[1]):
+                channel = torch.as_tensor(Settings.MPC_ACTION_DEVIATION_CHANNEL_WEIGHTS, dtype=actions.dtype)
+                deviation = ((actions - reference).abs() * channel).sum(dim=-1).mean(dim=1)
+                drive_reward = drive_reward - deviation_weight * deviation.to(drive_reward)
         PROF.end()
         return (drive_reward, optimize_reward), (drive_crash, optimize_crash)
 
@@ -1449,10 +1573,13 @@ class HirarchicalPlanner(template_planner):
                 else:
                     trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
             nearest_waypoint_idx = self.nearest_waypoint_index(state)
-            trajectry_waypoin_matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+            trajectry_waypoin_matching = (
+                None if Settings.MPC_REWARD_INTERPOLATED_TARGETS
+                else self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+            )
             (drive_rewards, opt_rewards), (drive_crash, opt_crash) = self.MPC_reward(
                 trajectories, trajectry_waypoin_matching, nearest_waypoint_idx,
-                waypoint_off_track_counts=self._wp_off_track_count,
+                waypoint_off_track_counts=self._wp_off_track_count, actions=actions,
             )
             with PROF.section("softmax_weights_and_plan"):
                 drive_total = drive_rewards + drive_crash
@@ -1465,6 +1592,7 @@ class HirarchicalPlanner(template_planner):
                 action_seq = (weights[:, None, None] * actions).sum(dim=0)
                 # Next step samples around this plan with its first command dropped and its last command repeated.
                 self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
+                self._action_buffer_valid = True
             if not Settings.HWM_LIVE_MODE:
                 with PROF.section("display_rollouts"):
                     with PROF.section("pacejka_of_mean_sequence"):
@@ -1536,6 +1664,26 @@ class HirarchicalPlanner(template_planner):
         )
 
     @torch.no_grad()
+    def _lld_graph_ready(self) -> bool:
+        """True when ``HWM_LLD_ROLLOUT_CUDA_GRAPH`` is on and a GPU is there; builds the GPU copy on first use."""
+        if not getattr(Settings, "HWM_LLD_ROLLOUT_CUDA_GRAPH", False) or getattr(self, "_lld_graph_failed", False):
+            return False
+        if getattr(self, "_lld_graph", None) is None:
+            try:
+                if not torch.cuda.is_available():
+                    print("[LLD] CUDA graph rollout off: no GPU visible (Settings.DISABLE_GPU hides it). Using the eager rollout.")
+                    self._lld_graph_failed = True
+                    return False
+                from TrainingLite.hwm.lld_graph import LLDGraphRollout
+
+                self._lld_graph = LLDGraphRollout(self.models["LLD"], int(self.memory.bank_size))
+                self._lld_graph_stale = False
+            except Exception as error:
+                print(f"[LLD] CUDA graph rollout disabled: {type(error).__name__}: {error}")
+                self._lld_graph_failed = True
+                return False
+        return True
+
     def rollout_lld(self, state, actions):
         """LLD mean rollout of action sequences.
 
@@ -1579,6 +1727,20 @@ class HirarchicalPlanner(template_planner):
         PROF.end()
         PROF.begin("bank_and_key_embedding")
         bank = None if memory_free else self.memory.lld_bank()
+        if bank is not None and self._lld_graph_ready():
+            PROF.end()
+            supers, deltas, density, rows = bank
+            cutoff = int(self.memory.next_step) - (width - 1)
+            with PROF.section("lld_cuda_graph_rollout"):
+                try:
+                    if self._lld_graph_stale:
+                        self._lld_graph.sync_weights(lld)
+                        self._lld_graph_stale = False
+                    return self._lld_graph.run(s, actions, history, supers, deltas, density, rows + 1 < cutoff)
+                except Exception as error:  # fall back to the eager loop for good
+                    print(f"[LLD] CUDA graph rollout disabled: {type(error).__name__}: {error}")
+                    self._lld_graph_failed = True
+            PROF.begin("bank_and_key_embedding")
         if bank is None:
             key_emb = s.new_zeros((0, lld.attention_norm_projector[-1].out_features))
             tokens = s.new_zeros((0, lld.prediction_dim))
@@ -1638,9 +1800,42 @@ class HirarchicalPlanner(template_planner):
             self._pacejka_batch = step
         return self._pacejka_batch
 
+    def _pacejka_scan_rollout(self):
+        """Jitted whole-horizon Pacejka rollout: ``(state (B,D), actions (B,H,2), pending (B,delay,2)) -> (B,H+1,D)``.
+
+        Same per-step math as the former Python loop: push the action into the delay queue, apply the
+        oldest entry (denormalized, translational part clipped), one Pacejka control step, then the heading
+        angle recomputed from its sin and cos. ``lax.scan`` replaces the loop, so the device is synced once.
+        """
+        fn = getattr(self, "_pacejka_scan", None)
+        if fn is None:
+            import jax
+            import jax.numpy as jnp
+
+            step = self._pacejka_batch_step()
+            denorm = jnp.asarray(np.asarray(self.action_denormalization_array, dtype=np.float32))
+            cap = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL)
+
+            def run(state, actions, pending):
+                def body(carry, action):
+                    s, queue = carry
+                    queue = jnp.concatenate((queue, action[:, None, :]), axis=1)
+                    applied = queue[:, 0] * denorm
+                    queue = queue[:, 1:]
+                    applied = applied.at[:, 1].set(jnp.clip(applied[:, 1], -cap, cap))
+                    s = step(s, applied)
+                    s = s.at[:, POSE_THETA_IDX].set(jnp.arctan2(s[:, POSE_THETA_SIN_IDX], s[:, POSE_THETA_COS_IDX]))
+                    return (s, queue), s
+
+                _, trajectory = jax.lax.scan(body, (state, pending), jnp.swapaxes(actions, 0, 1))
+                return jnp.concatenate((state[:, None], jnp.swapaxes(trajectory, 0, 1)), axis=1)
+
+            fn = jax.jit(run)
+            self._pacejka_scan = fn
+        return fn
+
     def rollout_pacejka(self, state, actions, use_control_delay: bool = True, pending_actions=None):
         """states (B, N+1, 10) for the same actions. Applies the command from 2 control steps ago. For testing the Planner with ground truth model in simulation."""
-        import jax
         import jax.numpy as jnp
         PROF.begin("setup")
         actions = np.asarray(actions, dtype=np.float32)
@@ -1657,26 +1852,12 @@ class HirarchicalPlanner(template_planner):
         else:
             pending = np.zeros((batch, 0, 2), dtype=np.float32)
         s = np.broadcast_to(np.asarray(state, dtype=np.float32), (batch, int(Settings.HWM_STATE_DIM))).copy()
-        denorm = self.action_denormalization_array
-        cap = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL)
-        step = self._pacejka_batch_step()
-        states = [s.copy()]
+        run = self._pacejka_scan_rollout()
         PROF.end()
-        PROF.begin("horizon_loop")
-        for k in range(horizon):
-            with PROF.section("delay_queue_and_clip"):
-                pending = np.concatenate((pending, actions[:, k, None, :]), axis=1)
-                applied = pending[:, 0] * denorm
-                pending = pending[:, 1:]
-                applied[:, 1] = np.clip(applied[:, 1], -cap, cap)
-            with PROF.section("jax_step_incl_transfer_and_sync"):
-                s = np.array(step(jnp.asarray(s), jnp.asarray(applied)), dtype=np.float32, copy=True)
-            with PROF.section("heading_fix_and_store"):
-                s[:, POSE_THETA_IDX] = np.arctan2(s[:, POSE_THETA_SIN_IDX], s[:, POSE_THETA_COS_IDX])
-                states.append(s.copy())
-        PROF.end()
+        with PROF.section("jax_scan_incl_transfer_and_sync"):
+            out = np.array(run(jnp.asarray(s), jnp.asarray(actions), jnp.asarray(pending)), dtype=np.float32, copy=True)
         with PROF.section("stack_to_torch"):
-            return torch.as_tensor(np.stack(states, axis=1)[:batch])
+            return torch.as_tensor(out[:batch])
 
     def _grad_rollout_fns(self):
         """JAX rollout of the Pacejka model over a horizon and its vector-Jacobian product, both jitted."""
@@ -1745,9 +1926,12 @@ class HirarchicalPlanner(template_planner):
             for _ in range(max(0, int(Settings.HWM_GRAD_STEPS))):
                 optimizer.zero_grad()
                 states = self._rollout_pacejka_grad(state, u)
-                matched = self.rollout_waypoint_states(states.detach(), nearest)
+                matched = (
+                    None if Settings.MPC_REWARD_INTERPOLATED_TARGETS
+                    else self.rollout_waypoint_states(states.detach(), nearest)
+                )
                 (reward, _), _ = self.MPC_reward(
-                    states, matched, nearest, waypoint_off_track_counts=self._wp_off_track_count,
+                    states, matched, nearest, waypoint_off_track_counts=self._wp_off_track_count, actions=u,
                 )
                 poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
                 cost = -reward + wall_weight * self.wall_geometry.soft_wall_penalty(poses, margin).mean(dim=1)
@@ -2058,7 +2242,7 @@ class HirarchicalPlanner(template_planner):
             self.models.eval()
             if "LLD" in loaded:
                 #self.memory.refresh_embeddings()
-                pass
+                self._lld_graph_stale = True  # the CUDA-graph copy of the LLD takes the new weights before its next rollout
         if loaded:
             self._received_weights = True
             self._log_debug(f"[HirarchicalPlanner] Weights updated: {loaded}")

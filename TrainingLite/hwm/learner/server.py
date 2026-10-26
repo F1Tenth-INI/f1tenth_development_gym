@@ -89,7 +89,7 @@ class HWMLearnerServer:
         else:
             # Random init: first broadcast happens in _train_loop once learning_starts is reached.
             self._weights_blob = None
-        self.memory = MemoryManager(device=self.device)
+        self.memory = MemoryManager(device=self.device, keep_all_rows=bool(Settings.HWM_LLD_TRAIN_ON_ALL_ROWS))
         lld = self.models["LLD"]
         self.memory.attach_projector(lld.attention_norm_projector)
         memory_path = resolve_model_dir(self.load_model_name or self.save_model_name) / "memory.pt"
@@ -98,7 +98,7 @@ class HWMLearnerServer:
             n_file = int(payload["rows"].shape[0])
             imported = self.memory.import_rows(payload)
             print(f"[server] Loaded {imported} memory rows from {memory_path}")
-            if imported < n_file:
+            if imported < n_file and payload.get("bank_ends") is None:  # only a legacy file; never shrink a full one
                 snapshot = self.memory.export_rows()
                 if snapshot is not None:
                     tmp = memory_path.with_name("memory.pt.tmp")

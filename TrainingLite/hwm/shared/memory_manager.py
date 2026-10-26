@@ -47,6 +47,7 @@ class MemoryManager:
         device: str | torch.device = "cpu",
         capacity: Optional[int] = None,
         superstate_size: Optional[int] = None,
+        keep_all_rows: bool = False,
     ):
         self.state_dim = int(Settings.HWM_STATE_DIM if state_dim is None else state_dim)
         self.action_dim = int(Settings.HWM_ACTION_DIM if action_dim is None else action_dim)
@@ -61,6 +62,9 @@ class MemoryManager:
         if self.superstate_size < 1:
             raise ValueError(f"superstate_size must be at least 1, got {self.superstate_size}")
         self.device = torch.device(device)
+        # True: no row is ever dropped for lack of a key (the learner trains on every incoming transition).
+        # Only the key bank, and the saved file's bank_ends, decide which windows are retrievable neighbors.
+        self.keep_all_rows = bool(keep_all_rows)
 
         # Ingest (event loop) and training (worker thread) touch the buffer concurrently on the learner.
         self._lock = threading.RLock()
@@ -457,6 +461,8 @@ class MemoryManager:
         Caller holds ``self._lock``. Key embeddings and n_soft stay on their slots: only the
         row index of each key changes, and a kept window stays consecutive.
         """
+        if self.keep_all_rows:
+            return
         kept = self._kept_steps(include_open=True)
         if (
             kept.numel() == self._size
@@ -517,14 +523,20 @@ class MemoryManager:
             self._bank_index[self._bank_rows[:count]] = torch.arange(count, device=self.device)
 
     def export_rows(self) -> Optional[dict[str, torch.Tensor]]:
-        """Rows a kept key still reads, oldest first. None if the bank is empty.
+        """Rows a kept key still reads, oldest first (every stored row except the dropped final ones with
+        ``keep_all_rows``). None if the bank is empty.
 
         ``bank_ends`` are the positions of those keys in ``rows`` (the last row of each
         superstate). A reload offers those keys only, so a discarded window that sits
         inside a neighbour's rows does not come back.
         """
         with self._lock:
-            kept = self._bank_covered_steps()
+            if self.keep_all_rows:
+                steps = torch.arange(self._oldest, self._clock, device=self.device)
+                slots = steps % self.capacity
+                kept = steps[(self._steps[slots] == steps) & ~self._final[slots]]
+            else:
+                kept = self._bank_covered_steps()
             if kept.numel() == 0 or self._bank_count == 0:
                 return None
             rows, run_len = self._pack_steps(kept)

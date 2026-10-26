@@ -76,7 +76,8 @@ _GLOBAL_POSE = (POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX)
 
 
 def _global_pose_channels() -> tuple[int, ...]:
-    return _GLOBAL_POSE + (POSE_THETA_COS_IDX, POSE_THETA_SIN_IDX)
+    # Plain ints: the index constants are numpy ints, and torch.compile mis-evaluates ``i in (numpy ints)``.
+    return tuple(int(i) for i in _GLOBAL_POSE + (POSE_THETA_COS_IDX, POSE_THETA_SIN_IDX))
 
 
 def lld_dynamic_indices() -> list[int]:
