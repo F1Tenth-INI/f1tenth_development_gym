@@ -59,7 +59,7 @@ class Settings():
     CONNECT_RACETUNER_TO_MAIN_CAR = False
 
     # Oponents
-    NUMBER_OF_OPPONENTS = 4
+    NUMBER_OF_OPPONENTS = 3
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
@@ -382,4 +382,18 @@ class Settings():
                     f.write(f"{attr}: {value}\n")
         print(f"Settings snapshot saved to {out_path}")
 
-
+    # Metric Tracking Settings
+    TRACK_METRICS = False
+    USE_PREDICTION = True
+    if TRACK_METRICS:
+        RENDER_MODE = None
+        MAX_SIM_FREQUENCY = None
+        SAVE_RECORDINGS = False
+        SAVE_PLOTS = False
+        STOP_AFTER_N_LAPS = 4
+        MAX_EPISODE_LENGTH = None
+        SIMULATION_LENGTH = 200000
+        MAX_RETRIES_PER_SCENARIO = 4
+        SCENARIO_FILE = "utilities/maps/RCA1/start_states.json"
+        NUMBER_OF_EXPERIMENTS = 1
+        EXPERIMENT_MAX_LENGTH = int(STOP_AFTER_N_LAPS * 45 / 0.01)  #Assign enough time for the ego car to actually complete required number of laps.

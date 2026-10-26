@@ -23,6 +23,8 @@ ego_params = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
 EGO_WIDTH = float(ego_params.width)
 EGO_LENGTH = float(ego_params.length)
 SAFE_WALL_DISTANCE = EGO_WIDTH/2.0
+OPPONENT_WIDTH = Settings.VIRTUAL_OPPONENT_SIZE[0]
+OPPONENT_LENGTH = Settings.VIRTUAL_OPPONENT_SIZE[1]
 """
 RPGD Planner Optimizations for Performance:
 
@@ -591,7 +593,7 @@ def cost_function_jax(state, control, waypoints, lr, opponent_predictions):
 
     #Add proximity cost with opponents
     ego_position = state[POSE_X_IDX:POSE_Y_IDX+1]
-    dist_squared = jnp.sum((ego_position - opponent_predictions)**2, axis=-1)
+    dist_squared = jnp.sum((ego_position - opponent_predictions[:, :2])**2, axis=-1)
     proximity_weight = 20
     radius = 0.15
     '''
@@ -613,10 +615,27 @@ def cost_function_jax(state, control, waypoints, lr, opponent_predictions):
     #Opponent Crash cost
     '''
     The ego tends to crash into the opponents on straights. We add a large (but finite) crash cost to avoid that.
+
+    We model both cars as rectangles. For simplicity, we assume both cars have the same racing direction.
     '''
-    safe_distance = 0.15       #Increase this to increase gap between ego and opponent. Might make overtaking infeasible.
+    vert_safe_dist = (EGO_LENGTH + OPPONENT_LENGTH)/2.0
+    horiz_safe_dist = (EGO_WIDTH + OPPONENT_WIDTH)/2.0      
+    opponent_gap = 0.1
     opponent_crash_weight = 1000
-    opponent_crash_cost = (opponent_crash_weight*jnp.maximum(0, safe_distance - jnp.sqrt(dist_squared))**2).sum()
+    psi = opponent_predictions[:, 2]
+    cos, sin = jnp.cos(psi), jnp.sin(psi)
+
+    d = ego_position - opponent_predictions[:, :2]
+    d_vert = jnp.abs(cos*d[:, 0] + sin*d[:, 1]) - vert_safe_dist
+    d_horiz = jnp.abs(-sin*d[:, 0] + cos*d[:, 1]) - horiz_safe_dist
+
+    outside = jnp.sqrt(jnp.maximum(0, d_vert)**2 + jnp.maximum(0, d_horiz)**2 + 1e-12)  # Positive only if at least one of d_vert, d_horiz is >0 --> no collision
+                                                                                        # Add 1e-12 to avoid NaN Gradients
+    inside = jnp.minimum(jnp.maximum(d_horiz, d_vert), 0)                               # Negative if both are negative --> collision. Otherwise 0
+
+    opponent_crash_cost = opponent_crash_weight*jnp.sum(jnp.maximum(0, opponent_gap - (outside + inside)))  # Is only positive if collision happened or gap is smaller than opponent_gap.
+
+    
 
     # Add a penalty for crashing into the wall (based on lateral distance to wall). Enables safer overtaking maneuvers.
     waypoint = waypoints[min_idx]

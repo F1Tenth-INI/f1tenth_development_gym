@@ -1,5 +1,8 @@
 # PYTHON_ARGCOMPLETE_OK
 import os
+from utilities.Settings import Settings
+import json
+import numpy as np
 
 # Must be set BEFORE importing numpy, torch, jax, etc.
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -21,5 +24,6 @@ if __name__ == '__main__':
 
     # Import and run simulation after settings are configured
     from run.run_simulation import RacingSimulation
+
     simulation = RacingSimulation()
     simulation.run_experiments()

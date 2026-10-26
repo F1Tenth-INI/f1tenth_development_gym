@@ -14,6 +14,7 @@ from sim.f110_sim.envs.base_classes import Simulator, wrap_angle_rad
 from typing import Optional
 from utilities.Settings import Settings
 from utilities.car_system import CarSystem
+from utilities.scenario_scheduler import ScenarioScheduler
 from utilities.random_obstacle_creator import RandomObstacleCreator
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.waypoint_utils import WP_X_IDX, WP_Y_IDX, WP_PSI_IDX
@@ -28,6 +29,8 @@ from utilities.map_scale import scale_positions
 from utilities.motor_sensor_simulator import MotorSensorSimulator
 from utilities.episode_randomization import apply_episode_randomization
 from sim.f110_sim.envs.rendering.WebRenderer.overlay_builder import build_web_overlay
+from utilities.metric_tracker import MetricTracker, OvertakeTracker
+
 if Settings.DISABLE_GPU:
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
@@ -244,6 +247,10 @@ class RacingSimulation:
   
     def reset(self, poses = None):
         self._last_episode_randomization = apply_episode_randomization(self)
+        scenario = None
+        if Settings.TRACK_METRICS:
+            scenario = self.scheduler.current_scenario()
+            self.initial_states = np.array(scenario["states"])[: self.number_of_drivers]
 
         # Check if respawn is enabled and we have enough history
         if Settings.RESPAWN_ON_RESET and len(self.state_history) >= self.RESPAWN_HISTORY_LENGTH:
@@ -262,6 +269,10 @@ class RacingSimulation:
         self.lidar_simulator.reset_rng(seed=12345)
         self._reset_all_drivers()
 
+        if Settings.TRACK_METRICS:
+            for opponent in self.drivers[1:]:
+                opponent.planner.waypoint_velocity_factor = scenario["opponent_vel_factor"]
+
         # Clear state history on full reset
         self._clear_respawn_history()
 
@@ -270,13 +281,34 @@ class RacingSimulation:
 
     def run_simulation(self):
 
+        if Settings.TRACK_METRICS:
+            self.scheduler = ScenarioScheduler(Settings.SCENARIO_FILE, Settings.MAX_RETRIES_PER_SCENARIO)
+
         self.reset()
-    
+
+        # Create overtaking related metric tracker
+        if Settings.TRACK_METRICS:
+            self.overtake_tracker = OvertakeTracker(self)
+            self.metric_tracker = MetricTracker(self.overtake_tracker)
+            self.overtakes_at_try_start = 0
+
         # Main loop
         experiment_length = Settings.SIMULATION_LENGTH
         for self.sim_index in trange(experiment_length):
             self.simulation_step()
-            if getattr(self.drivers[0], "lap_limit_reached", False):
+            if Settings.TRACK_METRICS:
+                if self.scheduler.finished():
+                    break
+                if self.drivers[0].lap_limit_reached:
+                    overtakings = self.overtake_tracker.nr_overtakings - self.overtakes_at_try_start
+                    self.scheduler.end("completed", self.drivers[0].laptimes, overtakings)
+                    self.overtakes_at_try_start = self.overtake_tracker.nr_overtakings
+                    self.overtake_tracker.reset()
+                    if not self.scheduler.finished():
+                        self.reset()
+                    else:
+                        break
+            elif getattr(self.drivers[0], "lap_limit_reached", False):
                 break
 
         self.on_simulation_end(collision=False)
@@ -373,6 +405,11 @@ class RacingSimulation:
     def _finalize_control_step(self):
         """Run post-physics step-end hooks for drivers, rendering and done handling."""
         self.on_step_end()
+
+        # Update the metric tracker
+        if getattr(self, "metric_tracker", None) is not None:
+            self.metric_tracker.update(self)
+
         self.render_env()
         self.check_done()
 
@@ -768,6 +805,14 @@ class RacingSimulation:
 
 
     def handle_done(self):
+        if Settings.TRACK_METRICS:
+            overtakings = self.overtake_tracker.nr_overtakings - self.overtakes_at_try_start
+            self.scheduler.end(self.metric_tracker.last_outcome, self.drivers[0].laptimes, overtakings)
+            self.overtakes_at_try_start = self.overtake_tracker.nr_overtakings
+            self.overtake_tracker.reset()
+            if not self.scheduler.finished():
+                self.reset()
+            return
         if Settings.RESET_ON_DONE:
             self.reset()
         else:
@@ -777,6 +822,18 @@ class RacingSimulation:
                 
     """Called at the end of experiment."""
     def on_simulation_end(self, collision=False):
+        # Print metric tracker summary
+        if getattr(self, "metric_tracker", None) is not None:
+            self.metric_tracker.summary()  
+            overtakes = self.overtake_tracker.nr_overtakings - self.overtakes_at_try_start 
+            self.scheduler.save(Settings.RECORDING_FOLDER, meta=dict(
+                controller=Settings.CONTROLLER,
+                use_prediction=Settings.USE_PREDICTION,
+                laps_per_try=Settings.STOP_AFTER_N_LAPS,
+                max_retries=Settings.MAX_RETRIES_PER_SCENARIO,
+                scenario_file=self.scheduler.scenario_file,
+            ))
+
         for driver in self.drivers:
             driver.on_simulation_end(collision=collision)
         if self.renderer is not None:

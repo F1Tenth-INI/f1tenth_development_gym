@@ -581,6 +581,12 @@ class CarSystem:
             self.opponent_predictions = None
             return
 
+        if not Settings.USE_PREDICTION:
+            opponent_states = car_states[1:]
+            poses = np.asarray([np.asarray(s)[[POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]] for s in opponent_states])
+            self.opponent_predictions = np.repeat(poses[:, None, :], 40 + 1, axis=1)
+            return
+
         if self.opponent_predictor is None:
             self.opponent_predictor = pp_predictor.PurePursuitPredictor(self.waypoint_utils)
 
@@ -597,7 +603,7 @@ class CarSystem:
 
         for state, k2, k1 in opponent_controls:
             predicted_trajectory = self.opponent_predictor.predict(state, pending_controls=[k2, k1], vel_factor=Settings.OPPONENTS_VEL_FACTOR)
-            predictions.append(predicted_trajectory[:, [POSE_X_IDX, POSE_Y_IDX]])
+            predictions.append(predicted_trajectory[:, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]])
 
         self.opponent_predictions = np.array(predictions)
         self.prev_opponent_controls = controls # Update k-2 controls for the next step
@@ -839,7 +845,7 @@ class CarSystem:
 
         
         if self.is_ego and self.opponent_predictions is not None:
-                    predicted_points = np.asarray(self.opponent_predictions).reshape(-1, 2)
+                    predicted_points = np.asarray(self.opponent_predictions)[:, :, :2].reshape(-1, 2)
                     # next_waypoints = np.concatenate([next_waypoints, predicted_points], axis=0)
         
         
