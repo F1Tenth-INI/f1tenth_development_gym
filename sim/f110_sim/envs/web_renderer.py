@@ -1778,8 +1778,21 @@ class WebEnvRenderer:
         # Prefer external client file so frontend iteration does not require
         # touching Python code. Keep string fallback for resilience.
         if WEB_RENDERER_HTML_PATH.exists():
-            return WEB_RENDERER_HTML_PATH.read_text(encoding="utf-8")
-        return HTML_PAGE
+            page = WEB_RENDERER_HTML_PATH.read_text(encoding="utf-8")
+        else:
+            page = HTML_PAGE
+        # The page's fallback rectangle is the old F1TENTH body. Replace it with the body the
+        # wall collision uses, so a failed /ui-config fetch cannot draw the larger car.
+        try:
+            from utilities.Settings import Settings
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+
+            car = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            page = page.replace("let carLengthM = 0.58;", f"let carLengthM = {float(car.length)};", 1)
+            page = page.replace("let carWidthM = 0.31;", f"let carWidthM = {float(car.width)};", 1)
+        except Exception:
+            pass
+        return page
 
     def update_map(self, map_path: str, map_ext: str):
         yaml_path = map_path + ".yaml"

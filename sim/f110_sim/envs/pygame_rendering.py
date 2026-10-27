@@ -62,8 +62,12 @@ from utilities.state_utilities import (
 )
 
 
-CAR_LENGTH = 0.58
-CAR_WIDTH = 0.31
+def _car_size() -> tuple[float, float]:
+    """Body size the wall collision uses, from ``Settings.ENV_CAR_PARAMETER_FILE``."""
+    from utilities.car_files.vehicle_parameters import VehicleParameters
+
+    car = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+    return float(car.length), float(car.width)
 
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR
@@ -583,7 +587,7 @@ class EnvRenderer:
         self._draw_points_array(arr[:1], color, radius)
 
     def draw_car(self, pose, color):
-        vertices = get_vertices(pose, CAR_LENGTH, CAR_WIDTH)
+        vertices = get_vertices(pose, *_car_size())
         points = [self.world_to_screen(v) for v in vertices]
         pygame.draw.polygon(self.screen, color, points)
 
