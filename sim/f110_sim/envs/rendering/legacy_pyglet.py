@@ -51,9 +51,16 @@ from f110_sim.envs.collision_models import get_vertices
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1/ZOOM_IN_FACTOR
 
-# vehicle shape constants
-CAR_LENGTH = 0.58
-CAR_WIDTH = 0.31
+def _load_ego_body_size():
+    """(length, width) in meters from Settings.ENV_CAR_PARAMETER_FILE."""
+    from utilities.car_files.vehicle_parameters import VehicleParameters
+
+    params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+    return float(params.length), float(params.width)
+
+
+# vehicle shape from the env car parameter file
+CAR_LENGTH, CAR_WIDTH = _load_ego_body_size()
 
 class EnvRenderer(pyglet.window.Window):
     """

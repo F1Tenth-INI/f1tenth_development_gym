@@ -3884,6 +3884,8 @@
         // Generic RenderScene layers (custom debug geometry added via scene.set_*).
         drawGenericLayers(dyn.layers, cx, cy);
 
+        if (Number.isFinite(frame.car_length)) carLengthM = frame.car_length;
+        if (Number.isFinite(frame.car_width)) carWidthM = frame.car_width;
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];

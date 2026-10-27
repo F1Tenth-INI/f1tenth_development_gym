@@ -348,9 +348,15 @@ class Simulator(object):
         self.sim_index = 0
         self._map_scan_simulator = None
         self.map_collision_margin = 0.005
-        
+
+        # Body size for wall and agent collision comes from the env car file
+        # (width, length), not from a hardcoded F1Tenth footprint.
         car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-        # self.params = car_params.to_dict()
+        self.car_length = float(car_params.length)
+        self.car_width = float(car_params.width)
+        if isinstance(self.params, dict):
+            self.params["length"] = self.car_length
+            self.params["width"] = self.car_width
 
         # initializing agents
         for i in range(self.num_agents):
@@ -397,11 +403,10 @@ class Simulator(object):
         if scan_sim.dt is None:
             return
 
-        length = self.params['length']
-        width = self.params['width']
         margin = self.map_collision_margin
 
         for agent in self.agents:
+            length, width = self._body_size(agent)
             pose = np.array(
                 [
                     agent.state[POSE_X_IDX],
@@ -429,8 +434,18 @@ class Simulator(object):
             pos_x = self.agents[i].state[POSE_X_IDX]
             pos_y = self.agents[i].state[POSE_Y_IDX]
             yaw = self.agents[i].state[POSE_THETA_IDX]
-            all_vertices[i, :, :] = get_vertices(np.append([pos_x, pos_y], yaw), self.params['length'], self.params['width'])
+            length, width = self._body_size(self.agents[i])
+            all_vertices[i, :, :] = get_vertices(
+                np.append([pos_x, pos_y], yaw), length, width
+            )
         self.collisions, self.collision_idx = collision_multiple(all_vertices)
+
+    def _body_size(self, agent):
+        """Return (length, width) in meters from the agent's car parameters."""
+        params = getattr(agent, "params", None)
+        if isinstance(params, dict) and "length" in params and "width" in params:
+            return float(params["length"]), float(params["width"])
+        return float(self.car_length), float(self.car_width)
 
     def get_sim_observation(self):
         """

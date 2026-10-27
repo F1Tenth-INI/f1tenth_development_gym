@@ -322,10 +322,22 @@ class PygameLayerDrawer:
             elif kind == "trajectories" and draw_trajectories is not None:
                 draw_trajectories(data, color, width)
             elif kind == "poses" and draw_car is not None and isinstance(data, list):
+                # style.size is [width, length] in meters, matching the web client.
+                size = style.get("size")
+                body_width = None
+                body_length = None
+                if isinstance(size, (list, tuple)) and len(size) >= 2:
+                    body_width = float(size[0])
+                    body_length = float(size[1])
                 for pose in data:
                     if not isinstance(pose, (list, tuple)) or len(pose) < 3:
                         continue
-                    draw_car((float(pose[0]), float(pose[1]), float(pose[2])), color)
+                    draw_car(
+                        (float(pose[0]), float(pose[1]), float(pose[2])),
+                        color,
+                        body_length,
+                        body_width,
+                    )
 
 
 class RosAdapter:

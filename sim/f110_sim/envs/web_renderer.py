@@ -861,6 +861,8 @@ HTML_PAGE = """<!doctype html>
           }
         }
 
+        if (Number.isFinite(frame.car_length)) carLengthM = frame.car_length;
+        if (Number.isFinite(frame.car_width)) carWidthM = frame.car_width;
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
@@ -1471,14 +1473,22 @@ class WebEnvRenderer:
                 payload["frame"] = self._compact_ws_frame(self._state)
         return payload
 
-    def _compact_ws_frame(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _car_body_payload(self) -> Dict[str, float]:
         return {
+            "car_length": float(self._ui_config.get("car_length", 0.58)),
+            "car_width": float(self._ui_config.get("car_width", 0.31)),
+        }
+
+    def _compact_ws_frame(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        frame = {
             "frame_id": int(state.get("frame_id", 0)),
             "ego_idx": int(state.get("ego_idx", 0)),
             "simulation_time": float(state.get("simulation_time", 0.0)),
             "poses": state.get("poses", []),
             "web_overlay": state.get("web_overlay", {}),
         }
+        frame.update(self._car_body_payload())
+        return frame
 
     def _broadcast_ws_frame(self) -> None:
         hub = self._ws_hub
@@ -1598,6 +1608,7 @@ class WebEnvRenderer:
                         "simulation_time": round(sim_time, self._float_precision_digits),
                         "poses": self._round_floats([ego_pose], self._float_precision_digits),
                         "web_overlay": overlay,
+                        **self._car_body_payload(),
                     }
                 )
 
@@ -2020,6 +2031,7 @@ class WebEnvRenderer:
                 "simulation_time": round(simulation_time, self._float_precision_digits),
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
+                **self._car_body_payload(),
             }
             self._state.update(self._sim_timing_payload())
             if self._replay_archive_preloaded:
