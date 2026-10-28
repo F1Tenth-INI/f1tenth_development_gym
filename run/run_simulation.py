@@ -39,6 +39,8 @@ Settings.ROS_BRIDGE = False  # No ros bridge if this script is running
 class RacingSimulation:
     RANDOM_START_MAIN_JITTER_XY = 1
     RANDOM_START_MAIN_JITTER_YAW = 0.3
+    RANDOM_START_MIN_WALL_CLEARANCE = 0.15  # m, every body corner of a random start is at least this far from a wall
+    RANDOM_START_ATTEMPTS = 200
     RANDOM_START_OPPONENT_WP_GAP_MIN = 10
     RANDOM_START_OPPONENT_WP_GAP_MAX = 40
 
@@ -720,10 +722,18 @@ class RacingSimulation:
         starting_positions = self._expand_starting_positions(starting_positions)
 
         base_idx = random.randint(0, n_waypoints - 1)
-        random_wp = np.array(random_wp_source[base_idx], copy=True)
-        random_wp[WP_X_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
-        random_wp[WP_Y_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
-        random_wp[WP_PSI_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_YAW)
+        for attempt in range(self.RANDOM_START_ATTEMPTS):
+            if attempt and attempt % 20 == 0:
+                base_idx = random.randint(0, n_waypoints - 1)
+            random_wp = np.array(random_wp_source[base_idx], copy=True)
+            random_wp[WP_X_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+            random_wp[WP_Y_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_XY)
+            random_wp[WP_PSI_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_YAW)
+            if self._start_clearance(random_wp[1:4]) >= self.RANDOM_START_MIN_WALL_CLEARANCE:
+                break
+        else:
+            random_wp = np.array(random_wp_source[base_idx], copy=True)
+            print("Warning: no random start clear of the walls; starting on the waypoint itself.")
         starting_positions[0] = random_wp[1:4]
 
         current_idx = base_idx
@@ -739,6 +749,47 @@ class RacingSimulation:
             opp_wp[WP_PSI_IDX] += random.uniform(0.0, self.RANDOM_START_MAIN_JITTER_YAW)
             starting_positions[i] = opp_wp[1:4]
         return starting_positions
+
+    def _start_clearance(self, pose) -> float:
+        """Smallest distance in meters from a body corner of a car at ``pose`` ``[x, y, theta]`` to a wall.
+
+        Same distance transform as the simulator's body collision check. A corner off the map counts as 0.
+        """
+        if Settings.BLANK_MAP:
+            return float("inf")
+        if getattr(self, "_start_distance_map", None) is None:
+            from PIL import Image
+            from scipy import ndimage
+            from utilities.map_scale import scale_map_metadata
+
+            with open(Settings.MAP_CONFIG_FILE, "r") as f:
+                metadata = scale_map_metadata(yaml.safe_load(f))
+            image_path = os.path.join(Settings.MAP_PATH, Settings.MAP_NAME + ".png")
+            image = np.array(Image.open(image_path).transpose(Image.FLIP_TOP_BOTTOM))
+            if image.ndim == 3:
+                image = image[..., 0]
+            resolution = float(metadata["resolution"])
+            self._start_distance_map = (
+                resolution * ndimage.distance_transform_edt(image.astype(np.float64) > 128.0),
+                resolution,
+                [float(v) for v in metadata["origin"]],
+            )
+            params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            self._start_car_size = (float(params.length), float(params.width))
+        distance, resolution, origin = self._start_distance_map
+        length, width = self._start_car_size
+        x, y, theta = (float(v) for v in pose)
+        corner_x = np.array([-0.5, -0.5, 0.5, 0.5]) * length
+        corner_y = np.array([0.5, -0.5, -0.5, 0.5]) * width
+        px = x + np.cos(theta) * corner_x - np.sin(theta) * corner_y - origin[0]
+        py = y + np.sin(theta) * corner_x + np.cos(theta) * corner_y - origin[1]
+        cos_o, sin_o = np.cos(origin[2]), np.sin(origin[2])
+        cols = np.floor((px * cos_o + py * sin_o) / resolution).astype(np.int64)
+        rows = np.floor((-px * sin_o + py * cos_o) / resolution).astype(np.int64)
+        inside = (rows >= 0) & (rows < distance.shape[0]) & (cols >= 0) & (cols < distance.shape[1])
+        if not bool(inside.all()):
+            return 0.0
+        return float(distance[rows, cols].min())
 
     def _validate_starting_positions(self, starting_positions):
         """Validate that there are enough start positions for all drivers."""

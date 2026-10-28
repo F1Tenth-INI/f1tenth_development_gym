@@ -322,8 +322,8 @@ class WallGeometry:
         y = p[..., 1:2] + sin_t * self._corner_x + cos_t * self._corner_y
         return torch.stack((x, y), dim=-1)
 
-    def corners_in_wall(self, poses: ArrayLike) -> torch.Tensor:
-        """``(..., 4)`` bool: a body corner closer to a wall than ``HWM_MIN_BORDER_DISTANCE``, or outside the map."""
+    def corners_in_wall(self, poses: ArrayLike, margin: Optional[float] = None) -> torch.Tensor:
+        """``(..., 4)`` bool: a body corner closer to a wall than ``margin`` (default ``HWM_MIN_BORDER_DISTANCE``), or outside the map."""
         corners = self.corners(poses)
         if Settings.BLANK_MAP:
             return torch.zeros(corners.shape[:-1], dtype=torch.bool, device=self.device)
@@ -338,7 +338,7 @@ class WallGeometry:
         )
         cols = (x_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_width - 1).long()
         rows = (y_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_height - 1).long()
-        limit = float(Settings.HWM_MIN_BORDER_DISTANCE)
+        limit = float(Settings.HWM_MIN_BORDER_DISTANCE if margin is None else margin)
         return ~inside | (self.wall_distance[rows, cols] < limit)
 
     def distance_at(self, xy: ArrayLike) -> torch.Tensor:
@@ -395,9 +395,9 @@ class WallGeometry:
         d = torch.where(inside, d, torch.zeros_like(d))
         return (float(margin) - d).clamp(min=0.0).sum(dim=-1)
 
-    def in_wall(self, poses: ArrayLike) -> torch.Tensor:
-        """``(...)`` bool: any body corner closer to a wall than ``HWM_MIN_BORDER_DISTANCE``, or outside the map."""
-        return self.corners_in_wall(poses).any(dim=-1)
+    def in_wall(self, poses: ArrayLike, margin: Optional[float] = None) -> torch.Tensor:
+        """``(...)`` bool: any body corner closer to a wall than ``margin`` (default ``HWM_MIN_BORDER_DISTANCE``), or outside the map."""
+        return self.corners_in_wall(poses, margin).any(dim=-1)
 
     def crash_probability(
         self,

@@ -9,7 +9,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "IPZ50"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
     MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -414,7 +414,7 @@ class Settings():
     MPC_ACTION_CORRELATION = 0.6  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = True  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.25
+    MPC_WAYPOINT_UPDTE_EMA = 0.5
     MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 1.414  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
     MPC_WAYPOINT_AHEAD_SPAN = 3  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
     MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
@@ -425,14 +425,38 @@ class Settings():
     MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
     MPC_WAYPOINT_UPDATE_DISTANCE = 0.3 #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
     MPC_STALL_DISTANCE = 0.5  # [m] the car counts as stalled, and goes into recovery, when it moved less than this in MPC_STALL_TIME
-    MPC_STALL_TIME = 3000.5  # [s]
-    MPC_STALL_REVERSE_STEPS = 50  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
-    MPC_STALL_BACKTRACK_WAYPOINTS = 10  # the backtrack phase drives to the waypoint this many behind the car
+    MPC_STALL_TIME = 2.0  # [s]
+    MPC_STALL_REVERSE_STEPS = 25  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
+    MPC_STALL_BACKTRACK_WAYPOINTS = 3  # the backtrack phase drives to the waypoint this many behind the car
     MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
     MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA. (The waypoint EMA setting works the other way round: its gamma weighs the new value)
     MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # discard staged updates and hold for that delay when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
-    HWM_MIN_BORDER_DISTANCE = 0.0  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall
+    HWM_MIN_BORDER_DISTANCE = 0.07  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
     MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.2  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
+    MPC_WAYPOINT_WINDOW_UPDATES = True  # True: a stored waypoint changes only through window updates, rolled out from the state stored at a waypoint behind the car (see MPC_WAYPOINT_WINDOW_*). The car's own plan only fills waypoints that have nothing stored yet. False: the staging from the car's plan above (MPC_WAYPOINT_AHEAD, _COMMIT_LAG, _UPDTE_EMA)
+    MPC_WAYPOINT_WINDOW_SAMPLES = 25  # action sequences rolled out per window update, besides the MPC_NUM_OF_TRAJECTORIES driving samples. One of them is the stored sequence itself. With MPC_WAYPOINT_WINDOW_ROBUST each is rolled out twice
+    MPC_WAYPOINT_WINDOW_ROBUST = True  # each window sample is also rolled out from a perturbed start (speed, drift, yaw rate); an update is accepted only if that copy also gets through
+    MPC_WAYPOINT_WINDOW_ROBUST_TOLERANCE = 0.2  # largest error after the window of the perturbed copy (the perturbation alone is about 0.065)
+    MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
+    MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
+    MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see WINDOW_ERROR in the planner
+    MPC_WAYPOINT_WINDOW_MARGIN = 0.2  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
+    MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE = True  # one window sample is the commands the car issued after it last crossed the window's first waypoint, rolled out from the stored state like the others
+    MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins
+    MPC_WAYPOINT_WINDOW_GRIP_SHARE = 0.9  # an update's rollout may brake and corner together (friction circle of forward and lateral acceleration) at most at this share of the tires' mu * g. 0: no limit
+    MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.15  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
+    MPC_WAYPOINT_WINDOW_CORRELATION = 0.6  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
+    MPC_WAYPOINT_WINDOW_NOISE = 0.7  # sampling noise of window updates, relative to the driving noise
+    MPC_DRIVE_FALLBACK_SAMPLES = True  # the last 7 drive samples are fixed alternatives: the previous plan, it with full braking, and the seed swerving left or right at its throttle or half braking, and braking straight
+    MPC_SEED_SPEED_GAIN = 3.0  # 1/s. The waypoint-seeded drive action gets this much extra acceleration (m/s^2) per m/s the seed path is below the stored speed there (negative above it)
+    MPC_DRIVE_ARRIVAL_WEIGHT = 0.3  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate (MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE). 0: the stored speeds alone set the pace
+    MPC_DRIVE_WALL_CLEARANCE = 0.15  # [m] drive rollout states whose closest body corner is nearer to a wall than this are penalized
+    MPC_DRIVE_WALL_WEIGHT = 1.0  # drive cost per such state, scaled from 0 at MPC_DRIVE_WALL_CLEARANCE to 1 at HWM_MIN_BORDER_DISTANCE. 0: off
+    MPC_RECOVERY_HEADING_ERROR = 0.5  # [rad] a car on the raceline but heading this far from the nearest waypoint's heading also counts as off track (recovery). 0: distance only
+    MPC_SAFE_MEAN = True  # when some samples crash, the weighted mean plan is rolled out once more; if it crashes and the best sample does not, the best sample is driven
+    MPC_STALL_ON_BLOCKED = True  # a car slower than 1 m/s whose best rollout crashes or drives less than 0.3 m forward backtracks at once, without waiting MPC_STALL_TIME
+    MPC_DRIVE_GRIP_SHARE = 1.0  # drive rollouts are penalized where braking and cornering together need more than this share of the tire grip (mu * g)
+    MPC_DRIVE_GRIP_WEIGHT = 1.0  # drive cost per m/s^2 of the largest overshoot of that grip along a rollout. 0: off
 
     MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
     MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
@@ -447,7 +471,7 @@ class Settings():
     HWM_PROFILE = False  # time every part of the HWM control step and write a report (HWM_PROFILE_FILE .txt/.json) at exit. See TrainingLite/hwm/profiling.py and scripts/profile_hwm.py
     HWM_PROFILE_FILE = "hwm_profile"  # path prefix of the report
     HWM_PROFILE_SKIP_STEPS = 30  # control steps ignored at the start (JIT/torch.compile warmup, empty memory)
-    HWM_LIVE_MODE = False  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
+    HWM_LIVE_MODE = True  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
     HWM_SEED_FROM_MEAN_STATES = True  # TEST. True: no rollout for the seed. At the end of every step, the softmax-averaged states of the samples give the next step's seed: for each averaged state, the mix of the first stored actions of the two waypoints around it (like HWM_SEED_FROM_ROLLOUT, but the states are the averages instead of a model rollout of the blended sequence). Replaces HWM_SEED_FROM_ROLLOUT
     HWM_UPDATE_FROM_OPT_MEAN_STATES = True  # TEST. True: no optimistic rollout. The waypoint update takes the optimistic-reward softmax-averaged states as the path, and interpolates the two of them nearest to the waypoint's line
     MPC_REWARD_INTERPOLATED_TARGETS = False  # True: every rollout state gets a target by blending the targets (position, heading, speed, drift) of its 2 closest waypoints, weighted toward the closer one; its error to that target is the cost, averaged over the rollout's states. False: legacy, each waypoint is matched to its closest rollout state

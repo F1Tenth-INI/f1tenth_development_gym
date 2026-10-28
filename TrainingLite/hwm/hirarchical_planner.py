@@ -287,6 +287,8 @@ class HirarchicalPlanner(template_planner):
         self._last_opt_wp = None
         self._mean_state_seed = None
         self._action_buffer_valid = False
+        self._fill_previous_state = None
+        self._driven = None
         self._reset_stall()
 
     def _blend_heading(self, old: torch.Tensor, new: torch.Tensor, gamma: float) -> torch.Tensor:
@@ -411,6 +413,15 @@ class HirarchicalPlanner(template_planner):
         mixed = (1.0 - alpha)[:, None] * first_start + alpha[:, None] * first_end
         mixed = torch.where((has_start & ~has_end)[:, None], first_start, mixed)
         mixed = torch.where((has_end & ~has_start)[:, None], first_end, mixed)
+        # A stored action fits a car at the waypoint's stored speed. Off that speed it is corrected
+        # toward it, or a car that slowed where the stored plans brake would keep braking there.
+        speed = self.waypoints[:, WP_TARGET_SPEED_IDX]
+        target = (1.0 - alpha) * speed[start] + alpha * speed[end]
+        target = torch.where(has_start & ~has_end, speed[start], target)
+        target = torch.where(has_end & ~has_start, speed[end], target)
+        gain = float(Settings.MPC_SEED_SPEED_GAIN) / float(self.action_denormalization_array[1])
+        mixed = mixed.clone()
+        mixed[:, 1] = mixed[:, 1] + gain * (target - path[:, LINEAR_VEL_X_IDX])
         seed = torch.where((has_start | has_end)[:, None], mixed, self.action_buffer[:horizon])
         return seed
 
@@ -452,6 +463,9 @@ class HirarchicalPlanner(template_planner):
         self._wp_action_staged = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._wp_action_known = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._wp_action_dist = torch.full((self._waypoints_n,), float("inf"))
+        delay = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))
+        # Control-delay queue at each waypoint's stored state: the commands issued before it that are still to be applied.
+        self._wp_pending = torch.zeros((self._waypoints_n, delay, 2), dtype=torch.float32)
         self._wp_initial = self.waypoints.clone()  # as loaded, for a full reset of a waypoint
         # Every committed value, oldest first: each commit pushes what it replaced. A revert pops one.
         self._wp_gamma_divisions = torch.zeros((self._waypoints_n,), dtype=torch.long)  # times each waypoint was reset
@@ -461,6 +475,8 @@ class HirarchicalPlanner(template_planner):
         self._wp_frozen_until = torch.zeros((self._waypoints_n,), dtype=torch.long)
         self._wp_off_track_count = torch.zeros((self._waypoints_n,), dtype=torch.float32)
         self._wp_path_states = None
+        self._wp_window_accepted = 0
+        self._wp_window_tried = 0
         self._wp_vehicle_state_set = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._wp_off_track_marked = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._car_waypoint = None
@@ -531,6 +547,8 @@ class HirarchicalPlanner(template_planner):
         ahead = ahead + int(Settings.IGNORE_STEPS)
         return ahead.remainder(xy.shape[0])
 
+    MATCH_HORIZON_SHARE = 0.6
+
     def rollout_waypoint_states(self, states: torch.Tensor, closest_index: int | torch.Tensor) -> torch.Tensor:
         """For each rollout, which of its states is closest to each upcoming waypoint.
 
@@ -538,8 +556,12 @@ class HirarchicalPlanner(template_planner):
         ahead of the start, one integer or ``(B,)``. Waypoint ``j`` of a trajectory is
         ``closest_index + j`` along the raceline, including that first waypoint ahead.
 
-        How many waypoints: the trajectory's average speed over ground, times the rollout
-        duration ``(T - 1) * TIMESTEP_CONTROL``, divided by the stored waypoint spacing, plus one.
+        How many waypoints: as many as the stored target speeds cover in ``MATCH_HORIZON_SHARE`` of the
+        rollout duration ``(T - 1) * TIMESTEP_CONTROL``, plus one, the same for every rollout (counted
+        from the first rollout's start). A rollout that is slower than the targets therefore still has
+        to reach them: counted from its own speed, a car that stands still would be scored on the next
+        waypoint only. Less than the whole duration, so a rollout at the target speeds reaches the last
+        one before the horizon ends and is not pushed to overspeed for it.
         Waypoints past that, and any waypoint left after every state has been used once, are NaN.
 
         Returns ``(B, J)`` float. Entry ``[k, j]`` is the state index in rollout ``k`` closest to
@@ -556,11 +578,16 @@ class HirarchicalPlanner(template_planner):
         closest = torch.as_tensor(closest_index, dtype=torch.long)
         if closest.numel() == 1:
             closest = closest.reshape(()).expand(batch)
-        speed = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).mean(dim=1)
         duration = max(steps - 1, 0) * float(Settings.TIMESTEP_CONTROL)
-        spacing = max(float(getattr(self, "_waypoint_spacing", 0.1)), 1e-3)
-        counts = torch.floor(speed * duration / spacing).to(torch.long) + 1
-        counts = counts.clamp(min=1, max=self._waypoints_n)
+        ahead = (int(closest[0]) + torch.arange(self._waypoints_n)) % self._waypoints_n if batch else torch.zeros(0, dtype=torch.long)
+        if batch:
+            xy = self._waypoint_xy[ahead]
+            length = (xy[1:] - xy[:-1]).norm(dim=-1)
+            speed = self.waypoints[ahead[:-1], WP_TARGET_SPEED_IDX].clamp(min=0.5)
+            covered = int((torch.cumsum(length / speed, dim=0) <= self.MATCH_HORIZON_SHARE * duration).sum())
+        else:
+            covered = 0
+        counts = torch.full((batch,), covered + 1, dtype=torch.long).clamp(min=1, max=self._waypoints_n)
         look = int(counts.max()) if batch else 0
         out = states.new_full((batch, look), float("nan"))
         if look == 0 or steps == 0:
@@ -648,7 +675,7 @@ class HirarchicalPlanner(template_planner):
         counts = count.clamp(min=1).to(speed.dtype)
         drive_cost = (
             10 * distance + 2 * heading.sum(dim=1) + shortfall.sum(dim=1) + overspeed.sum(dim=1) * 2
-            + 0.25 * drift_error + 0.5 * fast_driving
+            + 0.25 * drift_error + float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT) * fast_driving
         ) / counts
         optimize_cost = (10 * distance) / counts
         optimize_cost = optimize_cost + (
@@ -657,15 +684,33 @@ class HirarchicalPlanner(template_planner):
         optimize_cost = optimize_cost + (shortfall * window_f).sum(dim=1) * 10 / window_f.sum(dim=1).clamp(min=1)
         optimize_cost = optimize_cost + 0.5 * fast_driving_legal / Settings.MPC_WAYPOINT_AHEAD_SPAN
 
-        min_speed = torch.where(valid, speed, torch.full_like(speed, float("inf"))).min(dim=1).values
+        # Every predicted state counts: with only the matched ones, a rollout that backs away from the
+        # waypoints is matched by its first, still slow states and its reversing goes unpunished.
+        min_speed = states[:, 1:, LINEAR_VEL_X_IDX].min(dim=1).values
         reverse = torch.where(min_speed < 0, 100 * min_speed.abs(), torch.zeros_like(min_speed))
-        drive_cost = drive_cost + reverse
+        drive_cost = drive_cost + reverse + self._grip_excess_cost(states)
         optimize_cost = optimize_cost + reverse
         PROF.end()
         active = count > 0
         drive = torch.where(active, drive_cost, drive)
         optimize = torch.where(active, optimize_cost, optimize)
         return drive, optimize
+
+    def _grip_excess_cost(self, states: torch.Tensor) -> torch.Tensor:
+        """``(B,)`` cost of the largest friction-circle overshoot along each rollout.
+
+        The model limits braking and cornering each on its own, so it predicts a hard braking turn that the
+        tires cannot deliver together and the car spins.
+        """
+        weight = float(Settings.MPC_DRIVE_GRIP_WEIGHT)
+        if weight <= 0.0:
+            return torch.zeros(int(states.shape[0]))
+        speed = states[..., LINEAR_VEL_X_IDX]
+        lateral = speed[:, 1:] * states[:, 1:, ANGULAR_VEL_Z_IDX]
+        forward = torch.diff(speed, dim=1) / float(Settings.TIMESTEP_CONTROL)
+        limit = float(Settings.MPC_DRIVE_GRIP_SHARE) * self._car_friction_accel()
+        excess = (torch.hypot(lateral, forward) - limit).clamp(min=0).amax(dim=1)
+        return weight * excess
 
     def _interpolated_target_costs(
         self, states: torch.Tensor, start: int, ignore_waypoint: int | None = None
@@ -799,11 +844,22 @@ class HirarchicalPlanner(template_planner):
         late_opt = horizon - survived_opt
 
         def _split(raw: torch.Tensor, late: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-            crash = -(torch.max(raw) * 10 * late)
+            # At least 1 per step of the horizon lost: with every cost near 0 a crash must still cost something.
+            crash = -(raw.abs().max().clamp_min(1.0) * 10 * late)
             return -raw, crash
 
         drive_reward, drive_crash = _split(drive, late)
         optimize_reward, optimize_crash = _split(optimize, late_opt)
+        clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
+        if clearance_weight > 0.0:
+            # A plan that passes a wall by a hair is a crash after a few cm of tracking error. Each state
+            # whose closest body corner is within MPC_DRIVE_WALL_CLEARANCE of a wall costs up to 1, reached
+            # at the crash margin.
+            corner = self.wall_geometry.distance_at(self.wall_geometry.corners(poses)).amin(dim=-1).to(drive_reward)
+            start = float(Settings.MPC_DRIVE_WALL_CLEARANCE)
+            span = max(start - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3)
+            closeness = ((start - corner) / span).clamp(0.0, 1.0).sum(dim=1)
+            drive_reward = drive_reward - clearance_weight * closeness
         wall_weight = float(Settings.MPC_WALL_DISTANCE_WEIGHT)
         if wall_weight != 0.0:
             # General reward for staying away from the walls, crash or not: the mean over the rollout of
@@ -892,13 +948,17 @@ class HirarchicalPlanner(template_planner):
                 episode_id=self._episode_id,
             )
 
-    def _sample_mpc_actions(self, nominal: torch.Tensor | None = None, count: int | None = None) -> torch.Tensor:
+    def _sample_mpc_actions(
+        self, nominal: torch.Tensor | None = None, count: int | None = None, noise_scale: float = 1.0,
+        correlation: float | None = None,
+    ) -> torch.Tensor:
         """Correlated action samples around ``nominal``, clipped like ``select_action``."""
         if nominal is None:
             nominal = self.action_buffer
         PROF.begin("noise_draw")
-        rho = min(max(float(Settings.MPC_ACTION_CORRELATION), 0.0), 0.999)
-        noise_std = torch.tensor([0.08, 1.5]) / torch.as_tensor(self.action_denormalization_array)
+        rho = float(Settings.MPC_ACTION_CORRELATION if correlation is None else correlation)
+        rho = min(max(rho, 0.0), 0.999)
+        noise_std = noise_scale * torch.tensor([0.08, 1.5]) / torch.as_tensor(self.action_denormalization_array)
         if self.off_track or self._stall_phase == 1:
             noise_std = noise_std * float(self.RECOVERY["noise_scale"])
         eps = torch.randn(int(count or Settings.MPC_NUM_OF_TRAJECTORIES), Settings.MPC_TRAJECTORY_LENGTH, 2)
@@ -915,6 +975,89 @@ class HirarchicalPlanner(template_planner):
             accel_limit = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL) / float(self.action_denormalization_array[1])
             actions[..., 0].clamp_(-steer_limit, steer_limit)
             actions[..., 1].clamp_(-accel_limit, accel_limit)
+        return actions
+
+    FALLBACK_STEER = 0.5  # normalized steering offset of the swerving fallback samples
+    FALLBACK_STEER_SCALES = (0.5, 0.75)  # the seed's steering scaled by these, at its own throttle
+    CREEP_SPEED = 1.0  # [m/s] below this the fallback samples also pull away at fixed steering up to this speed
+    CREEP_ACCEL = 2.0  # [m/s^2] their throttle
+    STANDING_SPEED = 0.1  # [m/s] below this the braking fallbacks do not brake: it would only reverse the car
+    BACK_OFF_SPEED = 0.5  # [m/s] reverse speed of the backing-off fallback samples of a slow car
+
+    def _car_brake_multiplier(self) -> float:
+        """Factor the car applies to negative acceleration commands."""
+        if getattr(self, "_brake_multiplier", None) is None:
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+            self._brake_multiplier = float(getattr(VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE), "brake_multiplier", 1.0))
+        return self._brake_multiplier
+
+    def _car_friction_accel(self) -> float:
+        """mu * g of the car parameters: the most the tires can brake."""
+        if getattr(self, "_friction_accel", None) is None:
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+            params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            self._friction_accel = float(params.mu) * float(getattr(params, "g", 9.81))
+        return self._friction_accel
+
+    def _with_fallback_samples(
+        self, actions: torch.Tensor, nominal: torch.Tensor | None, speed: float, yaw_rate: float = 0.0
+    ) -> torch.Tensor:
+        """Replace the last samples with fixed alternatives the noise around ``nominal`` rarely reaches.
+
+        The previous plan as it is and with full braking, and ``nominal`` swerving to either side at
+        its own throttle and at half braking, and ``nominal`` with its steering scaled down. Braking lasts
+        until the car at ``speed`` would stand. When the seed runs into a wall, one of them usually does not.
+        """
+        if nominal is None:
+            nominal = self.action_buffer
+        horizon = int(nominal.shape[0])
+        # Full braking is what the tires have left beside the current cornering: the model brakes at mu * g
+        # in a turn, the car slides. Never below a third of it, so a fallback still slows the car.
+        grip = float(self._car_friction_accel())
+        available = np.sqrt(max(grip ** 2 - (speed * yaw_rate) ** 2, (grip / 3.0) ** 2))
+        brake_physical = min(float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL), available)
+        # Durations count from the first command of the plan: the rollout already applies it after the control delay.
+
+        def stopping(share: float) -> torch.Tensor:
+            # Brake only until the car stands: braking on would drive it backwards.
+            steps = int(np.ceil(max(speed, 0.0) / (share * brake_physical * float(Settings.TIMESTEP_CONTROL))))
+            if speed < self.STANDING_SPEED:
+                steps = 0
+            profile = torch.zeros(horizon)
+            command = share * brake_physical / self._car_brake_multiplier()
+            profile[: min(steps, horizon)] = -command / float(self.action_denormalization_array[1])
+            return profile
+
+        full, half = stopping(1.0), stopping(0.5)
+        previous = self.action_buffer
+        fixed = [previous, torch.stack((previous[:, 0], full), dim=1)]
+        for side in (-1.0, 1.0):
+            steer = (nominal[:, 0] + side * self.FALLBACK_STEER).clamp(-1.0, 1.0)
+            fixed.append(torch.stack((steer, nominal[:, 1]), dim=1))
+            fixed.append(torch.stack((steer, half), dim=1))
+        fixed.append(torch.stack((nominal[:, 0], full), dim=1))
+        # A seed recorded in a different state can steer harder than the car needs now and curl into the inside wall.
+        for scale in self.FALLBACK_STEER_SCALES:
+            fixed.append(torch.stack((nominal[:, 0] * scale, nominal[:, 1]), dim=1))
+        if speed < self.CREEP_SPEED:
+            # A slow car may need a sharp pull-away the seed and its noise never try: gentle throttle at fixed steering.
+            steps = int(np.ceil((self.CREEP_SPEED - speed) / (self.CREEP_ACCEL * float(Settings.TIMESTEP_CONTROL))))
+            throttle = torch.zeros(horizon)
+            throttle[: min(steps, horizon)] = self.CREEP_ACCEL / float(self.action_denormalization_array[1])
+            for steer in (-1.0, -0.5, 0.5, 1.0):
+                fixed.append(torch.stack((torch.full((horizon,), steer), throttle), dim=1))
+            # With its nose at a wall, backing off at full lock is the only way out.
+            braking = self.CREEP_ACCEL * self._car_brake_multiplier()
+            steps = int(np.ceil((max(speed, 0.0) + self.BACK_OFF_SPEED) / (braking * float(Settings.TIMESTEP_CONTROL))))
+            reverse = torch.zeros(horizon)
+            reverse[: min(steps, horizon)] = -self.CREEP_ACCEL / float(self.action_denormalization_array[1])
+            for steer in (-1.0, 1.0):
+                fixed.append(torch.stack((torch.full((horizon,), steer), reverse), dim=1))
+        fixed = torch.stack(fixed, dim=0)
+        if int(fixed.shape[0]) >= int(actions.shape[0]):
+            return actions
+        actions = actions.clone()
+        actions[-int(fixed.shape[0]):] = fixed
         return actions
 
     def _keep_wall_distance(self, xy: torch.Tensor, idx: int) -> torch.Tensor:
@@ -1247,19 +1390,56 @@ class HirarchicalPlanner(template_planner):
             while len(history) > steps + 1:
                 history.popleft()
             if len(history) > steps and float((history[-1] - history[0]).norm()) < distance:
-                history.clear()
-                if int(Settings.MPC_STALL_REVERSE_STEPS) > 0:
-                    self._stall_phase = 1
-                    self._reverse_left = int(Settings.MPC_STALL_REVERSE_STEPS)
-                    self._backtrack_wp = (int(car_waypoint) - int(Settings.MPC_STALL_BACKTRACK_WAYPOINTS)) % self._waypoints_n
-                    self._log_info(
-                        "[HirarchicalPlanner] Warning: car barely moved. "
-                        f"Driving to the waypoint {int(Settings.MPC_STALL_BACKTRACK_WAYPOINTS)} behind it."
-                    )
-                else:
-                    self._stall_phase = 2
-                    self._stall_anchor = car_xy.clone()
+                self._start_backtrack(car_xy, car_waypoint, "car barely moved")
         self._stalled = self._stall_phase == 2
+
+    def _start_backtrack(self, car_xy: torch.Tensor, car_waypoint: int, reason: str) -> None:
+        """Enter phase 1 (backtracking), or phase 2 directly when ``MPC_STALL_REVERSE_STEPS`` is 0."""
+        self._pose_history.clear()
+        if int(Settings.MPC_STALL_REVERSE_STEPS) > 0:
+            self._stall_phase = 1
+            self._reverse_left = int(Settings.MPC_STALL_REVERSE_STEPS)
+            self._backtrack_wp = (int(car_waypoint) - int(Settings.MPC_STALL_BACKTRACK_WAYPOINTS)) % self._waypoints_n
+            self._log_info(
+                f"[HirarchicalPlanner] Warning: {reason}. "
+                f"Driving to the waypoint {int(Settings.MPC_STALL_BACKTRACK_WAYPOINTS)} behind it."
+            )
+        else:
+            self._stall_phase = 2
+            self._stall_anchor = car_xy.clone()
+        self._stalled = self._stall_phase == 2
+
+    BLOCKED_DISTANCE = 0.3  # [m] a slow car is blocked when its best rollout does not drive this far forward without a crash
+
+    def _blocked(self, speed: float, trajectories: torch.Tensor, crash: torch.Tensor, best: int) -> bool:
+        """A slow car whose best rollout crashes or does not get going.
+
+        Either every way forward hits a wall, or getting around it scores worse than standing
+        still. Waiting does not change either, and the mean of the samples creeps into the wall.
+        """
+        if speed >= self.CREEP_SPEED:
+            return False
+        if float(crash[best]) < 0:
+            return True
+        forward = float(trajectories[best, 1:, LINEAR_VEL_X_IDX].clamp(min=0).sum()) * float(Settings.TIMESTEP_CONTROL)
+        return forward < self.BLOCKED_DISTANCE
+
+    def _safe_mean(
+        self, state: np.ndarray, actions: torch.Tensor, mean: torch.Tensor, weights: torch.Tensor,
+        total: torch.Tensor, crash: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """The best sample instead of the weighted mean when the mean crashes and the best does not.
+
+        With many samples in the wall, the weight splits between plans that get through in different
+        ways, often going on and braking. Their average is neither and can hit the wall.
+        """
+        best = int(total.argmax())
+        if float(crash[best]) < 0 or not bool((crash < 0).any()):
+            return mean, weights
+        path = self.rollout_pacejka(state, mean)
+        if not bool(self.wall_geometry.in_wall(path[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]).any()):
+            return mean, weights
+        return actions[best].clone(), torch.nn.functional.one_hot(torch.tensor(best), int(weights.shape[0])).to(weights)
 
     def _backtrack_cost(self, states: torch.Tensor) -> torch.Tensor:
         """``(B,)`` cost, lower is better: how far each rollout is from the backtrack waypoint.
@@ -1313,10 +1493,16 @@ class HirarchicalPlanner(template_planner):
             return
         car_xy = torch.as_tensor(state, dtype=torch.float32).reshape(-1)[[POSE_X_IDX, POSE_Y_IDX]]
         line_distance = self._raceline_distance(state)
+        self._car_waypoint = int((self._waypoint_xy - car_xy).norm(dim=-1).argmin())
         on_track = line_distance <= float(Settings.MPC_WAYPOINT_UPDATE_DISTANCE)
+        limit = float(Settings.MPC_RECOVERY_HEADING_ERROR)
+        if on_track and limit > 0.0:
+            # On the line but pointing away from it: the waypoint costs alone would drive it into a wall.
+            heading = float(np.asarray(state).reshape(-1)[POSE_THETA_IDX])
+            error = heading - float(self.waypoints[self._car_waypoint, WP_HEADING_IDX])
+            on_track = abs(np.arctan2(np.sin(error), np.cos(error))) <= limit
         if on_track:
             self._seen_on_track = True
-        self._car_waypoint = int((self._waypoint_xy - car_xy).norm(dim=-1).argmin())
         self._update_stall(car_xy, self._car_waypoint)
         self.off_track = (not on_track) or self._stalled
         self._update_recover_mode(self.off_track)
@@ -1472,6 +1658,327 @@ class HirarchicalPlanner(template_planner):
             self._wp_actions[idx] = (1.0 - gamma) * current + gamma * staged
             self._wp_action_staged[idx] = False
 
+    # Error of a rollout state against the state stored at a waypoint: weight per m of cross-track
+    # offset, per rad of heading, per m/s of speed along and across the car and per rad/s of yaw rate.
+    WINDOW_ERROR = {"lateral": 1.0, "heading": 0.5, "speed": 0.2, "drift": 0.2, "yaw_rate": 0.05}
+    WINDOW_ERROR_COST = 10.0  # control steps of arrival time one unit of that error is worth when accepted updates are ranked
+    WINDOW_LINE_REACH = 0.5  # [m] a rollout crosses a waypoint's line only within this distance of the point stored on it
+    FILL_MIN_SPEED = 0.5  # [m/s] the car stores its state at an empty waypoint only when at least this fast
+
+    def _waypoint_known(self, idx: torch.Tensor) -> torch.Tensor:
+        return self._wp_action_known[idx] & self._wp_vehicle_state_set[idx]
+
+    def _line_crossings(self, states: torch.Tensor, idx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """When, and in which state, each rollout first crosses the fixed cross-track line of each waypoint.
+
+        ``states`` is ``(B, T, state_dim)``, ``idx`` ``(J,)``. Returns ``times`` ``(B, J)`` in control steps
+        from the first state, NaN where the rollout does not cross within ``WINDOW_LINE_REACH`` of the
+        stored point, and the states ``(B, J, state_dim)`` interpolated at the crossing.
+        """
+        anchor, tangent, ortho = self._wp_anchor_xy[idx], self._wp_tangent[idx], self._wp_ortho[idx]
+        stored = ((self._waypoint_xy[idx] - anchor) * ortho).sum(dim=-1)  # (J,)
+        rel = states[:, :, None, :][..., [POSE_X_IDX, POSE_Y_IDX]] - anchor[None, None]  # (B, T, J, 2)
+        along = (rel * tangent).sum(dim=-1)
+        near = ((rel * ortho).sum(dim=-1) - stored).abs() < float(self.WINDOW_LINE_REACH)
+        cross = (along[:, :-1] < 0) & (along[:, 1:] >= 0) & near[:, :-1] & near[:, 1:]  # (B, T - 1, J)
+        crossed = cross.any(dim=1)
+        k = cross.float().argmax(dim=1)  # (B, J), first crossing
+        a0 = along.gather(1, k[:, None]).squeeze(1)
+        a1 = along.gather(1, (k + 1)[:, None]).squeeze(1)
+        frac = (-a0 / (a1 - a0).clamp_min(1e-9)).clamp(0.0, 1.0)
+        times = torch.where(crossed, k.to(frac.dtype) + frac, torch.full_like(frac, float("nan")))
+        rows = torch.arange(int(states.shape[0]))[:, None]
+        before, after = states[rows, k], states[rows, k + 1]  # (B, J, state_dim)
+        at = before + frac[..., None] * (after - before)
+        at[..., POSE_THETA_IDX] = torch.atan2(at[..., POSE_THETA_SIN_IDX], at[..., POSE_THETA_COS_IDX])
+        return times, at
+
+    def _window_error(self, at: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+        """``(B, J)`` error (``WINDOW_ERROR``) of the crossing states ``at`` ``(B, J, state_dim)`` against the states stored at ``idx``."""
+        wp = self.waypoints[idx]
+        weight = self.WINDOW_ERROR
+        offset = at[..., [POSE_X_IDX, POSE_Y_IDX]] - wp[None, :, [WP_X_IDX, WP_Y_IDX]]
+        lateral = (offset * self._wp_ortho[idx][None]).sum(dim=-1).abs()
+        heading = at[..., POSE_THETA_IDX] - wp[None, :, WP_HEADING_IDX]
+        heading = torch.atan2(torch.sin(heading), torch.cos(heading)).abs()
+        speed = (at[..., LINEAR_VEL_X_IDX] - wp[None, :, WP_TARGET_SPEED_IDX]).abs()
+        drift = (at[..., LINEAR_VEL_Y_IDX] - wp[None, :, WP_TARGET_DRIFT_IDX]).abs()
+        yaw_rate = (at[..., ANGULAR_VEL_Z_IDX] - wp[None, :, WP_TARGET_YAW_RATE_IDX]).abs()
+        return (
+            weight["lateral"] * lateral + weight["heading"] * heading + weight["speed"] * speed
+            + weight["drift"] * drift + weight["yaw_rate"] * yaw_rate
+        )
+
+    @staticmethod
+    def _timeline_at(values: torch.Tensor, start: float, times: torch.Tensor) -> torch.Tensor:
+        """``values`` ``(L, 2)`` issued at times ``start, start + 1, ...``, linearly interpolated at ``times`` ``(Q,)``, held at both ends."""
+        last = int(values.shape[0]) - 1
+        pos = (times - float(start)).clamp(0.0, float(last))
+        lo = pos.floor().long().clamp(max=last)
+        hi = (lo + 1).clamp(max=last)
+        frac = (pos - lo.to(pos.dtype))[:, None]
+        return values[lo] * (1.0 - frac) + values[hi] * frac
+
+    def _write_waypoint_state(self, idx: int, state: torch.Tensor) -> None:
+        """Waypoint ``idx`` takes the car state ``state``, its position put on the waypoint's cross-track line."""
+        anchor, ortho = self._wp_anchor_xy[idx], self._wp_ortho[idx]
+        xy = anchor + ((state[[POSE_X_IDX, POSE_Y_IDX]] - anchor) * ortho).sum() * ortho
+        self.waypoints[idx, WP_X_IDX] = xy[0]
+        self.waypoints[idx, WP_Y_IDX] = xy[1]
+        self.waypoints[idx, WP_HEADING_IDX] = state[POSE_THETA_IDX]
+        self.waypoints[idx, WP_TARGET_SPEED_IDX] = state[LINEAR_VEL_X_IDX].clamp(min=0.0)
+        self.waypoints[idx, WP_TARGET_DRIFT_IDX] = state[LINEAR_VEL_Y_IDX]
+        self.waypoints[idx, WP_TARGET_STEER_IDX] = state[STEERING_ANGLE_IDX]
+        self.waypoints[idx, WP_TARGET_YAW_RATE_IDX] = state[ANGULAR_VEL_Z_IDX]
+        self.waypoints[idx, WP_TARGET_SLIP_IDX] = state[SLIP_ANGLE_IDX]
+        self._wp_vehicle_state_set[idx] = True
+
+    def _fill_passed_waypoints(self, state: np.ndarray, action_seq: torch.Tensor) -> None:
+        """A waypoint with nothing stored takes what the car had when it crossed the waypoint's line since the last step.
+
+        That is the car state at the crossing, the plan it drives now and the commands still in its
+        control delay. Stored waypoints are left to the window updates. Below ``FILL_MIN_SPEED`` nothing
+        is stored: the position noise of a car standing on a line crosses it back and forth.
+        """
+        current = torch.as_tensor(state, dtype=torch.float32).reshape(1, -1)
+        previous = getattr(self, "_fill_previous_state", None)
+        self._fill_previous_state = current
+        if previous is None or self.recover_mode or self._car_waypoint is None:
+            return
+        if float(current[0, LINEAR_VEL_X_IDX]) < self.FILL_MIN_SPEED:
+            return
+        idx = (int(self._car_waypoint) + torch.arange(-3, 4)) % self._waypoints_n
+        idx = idx[~self._waypoint_known(idx)]
+        if not idx.numel():
+            return
+        times, at = self._line_crossings(torch.cat((previous, current))[None], idx)
+        delay = int(self._wp_pending.shape[1])
+        rows, _ = self.memory.recent(self._episode_id, delay)
+        pending = rows[:, int(Settings.HWM_STATE_DIM):].to(torch.float32).cpu()
+        filled = False
+        for j in torch.nonzero(~torch.isnan(times[0])).flatten().tolist():
+            k = int(idx[j])
+            self._write_waypoint_state(k, at[0, j])
+            self._wp_actions[k] = action_seq.reshape(-1, 2)[: int(self._wp_actions.shape[1])]
+            self._wp_pending[k] = pending
+            self._wp_action_known[k] = True
+            filled = True
+        if filled:
+            self._write_raceline()
+            self._publish_waypoint_display()
+
+    DRIVEN_MEMORY = 400  # control steps of issued commands kept for the driven window candidate
+
+    def _record_driven(self, state: np.ndarray, action: torch.Tensor) -> None:
+        """Remember the command issued now, and when the car last crossed the lines of the waypoints around it.
+
+        Times are in control steps of this counter; the command of step ``s`` is issued at the state of step ``s``.
+        """
+        driven = getattr(self, "_driven", None)
+        if driven is None or int(driven["cross"].shape[0]) != self._waypoints_n:
+            driven = {"step": -1, "first": 0, "actions": [], "previous": None,
+                      "cross": torch.full((self._waypoints_n,), float("nan"))}
+            self._driven = driven
+        driven["step"] += 1
+        driven["actions"].append(action.reshape(2).to(torch.float32).cpu())
+        if len(driven["actions"]) > self.DRIVEN_MEMORY:
+            driven["actions"].pop(0)
+            driven["first"] += 1
+        current = torch.as_tensor(state, dtype=torch.float32).reshape(1, -1)
+        previous, driven["previous"] = driven["previous"], current
+        if previous is None or self._car_waypoint is None or self.recover_mode:
+            return
+        idx = (int(self._car_waypoint) + torch.arange(-3, 4)) % self._waypoints_n
+        times, _ = self._line_crossings(torch.cat((previous, current))[None], idx)
+        hit = ~torch.isnan(times[0])
+        driven["cross"][idx[hit]] = float(driven["step"] - 1) + times[0, hit]
+
+    def _driven_candidate(self, w: int, horizon: int) -> torch.Tensor | None:
+        """The commands the car issued from its last crossing of waypoint ``w``'s line on, ``(H, 2)``, or None."""
+        driven = getattr(self, "_driven", None)
+        if driven is None or int(driven["cross"].shape[0]) != self._waypoints_n:
+            return None
+        crossed = float(driven["cross"][w])
+        if np.isnan(crossed) or crossed < driven["first"] or crossed + horizon - 1 > driven["step"]:
+            return None
+        timeline = torch.stack(driven["actions"])
+        return self._timeline_at(timeline, float(driven["first"]), crossed + torch.arange(horizon, dtype=torch.float32))
+
+    def _window_job(self) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor] | None:
+        """This step's window update, or None.
+
+        The window is the ``MPC_WAYPOINT_AHEAD_SPAN`` waypoints after waypoint ``w``, which is
+        ``MPC_WAYPOINT_WINDOW_LAG`` behind the car. Returns ``(w, state stored at w, its delay queue,
+        samples (K, H, 2))``. Sample 0 is the sequence stored at ``w``, the others are noise around it.
+        """
+        if not Settings.MPC_WAYPOINT_WINDOW_UPDATES or self.recover_mode or self._car_waypoint is None:
+            return None
+        n = self._waypoints_n
+        span = max(1, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
+        w = (int(self._car_waypoint) - int(Settings.MPC_WAYPOINT_WINDOW_LAG)) % n
+        if not bool(self._waypoint_known((w + torch.arange(span + 2)) % n).all()):
+            return None
+        stored = self._wp_actions[w]
+        samples = self._sample_mpc_actions(
+            stored, count=int(Settings.MPC_WAYPOINT_WINDOW_SAMPLES), noise_scale=float(Settings.MPC_WAYPOINT_WINDOW_NOISE),
+            correlation=float(Settings.MPC_WAYPOINT_WINDOW_CORRELATION),
+        )
+        samples[0] = stored
+        if Settings.MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE and int(samples.shape[0]) > 1:
+            driven = self._driven_candidate(w, int(samples.shape[1]))
+            if driven is not None:
+                samples[1] = driven
+        return w, self._waypoint_states(torch.tensor([w]))[0], self._wp_pending[w].clone(), samples
+
+    # Start perturbation of the robustness copy of a window sample, per state component, applied with a random sign.
+    WINDOW_PERTURBATION = {LINEAR_VEL_X_IDX: 0.15, LINEAR_VEL_Y_IDX: 0.1, ANGULAR_VEL_Z_IDX: 0.3}
+
+    def _perturbed_starts(self, start: torch.Tensor, count: int) -> torch.Tensor:
+        """``count`` copies of ``start`` with ``WINDOW_PERTURBATION`` added at random signs."""
+        starts = start[None].repeat(count, 1)
+        for component, size in self.WINDOW_PERTURBATION.items():
+            sign = torch.randint(0, 2, (count,), dtype=starts.dtype) * 2 - 1
+            starts[:, component] = starts[:, component] + sign * size
+        return starts
+
+    def _rollout_with_window(
+        self, state: np.ndarray, actions: torch.Tensor, window: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Driving samples from the car and window samples from the waypoint state, in one rollout call.
+
+        With ``MPC_WAYPOINT_WINDOW_ROBUST`` every window sample is also rolled out from a perturbed
+        start, returned after the unperturbed ones.
+        """
+        _, start, pending, samples = window
+        batch, count = int(actions.shape[0]), int(samples.shape[0])
+        delay = int(pending.shape[0])
+        rows, _ = self.memory.recent(self._episode_id, delay)
+        drive_pending = rows[:, int(Settings.HWM_STATE_DIM):].to(torch.float32).cpu()
+        window_starts = start[None].expand(count, -1)
+        if Settings.MPC_WAYPOINT_WINDOW_ROBUST:
+            window_starts = torch.cat((window_starts, self._perturbed_starts(start, count)))
+            samples = torch.cat((samples, samples))
+        starts = torch.cat((
+            torch.as_tensor(state, dtype=torch.float32).reshape(1, -1).expand(batch, -1), window_starts,
+        ))
+        queues = torch.cat((drive_pending[None].expand(batch, -1, -1), pending[None].expand(int(samples.shape[0]), -1, -1)))
+        out = self.rollout_pacejka(
+            starts.numpy(), torch.cat((actions, samples)).numpy(), pending_actions=queues.numpy()
+        )
+        return out[:batch], out[batch:]
+
+    def _window_update(self, window: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor], states: torch.Tensor) -> None:
+        """Accept the best window sample that reaches the waypoints after the window sooner and matches them as well.
+
+        Compared are the window and the waypoints after it that the stored sequence (sample 0) crosses
+        in a row, at most ``MPC_WAYPOINT_WINDOW_DOWNSTREAM``. A sample qualifies if it crosses all of
+        them in order and keeps ``MPC_WAYPOINT_WINDOW_MARGIN`` from the walls until one step past the
+        last. The error is the largest one at the waypoints after the window.
+
+        While the stored sequence's error is within ``MPC_WAYPOINT_WINDOW_TOLERANCE``, a qualifying
+        sample must also stay within it and cross the last waypoint earlier than the stored sequence
+        (which counts as too slow if it hits a wall). Of those, the one with the least arrival time plus
+        ``WINDOW_ERROR_COST`` times its error is taken. Otherwise the stored plan no longer leads to the
+        states stored after the window, and the update is a repair: the sample with the least error is
+        taken if it is below the stored sequence's, however slow.
+
+        Then the window waypoints take that sample's state at their lines, and ``w`` and the window
+        waypoints take its commands from their crossing on, followed by the plan stored at the last
+        compared waypoint from its crossing on. The commands between two control steps are interpolated.
+        """
+        w, _, pending, actions = window
+        n = self._waypoints_n
+        span = max(1, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
+        down = max(1, int(Settings.MPC_WAYPOINT_WINDOW_DOWNSTREAM))
+        idx = (w + 1 + torch.arange(span + down)) % n
+        perturbed = None
+        if int(states.shape[0]) == 2 * int(actions.shape[0]):
+            states, perturbed = states[: int(actions.shape[0])], states[int(actions.shape[0]):]
+        times, at = self._line_crossings(states, idx)
+        usable = (~torch.isnan(times[0])) & self._waypoint_known(idx)
+        count = int(usable.long().cumprod(dim=0).sum())
+        if count < span + 1:
+            return
+        idx, times, at = idx[:count], times[:, :count], at[:, :count]
+        self._wp_window_tried += 1
+        crossed = (~torch.isnan(times)).all(dim=1) & (times[:, 1:] > times[:, :-1]).all(dim=1)
+        # Written waypoints take the sample's states, so only the ones it must rejoin count.
+        first = count - 1 if Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM else span
+        error = self._window_error(at[:, first:], idx[first:]).amax(dim=1)
+        arrival = times[:, -1]
+        horizon = int(states.shape[1])
+        poses = states[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
+        corner_distance = self.wall_geometry.distance_at(self.wall_geometry.corners(poses)).amin(dim=-1).cpu().to(times.dtype)
+        until = torch.nan_to_num(arrival, nan=float(horizon)).ceil() + 1
+        compared = torch.arange(horizon)[None] <= until[:, None]
+        clearance = torch.where(compared, corner_distance, torch.full_like(corner_distance, float("inf"))).amin(dim=1)
+        # MPC_WAYPOINT_WINDOW_MARGIN from the walls, or as much as the stored sequence keeps where it is
+        # closer (a narrow passage), but never under MPC_WAYPOINT_WINDOW_MIN_MARGIN.
+        margin = min(float(Settings.MPC_WAYPOINT_WINDOW_MARGIN), float(clearance[0]))
+        margin = max(margin, float(Settings.MPC_WAYPOINT_WINDOW_MIN_MARGIN))
+        valid = crossed & (clearance >= margin)
+        share = float(Settings.MPC_WAYPOINT_WINDOW_GRIP_SHARE)
+        if share > 0.0:
+            # Braking and cornering share the tires: the model limits each on its own, the real grip is a circle.
+            # A share below 1 also keeps grip in reserve for the driven car's noise and control delay.
+            lateral = states[..., LINEAR_VEL_X_IDX] * states[..., ANGULAR_VEL_Z_IDX]
+            forward = torch.diff(states[..., LINEAR_VEL_X_IDX], dim=1, append=states[:, -1:, LINEAR_VEL_X_IDX])
+            grip = torch.hypot(lateral, forward / float(Settings.TIMESTEP_CONTROL))
+            peak = torch.where(compared, grip, torch.zeros_like(grip)).amax(dim=1)
+            valid = valid & (peak <= share * self._car_friction_accel())
+        if perturbed is not None:
+            # The same commands from a perturbed start must still get through: no wall (at the drive's
+            # margin), every line crossed in order, and a bounded error after the window.
+            p_times, p_at = self._line_crossings(perturbed, idx)
+            p_crossed = (~torch.isnan(p_times)).all(dim=1) & (p_times[:, 1:] > p_times[:, :-1]).all(dim=1)
+            p_error = torch.nan_to_num(self._window_error(p_at[:, first:], idx[first:]).amax(dim=1), nan=float("inf"))
+            p_until = torch.nan_to_num(p_times[:, -1], nan=float(horizon)).ceil() + 1
+            p_crashed = self.wall_geometry.in_wall(perturbed[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]).cpu()
+            p_collide = (p_crashed & (torch.arange(horizon)[None] <= p_until[:, None])).any(dim=1)
+            robust = p_crossed & ~p_collide & (p_error <= float(Settings.MPC_WAYPOINT_WINDOW_ROBUST_TOLERANCE))
+            valid = valid & robust
+        stored_arrival = float(arrival[0]) if bool(valid[0]) else float("inf")
+        tolerance = float(Settings.MPC_WAYPOINT_WINDOW_TOLERANCE)
+        repair = float(error[0]) > tolerance
+        if repair:
+            eligible = valid & (error < float(error[0]))
+            score = error
+        else:
+            eligible = valid & (error <= tolerance) & (arrival < stored_arrival)
+            score = arrival + float(self.WINDOW_ERROR_COST) * error
+        eligible[0] = False
+        if not bool(eligible.any()):
+            return
+        best = int(torch.where(eligible, score, torch.full_like(score, float("inf"))).argmin())
+
+        horizon_steps = int(actions.shape[1])
+        delay = int(pending.shape[0])
+        sample_timeline = torch.cat((pending, actions[best]))  # issued at -delay .. H - 1
+        last = int(idx[-1])
+        reached = float(times[best, -1])
+        stored_timeline = torch.cat((self._wp_pending[last], self._wp_actions[last]))  # issued from reached - delay on
+
+        def commands(at_times: torch.Tensor) -> torch.Tensor:
+            own = self._timeline_at(sample_timeline, -delay, at_times)
+            downstream = self._timeline_at(stored_timeline, reached - delay, at_times)
+            return torch.where((at_times < reached)[:, None], own, downstream)
+
+        steps = torch.arange(horizon_steps, dtype=torch.float32)
+        queue = torch.arange(-delay, 0, dtype=torch.float32)
+        updates = [(w, commands(steps), None, None)]
+        written = count - 1 if Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM else span
+        for j in range(written):
+            t = float(times[best, j])
+            updates.append((int(idx[j]), commands(t + steps), commands(t + queue), at[best, j]))
+        for k, seq, queue_k, state_k in updates:
+            self._wp_actions[k] = seq
+            if queue_k is not None:
+                self._wp_pending[k] = queue_k
+                self._write_waypoint_state(k, state_k)
+        self._wp_window_accepted += 1
+        self._write_raceline()
+        self._publish_waypoint_display()
+
     def _publish_waypoint_display(self) -> None:
         """Push the stored raceline, and an arrow of its heading and target speed, to the viewer.
 
@@ -1546,9 +2053,16 @@ class HirarchicalPlanner(template_planner):
             return
         self._wp_paths_step = int(self.total_timesteps)
         idx = torch.arange(self._waypoints_n)  # always all of them, so the compiled batch shape never changes
+        start = self._waypoint_states(idx)
+        actions = self._wp_actions[idx]
+        pending = self._wp_pending[idx]
+        states = self.rollout_pacejka(start.numpy(), actions.numpy(), pending_actions=pending.numpy())
+        self._wp_path_states = states.detach().cpu()
+
+    def _waypoint_states(self, idx: torch.Tensor) -> torch.Tensor:
+        """``(K, state_dim)`` car states stored at waypoints ``idx``: position, heading, speed, drift, steering angle, yaw rate and slip angle."""
         wp = self.waypoints[idx]
-        count = int(idx.shape[0])
-        start = torch.zeros((count, int(Settings.HWM_STATE_DIM)), dtype=torch.float32)
+        start = torch.zeros((int(wp.shape[0]), int(Settings.HWM_STATE_DIM)), dtype=torch.float32)
         heading = wp[:, WP_HEADING_IDX]
         start[:, POSE_X_IDX] = wp[:, WP_X_IDX]
         start[:, POSE_Y_IDX] = wp[:, WP_Y_IDX]
@@ -1560,11 +2074,7 @@ class HirarchicalPlanner(template_planner):
         start[:, STEERING_ANGLE_IDX] = wp[:, WP_TARGET_STEER_IDX]
         start[:, ANGULAR_VEL_Z_IDX] = wp[:, WP_TARGET_YAW_RATE_IDX]
         start[:, SLIP_ANGLE_IDX] = wp[:, WP_TARGET_SLIP_IDX]
-        actions = self._wp_actions[idx]
-        delay = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))
-        pending = actions[:, :1, :].expand(count, delay, 2)
-        states = self.rollout_pacejka(start.numpy(), actions.numpy(), pending_actions=pending.numpy())
-        self._wp_path_states = states.detach().cpu()
+        return start
 
     def _waypoint_paths(self) -> np.ndarray | None:
         """Path ``(K, T + 1, 2)`` from each waypoint that has a stored action sequence."""
@@ -1688,8 +2198,6 @@ class HirarchicalPlanner(template_planner):
                 self._log_info("[HirarchicalPlanner] No weights yet; using Pure Pursuit fallback")
                 self._warned_no_weights = True
            # return self._fallback_action()
-        elif self.episode_timesteps < 8: #start episodes with acceleration only
-            return np.array([0.0, 1.0])
 
         with torch.no_grad():
             self._refresh_recovery(state)
@@ -1706,8 +2214,16 @@ class HirarchicalPlanner(template_planner):
                 actions = self._gradient_optimize(state, nominal)
             else:
                 actions = self._sample_mpc_actions(nominal)
+                if Settings.MPC_DRIVE_FALLBACK_SAMPLES:
+                    flat = np.asarray(state).reshape(-1)
+                    actions = self._with_fallback_samples(
+                        actions, nominal, float(flat[LINEAR_VEL_X_IDX]), float(flat[ANGULAR_VEL_Z_IDX])
+                    )
+            window = self._window_job() if Settings.RUN_MPC_WITH_PACEJKA else None
             with PROF.section("rollout_of_samples"):
-                if Settings.RUN_MPC_WITH_PACEJKA:
+                if window is not None:
+                    trajectories, window_states = self._rollout_with_window(state, actions, window)
+                elif Settings.RUN_MPC_WITH_PACEJKA:
                     trajectories = self.rollout_pacejka(state, actions)
                 else:
                     trajectories, n_soft, n_soft_normalized = self.rollout_lld(state, actions)
@@ -1729,6 +2245,8 @@ class HirarchicalPlanner(template_planner):
            # if not self.total_timesteps % 12: print(self._reward_EMA)
             with PROF.section("mean_action_sequence"):
                 action_seq = (weights[:, None, None] * actions).sum(dim=0)
+                if Settings.MPC_SAFE_MEAN and Settings.RUN_MPC_WITH_PACEJKA:
+                    action_seq, weights = self._safe_mean(state, actions, action_seq, weights, drive_total, drive_crash)
                 # Next step samples around this plan with its first command dropped and its last command repeated.
                 self.action_buffer = torch.cat((action_seq[1:], action_seq[-1:]), dim=0)
                 self._action_buffer_valid = True
@@ -1741,10 +2259,27 @@ class HirarchicalPlanner(template_planner):
                         with PROF.section("lld_of_mean_sequence"):
                             lld_path = self.rollout_lld(state, action_seq)[0][0]
                     self._draw_mpc_trajectories(trajectories, pacejka, lld_path)
+            if self._stall_phase != 1 and Settings.MPC_STALL_ON_BLOCKED and self._blocked(
+                float(np.asarray(state).reshape(-1)[LINEAR_VEL_X_IDX]), trajectories, drive_crash,
+                int(drive_total.argmax()),
+            ):
+                car_xy = torch.as_tensor(np.asarray(state).reshape(-1)[[POSE_X_IDX, POSE_Y_IDX]], dtype=torch.float32)
+                self._start_backtrack(car_xy, self._car_waypoint, "the best plan does not get going")
             if self._stall_phase == 1:
                 # Backtracking: no waypoint staging or recording from this plan.
                 self._reverse_left -= 1
                 self._mean_state_seed = None
+                return action_seq[0].cpu().numpy().astype(np.float32)
+            if Settings.MPC_WAYPOINT_WINDOW_UPDATES:
+                if window is not None:
+                    with PROF.section("window_update"):
+                        self._window_update(window, window_states)
+                self._record_driven(state, action_seq[0].detach())
+                self._fill_passed_waypoints(state, action_seq.detach())
+                if Settings.HWM_SEED_FROM_MEAN_STATES:
+                    horizon = int(action_seq.shape[0])
+                    drive_mean = self._weighted_state_trajectory(trajectories, weights)
+                    self._mean_state_seed = self._seed_from_states(drive_mean[1 : 1 + horizon].detach())
                 return action_seq[0].cpu().numpy().astype(np.float32)
             opt_weights = torch.softmax(opt_total / Settings.MPC_TEMPERATURE, dim=0)
             drive_mean = None
@@ -2421,7 +2956,16 @@ class HirarchicalPlanner(template_planner):
         self._wp_discarded_lap = 0
         self._wp_rejected_lap = 0
         if not self._can_stream():
-            self._log_info(f"[HirarchicalPlanner] Lap: reset {discarded} waypoint action sequences, rejected {rejected} updates")
+            if Settings.MPC_WAYPOINT_WINDOW_UPDATES and hasattr(self, "_wp_window_tried"):
+                known = self._waypoint_known(torch.arange(self._waypoints_n))
+                speed = float(self.waypoints[known, WP_TARGET_SPEED_IDX].mean()) if bool(known.any()) else 0.0
+                self._log_info(
+                    f"[HirarchicalPlanner] Lap: {self._wp_window_accepted}/{self._wp_window_tried} window updates accepted, "
+                    f"{int(known.sum())}/{self._waypoints_n} waypoints stored, mean stored speed {speed:.2f} m/s"
+                )
+                self._wp_window_accepted = self._wp_window_tried = 0
+            else:
+                self._log_info(f"[HirarchicalPlanner] Lap: reset {discarded} waypoint action sequences, rejected {rejected} updates")
             return
         self.client.send_lap_time(
             lap_time, mean_distance, std_distance, max_distance,
