@@ -31,7 +31,7 @@ from utilities.state_utilities import (
 
 from . import config as cfg
 from .model import IU_ACCEL, IU_STEER, IX_DELTA, IX_VX, NU, create_solver
-from .plant import Plant, commands_to_plan, gym_to_frenet, plan_to_commands
+from .plant import Plant, gym_to_frenet
 from .track import RacelineTrack
 
 STATS_PRINT_EVERY = 250
@@ -99,9 +99,9 @@ class SafeMPCPlanner(template_planner):
 
     def _violation(self, X: np.ndarray, U: np.ndarray) -> float:
         """Largest OCP constraint violation of a trajectory (<= 0: feasible)."""
-        return max(float(np.max(self.fns.g_stage0(X[0], U[0]))),
-                   float(np.max(self._g_path_fn(X[1:-1].T, U[1:].T))),
-                   float(np.max(self.fns.g_terminal(X[-1]))))
+        return max(float(np.max(np.asarray(self.fns.g_stage0(X[0], U[0])))),
+                   float(np.max(np.asarray(self._g_path_fn(X[1:-1].T, U[1:].T)))),
+                   float(np.max(np.asarray(self.fns.g_terminal(X[-1])))))
 
     def _policy_input(self, x: np.ndarray, full_brake: bool = False) -> np.ndarray:
         """Raceline-tracking policy: Stanley-like steering, speed towards the terminal speed bound one stage ahead."""
@@ -163,7 +163,7 @@ class SafeMPCPlanner(template_planner):
         else:
             x_pred = state
         last_command = self.delay_buffer[-1] if self.delay_steps > 0 else np.zeros(2)
-        accel_prev = float(commands_to_plan(last_command, self.veh)[0, IU_ACCEL])
+        accel_prev = float(np.asarray(last_command, dtype=np.float64).reshape(-1)[IU_ACCEL])
         x0 = self._frenet_state(x_pred, accel_prev)
         self.s_hint = float(x0[0])
 
@@ -203,7 +203,7 @@ class SafeMPCPlanner(template_planner):
         if violation > cfg.FEASIBILITY_TOL:
             self.stats["infeasible"] += 1
         self.prev_U = U
-        commands = plan_to_commands(U, self.veh)
+        commands = np.array(U, dtype=np.float64, copy=True)
         self.debug = {"x_pred": x_pred, "X": X, "U": U}
 
         command = commands[0]

@@ -3,15 +3,22 @@
 State   x = [s, n, mu, v_x, v_y, r, delta]
 Control u = [steer_cmd, accel]
 
-``steer_cmd`` is exactly what the simulator receives. ``accel`` is the
-longitudinal acceleration *after* the simulator's brake/accel multipliers and
-before rolling / cornering resistance; ``SafeMPCPlanner`` inverts the multiplier
-before sending it.  The dynamics replicate ``car_dynamics_pacejka_jax`` for
-``Settings.ODE_MODEL_OF_CAR_DYNAMICS`` (including the low-speed kinematic blend
-of ``ODE:ks_pacejka``, servo, multipliers and resistances), integrated with the
-same explicit Euler sub-steps as the simulator.  Constraints keep the plan in
-the region where the simulator's clips (servo rate, steering limit, friction
-limit) are inactive, so model and plant coincide there.
+``steer_cmd`` and ``accel`` are exactly what the simulator receives. ``accel``
+is the commanded longitudinal acceleration before rolling resistance, the
+friction ellipse and the steered-tyre drag. ``brake_multiplier`` and
+``accel_multiplier`` are applied only in the simulator, as a sim-to-real scale
+for a mistuned ESC; the controller does not cancel them.  The dynamics
+replicate ``car_dynamics_pacejka_jax`` for ``Settings.ODE_MODEL_OF_CAR_DYNAMICS``:
+
+* Pacejka slip angles use ``|v_x|`` and ``sign(v_x) * delta`` (valid in reverse);
+* a friction ellipse derates both axles by ``sqrt(1 - (a_x / (mu g))^2)``;
+* body-frame rates include ``F_yf sin/cos(delta)`` and the ``v_y r``, ``-v_x r`` terms;
+* ``ODE:ks`` integrates speed along the kinematic sideslip and resets ``v_x``, ``v_y`` and yaw rate from the steering angle;
+* ``ODE:ks_pacejka`` uses the dynamic model when the car is fast or a tyre is sliding, and the kinematic model near standstill.
+
+Integration is the simulator's explicit Euler sub-steps.  Constraints keep the
+plan where the simulator's clips (servo rate, steering limit, friction limit)
+are inactive, so model and plant coincide there apart from the ESC scale.
 
 Terminal-set MPC:
 
@@ -56,7 +63,12 @@ class OcpFunctions(NamedTuple):
     g_path: ca.Function      # (x_k, u_k) -> track + input/friction constraints, k = 1..N-1
     g_terminal: ca.Function  # x_N -> track constraints + terminal speed / heading
 
-V_X_MIN_MODEL = 0.5  # [m/s] slip angles use max(v_x, this); the ks_pacejka blend weight is < 1e-3 below
+# Slip-angle floor and ks/Pacejka blend, same constants as dynamic_model_pacejka_jax.
+VX_SLIP_FLOOR = 1.0e-3       # [m/s] |v_x| floor in the slip angles
+KS_SPEED_STEEPNESS = 4.8
+KS_SPEED_MID = 1.75          # [m/s] total speed at which the speed-blend is 0.5
+KS_SLIDE_STEEPNESS = 10.0
+KS_SLIDE_MID = 0.5           # [m/s] axle sliding speed at which the slide-blend is 0.5
 
 
 def build_interpolants(track, s_after: float):
@@ -68,16 +80,44 @@ def _smooth_sign(v, v_dead):
     return v / ca.sqrt(v * v + v_dead * v_dead)
 
 
+def slip_angles(veh, vx, vy, r, delta):
+    """Pacejka slip angles. ``|v_x|`` and ``sign(v_x) * delta`` stay valid in reverse."""
+    vxs = ca.fmax(ca.fabs(vx), VX_SLIP_FLOOR)
+    alpha_f = -ca.atan((vy + r * veh.lf) / vxs) + (vx / vxs) * delta
+    alpha_r = -ca.atan((vy - r * veh.lr) / vxs)
+    return alpha_f, alpha_r
+
+
+def ks_blend_weight(veh, vx, vy, r, delta):
+    """Dynamic-model weight of ``ODE:ks_pacejka``.
+
+    The dynamic model is used when the car is fast or a tyre is sliding
+    (a sideways slide must not be stopped by the kinematic model). Near
+    standstill with little slide the weight is about 0.
+    """
+    speed = ca.sqrt(vx * vx + vy * vy)
+    slide_f = (vy + veh.lf * r) * ca.cos(delta) - vx * ca.sin(delta)
+    slide_r = vy - veh.lr * r
+    slide = ca.fmax(ca.fabs(slide_f), ca.fabs(slide_r))
+    w_speed = 1.0 / (1.0 + ca.exp(-KS_SPEED_STEEPNESS * (speed - KS_SPEED_MID)))
+    w_slide = 1.0 / (1.0 + ca.exp(-KS_SLIDE_STEEPNESS * (slide - KS_SLIDE_MID)))
+    return 1.0 - (1.0 - w_speed) * (1.0 - w_slide)
+
+
 def body_dynamics(veh, vx, vy, r, delta, steer_cmd, accel):
-    """Continuous body-frame rates; returns (vx_dot, vy_dot, r_dot, delta_dot, a_long, F_yf, F_yr)."""
+    """Continuous body-frame rates of one Pacejka step.
+
+    Returns ``(vx_dot, vy_dot, r_dot, delta_dot, a_long, cornering)``.
+    ``a_long`` is the command plus rolling resistance; the simulator clips that,
+    then clips it again after ``cornering``.  ``F_yf sin/cos(delta)`` and the
+    rotating-frame terms sit in the rates and are not part of those clips.
+    """
     g = veh.g
     v_dead = max(veh.v_dead, cfg.OCP_V_DEAD)
     rolling = -veh.c_rr * g * _smooth_sign(vx, v_dead)
     a_long = accel + rolling
 
-    vxs = ca.fmax(vx, V_X_MIN_MODEL)
-    alpha_f = -ca.atan((vy + r * veh.lf) / vxs) + delta
-    alpha_r = -ca.atan((vy - r * veh.lr) / vxs)
+    alpha_f, alpha_r = slip_angles(veh, vx, vy, r, delta)
     l = veh.lf + veh.lr
     F_zf = veh.m * (-a_long * veh.h + g * veh.lr) / l
     F_zr = veh.m * (a_long * veh.h + g * veh.lf) / l
@@ -85,13 +125,17 @@ def body_dynamics(veh, vx, vy, r, delta, steer_cmd, accel):
     Br, Cr, Dr, Er = veh.C_Pr
     F_yf = veh.mu * F_zf * Df * ca.sin(Cf * ca.atan(Bf * alpha_f - Ef * (Bf * alpha_f - ca.atan(Bf * alpha_f))))
     F_yr = veh.mu * F_zr * Dr * ca.sin(Cr * ca.atan(Br * alpha_r - Er * (Br * alpha_r - ca.atan(Br * alpha_r))))
+    # 4WD, load-proportional drive: the same ellipse factor derates both axles.
+    lat_scale = ca.sqrt(ca.fmax(1.0 - (a_long / (veh.mu * g)) ** 2, 1.0e-4))
+    F_yf, F_yr = F_yf * lat_scale, F_yr * lat_scale
 
     f_eps = cfg.OCP_LAT_FORCE_SMOOTH
     lat_force = ca.sqrt(F_yf ** 2 + F_yr ** 2 + f_eps ** 2) - f_eps
     cornering = -veh.curve_resistance_factor * lat_force / veh.m * _smooth_sign(vx, v_dead)
-    vx_dot = a_long + cornering
-    vy_dot = (F_yf + F_yr) / veh.m - vx * r
-    r_dot = (veh.lf * F_yf - veh.lr * F_yr) / veh.I_z
+    a_x = a_long + cornering
+    vx_dot = a_x - F_yf * ca.sin(delta) / veh.m + vy * r
+    vy_dot = (F_yr + F_yf * ca.cos(delta)) / veh.m - vx * r
+    r_dot = (veh.lf * F_yf * ca.cos(delta) - veh.lr * F_yr) / veh.I_z
     delta_dot = veh.servo_p * (veh.steering_multiplier * steer_cmd - delta)
     return vx_dot, vy_dot, r_dot, delta_dot, a_long, cornering
 
@@ -118,22 +162,35 @@ def euler_substep(veh, interp, x, u, h, ode_model: str):
     kappa = interp["kappa"](s)
     _, _, _, delta_dot, a_long, _ = body_dynamics(veh, vx, vy, r, delta, steer_cmd, accel)
     l_wb = veh.lf + veh.lr
-    psi_dot = vx / l_wb * ca.tan(delta)
-    psi_ddot = a_long * ca.tan(delta) / l_wb + vx * delta_dot / (l_wb * ca.cos(delta) ** 2)
-    s_dot = vx * ca.cos(mu) / (1.0 - n * kappa)
+    # CoG kinematic bicycle: speed is integrated along the no-slip direction beta(delta),
+    # then v_x, v_y and yaw rate are reset from the steered geometry. Steering changes
+    # the direction of the velocity, not its magnitude.
+    v = ca.if_else(vx < 0, -1.0, 1.0) * ca.sqrt(vx * vx + vy * vy)
+    beta = ca.atan(ca.tan(delta) * veh.lr / l_wb)
+    vx_b, vy_b = v * ca.cos(beta), v * ca.sin(beta)
+    psi_dot = vx_b * ca.tan(delta) / l_wb
+    s_dot = (vx_b * ca.cos(mu) - vy_b * ca.sin(mu)) / (1.0 - n * kappa)
+    v1 = v + h * a_long
+    delta1 = delta + h * delta_dot
+    beta1 = ca.atan(ca.tan(delta1) * veh.lr / l_wb)
+    vx1 = v1 * ca.cos(beta1)
     x_kin = ca.vertcat(
         s + h * s_dot,
-        n + h * vx * ca.sin(mu),
+        n + h * (vx_b * ca.sin(mu) + vy_b * ca.cos(mu)),
         mu + h * (psi_dot - kappa * s_dot),
-        vx + h * a_long,
-        0.0,
-        r + h * psi_ddot,
-        delta + h * delta_dot,
+        vx1,
+        v1 * ca.sin(beta1),
+        vx1 * ca.tan(delta1) / l_wb,
+        delta1,
     )
     if ode_model == "ODE:ks":
         return x_kin
-    w = 1.0 / (1.0 + ca.exp(-4.8 * (vx - 1.75)))
-    return (1.0 - w) * x_kin + w * x_dyn
+    w = ks_blend_weight(veh, vx, vy, r, delta)
+    mixed = (1.0 - w) * x_kin + w * x_dyn
+    # Circular blend of the heading error, as ``_blend_states_circular_yaw`` does for yaw.
+    mu_b = ca.atan2((1.0 - w) * ca.sin(x_kin[IX_MU]) + w * ca.sin(x_dyn[IX_MU]),
+                    (1.0 - w) * ca.cos(x_kin[IX_MU]) + w * ca.cos(x_dyn[IX_MU]))
+    return ca.vertcat(mixed[IX_S], mixed[IX_N], mu_b, mixed[IX_VX], mixed[IX_VY], mixed[IX_R], mixed[IX_DELTA])
 
 
 def corner_offsets(veh):
@@ -234,11 +291,10 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     border_uh = -cfg.BORDER_MARGIN * np.ones(n_border)
     border_lh = -1e3 * np.ones(n_border)
 
-    vxs = ca.fmax(vx, V_X_MIN_MODEL)
-    slip_h = ca.vertcat(-ca.atan((vy + r * veh.lf) / vxs) + delta, -ca.atan((vy - r * veh.lr) / vxs))
+    slip_h = ca.vertcat(*slip_angles(veh, vx, vy, r, delta))
     if Settings.ODE_MODEL_OF_CAR_DYNAMICS == "ODE:ks_pacejka":
         # tyres only matter where the simulator uses the dynamic model
-        slip_h = slip_h / (1.0 + ca.exp(-4.8 * (vx - 1.75)))
+        slip_h = slip_h * ks_blend_weight(veh, vx, vy, r, delta)
     elif Settings.ODE_MODEL_OF_CAR_DYNAMICS == "ODE:ks":
         slip_h = 0.0 * slip_h
     slip_ub = np.array([cfg.MAX_SLIP_FRONT, cfg.MAX_SLIP_REAR])

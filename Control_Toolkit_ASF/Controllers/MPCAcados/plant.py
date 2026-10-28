@@ -1,8 +1,11 @@
 """Simulator-equivalent plant model and command maps.
 
 Used to predict the state at which a new command takes effect (control delay),
-to visualise plans and in the headless closed-loop test.  It is not part of the
-safety argument, which rests on the OCP alone (see ``model.py``).
+to visualise plans and in the headless closed-loop test.  Rollouts call
+``car_dynamics_pacejka_jax`` with the simulator ODE, so the friction ellipse,
+steered single-track terms, CoG kinematic blend and ESC scales stay those of
+the simulator.  The OCP in ``model.py`` is the same ODE without the ESC scales.
+It is not part of the safety argument, which rests on the OCP alone.
 """
 
 from __future__ import annotations
@@ -45,47 +48,6 @@ class Plant:
         traj = _rollout_jax(self.car_params, jnp.asarray(state0, dtype=jnp.float32), jnp.asarray(commands),
                             self.n_sub if n_sub is None else int(n_sub), self.dt_sim, self.ode_model)
         return np.asarray(traj)
-
-
-# ------------------------------------------------------------- longitudinal command map
-def _multiplier_forward(a_cmd, brake_mult, accel_mult):
-    t = np.tanh(25.0 * a_cmd)
-    sig_neg = 0.5 * (1.0 - t)
-    sig_pos = 0.5 * (1.0 + t)
-    neutral = np.maximum(0.0, 1.0 - sig_neg - sig_pos)
-    return a_cmd * (sig_neg * brake_mult + sig_pos * accel_mult + neutral)
-
-
-def accel_to_command(accel, brake_mult: float, accel_mult: float):
-    """Invert the simulator's (monotone) brake/accel multiplier by bisection."""
-    accel = np.asarray(accel, dtype=np.float64)
-    lo = np.full(accel.shape, -100.0)
-    hi = np.full(accel.shape, 100.0)
-    for _ in range(50):
-        mid = 0.5 * (lo + hi)
-        below = _multiplier_forward(mid, brake_mult, accel_mult) < accel
-        lo = np.where(below, mid, lo)
-        hi = np.where(below, hi, mid)
-    return 0.5 * (lo + hi)
-
-
-def command_to_accel(command, brake_mult: float, accel_mult: float):
-    return _multiplier_forward(np.asarray(command, dtype=np.float64), brake_mult, accel_mult)
-
-
-def plan_to_commands(plan: np.ndarray, veh) -> np.ndarray:
-    """MPC controls ``[steer_cmd, accel]`` -> raw simulator commands."""
-    plan = np.asarray(plan, dtype=np.float64).reshape(-1, 2)
-    out = plan.copy()
-    out[:, 1] = accel_to_command(plan[:, 1], veh.brake_multiplier, veh.accel_multiplier)
-    return out
-
-
-def commands_to_plan(commands: np.ndarray, veh) -> np.ndarray:
-    commands = np.asarray(commands, dtype=np.float64).reshape(-1, 2)
-    out = commands.copy()
-    out[:, 1] = command_to_accel(commands[:, 1], veh.brake_multiplier, veh.accel_multiplier)
-    return out
 
 
 # ------------------------------------------------------------------ geometry helpers
