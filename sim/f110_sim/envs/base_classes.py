@@ -41,7 +41,7 @@ from f110_sim.envs.collision_models import get_vertices, collision_multiple
 
 from utilities.Settings import Settings
 from utilities.state_utilities import *
-from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.car_files.vehicle_parameters import VehicleParameters, car_parameter_file_for_agent
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -84,7 +84,7 @@ class RaceCar(object):
 
     # static objects that don't need to be stored in class instances
 
-    def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
+    def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7, car_parameter_file=None):
         """
         Init function
 
@@ -99,14 +99,13 @@ class RaceCar(object):
             None
         """
 
-        # initialization - use VehicleParameters instead of params argument
-        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-        self.params = car_params.to_dict()
         self.seed = seed
         self.is_ego = is_ego
         self.time_step = time_step
         self.num_beams = num_beams
         self.fov = fov
+        self.car_parameter_file = car_parameter_file or car_parameter_file_for_agent(is_ego)
+        self._load_vehicle_parameters()
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
 
@@ -121,7 +120,7 @@ class RaceCar(object):
             self.car_model = car_model(
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
-                car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
+                car_parameter_file = self.car_parameter_file, 
                 dt = Settings.TIMESTEP_SIM,
                 intermediate_steps=1,
                 computation_lib=NumpyLibrary()
@@ -137,9 +136,6 @@ class RaceCar(object):
             import jax.numpy as jnp
             self.step_dynamics = car_dynamics_pacejka_jax_from_settings
             u = np.array([0, 0])
-
-            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-            self.car_params_array = car_params.to_np_array()
 
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
@@ -182,9 +178,13 @@ class RaceCar(object):
         Returns:
             None
         """
-        # Use VehicleParameters for consistency
-        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        self._load_vehicle_parameters()
+
+    def _load_vehicle_parameters(self):
+        """Load this agent's car file into ``params`` and the jax parameter array."""
+        car_params = VehicleParameters(self.car_parameter_file)
         self.params = car_params.to_dict()
+        self.car_params_array = car_params.to_np_array()
     
     def reset(self, initial_state):
         """

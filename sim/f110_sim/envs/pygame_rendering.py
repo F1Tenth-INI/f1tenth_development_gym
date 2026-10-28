@@ -62,12 +62,24 @@ from utilities.state_utilities import (
 )
 
 
-def _load_ego_body_size():
-    """(length, width) in meters from Settings.ENV_CAR_PARAMETER_FILE."""
+def _load_body_size(parameter_file):
+    """(length, width) in meters from a car parameter YAML."""
     from utilities.car_files.vehicle_parameters import VehicleParameters
 
-    params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+    params = VehicleParameters(parameter_file)
     return float(params.length), float(params.width)
+
+
+def _load_ego_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(True))
+
+
+def _load_opponent_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(False))
 
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR
@@ -235,6 +247,7 @@ class EnvRenderer:
         self.height = height
         self.zoom_level = 60.0
         self.car_length, self.car_width = _load_ego_body_size()
+        self.opponent_car_length, self.opponent_car_width = _load_opponent_body_size()
         self.camera_offset = np.array([0.0, 0.0], dtype=np.float32)
         self.camera_follow_ego = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", False))
 
@@ -899,12 +912,15 @@ class EnvRenderer:
         if self.poses is None:
             return
         for i, pose in enumerate(self.poses):
-            color = (
-                DEFAULT_COLORS["ego_car"]
-                if i == self.ego_idx
-                else DEFAULT_COLORS["opponent_car"]
-            )
-            self.draw_car(pose, color)
+            if i == self.ego_idx:
+                self.draw_car(pose, DEFAULT_COLORS["ego_car"])
+            else:
+                self.draw_car(
+                    pose,
+                    DEFAULT_COLORS["opponent_car"],
+                    self.opponent_car_length,
+                    self.opponent_car_width,
+                )
 
     # ------------------------------------------------------------------
     # Status bar and HUD

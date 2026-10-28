@@ -60,6 +60,10 @@ class Settings():
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
+    # YAML in utilities/car_files for opponent physics, size, and collision.
+    # None uses ENV_CAR_PARAMETER_FILE.
+    OPPONENT_CAR_PARAMETER_FILE = "ini_car_parameters.yml"
+
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False

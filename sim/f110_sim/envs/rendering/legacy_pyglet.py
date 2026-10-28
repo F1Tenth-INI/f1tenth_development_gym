@@ -51,16 +51,29 @@ from f110_sim.envs.collision_models import get_vertices
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1/ZOOM_IN_FACTOR
 
-def _load_ego_body_size():
-    """(length, width) in meters from Settings.ENV_CAR_PARAMETER_FILE."""
+def _load_body_size(parameter_file):
+    """(length, width) in meters from a car parameter YAML."""
     from utilities.car_files.vehicle_parameters import VehicleParameters
 
-    params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+    params = VehicleParameters(parameter_file)
     return float(params.length), float(params.width)
 
 
-# vehicle shape from the env car parameter file
+def _load_ego_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(True))
+
+
+def _load_opponent_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(False))
+
+
+# vehicle shape from the env / opponent car parameter files
 CAR_LENGTH, CAR_WIDTH = _load_ego_body_size()
+OPPONENT_CAR_LENGTH, OPPONENT_CAR_WIDTH = _load_opponent_body_size()
 
 class EnvRenderer(pyglet.window.Window):
     """
@@ -424,14 +437,18 @@ class EnvRenderer(pyglet.window.Window):
                     car = self.batch.add(4, GL_QUADS, None, ('v2f', vertices), ('c3B', [172, 97, 185, 172, 97, 185, 172, 97, 185, 172, 97, 185]))
                     self.cars.append(car)
                 else:
-                    vertices_np = get_vertices(np.array([0., 0., 0.]), CAR_LENGTH, CAR_WIDTH)
+                    vertices_np = get_vertices(np.array([0., 0., 0.]), OPPONENT_CAR_LENGTH, OPPONENT_CAR_WIDTH)
                     vertices = list(vertices_np.flatten())
                     car = self.batch.add(4, GL_QUADS, None, ('v2f', vertices), ('c3B', [99, 52, 94, 99, 52, 94, 99, 52, 94, 99, 52, 94]))
                     self.cars.append(car)
 
         poses = np.stack((poses_x, poses_y, poses_theta)).T
         for j in range(poses.shape[0]):
-            vertices_np = 50. * get_vertices(poses[j, :], CAR_LENGTH, CAR_WIDTH)
+            if j == self.ego_idx:
+                body_length, body_width = CAR_LENGTH, CAR_WIDTH
+            else:
+                body_length, body_width = OPPONENT_CAR_LENGTH, OPPONENT_CAR_WIDTH
+            vertices_np = 50. * get_vertices(poses[j, :], body_length, body_width)
             vertices = list(vertices_np.flatten())
             self.cars[j].vertices = vertices
         self.poses = poses

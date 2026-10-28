@@ -781,6 +781,8 @@
     let zoom = 60.0; // pixels per meter
     let carLengthM = 0.58;
     let carWidthM = 0.31;
+    let opponentCarLengthM = carLengthM;
+    let opponentCarWidthM = carWidthM;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -3334,6 +3336,8 @@
         applyOverlayUiConfig(cfg);
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+        if (Number.isFinite(cfg.opponent_car_length)) opponentCarLengthM = cfg.opponent_car_length;
+        if (Number.isFinite(cfg.opponent_car_width)) opponentCarWidthM = cfg.opponent_car_width;
         applyReplayUiConfig(cfg);
         if (typeof cfg.camera_auto_follow === "boolean") {
           cameraFollowEgo = cfg.camera_auto_follow;
@@ -3886,11 +3890,14 @@
 
         if (Number.isFinite(frame.car_length)) carLengthM = frame.car_length;
         if (Number.isFinite(frame.car_width)) carWidthM = frame.car_width;
+        if (Number.isFinite(frame.opponent_car_length)) opponentCarLengthM = frame.opponent_car_length;
+        if (Number.isFinite(frame.opponent_car_width)) opponentCarWidthM = frame.opponent_car_width;
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = carLengthM * zoom;
-          const carWid = carWidthM * zoom;
+          const isEgo = i === (frame.ego_idx || 0);
+          const carLen = (isEgo ? carLengthM : opponentCarLengthM) * zoom;
+          const carWid = (isEgo ? carWidthM : opponentCarWidthM) * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
