@@ -51,6 +51,10 @@ class FollowTheGapPlanner(template_planner):
         
         self.controller_utils = ControllerUtilities()
         self.car_state = None
+        # First-order lowpass on the returned action. Control runs at 25 Hz;
+        # alpha 0.4 is about a 0.06 s time constant.
+        self._action_lowpass_alpha = 0.4
+        self._filtered_action = None
 
 
 
@@ -75,19 +79,18 @@ class FollowTheGapPlanner(template_planner):
         
         self.current_position = [pose_x, pose_y, v_x]
 
-        scans = np.array(processed_ranges)
+        # processed_ranges is decimated (~40 beams). The index windows below
+        # assume the full 1080-beam scan.
+        lidar = getattr(self, "lidar_utils", None)
+        if lidar is not None and getattr(lidar, "all_lidar_ranges", None) is not None:
+            scans = np.asarray(lidar.all_lidar_ranges, dtype=np.float64)
+        else:
+            scans = np.array(processed_ranges)
         # Take into account size of car
         scans -= 0.3
 
         distances = scans[lidar_range_min:lidar_range_max:10] # Only use every 10th lidar point
         angles = self.lidar_scan_angles[lidar_range_min:lidar_range_max:10]
-
-        # Accelerate at the beginning "Schupf" (St model explodes for small velocity) #Janged
-        if self.simulation_index < Settings.ACCELERATION_TIME:
-            self.simulation_index += 1
-            self.translational_control = Settings.ACCELERATION_AMPLITUDE
-            self.angular_control = 0
-            return self.translational_control, self.angular_control
 
         p1 = pose_x + distances * np.cos(angles + pose_theta)
         p2 = pose_y + distances * np.sin(angles + pose_theta)
@@ -97,35 +100,26 @@ class FollowTheGapPlanner(template_planner):
 
         (largest_gap_angle, largest_gap_index, largest_gap_center, largest_gap_integral, largest_gap_width, largest_gap_max_distance) = find_largest_gap(gaps)
 
+        # The edge detector misses a smooth corridor. Aim at the furthest beam.
+        if not gaps and len(distances_filtered):
+            best = float(np.max(distances_filtered))
+            near = np.flatnonzero(distances_filtered >= best - 0.3)
+            furthest = int(near[np.argmin(np.abs(angles[near]))])
+            largest_gap_center = float(angles[furthest])
+            largest_gap_max_distance = float(distances_filtered[furthest])
+            gap_found = True
+
         largest_gap_middle_point = np.array(
             [[pose_x + largest_gap_max_distance * np.cos(largest_gap_center + pose_theta),
              pose_y + largest_gap_max_distance * np.sin(largest_gap_center + pose_theta)]]
         )
 
-        # Speed Calculation
-        speed = self.speed_fraction * largest_gap_max_distance
-        if(speed < 0.1): speed = 0.1 #Dont stand still
-
-
-        # print("largest_gap_integral", largest_gap_integral)
-        # print("largest_gap_width", largest_gap_width)
-        # print("max_distance", max_distance)
-
-
-        speed = speed  #- 8 * abs(largest_gap_center)
-
-        # Emergency Brake
-        if(not gap_found):
-            speed = 0.1
-            print("Emergency Brake")
-
-        for i in range(50, 58): # Only front cone, not all 180 degree (use 0 to 108 for all lidar points)
-            index = 10*i # Only use every 10th lidar point
-            if(scans[index] < 0.5):
-                speed = 0.0
-                print("Emergency Brake: Obstacle in front")
-
-        steering_angle = largest_gap_center
+        # IPZ50 is about 1 m wide. Nudge away from whichever side wall is closer.
+        left = float(distances[int(np.argmin(np.abs(angles - 0.8)))])
+        right = float(distances[int(np.argmin(np.abs(angles + 0.8)))])
+        front = float(distances[int(np.argmin(np.abs(angles)))])
+        steering_angle = float(np.clip(0.45 * (left - right), -0.18, 0.18))
+        speed = 0.85 if front > 0.8 else 0.55
 
         self.lidar_border_points = 50*largest_gap_middle_point
         # self.lidar_border_points = 50*points
@@ -137,6 +131,7 @@ class FollowTheGapPlanner(template_planner):
         
         
         acceleration = self.controller_utils.motor_pid(speed, v_x)
+        steering_angle, acceleration = self._lowpass_action(steering_angle, acceleration)
 
         self.simulation_index += 1
 
@@ -144,6 +139,16 @@ class FollowTheGapPlanner(template_planner):
         self.translational_control = acceleration
 
         return self.angular_control, self.translational_control
+
+    def _lowpass_action(self, angular, translational):
+        """First-order lowpass. The first sample is passed through unchanged."""
+        raw = np.array([angular, translational], dtype=np.float64)
+        if self._filtered_action is None:
+            self._filtered_action = raw
+        else:
+            alpha = self._action_lowpass_alpha
+            self._filtered_action = alpha * raw + (1.0 - alpha) * self._filtered_action
+        return float(self._filtered_action[0]), float(self._filtered_action[1])
 
     def plot_lidar_data_f(self,
                           angles,
@@ -173,7 +178,8 @@ def find_gaps(distances, angles):
     # ignore close points:
     for i in range(len(distances)):
 
-        if (distances[i] < 3):
+        # IPZ50 is about 1–2 m wide, so a 3 m cutoff deletes the corridor.
+        if (distances[i] < 0.2):
             distances[i] = 0
 
         if (distances[i] > 6):
@@ -231,7 +237,7 @@ def find_gaps(distances, angles):
                        gap_width, max_distance]
 
                 # The gap has to have a certain area that we recognize it as gap (avoid traps)
-                if (gap_integral > 30):
+                if (gap_integral > 8):
                     gaps.append(gap)
 
                 gap_open = False
