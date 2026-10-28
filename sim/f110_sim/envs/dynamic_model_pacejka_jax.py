@@ -102,7 +102,10 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
     d_psi = psi_dot
-    d_v_x = v_x_dot
+    # Body-frame velocities in a rotating frame: d_v_x = a_x + v_y * psi_dot and d_v_y = a_y - v_x * psi_dot.
+    # The + v_y * psi_dot term was missing, so a sliding car gained kinetic energy (v_x * v_y * psi_dot per kg)
+    # and a drift grew into a spin instead of scrubbing speed.
+    d_v_x = v_x_dot + v_y * psi_dot
     d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
     d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
 

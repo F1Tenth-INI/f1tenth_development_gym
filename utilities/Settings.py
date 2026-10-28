@@ -9,7 +9,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2
+    MAP_NAME = "IPZ50"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
     MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -375,7 +375,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 3                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 1 / 5     # softmax/kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0
@@ -440,11 +440,11 @@ class Settings():
     MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
     MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see WINDOW_ERROR in the planner
-    MPC_WAYPOINT_WINDOW_MARGIN = 0.2  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
+    MPC_WAYPOINT_WINDOW_MARGIN = 0.25  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
     MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE = True  # one window sample is the commands the car issued after it last crossed the window's first waypoint, rolled out from the stored state like the others
     MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins
-    MPC_WAYPOINT_WINDOW_GRIP_SHARE = 0.9  # an update's rollout may brake and corner together (friction circle of forward and lateral acceleration) at most at this share of the tires' mu * g. 0: no limit
-    MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.15  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
+    MPC_WAYPOINT_WINDOW_GRIP_SHARE = 0.0  # an update's rollout may brake and corner together (friction circle of forward and lateral acceleration) at most at this share of the tires' mu * g. 0: no limit
+    MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.2  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
     MPC_WAYPOINT_WINDOW_CORRELATION = 0.6  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
     MPC_WAYPOINT_WINDOW_NOISE = 0.7  # sampling noise of window updates, relative to the driving noise
     MPC_DRIVE_FALLBACK_SAMPLES = True  # the last 7 drive samples are fixed alternatives: the previous plan, it with full braking, and the seed swerving left or right at its throttle or half braking, and braking straight
@@ -456,7 +456,7 @@ class Settings():
     MPC_SAFE_MEAN = True  # when some samples crash, the weighted mean plan is rolled out once more; if it crashes and the best sample does not, the best sample is driven
     MPC_STALL_ON_BLOCKED = True  # a car slower than 1 m/s whose best rollout crashes or drives less than 0.3 m forward backtracks at once, without waiting MPC_STALL_TIME
     MPC_DRIVE_GRIP_SHARE = 1.0  # drive rollouts are penalized where braking and cornering together need more than this share of the tire grip (mu * g)
-    MPC_DRIVE_GRIP_WEIGHT = 1.0  # drive cost per m/s^2 of the largest overshoot of that grip along a rollout. 0: off
+    MPC_DRIVE_GRIP_WEIGHT = 0.0  # drive cost per m/s^2 of the largest overshoot of that grip along a rollout. 0: off
 
     MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
     MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted

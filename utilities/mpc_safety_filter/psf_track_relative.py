@@ -442,6 +442,9 @@ def pacejka_body_derivatives(
     if v_x > v_max and v_x_dot > 0.0:
         v_x_dot = 0.0
 
+    # Body-frame velocities in a rotating frame: v_x_dot = a_x + v_y * r and v_y_dot = a_y - v_x * r.
+    # The + v_y * r term was missing, so a sliding car gained kinetic energy (v_x * v_y * r per kg).
+    v_x_dot = v_x_dot + v_y * r
     v_y_dot = (F_yr + F_yf) / m - v_x * r
     # Match paper/sign convention used in jax model: (-lr * F_yr + lf * F_yf) / I_z
     # Jax F_yf already uses steered alpha; cos(delta) omitted as in jax _pacejka_step.
