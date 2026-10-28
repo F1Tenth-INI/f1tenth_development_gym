@@ -49,6 +49,8 @@ function controlOverlayYAxis(baseY) {
 let settings = {};
 let session = null;
 let browsePath = "";
+let browseParentPath = "";
+let browseEntries = [];
 let sliderTimer = null;
 let heartbeatTimer = null;
 let loadingCount = 0;
@@ -1895,11 +1897,19 @@ function validateRangeInputs() {
   return true;
 }
 
+function loadedCsvDirectory() {
+  const full = session?.csv_file_path || settings?.csv_file_path || "";
+  const slash = full.lastIndexOf("/");
+  return slash > 0 ? full.slice(0, slash) : "";
+}
+
 function openDataModal() {
   const modal = document.getElementById("data-modal");
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  loadBrowse("");
+  const filter = document.getElementById("browse-filter");
+  if (filter) filter.value = "";
+  loadBrowse(loadedCsvDirectory());
 }
 
 function closeDataModal() {
@@ -1937,25 +1947,50 @@ function populateOtherDataSelect(columns, exclude) {
 }
 
 // ------------------------------------------------------------------ file browser
-async function loadBrowse(path = "") {
-  browsePath = path;
-  const data = await api("GET", `/api/csv/browse?path=${encodeURIComponent(browsePath)}`);
-  document.getElementById("browse-path").textContent = data.current_path || "(root)";
+function renderBrowsePath(currentPath) {
+  const nav = document.getElementById("browse-path");
+  nav.innerHTML = "";
+  const root = document.createElement("button");
+  root.type = "button";
+  root.textContent = "repo";
+  root.addEventListener("click", () => loadBrowse(""));
+  nav.appendChild(root);
+  if (!currentPath) return;
+  let accumulated = "";
+  currentPath.split("/").filter(Boolean).forEach((part) => {
+    accumulated = accumulated ? `${accumulated}/${part}` : part;
+    const sep = document.createElement("span");
+    sep.textContent = "/";
+    nav.appendChild(sep);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = part;
+    const target = accumulated;
+    button.addEventListener("click", () => loadBrowse(target));
+    nav.appendChild(button);
+  });
+}
+
+function renderBrowseEntries() {
+  const filter = (document.getElementById("browse-filter")?.value || "").trim().toLowerCase();
   const ul = document.getElementById("file-list");
   ul.innerHTML = "";
-  if (data.parent_path !== undefined && data.current_path) {
-    const li = document.createElement("li");
-    li.className = "dir";
-    li.textContent = "..";
-    li.addEventListener("click", () => loadBrowse(data.parent_path ?? ""));
-    ul.appendChild(li);
+  const entries = browseEntries.filter((entry) => !filter || entry.name.toLowerCase().includes(filter));
+  if (!entries.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = filter ? "No matches in this folder" : "No folders or CSV files here";
+    ul.appendChild(empty);
+    return;
   }
-  data.entries.forEach((entry) => {
+  entries.forEach((entry) => {
     const li = document.createElement("li");
     li.className = entry.type;
     li.textContent = entry.name;
     li.addEventListener("click", async () => {
       if (entry.type === "dir") {
+        const filterEl = document.getElementById("browse-filter");
+        if (filterEl) filterEl.value = "";
         loadBrowse(entry.path);
       } else {
         try {
@@ -1985,6 +2020,22 @@ async function loadBrowse(path = "") {
     });
     ul.appendChild(li);
   });
+}
+
+async function loadBrowse(path = "") {
+  try {
+    browsePath = path;
+    const data = await api("GET", `/api/csv/browse?path=${encodeURIComponent(browsePath)}`);
+    browsePath = data.current_path || "";
+    browseParentPath = data.current_path ? (data.parent_path || "") : "";
+    browseEntries = data.entries || [];
+    const up = document.getElementById("browse-up");
+    if (up) up.disabled = !data.current_path;
+    renderBrowsePath(data.current_path || "");
+    renderBrowseEntries();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 async function onModelOrParamsChanged() {
@@ -2251,14 +2302,20 @@ function bindEventListeners() {
     }
   });
 
-  document.getElementById("browse-up").addEventListener("click", async () => {
-    const data = await api("GET", `/api/csv/browse?path=${encodeURIComponent(browsePath)}`);
-    loadBrowse(data.parent_path ?? "");
+  document.getElementById("browse-up").addEventListener("click", () => {
+    if (!browsePath) return;
+    loadBrowse(browseParentPath);
   });
+  document.getElementById("browse-filter").addEventListener("input", renderBrowseEntries);
 
   document.getElementById("csv-upload").addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      alert("Choose a CSV file.");
+      e.target.value = "";
+      return;
+    }
     const form = new FormData();
     form.append("file", file);
     try {
