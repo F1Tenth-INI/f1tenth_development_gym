@@ -65,10 +65,7 @@ def _pacejka_step_factory(lib, car_parameters, t_step):
         d_pos_x = v_x * lib.cos(psi) - v_y * lib.sin(psi)
         d_pos_y = v_x * lib.sin(psi) + v_y * lib.cos(psi)
         d_psi = psi_dot
-        # Body-frame velocities in a rotating frame: d_v_x = a_x + v_y * psi_dot and d_v_y = a_y - v_x * psi_dot.
-        # The + v_y * psi_dot term was missing, so a sliding car gained kinetic energy (v_x * v_y * psi_dot per kg)
-        # and a drift grew into a spin instead of scrubbing speed.
-        d_v_x = v_x_dot + v_y * psi_dot
+        d_v_x = v_x_dot
         d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
         # print d_v_y + v_x * psi_dot
         # Should be equal to IMUs a_y
@@ -315,10 +312,6 @@ class car_model:
     def _step_dynamics_ks_pacejka(self, s, Q):
 
         v_x = s[:, self.LINEAR_VEL_X_IDX]  # Longitudinal velocity
-        v_y = s[:, self.LINEAR_VEL_Y_IDX]  # Lateral velocity
-        # The kinematic model has no lateral velocity (it outputs v_y = 0), so blending it in damps v_y.
-        # The weight therefore follows the speed over ground, not v_x. With v_y = 0 (or v_x < 0) this is v_x.
-        v_blend = v_x + self.lib.sqrt(v_x * v_x + v_y * v_y + 1.0e-8) - self.lib.abs(v_x)
 
         # switch to kinematic model for small velocities
         # Define speed thresholds
@@ -336,7 +329,7 @@ class car_model:
         midpoint = (low_speed_threshold + high_speed_threshold) / self.lib.constant(2, self.lib.float32)
         k = self.lib.constant(4.8, self.lib.float32)
         weights = self.lib.constant(1, self.lib.float32) / (self.lib.constant(1, self.lib.float32) + self.lib.exp(
-            -k * (v_blend - midpoint)))
+            -k * (v_x - midpoint)))
 
         weights = self.lib.reshape(weights, (-1, 1))
         weights_shape = self.lib.shape(weights)

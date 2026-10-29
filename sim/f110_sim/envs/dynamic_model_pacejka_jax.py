@@ -75,8 +75,9 @@ def _cornering_resistance_accel(v_x, F_yf, F_yr, m, curve_resistance_factor, v_d
 
 def _pacejka_lateral_forces(v_x, v_y, psi_dot, delta, v_x_dot,
                             lf, lr, h_cg, m, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, mu):
-    v_x_safe = jnp.where(v_x < 1.0e-3, 1.0e-3, v_x)
-    alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + delta
+    # |v_x| and sign(v_x) * delta keep the slip angles valid when driving in reverse.
+    v_x_safe = jnp.maximum(jnp.abs(v_x), 1.0e-3)
+    alpha_f = -jnp.arctan((v_y + psi_dot * lf) / v_x_safe) + jnp.sign(v_x) * delta
     alpha_r = -jnp.arctan((v_y - psi_dot * lr) / v_x_safe)
 
     F_zf = m * (-v_x_dot * h_cg + g_ * lr) / (lr + lf)
@@ -86,7 +87,11 @@ def _pacejka_lateral_forces(v_x, v_y, psi_dot, delta, v_x_dot,
         C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
     F_yr = mu * F_zr * D_r * jnp.sin(
         C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
-    return F_yf, F_yr
+
+    # Friction ellipse: drive/brake force uses part of the tyre grip, the rest is left for
+    # cornering. 4WD with load-proportional force split -> same derating on both axles.
+    lat_scale = jnp.sqrt(jnp.maximum(1.0 - (v_x_dot / (mu * g_)) ** 2, 1.0e-4))
+    return F_yf * lat_scale, F_yr * lat_scale
 
 
 def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
@@ -102,12 +107,12 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
     d_psi = psi_dot
-    # Body-frame velocities in a rotating frame: d_v_x = a_x + v_y * psi_dot and d_v_y = a_y - v_x * psi_dot.
-    # The + v_y * psi_dot term was missing, so a sliding car gained kinetic energy (v_x * v_y * psi_dot per kg)
-    # and a drift grew into a spin instead of scrubbing speed.
-    d_v_x = v_x_dot + v_y * psi_dot
-    d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
-    d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
+    # Single-track model in the body frame: front lateral force acts perpendicular to the
+    # steered wheel, and v_y * psi_dot / -v_x * psi_dot rotate the velocity vector without
+    # adding energy.
+    d_v_x = v_x_dot - F_yf * jnp.sin(delta) / m + v_y * psi_dot
+    d_v_y = (F_yr + F_yf * jnp.cos(delta)) / m - v_x * psi_dot
+    d_psi_dot = (-lr * F_yr + lf * F_yf * jnp.cos(delta)) / I_z
 
     s_x = s_x + dt_sub * d_s_x
     s_y = s_y + dt_sub * d_s_y
@@ -119,20 +124,27 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
     return s_x, s_y, delta, v_x, v_y, psi, psi_dot
 
 
-def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
-             l_wb, s_min, s_max, dt_sub):
-    s_x_dot = v_x * jnp.cos(psi)
-    s_y_dot = v_x * jnp.sin(psi)
-    psi_dot = (v_x / l_wb) * jnp.tan(delta)
-    psi_dot_dot = (v_x_dot * jnp.tan(delta) / l_wb) + v_x * delta_dot / (l_wb * jnp.cos(delta) ** 2)
+def _ks_step(s_x, s_y, delta, v_x, v_y, psi, delta_dot, v_x_dot,
+             lr, l_wb, s_min, s_max, dt_sub):
+    # Kinematic bicycle referenced at the CoG (like the Pacejka model): the state is the
+    # speed v, the steering only sets its direction beta, so steering does not change |v|.
+    v = jnp.where(v_x < 0.0, -1.0, 1.0) * jnp.sqrt(v_x * v_x + v_y * v_y)
+    beta = jnp.arctan(jnp.tan(delta) * lr / l_wb)
+    s_x_dot = v * jnp.cos(psi + beta)
+    s_y_dot = v * jnp.sin(psi + beta)
+    psi_dot = v * jnp.cos(beta) * jnp.tan(delta) / l_wb
 
     s_x = s_x + dt_sub * s_x_dot
     s_y = s_y + dt_sub * s_y_dot
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
-    v_x = v_x + dt_sub * v_x_dot
+    v = v + dt_sub * v_x_dot
     psi = _wrap_angle_rad(psi + dt_sub * psi_dot)
-    angular_vel_z = angular_vel_z + dt_sub * psi_dot_dot
-    return s_x, s_y, delta, v_x, psi, angular_vel_z
+    # v_x, v_y and yaw rate are algebraic in the kinematic model (no stale yaw rate at low speed).
+    beta = jnp.arctan(jnp.tan(delta) * lr / l_wb)
+    v_x = v * jnp.cos(beta)
+    v_y = v * jnp.sin(beta)
+    angular_vel_z = v_x * jnp.tan(delta) / l_wb
+    return s_x, s_y, delta, v_x, v_y, psi, angular_vel_z
 
 
 def _next_step_output(psi_dot, v_x, v_y, psi, s_x, s_y, delta):
@@ -226,20 +238,25 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             s_pacejka = state_in
 
         if use_ks:
-            angular_vel_z = psi_dot
-            k_s_x, k_s_y, k_delta, k_v_x, k_psi, k_angular_vel_z = _ks_step(
-                s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
-                l_wb, s_min, s_max, dt_sub)
-            s_ks = _next_step_output(k_angular_vel_z, k_v_x, 0.0, k_psi, k_s_x, k_s_y, k_delta)
+            k_s_x, k_s_y, k_delta, k_v_x, k_v_y, k_psi, k_angular_vel_z = _ks_step(
+                s_x, s_y, delta, v_x, v_y, psi, delta_dot, v_x_dot,
+                lr, l_wb, s_min, s_max, dt_sub)
+            s_ks = _next_step_output(k_angular_vel_z, k_v_x, k_v_y, k_psi, k_s_x, k_s_y, k_delta)
         else:
             s_ks = state_in
 
         if use_blend:
-            # The kinematic model has no lateral velocity (it outputs v_y = 0), so blending it in damps v_y.
-            # The weight therefore follows the speed over ground, not v_x: a car sliding sideways at low v_x
-            # is not a slow no-slip car. With v_y = 0 (or v_x < 0) this is exactly v_x, as before.
-            v_blend = v_x + jnp.sqrt(v_x * v_x + v_y * v_y + 1.0e-8) - jnp.abs(v_x)
-            weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_blend - 1.75)))
+            # Kinematic model only when slow AND not sliding: it assumes zero lateral wheel
+            # velocity, so a slide (> ~0.5 m/s at an axle) stays in the dynamic model instead
+            # of being stopped in one step. Sliding > 0.5 m/s implies a speed at which the
+            # explicit Euler step of the dynamic model is stable (>~ 0.25 m/s).
+            speed = jnp.sqrt(v_x * v_x + v_y * v_y)
+            slide_f = (v_y + lf * psi_dot) * jnp.cos(delta) - v_x * jnp.sin(delta)
+            slide_r = v_y - lr * psi_dot
+            slide = jnp.maximum(jnp.abs(slide_f), jnp.abs(slide_r))
+            w_speed = 1.0 / (1.0 + jnp.exp(-4.8 * (speed - 1.75)))
+            w_slide = 1.0 / (1.0 + jnp.exp(-10.0 * (slide - 0.5)))
+            weight = 1.0 - (1.0 - w_speed) * (1.0 - w_slide)
             next_state = _blend_states_circular_yaw(s_ks, s_pacejka, weight)
         elif use_pacejka:
             next_state = s_pacejka
