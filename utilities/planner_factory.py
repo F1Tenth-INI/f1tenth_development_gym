@@ -18,6 +18,10 @@ def initialize_planner(controller: str):
         from Control_Toolkit_ASF.Controllers.MPPILite.rpgd_jax_planner import RPGDPlanner
 
         planner = RPGDPlanner()
+    elif controller == "mpc-acados":
+        from Control_Toolkit_ASF.Controllers.MPCAcados.mpc_acados_planner import SafeMPCPlanner
+
+        planner = SafeMPCPlanner()
     elif controller == "ftg":
         from Control_Toolkit_ASF.Controllers.FollowTheGap import ftg_planner
 

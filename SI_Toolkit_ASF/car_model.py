@@ -12,12 +12,7 @@ def _ks_step_factory(lib, car_parameters, t_step):
     def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot):
         s_x_dot = v_x * lib.cos(psi)
         s_y_dot = v_x * lib.sin(psi)
-        # The kinematic model has no tires, so it turned at any lateral acceleration v * psi_dot. The yaw rate is
-        # limited to what the grip allows: v * psi_dot <= mu * g.
-        speed = lib.abs(v_x)
-        max_yaw_rate = car_parameters.mu * car_parameters.g / lib.where(
-            speed < 1.0e-3, lib.constant(1.0e-3, lib.float32), speed)
-        psi_dot = lib.clip((v_x / car_parameters.l_wb) * lib.tan(delta), -max_yaw_rate, max_yaw_rate)
+        psi_dot = (v_x / car_parameters.l_wb) * lib.tan(delta)
         psi_dot_dot = (v_x_dot * lib.tan(delta) / car_parameters.l_wb) \
                         + v_x * delta_dot / (car_parameters.l_wb * lib.cos(delta) ** 2)
 
@@ -26,19 +21,11 @@ def _ks_step_factory(lib, car_parameters, t_step):
         delta = lib.clip(delta + t_step * delta_dot, car_parameters.s_min, car_parameters.s_max)
         v_x = v_x + t_step * v_x_dot
         psi = psi + t_step * psi_dot
-        angular_vel_z = lib.clip(angular_vel_z + t_step * psi_dot_dot, -max_yaw_rate, max_yaw_rate)
+        angular_vel_z = angular_vel_z + t_step * psi_dot_dot
 
         return s_x, s_y, delta, v_x, psi, angular_vel_z
 
     return _ks_step
-
-
-def _friction_circle(lib, F_x, F_y, F_max):
-    """Scales an axle's longitudinal and lateral force together so that their resultant stays within F_max."""
-    F = lib.sqrt(F_x * F_x + F_y * F_y + 1.0e-12)
-    ratio = F_max / F
-    scale = lib.where(ratio < 1.0, ratio, lib.ones_like(ratio))
-    return F_x * scale, F_y * scale
 
 
 def _pacejka_step_factory(lib, car_parameters, t_step):
@@ -75,34 +62,15 @@ def _pacejka_step_factory(lib, car_parameters, t_step):
         F_yr = mu * F_zr * D_r * lib.sin(
             C_r * lib.atan(B_r * alpha_r - E_r * (B_r * alpha_r - lib.atan(B_r * alpha_r))))
 
-        # Friction circle: an axle's tires deliver at most mu * F_z in total, so braking or driving and cornering
-        # share the grip. Before, the lateral forces reached mu * F_z whatever the longitudinal acceleration.
-        # The longitudinal force is split between the axles in proportion to their normal load.
-        zero = lib.constant(0.0, lib.float32)
-        F_zf = lib.where(F_zf < zero, zero, F_zf)
-        F_zr = lib.where(F_zr < zero, zero, F_zr)
-        F_x = m * v_x_dot
-        F_xf, F_yf = _friction_circle(lib, F_x * F_zf / (m * g_), F_yf, mu * D_f * F_zf)
-        F_xr, F_yr = _friction_circle(lib, F_x * F_zr / (m * g_), F_yr, mu * D_r * F_zr)
-
-        # The front tire forces act in the steered wheel's frame. Before, they were applied along the body axes
-        # (cos(delta) = 1, sin(delta) = 0), so a steered front tire produced no drag and its full force sideways.
-        cos_d, sin_d = lib.cos(delta), lib.sin(delta)
-        F_front_x = F_xf * cos_d - F_yf * sin_d
-        F_front_y = F_xf * sin_d + F_yf * cos_d
-
         d_pos_x = v_x * lib.cos(psi) - v_y * lib.sin(psi)
         d_pos_y = v_x * lib.sin(psi) + v_y * lib.cos(psi)
         d_psi = psi_dot
-        # Body-frame velocities in a rotating frame: d_v_x = a_x + v_y * psi_dot and d_v_y = a_y - v_x * psi_dot.
-        # The + v_y * psi_dot term was missing, so a sliding car gained kinetic energy (v_x * v_y * psi_dot per kg)
-        # and a drift grew into a spin instead of scrubbing speed.
-        d_v_x = (F_front_x + F_xr) / m + v_y * psi_dot
-        d_v_y = (F_front_y + F_yr) / m - v_x * psi_dot
+        d_v_x = v_x_dot
+        d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
         # print d_v_y + v_x * psi_dot
         # Should be equal to IMUs a_y
 
-        d_psi_dot = (lf * F_front_y - lr * F_yr) / I_z
+        d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
 
         s_x = s_x + t_step * d_pos_x
         s_y = s_y + t_step * d_pos_y
@@ -355,11 +323,15 @@ class car_model:
         s_next_ks = self._step_dynamics_ks(s, Q)
         s_next_ts = self._step_dynamics_pacejka(s, Q)
 
-        # Pacejka is integrated stably from about 0.75 m/s, so the kinematic model only takes over below that.
-        # Before, the blend was centred at 1.75 m/s (k = 4.8), and up to about 2.5 m/s the kinematic share pulled
-        # v_y to 0 within a few steps, a lateral grip far above mu * g. Same values as dynamic_model_pacejka_jax.
-        midpoint = self.lib.constant(0.75, self.lib.float32)
-        k = self.lib.constant(10.0, self.lib.float32)
+        low_speed_threshold = self.lib.constant(0.5, self.lib.float32)
+        high_speed_threshold = self.lib.constant(3, self.lib.float32)
+
+        # Calculate weights for each element in v_x (smooth transission from pacejka to KS model)
+        # weights = (v_x - low_speed_threshold) / (high_speed_threshold - low_speed_threshold)
+        # weights = self.lib.clip(weights, 0, 1)  # Ensure weights are in [0, 1]
+
+        midpoint = (low_speed_threshold + high_speed_threshold) / self.lib.constant(2, self.lib.float32)
+        k = self.lib.constant(4.8, self.lib.float32)
         weights = self.lib.constant(1, self.lib.float32) / (self.lib.constant(1, self.lib.float32) + self.lib.exp(
             -k * (v_blend - midpoint)))
 

@@ -8,9 +8,6 @@ import jax.numpy as jnp
 from functools import partial
 from utilities.Settings import Settings
 
-KS_BLEND_SPEED = 0.75  # [m/s] speed over ground at which ODE:ks_pacejka weights the kinematic and Pacejka models equally
-KS_BLEND_STEEPNESS = 10.0  # [s/m] Pacejka share 1 / (1 + exp(-steepness * (v - KS_BLEND_SPEED)))
-
 
 def _wrap_angle_rad(angle):
     """Wrap heading to [-pi, pi]."""
@@ -89,48 +86,25 @@ def _pacejka_lateral_forces(v_x, v_y, psi_dot, delta, v_x_dot,
         C_f * jnp.arctan(B_f * alpha_f - E_f * (B_f * alpha_f - jnp.arctan(B_f * alpha_f))))
     F_yr = mu * F_zr * D_r * jnp.sin(
         C_r * jnp.arctan(B_r * alpha_r - E_r * (B_r * alpha_r - jnp.arctan(B_r * alpha_r))))
-    return F_yf, F_yr, F_zf, F_zr
-
-
-def _friction_circle(F_x, F_y, F_max):
-    """Scales an axle's longitudinal and lateral force together so that their resultant stays within F_max."""
-    F = jnp.sqrt(F_x * F_x + F_y * F_y + 1.0e-12)
-    scale = jnp.minimum(1.0, F_max / F)
-    return F_x * scale, F_y * scale
+    return F_yf, F_yr
 
 
 def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
                   lf, lr, h_cg, m, I_z, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r,
                   mu, s_min, s_max, dt_sub, curve_resistance_factor=0.0, v_dead=0.05):
-    F_yf, F_yr, F_zf, F_zr = _pacejka_lateral_forces(
+    F_yf, F_yr = _pacejka_lateral_forces(
         v_x, v_y, psi_dot, delta, v_x_dot, lf, lr, h_cg, m, g_, B_f, C_f, D_f, E_f, B_r, C_r, D_r, E_r, mu)
-    # Friction circle: an axle's tires deliver at most mu * F_z in total, so braking or driving and cornering
-    # share the grip. Before, the longitudinal acceleration was clipped at mu * g on its own while the lateral
-    # forces also reached mu * F_z, so the car could brake and corner at up to sqrt(2) * mu * g together.
-    # The longitudinal force is split between the axles in proportion to their normal load.
-    F_zf = jnp.maximum(F_zf, 0.0)
-    F_zr = jnp.maximum(F_zr, 0.0)
-    F_x = m * v_x_dot
-    F_xf, F_yf = _friction_circle(F_x * F_zf / (m * g_), F_yf, mu * D_f * F_zf)
-    F_xr, F_yr = _friction_circle(F_x * F_zr / (m * g_), F_yr, mu * D_r * F_zr)
-    cornering = jax.lax.stop_gradient(
+    v_x_dot = v_x_dot + jax.lax.stop_gradient(
         _cornering_resistance_accel(v_x, F_yf, F_yr, m, curve_resistance_factor, v_dead))
-
-    # The front tire forces act in the steered wheel's frame. Before, they were applied along the body axes
-    # (cos(delta) = 1, sin(delta) = 0), so a steered front tire produced no drag and its full force sideways.
-    cos_d, sin_d = jnp.cos(delta), jnp.sin(delta)
-    F_front_x = F_xf * cos_d - F_yf * sin_d
-    F_front_y = F_xf * sin_d + F_yf * cos_d
+    max_a_friction = mu * g_
+    v_x_dot = jnp.clip(v_x_dot, -max_a_friction, max_a_friction)
 
     d_s_x = v_x * jnp.cos(psi) - v_y * jnp.sin(psi)
     d_s_y = v_x * jnp.sin(psi) + v_y * jnp.cos(psi)
     d_psi = psi_dot
-    # Body-frame velocities in a rotating frame: d_v_x = a_x + v_y * psi_dot and d_v_y = a_y - v_x * psi_dot.
-    # The + v_y * psi_dot term was missing, so a sliding car gained kinetic energy (v_x * v_y * psi_dot per kg)
-    # and a drift grew into a spin instead of scrubbing speed.
-    d_v_x = (F_front_x + F_xr) / m + cornering + v_y * psi_dot
-    d_v_y = (F_front_y + F_yr) / m - v_x * psi_dot
-    d_psi_dot = (lf * F_front_y - lr * F_yr) / I_z
+    d_v_x = v_x_dot
+    d_v_y = (F_yr + F_yf) / m - v_x * psi_dot
+    d_psi_dot = (-lr * F_yr + lf * F_yf) / I_z
 
     s_x = s_x + dt_sub * d_s_x
     s_y = s_y + dt_sub * d_s_y
@@ -143,13 +117,10 @@ def _pacejka_step(s_x, s_y, delta, v_x, v_y, psi, psi_dot, delta_dot, v_x_dot,
 
 
 def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
-             l_wb, s_min, s_max, dt_sub, max_lateral_accel):
+             l_wb, s_min, s_max, dt_sub):
     s_x_dot = v_x * jnp.cos(psi)
     s_y_dot = v_x * jnp.sin(psi)
-    # The kinematic model has no tires, so it turned at any lateral acceleration v * psi_dot. The yaw rate is
-    # limited to what the grip allows: v * psi_dot <= mu * g.
-    max_yaw_rate = max_lateral_accel / jnp.maximum(jnp.abs(v_x), 1.0e-3)
-    psi_dot = jnp.clip((v_x / l_wb) * jnp.tan(delta), -max_yaw_rate, max_yaw_rate)
+    psi_dot = (v_x / l_wb) * jnp.tan(delta)
     psi_dot_dot = (v_x_dot * jnp.tan(delta) / l_wb) + v_x * delta_dot / (l_wb * jnp.cos(delta) ** 2)
 
     s_x = s_x + dt_sub * s_x_dot
@@ -157,7 +128,7 @@ def _ks_step(s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
     delta = jnp.clip(delta + dt_sub * delta_dot, s_min, s_max)
     v_x = v_x + dt_sub * v_x_dot
     psi = _wrap_angle_rad(psi + dt_sub * psi_dot)
-    angular_vel_z = jnp.clip(angular_vel_z + dt_sub * psi_dot_dot, -max_yaw_rate, max_yaw_rate)
+    angular_vel_z = angular_vel_z + dt_sub * psi_dot_dot
     return s_x, s_y, delta, v_x, psi, angular_vel_z
 
 
@@ -255,7 +226,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             angular_vel_z = psi_dot
             k_s_x, k_s_y, k_delta, k_v_x, k_psi, k_angular_vel_z = _ks_step(
                 s_x, s_y, delta, v_x, psi, angular_vel_z, delta_dot, v_x_dot,
-                l_wb, s_min, s_max, dt_sub, max_a_friction)
+                l_wb, s_min, s_max, dt_sub)
             s_ks = _next_step_output(k_angular_vel_z, k_v_x, 0.0, k_psi, k_s_x, k_s_y, k_delta)
         else:
             s_ks = state_in
@@ -265,10 +236,7 @@ def car_dynamics_pacejka_jax(state, control, car_params, dt, intermediate_steps=
             # The weight therefore follows the speed over ground, not v_x: a car sliding sideways at low v_x
             # is not a slow no-slip car. With v_y = 0 (or v_x < 0) this is exactly v_x, as before.
             v_blend = v_x + jnp.sqrt(v_x * v_x + v_y * v_y + 1.0e-8) - jnp.abs(v_x)
-            # Pacejka is integrated stably at TIMESTEP_SIM from about 0.75 m/s, so the kinematic model only takes
-            # over below that. Before, the blend was centred at 1.75 m/s (k = 4.8), and up to about 2.5 m/s the
-            # kinematic share pulled v_y to 0 within a few steps, a lateral grip far above mu * g.
-            weight = 1.0 / (1.0 + jnp.exp(-KS_BLEND_STEEPNESS * (v_blend - KS_BLEND_SPEED)))
+            weight = 1.0 / (1.0 + jnp.exp(-4.8 * (v_blend - 1.75)))
             next_state = _blend_states_circular_yaw(s_ks, s_pacejka, weight)
         elif use_pacejka:
             next_state = s_pacejka
