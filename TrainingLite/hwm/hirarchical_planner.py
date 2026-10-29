@@ -1075,51 +1075,6 @@ class HirarchicalPlanner(template_planner):
             self._translational_range = limits
         return limits
 
-    def _line_following_steer(self, state: np.ndarray, nominal: torch.Tensor) -> torch.Tensor:
-        """``(H,)`` normalized steering that drives a kinematic car along the stored line (pure pursuit).
-
-        The car starts at its pose and speed and speeds up or slows down with the throttle of
-        ``nominal``. The stored sequences fit the car in the state stored at each waypoint; a car
-        much slower than that, or not sliding like it, turns too tight with them and cuts into the
-        inside wall. This sequence follows the line's shape whatever the car's state.
-        """
-        from utilities.car_files.vehicle_parameters import VehicleParameters
-        if getattr(self, "_steer_geometry", None) is None:
-            params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-            self._steer_geometry = (float(params.lf) + float(params.lr), float(params.s_max))
-        wheelbase, s_max = self._steer_geometry
-        s = np.asarray(state, dtype=np.float64).reshape(-1)
-        x, y, psi = float(s[POSE_X_IDX]), float(s[POSE_Y_IDX]), float(s[POSE_THETA_IDX])
-        speed = float(s[LINEAR_VEL_X_IDX])
-        n = self._waypoints_n
-        line = self._waypoint_xy[(int(self._car_waypoint) + torch.arange(-3, 80)) % n].numpy().astype(np.float64)
-        arc = np.concatenate(([0.0], np.cumsum(np.hypot(*np.diff(line, axis=0).T))))
-        dt = float(Settings.TIMESTEP_CONTROL)
-        grip = float(self._car_friction_accel())
-        throttle = nominal[:, 1].numpy().astype(np.float64) * float(self.action_denormalization_array[1])
-        throttle = np.where(throttle < 0.0, throttle * self._car_brake_multiplier(), throttle)
-        # The first command acts after the control delay: until then the car keeps its yaw rate.
-        for _ in range(int(round(float(Settings.CONTROL_DELAY) / dt))):
-            psi += float(s[ANGULAR_VEL_Z_IDX]) * dt
-            x += max(speed, 0.0) * np.cos(psi) * dt
-            y += max(speed, 0.0) * np.sin(psi) * dt
-        steer = np.zeros(int(nominal.shape[0]))
-        for k in range(int(nominal.shape[0])):
-            v = max(speed, 0.5)
-            lookahead = max(Settings.HWM_LINE_LOOKAHEAD_MIN, Settings.HWM_LINE_LOOKAHEAD_TIME * v)
-            near = int(np.hypot(line[:, 0] - x, line[:, 1] - y).argmin())
-            target = np.array([np.interp(arc[near] + lookahead, arc, line[:, c]) for c in range(2)])
-            alpha = np.arctan2(target[1] - y, target[0] - x) - psi
-            reach = max(float(np.hypot(target[0] - x, target[1] - y)), 1e-3)
-            delta = float(np.clip(np.arctan2(2.0 * wheelbase * np.sin(alpha), reach), -s_max, s_max))
-            steer[k] = delta / s_max  # HWM_ACTION_DENORM: +-1 is full lock
-            yaw_rate = float(np.clip(v * np.tan(delta) / wheelbase, -grip / v, grip / v))
-            psi += yaw_rate * dt
-            x += v * np.cos(psi) * dt
-            y += v * np.sin(psi) * dt
-            speed = max(speed + float(throttle[k]) * dt, 0.0)
-        return torch.as_tensor(steer, dtype=nominal.dtype)
-
     def _car_brake_multiplier(self) -> float:
         """Factor the car applies to negative acceleration commands."""
         if getattr(self, "_brake_multiplier", None) is None:
@@ -1135,59 +1090,19 @@ class HirarchicalPlanner(template_planner):
             self._friction_accel = float(params.mu) * float(getattr(params, "g", 9.81))
         return self._friction_accel
 
-    def _with_fallback_samples(
-        self, actions: torch.Tensor, nominal: torch.Tensor | None, speed: float, yaw_rate: float = 0.0,
-        state: np.ndarray | None = None,
-    ) -> torch.Tensor:
+    def _with_fallback_samples(self, actions: torch.Tensor, nominal: torch.Tensor | None, speed: float) -> torch.Tensor:
         """Replace the last samples with fixed alternatives the noise around ``nominal`` rarely reaches.
 
-        The previous plan as it is and with full braking, and ``nominal`` swerving to either side at
-        its own throttle and at half braking, and ``nominal`` with its steering scaled down. With
-        ``state``, also the line-following steering (``_line_following_steer``) at ``nominal``'s throttle
-        and at half braking. Braking lasts until the car at ``speed`` would stand. When the seed runs
-        into a wall, one of them usually does not.
+        The previous plan as it is and ``nominal`` with its steering scaled down. A car slower than
+        ``HWM_CREEP_SPEED`` also pulls away and backs off at fixed steering.
         """
         if nominal is None:
             nominal = self.action_buffer
         horizon = int(nominal.shape[0])
-        # Full braking is what the tires have left beside the current cornering: the model brakes at mu * g
-        # in a turn, the car slides. Never below a third of it, so a fallback still slows the car.
-        grip = float(self._car_friction_accel())
-        available = np.sqrt(max(grip ** 2 - (speed * yaw_rate) ** 2, (grip / 3.0) ** 2))
-        brake_physical = min(float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL), available)
-        # Durations count from the first command of the plan: the rollout already applies it after the control delay.
-
-        def stopping(share: float) -> torch.Tensor:
-            # Brake only until the car stands: braking on would drive it backwards.
-            steps = int(np.ceil(max(speed, 0.0) / (share * brake_physical * float(Settings.TIMESTEP_CONTROL))))
-            if speed < Settings.HWM_STANDING_SPEED:
-                steps = 0
-            profile = torch.zeros(horizon)
-            command = share * brake_physical / self._car_brake_multiplier()
-            profile[: min(steps, horizon)] = -command / float(self.action_denormalization_array[1])
-            return profile
-
-        full, half = stopping(1.0), stopping(0.5)
-        previous = self.action_buffer
-        fixed = [previous, torch.stack((previous[:, 0], full), dim=1)]
-        for side in (-1.0, 1.0):
-            steer = (nominal[:, 0] + side * Settings.HWM_FALLBACK_STEER).clamp(-1.0, 1.0)
-            fixed.append(torch.stack((steer, nominal[:, 1]), dim=1))
-            fixed.append(torch.stack((steer, half), dim=1))
-        fixed.append(torch.stack((nominal[:, 0], full), dim=1))
+        fixed = [self.action_buffer]
         # A seed recorded in a different state can steer harder than the car needs now and curl into the inside wall.
         for scale in Settings.HWM_FALLBACK_STEER_SCALES:
             fixed.append(torch.stack((nominal[:, 0] * scale, nominal[:, 1]), dim=1))
-        # The weighted mean of samples clipped at the throttle limit stays below it: the car would never accelerate fully.
-        flat_out = torch.full((horizon,), self._translational_limits()[1]) if Settings.MPC_DRIVE_FULL_THROTTLE_SAMPLES else None
-        if flat_out is not None:
-            fixed.append(torch.stack((nominal[:, 0], flat_out), dim=1))
-        if state is not None and self._car_waypoint is not None and hasattr(self, "_waypoint_xy"):
-            follow = self._line_following_steer(state, nominal)
-            fixed.append(torch.stack((follow, nominal[:, 1]), dim=1))
-            fixed.append(torch.stack((follow, half), dim=1))
-            if flat_out is not None:
-                fixed.append(torch.stack((follow, flat_out), dim=1))
         if speed < Settings.HWM_CREEP_SPEED:
             # A slow car may need a sharp pull-away the seed and its noise never try: gentle throttle at fixed steering.
             steps = int(np.ceil((Settings.HWM_CREEP_SPEED - speed) / (Settings.HWM_CREEP_ACCEL * float(Settings.TIMESTEP_CONTROL))))
@@ -2555,9 +2470,7 @@ class HirarchicalPlanner(template_planner):
                 actions = self._sample_mpc_actions(nominal)
                 if Settings.MPC_DRIVE_FALLBACK_SAMPLES:
                     flat = np.asarray(state).reshape(-1)
-                    actions = self._with_fallback_samples(
-                        actions, nominal, float(flat[LINEAR_VEL_X_IDX]), float(flat[ANGULAR_VEL_Z_IDX]), state=flat,
-                    )
+                    actions = self._with_fallback_samples(actions, nominal, float(flat[LINEAR_VEL_X_IDX]))
             windows = self._window_jobs()
             with PROF.section("rollout_of_samples"):
                 if windows:

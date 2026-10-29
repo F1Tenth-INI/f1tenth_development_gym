@@ -451,8 +451,7 @@ class Settings():
     MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.12  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
     MPC_WAYPOINT_WINDOW_CORRELATION = 0.6  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
     MPC_WAYPOINT_WINDOW_NOISE = 0.7  # sampling noise of window updates, relative to the driving noise
-    MPC_DRIVE_FALLBACK_SAMPLES = True  # the last drive samples are fixed alternatives: the previous plan, it with full braking, the seed swerving left or right at its throttle or half braking, braking straight, the seed with less steering, and pure pursuit along the stored line at the seed's throttle or half braking
-    MPC_DRIVE_FULL_THROTTLE_SAMPLES = True  # two more fixed drive samples at full throttle: along the seed's steering and along the line-following steering
+    MPC_DRIVE_FALLBACK_SAMPLES = True  # the last drive samples are fixed alternatives: the previous plan, the seed with less steering (HWM_FALLBACK_STEER_SCALES), and the creep and back-off samples of a slow car
     MPC_SEED_SPEED_GAIN = 3.0  # 1/s. The waypoint-seeded drive action gets this much extra acceleration (m/s^2) per m/s the seed path is below the stored speed there (negative above it)
     MPC_DRIVE_ARRIVAL_WEIGHT = 0.6  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate (MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE). 0: the stored speeds alone set the pace
     MPC_DRIVE_NOISE = [0.08, 1.5]  # [steering rad, translational command] std of the drive samples, in physical command units. Window samples scale it by MPC_WAYPOINT_WINDOW_NOISE
@@ -492,14 +491,10 @@ class Settings():
         "yaw_rate": 0.3,      # yaw rate above 3 rad/s
     }
     # Fixed drive fallback samples (MPC_DRIVE_FALLBACK_SAMPLES)
-    HWM_FALLBACK_STEER = 0.5  # normalized steering offset of the swerving fallback samples
     HWM_FALLBACK_STEER_SCALES = (0.5, 0.75)  # the seed's steering scaled by these, at its own throttle
     HWM_CREEP_SPEED = 1.0  # [m/s] below this the fallback samples also pull away at fixed steering up to this speed
     HWM_CREEP_ACCEL = 2.0  # [m/s^2] their throttle
-    HWM_STANDING_SPEED = 0.1  # [m/s] below this the braking fallbacks do not brake: it would only reverse the car
     HWM_BACK_OFF_SPEED = 0.5  # [m/s] reverse speed of the backing-off fallback samples of a slow car
-    HWM_LINE_LOOKAHEAD_TIME = 0.4  # [s] pure-pursuit lookahead of the line-following fallback samples, times the speed
-    HWM_LINE_LOOKAHEAD_MIN = 0.6  # [m] and at least this
     HWM_BLOCKED_DISTANCE = 0.3  # [m] a slow car is blocked when its best rollout does not drive this far forward without a crash
     # Window updates (MPC_WAYPOINT_WINDOW_*)
     # Error of a rollout state against the state stored at a waypoint: weight per m of cross-track
@@ -558,7 +553,7 @@ class Settings():
     HWM_GRAD_WALL_WEIGHT = 50.0  # weight of that penalty against the MPC cost
     HWM_LIMIT_INITIAL_WP_SPEED = True # Limits initial target speed of Waypoints to 
     HWM_INITIAL_SPEED_LIMIT = 1.5 # [m/s]
-    HWM_INITIAL_SPEED_GRIP_SHARE = None#1.25  # share of the car's mu * g. Set: the initial target speeds are the raceline's grip-limited profile at that acceleration (cornering, braking and accelerating within one friction circle), capped by the raceline's own speeds, instead of HWM_INITIAL_SPEED_LIMIT. None: off
+    HWM_INITIAL_SPEED_GRIP_SHARE = None #1.25  # share of the car's mu * g. Set: the initial target speeds are the raceline's grip-limited profile at that acceleration (cornering, braking and accelerating within one friction circle), capped by the raceline's own speeds, instead of HWM_INITIAL_SPEED_LIMIT. None: off
     HWM_INITIAL_SPEED_MAX = 10.0  # [m/s] cap of that profile on straights
     #--------------- end of important settings ---------------
 
