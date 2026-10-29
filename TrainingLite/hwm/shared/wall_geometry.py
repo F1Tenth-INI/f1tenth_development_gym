@@ -327,8 +327,14 @@ class WallGeometry:
         corners = self.corners(poses)
         if Settings.BLANK_MAP:
             return torch.zeros(corners.shape[:-1], dtype=torch.bool, device=self.device)
-        x_t = corners[..., 0] - self.origin_x
-        y_t = corners[..., 1] - self.origin_y
+        rows, cols, inside = self._grid_cells(corners)
+        limit = float(Settings.HWM_MIN_BORDER_DISTANCE if margin is None else margin)
+        return ~inside | (self.wall_distance[rows, cols] < limit)
+
+    def _grid_cells(self, p: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """``(rows, cols, inside)`` of the map cells under world points ``(..., 2)``, clamped to the image."""
+        x_t = p[..., 0] - self.origin_x
+        y_t = p[..., 1] - self.origin_y
         x_rot = x_t * self.origin_cos + y_t * self.origin_sin
         y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
         # NaN coordinates fail every comparison, so they count as outside.
@@ -338,8 +344,7 @@ class WallGeometry:
         )
         cols = (x_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_width - 1).long()
         rows = (y_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_height - 1).long()
-        limit = float(Settings.HWM_MIN_BORDER_DISTANCE if margin is None else margin)
-        return ~inside | (self.wall_distance[rows, cols] < limit)
+        return rows, cols, inside
 
     def distance_at(self, xy: ArrayLike) -> torch.Tensor:
         """Distance in meters from points ``(..., 2)`` to the nearest wall, from the same grid as the collision check.
@@ -349,18 +354,92 @@ class WallGeometry:
         p = torch.as_tensor(xy, device=self.device).to(torch.float64)
         if Settings.BLANK_MAP:
             return torch.full(p.shape[:-1], float("inf"), dtype=torch.float32, device=self.device)
-        x_t = p[..., 0] - self.origin_x
-        y_t = p[..., 1] - self.origin_y
-        x_rot = x_t * self.origin_cos + y_t * self.origin_sin
-        y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
-        inside = (
-            (x_rot >= 0) & (x_rot < self.map_width * self.resolution)
-            & (y_rot >= 0) & (y_rot < self.map_height * self.resolution)
-        )
-        cols = (x_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_width - 1).long()
-        rows = (y_rot / self.resolution).floor().nan_to_num(0.0).clamp(0, self.map_height - 1).long()
+        rows, cols, inside = self._grid_cells(p)
         distance = self.wall_distance[rows, cols]
         return torch.where(inside, distance, torch.zeros_like(distance))
+
+    # ------------------------------------------------------------------
+    # Paths through free space
+    # ------------------------------------------------------------------
+    def build_track_field(self, points: ArrayLike, clearance: float, lookahead: float = 0.5) -> None:
+        """Shortest paths through free space from every map cell to the nearest of ``points`` ``(N, 2)``.
+
+        A cell is passable when it is at least ``clearance`` from a wall; the cells of ``points``
+        always are. ``track_field_at`` then gives, for any position, the length of that path, the
+        index of the point it ends at, and the unit direction toward the path ``lookahead`` m along
+        it. Cells the search does not reach copy the nearest reached cell, with the straight
+        distance to it added.
+        """
+        from scipy.sparse import coo_matrix
+        from scipy.sparse.csgraph import dijkstra
+
+        pts = torch.as_tensor(points).detach().cpu().numpy().astype(np.float64)
+        height, width = self.map_height, self.map_width
+        passable = self.wall_distance.cpu().numpy() >= float(clearance)
+        p_rows, p_cols, p_inside = self._world_to_cells(pts)
+        passable[p_rows[p_inside], p_cols[p_inside]] = True
+        cells = np.flatnonzero(passable)
+        node = np.full(height * width, -1, dtype=np.int64)
+        node[cells] = np.arange(cells.size)
+        rows, cols = np.divmod(cells, width)
+        edges_from, edges_to, weights = [], [], []
+        for d_row, d_col in ((0, 1), (1, 0), (1, 1), (1, -1)):
+            n_rows, n_cols = rows + d_row, cols + d_col
+            ok = (n_rows >= 0) & (n_rows < height) & (n_cols >= 0) & (n_cols < width)
+            to = np.full(cells.size, -1, dtype=np.int64)
+            to[ok] = node[n_rows[ok] * width + n_cols[ok]]
+            ok &= to >= 0
+            edges_from.append(np.flatnonzero(ok))
+            edges_to.append(to[ok])
+            weights.append(np.full(int(ok.sum()), self.resolution * math.hypot(d_row, d_col)))
+        graph = coo_matrix(
+            (np.concatenate(weights), (np.concatenate(edges_from), np.concatenate(edges_to))),
+            shape=(cells.size, cells.size),
+        ).tocsr()
+        point_of_node = np.full(cells.size, -1, dtype=np.int64)
+        source_nodes = node[p_rows[p_inside] * width + p_cols[p_inside]]
+        point_of_node[source_nodes] = np.flatnonzero(p_inside)
+        sources = np.unique(source_nodes)
+        length, predecessor, source = dijkstra(
+            graph, directed=False, indices=sources, min_only=True, return_predecessors=True
+        )
+        reached = np.isfinite(length)
+        label = np.where(reached, point_of_node[np.clip(source, 0, None)], -1)
+        ahead = np.arange(cells.size)
+        for _ in range(max(1, int(round(float(lookahead) / self.resolution)))):
+            step = predecessor[ahead]
+            ahead = np.where(step >= 0, step, ahead)
+        d_col = (cols[ahead] - cols).astype(np.float64)
+        d_row = (rows[ahead] - rows).astype(np.float64)
+        dx = d_col * self.origin_cos - d_row * self.origin_sin
+        dy = d_col * self.origin_sin + d_row * self.origin_cos
+        norm = np.maximum(np.hypot(dx, dy), 1e-9)
+        direction = np.stack((dx / norm, dy / norm), axis=-1) * (np.hypot(dx, dy) > 0)[:, None]
+
+        grid_length = np.full(height * width, np.inf)
+        grid_label = np.full(height * width, -1, dtype=np.int64)
+        grid_direction = np.zeros((height * width, 2))
+        grid_length[cells] = length
+        grid_label[cells] = label
+        grid_direction[cells] = direction
+        grid_reached = np.isfinite(grid_length).reshape(height, width)
+        if grid_reached.any():
+            gap, (near_rows, near_cols) = ndimage.distance_transform_edt(~grid_reached, return_indices=True)
+            near = (near_rows * width + near_cols).ravel()
+            grid_length = grid_length[near] + self.resolution * gap.ravel()
+            grid_label = grid_label[near]
+            grid_direction = grid_direction[near]
+        self.track_length = torch.as_tensor(grid_length.reshape(height, width), dtype=torch.float32, device=self.device)
+        self.track_label = torch.as_tensor(grid_label.reshape(height, width), device=self.device)
+        self.track_direction = torch.as_tensor(
+            grid_direction.reshape(height, width, 2), dtype=torch.float32, device=self.device
+        )
+
+    def track_field_at(self, xy: ArrayLike) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """``(length, index, direction)`` from ``build_track_field`` at points ``(..., 2)``: path length
+        to the nearest point, its index (-1 if none is reachable), and the unit direction ``(..., 2)`` the path takes."""
+        rows, cols, _ = self._grid_cells(torch.as_tensor(xy, device=self.device).to(torch.float64))
+        return self.track_length[rows, cols], self.track_label[rows, cols], self.track_direction[rows, cols]
 
     def soft_wall_penalty(self, poses: torch.Tensor, margin: float) -> torch.Tensor:
         """``(...)`` differentiable: summed over the body corners, how far each is inside ``margin`` of a wall.

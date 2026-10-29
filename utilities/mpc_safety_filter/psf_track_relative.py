@@ -442,13 +442,24 @@ def pacejka_body_derivatives(
     if v_x > v_max and v_x_dot > 0.0:
         v_x_dot = 0.0
 
+    # Friction circle, as in the jax _pacejka_step: each axle delivers at most mu * F_z in total. The
+    # longitudinal force is split between the axles in proportion to their normal load.
+    def friction_circle(F_x, F_y, F_max):
+        scale = min(1.0, F_max / max(float(np.hypot(F_x, F_y)), 1e-9))
+        return F_x * scale, F_y * scale
+
+    F_x = m * v_x_dot
+    F_xf, F_yf = friction_circle(F_x * F_zf / (m * g_), F_yf, mu_s * D_f * F_zf)
+    F_xr, F_yr = friction_circle(F_x * F_zr / (m * g_), F_yr, mu_s * D_r * F_zr)
+    # The front tire forces act in the steered wheel's frame, as in the jax _pacejka_step.
+    F_front_x = F_xf * np.cos(delta) - F_yf * np.sin(delta)
+    F_front_y = F_xf * np.sin(delta) + F_yf * np.cos(delta)
+
     # Body-frame velocities in a rotating frame: v_x_dot = a_x + v_y * r and v_y_dot = a_y - v_x * r.
     # The + v_y * r term was missing, so a sliding car gained kinetic energy (v_x * v_y * r per kg).
-    v_x_dot = v_x_dot + v_y * r
-    v_y_dot = (F_yr + F_yf) / m - v_x * r
-    # Match paper/sign convention used in jax model: (-lr * F_yr + lf * F_yf) / I_z
-    # Jax F_yf already uses steered alpha; cos(delta) omitted as in jax _pacejka_step.
-    r_dot = (-lr * F_yr + lf * F_yf) / I_z
+    v_x_dot = (F_front_x + F_xr) / m + v_y * r
+    v_y_dot = (F_front_y + F_yr) / m - v_x * r
+    r_dot = (lf * F_front_y - lr * F_yr) / I_z
     return float(v_x_dot), float(v_y_dot), float(r_dot)
 
 

@@ -375,7 +375,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 10                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 1 / 5     # softmax/kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0
@@ -418,7 +418,7 @@ class Settings():
     MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 1.414  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
     MPC_WAYPOINT_AHEAD_SPAN = 3  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
     MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
-    MPC_WAYPOINT_REVERT_STEPS = 2  # how many committed updates (of state and of action sequence) each of those waypoints goes back per revert. Stops at the oldest one
+    MPC_WAYPOINT_REVERT_STEPS = 2  # how many committed updates (of state and of action sequence) each of those waypoints goes back per revert. Stops at the oldest one. With MPC_WAYPOINT_WINDOW_UPDATES not used: those waypoints all go back to what they were one lap earlier
     MPC_WAYPOINT_REVERT_AHEAD = 5  # on an EMA drop, a stall or leaving the raceline, roll back this many waypoints in front of the car's nearest one (and the nearest one itself)
     MPC_WAYPOINT_REVERT_BEHIND = 23  # same, this many waypoints behind it
     MPC_WAYPOINT_REVERT_HOLD = 0 # 3  # laps those rolled-back waypoints and their action sequences stay frozen
@@ -439,7 +439,7 @@ class Settings():
     MPC_WAYPOINT_WINDOW_ROBUST_TOLERANCE = 0.2  # largest error after the window of the perturbed copy (the perturbation alone is about 0.065)
     MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
-    MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see WINDOW_ERROR in the planner
+    MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see HWM_WINDOW_ERROR
     MPC_WAYPOINT_WINDOW_MARGIN = 0.25  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
     MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE = True  # one window sample is the commands the car issued after it last crossed the window's first waypoint, rolled out from the stored state like the others
     MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins
@@ -447,7 +447,7 @@ class Settings():
     MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.2  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
     MPC_WAYPOINT_WINDOW_CORRELATION = 0.6  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
     MPC_WAYPOINT_WINDOW_NOISE = 0.7  # sampling noise of window updates, relative to the driving noise
-    MPC_DRIVE_FALLBACK_SAMPLES = True  # the last 7 drive samples are fixed alternatives: the previous plan, it with full braking, and the seed swerving left or right at its throttle or half braking, and braking straight
+    MPC_DRIVE_FALLBACK_SAMPLES = True  # the last drive samples are fixed alternatives: the previous plan, it with full braking, the seed swerving left or right at its throttle or half braking, braking straight, the seed with less steering, and pure pursuit along the stored line at the seed's throttle or half braking
     MPC_SEED_SPEED_GAIN = 3.0  # 1/s. The waypoint-seeded drive action gets this much extra acceleration (m/s^2) per m/s the seed path is below the stored speed there (negative above it)
     MPC_DRIVE_ARRIVAL_WEIGHT = 0.3  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate (MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE). 0: the stored speeds alone set the pace
     MPC_DRIVE_WALL_CLEARANCE = 0.15  # [m] drive rollout states whose closest body corner is nearer to a wall than this are penalized
@@ -457,6 +457,61 @@ class Settings():
     MPC_STALL_ON_BLOCKED = True  # a car slower than 1 m/s whose best rollout crashes or drives less than 0.3 m forward backtracks at once, without waiting MPC_STALL_TIME
     MPC_DRIVE_GRIP_SHARE = 1.0  # drive rollouts are penalized where braking and cornering together need more than this share of the tire grip (mu * g)
     MPC_DRIVE_GRIP_WEIGHT = 0.0  # drive cost per m/s^2 of the largest overshoot of that grip along a rollout. 0: off
+    # Waypoint matching
+    HWM_TRACK_WINDOW = 8  # waypoints on either side of the one the free-space path leads to that a position can be matched to
+    HWM_DETOUR_START = 0.5  # [m] path around the walls longer than the straight distance to the line by more than this: a wall is in the way
+    HWM_DETOUR_SPAN = 0.5  # [m] over this much more, recovery turns fully from the line to the path
+    HWM_MATCH_HORIZON_SHARE = 0.6  # rollout states are matched to as many waypoints as the stored target speeds cover in this share of the horizon
+    # Weights of the recovery cost. Meters, radians and m/s.
+    HWM_RECOVERY = {
+        "window": 40,         # raceline waypoints ahead of the car that a rollout state can be matched to
+        "distance": 4.0,      # distance to the nearest raceline waypoint
+        "heading": 3.0,       # heading error to the direction that leads back onto the line
+        "steer_in": 1.5,      # rad of heading offset toward the line per meter of cross-track error
+        "steer_in_max": 0.9,  # rad, largest offset toward the line
+        "speed_min": 1.5,     # m/s, forward speed wanted while the car points within "gate" rad of the wanted heading
+        "gate": 4.0,
+        "noise_scale": 3.0,   # sampling noise around the previous plan is this many times larger while off the line
+        "speed_min_w": 1.5,
+        "speed_max": 3.0,     # m/s, no point going faster than this while recovering
+        "speed_max_w": 2.0,
+        "reverse": 1.0,
+        "slip": 1.0,          # sideways speed above 1 m/s
+        "yaw_rate": 0.3,      # yaw rate above 3 rad/s
+    }
+    # Fixed drive fallback samples (MPC_DRIVE_FALLBACK_SAMPLES)
+    HWM_FALLBACK_STEER = 0.5  # normalized steering offset of the swerving fallback samples
+    HWM_FALLBACK_STEER_SCALES = (0.5, 0.75)  # the seed's steering scaled by these, at its own throttle
+    HWM_CREEP_SPEED = 1.0  # [m/s] below this the fallback samples also pull away at fixed steering up to this speed
+    HWM_CREEP_ACCEL = 2.0  # [m/s^2] their throttle
+    HWM_STANDING_SPEED = 0.1  # [m/s] below this the braking fallbacks do not brake: it would only reverse the car
+    HWM_BACK_OFF_SPEED = 0.5  # [m/s] reverse speed of the backing-off fallback samples of a slow car
+    HWM_LINE_LOOKAHEAD_TIME = 0.4  # [s] pure-pursuit lookahead of the line-following fallback samples, times the speed
+    HWM_LINE_LOOKAHEAD_MIN = 0.6  # [m] and at least this
+    HWM_BLOCKED_DISTANCE = 0.3  # [m] a slow car is blocked when its best rollout does not drive this far forward without a crash
+    # Window updates (MPC_WAYPOINT_WINDOW_*)
+    # Error of a rollout state against the state stored at a waypoint: weight per m of cross-track
+    # offset, per rad of heading, per m/s of speed along and across the car and per rad/s of yaw rate.
+    HWM_WINDOW_ERROR = {"lateral": 1.0, "heading": 0.5, "speed": 0.2, "drift": 0.2, "yaw_rate": 0.05}
+    HWM_WINDOW_ERROR_COST = 10.0  # control steps of arrival time one unit of that error is worth when accepted updates are ranked
+    HWM_WINDOW_LINE_REACH = 0.5  # [m] a rollout crosses a waypoint's line only within this distance of the point stored on it
+    HWM_FILL_MIN_SPEED = 0.5  # [m/s] the car stores its state at an empty waypoint only when at least this fast
+    HWM_DRIVEN_MEMORY = 400  # control steps of issued commands kept for the driven window candidate
+    HWM_WINDOW_HISTORY = 40  # earlier states and sequences each waypoint keeps from window updates, to go back one lap when the car leaves the line
+    # Start perturbation of the robustness copy of a window sample (MPC_WAYPOINT_WINDOW_ROBUST), applied with a random sign
+    HWM_WINDOW_SPEED_PERTURBATION = 0.15  # [m/s] always upward: arriving faster than stored is what misses a braking point
+    HWM_WINDOW_SPEED_PERTURBATION_SHARE = 0.025  # plus this share of the speed: the driven car's speed error grows with its speed
+    HWM_WINDOW_SLIDE_PERTURBATION = 0.1  # [m/s] sideways speed; a sliding start always slides more
+    HWM_WINDOW_SLIDE_PERTURBATION_SHARE = 0.25  # plus this share of the slide: a slide grows by itself when the countersteer comes late
+    HWM_WINDOW_YAW_RATE_PERTURBATION = 0.3  # [rad/s]
+    HWM_WINDOW_MAX_SLIP = 0.45  # [rad] largest slip angle along an accepted window update; the speed counts as at least HWM_CREEP_SPEED
+    # A plan the car follows closely while most of its drive samples crash is at the edge: the sim's
+    # noise alone tips it over. Its waypoints are then fragile, and window updates over them take
+    # wall clearance instead of time until a pass gets through without that.
+    HWM_FRAGILE_SHARE = 0.6  # share of crashing drive samples, on the line, that marks the waypoints ahead fragile. Higher: faster, less safe
+    HWM_FRAGILE_AHEAD = 15  # waypoints ahead of the car that are marked: about the drive horizon at racing speed
+    HWM_FRAGILE_MEMORY = 0.5  # [laps] how long a mark lasts: the window update right after the pass sees it, the next lap's does not
+    HWM_FRAGILE_CLEARANCE_GAIN = 0.02  # [m] wall clearance an update over fragile waypoints must add, nominal and perturbed
 
     MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
     MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
