@@ -1214,6 +1214,8 @@ class HirarchicalPlanner(template_planner):
         """
         if not hasattr(self, "_wp_hist_state") or self._car_waypoint is None:
             return
+        if self._permanently_frozen():
+            return
         if not getattr(self, "_seen_on_track", True):
             return  # spawned off the raceline and not on it yet: recovery runs, but no waypoint is reset
         if Settings.MPC_WAYPOINT_WINDOW_UPDATES:
@@ -1280,7 +1282,13 @@ class HirarchicalPlanner(template_planner):
         self._write_raceline()
         self._publish_waypoint_display()
 
+    def _permanently_frozen(self) -> bool:
+        """True once ``HWM_PERMANENT_FREEZE_LAPS`` laps passed without a faster lap: the table never changes again."""
+        return bool(getattr(self, "_wp_permanently_frozen", False))
+
     def _waypoint_frozen(self, idx: int) -> bool:
+        if self._permanently_frozen():
+            return True  # HWM_PERMANENT_FREEZE_LAPS: the table is held at the best lap for good
         if getattr(self, "_wp_laptime_frozen", False):
             return True  # MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT: the whole table is held at the last improving lap
         until = getattr(self, "_wp_frozen_until", None)
@@ -1295,6 +1303,7 @@ class HirarchicalPlanner(template_planner):
             "actions": self._wp_actions.clone(),
             "known": self._wp_action_known.clone(),
             "vehicle_state_set": self._wp_vehicle_state_set.clone(),
+            "pending": self._wp_pending.clone(),
         }
 
     def _restore_waypoint_snapshot(self, snapshot: dict) -> None:
@@ -1302,6 +1311,8 @@ class HirarchicalPlanner(template_planner):
         self._wp_actions.copy_(snapshot["actions"])
         self._wp_action_known.copy_(snapshot["known"])
         self._wp_vehicle_state_set.copy_(snapshot["vehicle_state_set"])
+        if "pending" in snapshot:
+            self._wp_pending.copy_(snapshot["pending"])
         self._wp_staged.zero_()
         self._wp_action_staged.zero_()
         self._wp_action_dist.fill_(float("inf"))
@@ -1378,6 +1389,34 @@ class HirarchicalPlanner(template_planner):
         self._publish_waypoint_display()
         return states, actions
 
+    def _update_permanent_freeze(self, lap_time: float) -> None:
+        """After ``HWM_PERMANENT_FREEZE_LAPS`` finished laps without a faster one, put the table back to the one
+        the fastest lap was driven on and freeze it for good: no window updates, staging, filling,
+        reverts or further resets. 0: off.
+        """
+        patience = int(getattr(Settings, "HWM_PERMANENT_FREEZE_LAPS", 0) or 0)
+        if patience <= 0 or not hasattr(self, "_wp_actions") or self._permanently_frozen():
+            return
+        start = getattr(self, "_freeze_lap_start", None)
+        self._freeze_lap_start = self._waypoint_snapshot()  # the table the next lap starts on
+        best = getattr(self, "_freeze_best_lap", None)
+        if start is not None and (best is None or float(lap_time) < best):
+            self._freeze_best_lap, self._freeze_best_table, self._freeze_laps_since_best = float(lap_time), start, 0
+            return
+        if best is None:
+            return  # the first lap has no start table: nothing to freeze to yet
+        self._freeze_laps_since_best = int(getattr(self, "_freeze_laps_since_best", 0)) + 1
+        if self._freeze_laps_since_best < patience:
+            return
+        self._restore_waypoint_snapshot(self._freeze_best_table)
+        for history in self._wp_window_hist:
+            history.clear()
+        self._wp_permanently_frozen = True
+        self._log_info(
+            f"[HirarchicalPlanner] No lap faster than {best:.3f}s for {patience} laps: "
+            "waypoints put back to that lap's and frozen permanently"
+        )
+
     def _update_laptime_freeze(self, lap_time: float) -> None:
         """Keep the waypoints of the fastest lap so far, and freeze them after two laps without a faster one.
 
@@ -1385,6 +1424,8 @@ class HirarchicalPlanner(template_planner):
         recorded aside. A frozen lap that beats the best replaces the table with those, and updates resume.
         """
         if not getattr(Settings, "MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT", False) or not hasattr(self, "_wp_actions"):
+            return
+        if self._permanently_frozen():
             return
         frozen = bool(getattr(self, "_wp_laptime_frozen", False))
         best = getattr(self, "_wp_best_lap", None)
@@ -1421,6 +1462,8 @@ class HirarchicalPlanner(template_planner):
         the one the fastest lap started with. Window updates go on from there."""
         patience = Settings.HWM_BEST_LAP_RESET_LAPS
         if patience is None or not Settings.MPC_WAYPOINT_WINDOW_UPDATES or not hasattr(self, "_wp_actions"):
+            return
+        if self._permanently_frozen():
             return
         start = getattr(self, "_lap_start_table", None)
         self._lap_start_table = {
@@ -1904,6 +1947,8 @@ class HirarchicalPlanner(template_planner):
         refill = Settings.HWM_REFILL_DISTANCE
         if previous is None or self._car_waypoint is None or self._stall_phase == 1:
             return
+        if self._permanently_frozen():
+            return
         if self.recover_mode and refill is None:
             return
         if float(current[0, LINEAR_VEL_X_IDX]) < Settings.HWM_FILL_MIN_SPEED:
@@ -1992,6 +2037,8 @@ class HirarchicalPlanner(template_planner):
         samples (K, H, 2))``. Sample 0 is the sequence stored at ``w``, the others are noise around it.
         """
         if not Settings.MPC_WAYPOINT_WINDOW_UPDATES or self.recover_mode or self._car_waypoint is None:
+            return None
+        if self._permanently_frozen():
             return None
         n = self._waypoints_n
         span = max(1, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
@@ -2122,6 +2169,8 @@ class HirarchicalPlanner(template_planner):
         Then the window waypoints take that sample's state at their lines, and ``w`` and the window
         waypoints take its commands from their crossing on, followed by the plan stored at the last
         compared waypoint from its crossing on. The commands between two control steps are interpolated.
+        With ``MPC_WAYPOINT_WINDOW_ONLY`` only the window waypoints are written, the handover is at the
+        first waypoint after the window, and the error is taken at every waypoint after the window.
         """
         w, _, pending, actions = window
         n = self._waypoints_n
@@ -2140,7 +2189,9 @@ class HirarchicalPlanner(template_planner):
         self._wp_window_tried += 1
         crossed = (~torch.isnan(times)).all(dim=1) & (times[:, 1:] > times[:, :-1]).all(dim=1)
         # Written waypoints take the sample's states, so only the ones it must rejoin count.
-        first = count - 1 if Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM else span
+        window_only = bool(getattr(Settings, "MPC_WAYPOINT_WINDOW_ONLY", False))
+        write_downstream = Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM and not window_only
+        first = count - 1 if write_downstream else span
         error = self._window_error(at[:, first:], idx[first:]).amax(dim=1)
         arrival = times[:, -1]
         horizon = int(states.shape[1])
@@ -2202,8 +2253,12 @@ class HirarchicalPlanner(template_planner):
         horizon_steps = int(actions.shape[1])
         delay = int(pending.shape[0])
         sample_timeline = torch.cat((pending, actions[best]))  # issued at -delay .. H - 1
-        last = int(idx[-1])
-        reached = float(times[best, -1])
+        # The sample's commands are followed until it crosses the handover waypoint: the last compared
+        # one, or with MPC_WAYPOINT_WINDOW_ONLY the first one after the window, whose stored sequence
+        # (and all stored sequences after it) stays as it is.
+        handover = span if window_only else count - 1
+        last = int(idx[handover])
+        reached = float(times[best, handover])
         stored_timeline = torch.cat((self._wp_pending[last], self._wp_actions[last]))  # issued from reached - delay on
 
         def commands(at_times: torch.Tensor) -> torch.Tensor:
@@ -2214,7 +2269,7 @@ class HirarchicalPlanner(template_planner):
         steps = torch.arange(horizon_steps, dtype=torch.float32)
         queue = torch.arange(-delay, 0, dtype=torch.float32)
         updates = [(w, commands(steps), None, None)]
-        written = count - 1 if Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM else span
+        written = count - 1 if write_downstream else span
         for j in range(written):
             t = float(times[best, j])
             updates.append((int(idx[j]), commands(t + steps), commands(t + queue), at[best, j]))
@@ -2361,6 +2416,8 @@ class HirarchicalPlanner(template_planner):
         """
         if not (Settings.MPC_WAYPOINT_DISCARD_WALL_SEQUENCES or bool(getattr(Settings, "MPC_WAYPOINT_REJECT_OFF_TRACK", False))):
             return  # no check is on, so nothing would be marked bad: skip the rollout from every waypoint
+        if self._permanently_frozen():
+            return  # the frozen table is kept as it is, bad sequences included
         self._refresh_waypoint_paths()
         states = getattr(self, "_wp_path_states", None)
         if states is None or getattr(self, "_wp_paths_checked", None) == self._wp_paths_step:
@@ -3237,6 +3294,7 @@ class HirarchicalPlanner(template_planner):
         if laps is None:
             laps = self._grid_laps = []
         laps.append(float(lap_time))
+        self._update_permanent_freeze(float(lap_time))
         self._update_laptime_freeze(float(lap_time))
         self._update_best_lap_table(float(lap_time))
         discarded = int(getattr(self, "_wp_discarded_lap", 0))

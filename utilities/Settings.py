@@ -9,7 +9,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "IPZ50"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
+    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
     MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -441,12 +441,14 @@ class Settings():
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
     MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see HWM_WINDOW_ERROR
     MPC_WAYPOINT_WINDOW_MARGIN = 0.15  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
-    HWM_BEST_LAP_RESET_LAPS = 1  # with window updates: after this many laps without a faster one, the table goes back to the one the fastest lap started with, and window updates go on from there. None: off
+    HWM_PERMANENT_FREEZE_LAPS = 4  # after this many finished laps without a faster one, the table goes back to the one the fastest lap was driven on and is frozen for good: no window updates, staging, filling, reverts or HWM_BEST_LAP_RESET_LAPS resets any more. 0: off
+    HWM_BEST_LAP_RESET_LAPS = 3  # with window updates: after this many laps without a faster one, the table goes back to the one the fastest lap started with, and window updates go on from there. None: off
     HWM_WINDOW_LAGS = None  # several window updates per step, at these lags behind the car, sharing MPC_WAYPOINT_WINDOW_SAMPLES. They must be at least MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM + 1 apart, so their waypoints do not overlap. None: one at MPC_WAYPOINT_WINDOW_LAG
     HWM_WINDOW_SHIFT_STEPS = [-2, -1, 1, 2]  # window samples that are the stored sequence with its translational, then its steering commands shifted by this many control steps (positive: sooner). Empty: off
     HWM_WINDOW_STEER_SCALES = []  # window samples that are the stored sequence with its steering scaled by these: a tighter or wider line. Empty: off
     MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE = True  # one window sample is the commands the car issued after it last crossed the window's first waypoint, rolled out from the stored state like the others
-    MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins
+    MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins. Ignored while MPC_WAYPOINT_WINDOW_ONLY is on
+    MPC_WAYPOINT_WINDOW_ONLY = True  # an accepted update rewrites only the waypoints in the window, and its commands only up to the sample's crossing of the first waypoint after the window; from there the sequence stored at that waypoint continues. The waypoints after the window keep their states and sequences, and the update must match all of them within MPC_WAYPOINT_WINDOW_TOLERANCE
     MPC_WAYPOINT_WINDOW_GRIP_SHARE = 0.0  # an update's rollout may brake and corner together (friction circle of forward and lateral acceleration) at most at this share of the tires' mu * g. 0: no limit
     MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.12  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
     MPC_WAYPOINT_WINDOW_CORRELATION = 0.6  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
@@ -513,7 +515,7 @@ class Settings():
     HWM_WINDOW_SLIDE_PERTURBATION = 0.1  # [m/s] sideways speed; a sliding start always slides more
     HWM_WINDOW_SLIDE_PERTURBATION_SHARE = 0.25  # plus this share of the slide: a slide grows by itself when the countersteer comes late
     HWM_WINDOW_YAW_RATE_PERTURBATION = 0.3  # [rad/s]
-    HWM_WINDOW_MAX_SLIP = 0.55  # [rad] largest slip angle along an accepted window update; the speed counts as at least HWM_CREEP_SPEED
+    HWM_WINDOW_MAX_SLIP = 5.0  # [rad] largest slip angle along an accepted window update; the speed counts as at least HWM_CREEP_SPEED
     # A plan the car follows closely while most of its drive samples crash is at the edge: the sim's
     # noise alone tips it over. Its waypoints are then fragile, and window updates over them take
     # wall clearance instead of time until a pass gets through without that.
