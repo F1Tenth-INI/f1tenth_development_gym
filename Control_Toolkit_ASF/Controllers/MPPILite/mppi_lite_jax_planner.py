@@ -3,19 +3,18 @@ import jax.numpy as jnp
 import numpy as np
 from functools import partial
 import optax
-import os
-import yaml
-from PIL import Image
-from scipy import ndimage
 
-from utilities.waypoint_utils import *
+from utilities.waypoint_utils import WaypointUtils
 from utilities.render_utilities import RenderUtils
 from utilities.Settings import Settings
-from utilities.map_scale import scale_map_metadata
 from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
-from utilities.state_utilities import (NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX,
-                                       LINEAR_VEL_X_IDX)
+from Control_Toolkit_ASF.Controllers.MPPILite.shared_cost_jax import (
+    cost_function_batch_sequence_jax,
+    cost_function_sequence_jax,
+    load_wall_map,
+    wall_distance_jax,
+)
 
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
 
@@ -30,7 +29,7 @@ DEFAULT_COST_WEIGHTS = {
     'lateral': 5.0,           # (lateral offset from raceline [m])^2. Higher pulls the car onto the raceline, which passes close to wall tips
     'heading': 2.0,           # (heading error to raceline [rad])^2
     'speed': 0.0,             # (v - speed_factor * raceline speed)^2. Off: the raceline speeds exceed the grip in the RCA1 hairpins
-    'speed_factor': 1.0,      # scales the raceline speed profile
+    'speed_factor': 0.0,      # scales the raceline speed profile
     'progress': 3.0,          # reward per m/s driven along the raceline. Higher drives more raggedly and is slower
     'border': 200.0,          # (penetration into the border margin [m])^2
     'border_margin': 0.1,     # [m] distance of the car centre to the raceline's track edge (d_left / d_right) where the border cost starts
@@ -42,7 +41,14 @@ DEFAULT_COST_WEIGHTS = {
     'translational_control': 0.01,  # |acceleration command|
     'angular_smoothness': 1.0,      # (steering change per step)^2
     'translational_smoothness': 0.01,  # (acceleration change per step)^2
-    'temperature': 1.0,       # softmax temperature on (cost - min cost). Lower: one sample dominates and the steering jitters (0.1: ~40% more than 1.0)
+    # Terminal cost on the last state of the horizon (see terminal_cost_jax). Off for MPPI
+    'terminal_lateral': 25.0,        # (lateral offset from raceline [m])^2
+    'terminal_heading': 5.0,         # (heading error to raceline [rad])^2
+    'terminal_speed': 1000.0,        # (v - terminal_speed_factor * waypoint speed)^2, only above that speed. Slower is free: speed is rewarded by the stage progress cost
+    'terminal_speed_factor': 1.0,    # the waypoint speed is the maximum terminal speed
+    'terminal_heading_bound': 500.0, # (|heading error| - terminal_max_heading)^2, only beyond that bound
+    'terminal_max_heading': 0.087,   # [rad] (5 deg)
+    'temperature': 3.0,       # softmax temperature on (cost - min cost). Lower: one sample dominates and the steering jitters (0.1: ~40% more than 1.0)
     'filter_tolerance': 20.0, # the smoothed plan is used unless its cost exceeds the raw plan's cost by more than this
     'filter_clearance': 0.4,  # [m] ... and only while both plans keep their body corners this far from every wall
 }
@@ -93,8 +99,8 @@ class MPPILitePlanner(template_planner):
         self.control_index = 0
 
         self.dt = Settings.TIMESTEP_CONTROL
-        self.batch_size = 1024
-        self.horizon = 40
+        self.batch_size = 512
+        self.horizon = 35
         self.intermediate_steps = 2  # Euler substeps per control step. 1 is too coarse at the hairpins, 4 (sim resolution) is no better
         self.noise_std = (0.1, 0.6)  # [steering, acceleration] sampling noise
         # Odd window of a Savitzky-Golay filter (quadratic) on the weighted plan. 0: off. 9 makes the steering ~4x
@@ -190,100 +196,6 @@ class MPPILitePlanner(template_planner):
 
             return float(self.angular_control), float(self.translational_control)
 
-
-def load_wall_map(car_length, car_width, device):
-    """Wall distance grid of the current map, built like the simulator's collision check (laser_models.check_body_map_collision)."""
-    yaml_path = Settings.MAP_CONFIG_FILE
-    with open(yaml_path, 'r') as f:
-        metadata = scale_map_metadata(yaml.safe_load(f))
-    image = np.array(Image.open(os.path.join(os.path.dirname(yaml_path), metadata['image'])).transpose(Image.FLIP_TOP_BOTTOM))
-    if image.ndim == 3:
-        image = image[..., 0]
-    resolution = float(metadata['resolution'])
-    distance = resolution * ndimage.distance_transform_edt(image.astype(np.float64) > 128.0)
-    if Settings.BLANK_MAP:
-        distance = np.full_like(distance, 1e3)
-    origin = metadata['origin']
-    half_l, half_w = 0.5 * car_length, 0.5 * car_width
-    with jax.default_device(device):
-        return {
-            'distance': jnp.array(distance, dtype=jnp.float32),  # row 0 = lowest y
-            'origin': jnp.array([origin[0], origin[1]], dtype=jnp.float32),
-            'rotation': jnp.array([np.cos(origin[2]), np.sin(origin[2])], dtype=jnp.float32),
-            'resolution': jnp.float32(resolution),
-            # Body corners in the car frame: rl, rr, fr, fl
-            'corners': jnp.array([[-half_l, half_w], [-half_l, -half_w], [half_l, -half_w], [half_l, half_w]], dtype=jnp.float32),
-        }
-
-@jax.jit
-def wall_distance_jax(state, wall_map):
-    """Distance from the closest body corner to a wall. Points outside the map count as in the wall."""
-    c, s = jnp.cos(state[POSE_THETA_IDX]), jnp.sin(state[POSE_THETA_IDX])
-    corners = wall_map['corners']
-    x = state[POSE_X_IDX] + c * corners[:, 0] - s * corners[:, 1] - wall_map['origin'][0]
-    y = state[POSE_Y_IDX] + s * corners[:, 0] + c * corners[:, 1] - wall_map['origin'][1]
-    oc, os_ = wall_map['rotation']
-    col = jnp.floor((x * oc + y * os_) / wall_map['resolution']).astype(jnp.int32)
-    row = jnp.floor((-x * os_ + y * oc) / wall_map['resolution']).astype(jnp.int32)
-    height, width = wall_map['distance'].shape
-    inside = (col >= 0) & (col < width) & (row >= 0) & (row < height)
-    distance = wall_map['distance'][jnp.clip(row, 0, height - 1), jnp.clip(col, 0, width - 1)]
-    return jnp.min(jnp.where(inside, distance, 0.0))
-
-@jax.jit
-def compute_waypoint_distance_jax(state, waypoints):
-    dx = state[POSE_X_IDX] - waypoints[:, WP_X_IDX]
-    dy = state[POSE_Y_IDX] - waypoints[:, WP_Y_IDX]
-    dist_sq = dx ** 2 + dy ** 2
-    min_dist_sq = jnp.min(dist_sq)
-    min_idx = jnp.argmin(dist_sq)
-    return min_dist_sq, min_idx
-
-@jax.jit
-def cost_function_jax(state, control, waypoints, w, wall_map):
-    _, i = compute_waypoint_distance_jax(state, waypoints)
-    wp = waypoints[i]
-    psi = wp[WP_PSI_IDX]
-    dx = state[POSE_X_IDX] - wp[WP_X_IDX]
-    dy = state[POSE_Y_IDX] - wp[WP_Y_IDX]
-
-    # Signed offset from the raceline (left positive), projected on the nearest waypoint's normal
-    lateral = -jnp.sin(psi) * dx + jnp.cos(psi) * dy
-    heading_error = jnp.arctan2(jnp.sin(state[POSE_THETA_IDX] - psi), jnp.cos(state[POSE_THETA_IDX] - psi))
-
-    # Distance of the car centre to the closer track edge (the simulator truncates the episode a bit beyond it)
-    edge_distance = jnp.minimum(wp[WP_D_LEFT_IDX] - lateral, wp[WP_D_RIGHT_IDX] + lateral)
-    border_cost = w['border'] * jax.nn.relu(w['border_margin'] - edge_distance) ** 2
-
-    wall_distance = wall_distance_jax(state, wall_map)
-    wall_cost = w['wall'] * jax.nn.relu(w['wall_margin'] - wall_distance) ** 2
-    crash_cost = w['crash'] * (wall_distance < w['crash_margin'])
-
-    v = state[LINEAR_VEL_X_IDX]
-    target_speed = w['speed_factor'] * wp[WP_VX_IDX]
-    speed_cost = w['speed'] * (v - target_speed) ** 2
-    progress_cost = -w['progress'] * v * jnp.cos(heading_error)
-
-    tracking_cost = w['lateral'] * lateral ** 2 + w['heading'] * heading_error ** 2
-    control_cost = w['angular_control'] * jnp.abs(control[0]) + w['translational_control'] * jnp.abs(control[1])
-
-    return tracking_cost + speed_cost + progress_cost + border_cost + wall_cost + crash_cost + control_cost
-
-@jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, w, wall_map):
-    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, w, wall_map)
-    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
-
-    # Intra-horizon smoothness: penalize sudden control changes within the sequence
-    control_diff = control_sequence[1:] - control_sequence[:-1]
-    smoothness_costs = (w['angular_smoothness'] * control_diff[:, 0] ** 2
-                        + w['translational_smoothness'] * control_diff[:, 1] ** 2)
-    return standard_costs.at[1:].add(smoothness_costs)
-
-@jax.jit
-def cost_function_batch_sequence_jax(state_batch_sequence, Q_batch_sequence, waypoints, w, wall_map):
-    return jax.vmap(lambda states, controls: cost_function_sequence_jax(states, controls, waypoints, w, wall_map))(
-        state_batch_sequence, Q_batch_sequence)
 
 @jax.jit
 def exponential_weighting_jax(Q_batch_sequence, total_cost_batch, temperature):
