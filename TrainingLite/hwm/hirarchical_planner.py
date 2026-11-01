@@ -47,6 +47,7 @@ from TrainingLite.hwm.shared.observation import (
     build_LLD_observation_inference,
     lld_rows_for_super,
 )
+from TrainingLite.hwm.shared.speed_profile import grip_speed_profile as _grip_speed_profile
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from utilities.Settings import Settings
 from utilities.test_track import command as test_track_command
@@ -90,49 +91,6 @@ try:  # keep the sim process single-threaded for torch; may already be fixed by 
     torch.set_num_interop_threads(1)
 except RuntimeError:
     pass
-
-
-class _JaxRollout(torch.autograd.Function):
-    """Torch op around a jitted JAX rollout, with its gradient from the JAX vector-Jacobian product."""
-
-    @staticmethod
-    def forward(ctx, applied, s0, forward_fn, backward_fn):
-        import jax.numpy as jnp
-        applied_np = applied.detach().cpu().numpy()
-        ctx.s0, ctx.applied, ctx.backward_fn = s0, applied_np, backward_fn
-        return torch.as_tensor(np.array(forward_fn(jnp.asarray(s0), jnp.asarray(applied_np)), dtype=np.float32, copy=True))
-
-    @staticmethod
-    def backward(ctx, grad):
-        import jax.numpy as jnp
-        g = np.array(ctx.backward_fn(jnp.asarray(ctx.s0), jnp.asarray(ctx.applied), jnp.asarray(grad.detach().cpu().numpy())), dtype=np.float32, copy=True)
-        return torch.as_tensor(g), None, None, None
-
-
-def _grip_speed_profile(xy: torch.Tensor, accel: float, max_speed: float) -> torch.Tensor:
-    """``(N,)`` fastest speeds along the closed line ``xy`` ``(N, 2)`` whose cornering, braking and
-    accelerating together stay within a friction circle of radius ``accel``."""
-    points = xy.detach().cpu().double()
-    before, after = torch.roll(points, 1, dims=0), torch.roll(points, -1, dims=0)
-    a, b, c = (points - before).norm(dim=1), (after - points).norm(dim=1), (after - before).norm(dim=1)
-    cross = ((points - before)[:, 0] * (after - points)[:, 1] - (points - before)[:, 1] * (after - points)[:, 0]).abs()
-    curvature = 2.0 * cross / (a * b * c).clamp(min=1e-9)  # through the point and its two neighbours
-    curvature = torch.maximum(curvature, torch.maximum(torch.roll(curvature, 1), torch.roll(curvature, -1)))
-    speed = torch.sqrt(accel / curvature.clamp(min=1e-6)).clamp(max=max_speed).tolist()
-    step, kappa, n = b.tolist(), curvature.tolist(), len(speed)
-
-    def longitudinal(v: float, k: float) -> float:
-        lateral = min(v * v * k, accel)
-        return (accel * accel - lateral * lateral) ** 0.5
-
-    # Twice around in each direction, so the limit carries over the closing segment.
-    for i in range(2 * n):
-        j, nxt = i % n, (i + 1) % n
-        speed[nxt] = min(speed[nxt], (speed[j] ** 2 + 2.0 * longitudinal(speed[j], kappa[j]) * step[j]) ** 0.5)
-    for i in range(2 * n, 0, -1):
-        j, prev = i % n, (i - 1) % n
-        speed[prev] = min(speed[prev], (speed[j] ** 2 + 2.0 * longitudinal(speed[j], kappa[j]) * step[prev]) ** 0.5)
-    return torch.tensor(speed, dtype=torch.float32)
 
 
 class HirarchicalPlanner(template_planner):
@@ -269,7 +227,7 @@ class HirarchicalPlanner(template_planner):
         )
         PROF.instrument(self, [
             "_refresh_recovery", "_interpolated_waypoint_actions", "_rollout_seeded_actions",
-            "_gradient_optimize", "_sample_mpc_actions", "rollout_dynamics", "rollout_pacejka", "rollout_lld",
+            "_sample_mpc_actions", "rollout_dynamics", "rollout_pacejka", "rollout_lld",
             "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_interpolated_target_costs", "_matched_waypoint_costs", "_recovery_cost",
             "_backtrack_cost", "_note_reward", "_draw_mpc_trajectories", "_weighted_state_trajectory",
             "_update_from_driven_plan", "_commit_staged_waypoints",
@@ -1029,6 +987,17 @@ class HirarchicalPlanner(template_planner):
                 episode_id=self._episode_id,
             )
 
+    def _fit_horizon(self, seq: torch.Tensor, horizon: int) -> torch.Tensor:
+        """Crop or repeat the last action so ``seq`` ``(H, 2)`` has ``horizon`` steps."""
+        seq = seq.reshape(-1, 2)
+        n = int(seq.shape[0])
+        horizon = int(horizon)
+        if n == horizon:
+            return seq
+        if n > horizon:
+            return seq[:horizon].contiguous()
+        return torch.cat((seq, seq[-1:].expand(horizon - n, -1)), dim=0)
+
     def _sample_mpc_actions(
         self, nominal: torch.Tensor | None = None, count: int | None = None, noise_scale: float = 1.0,
         correlation: float | None = None,
@@ -1042,7 +1011,7 @@ class HirarchicalPlanner(template_planner):
         noise_std = noise_scale * torch.tensor(Settings.MPC_DRIVE_NOISE, dtype=torch.float32) / torch.as_tensor(self.action_denormalization_array)
         if self.off_track or self._stall_phase == 1:
             noise_std = noise_std * float(Settings.HWM_RECOVERY["noise_scale"])
-        eps = torch.randn(int(count or Settings.MPC_NUM_OF_TRAJECTORIES), Settings.MPC_TRAJECTORY_LENGTH, 2)
+        eps = torch.randn(int(count or Settings.MPC_NUM_OF_TRAJECTORIES), int(nominal.shape[0]), 2)
         actions = nominal + eps * noise_std
         PROF.end()
         if rho > 0.0:
@@ -1099,6 +1068,7 @@ class HirarchicalPlanner(template_planner):
         if nominal is None:
             nominal = self.action_buffer
         horizon = int(nominal.shape[0])
+        self.action_buffer = self._fit_horizon(self.action_buffer, horizon)
         fixed = [self.action_buffer]
         # A seed recorded in a different state can steer harder than the car needs now and curl into the inside wall.
         for scale in Settings.HWM_FALLBACK_STEER_SCALES:
@@ -1665,6 +1635,17 @@ class HirarchicalPlanner(template_planner):
         straight = (pos - self._wp_anchor_xy[label.clamp(min=0)]).norm(dim=-1)
         return torch.where(label >= 0, path.to(straight) - straight, torch.zeros_like(straight))
 
+    def _off_track_affects_waypoints(self) -> bool:
+        """False for ``HWM_OFF_TRACK_WAYPOINT_GRACE`` seconds after an episode starts.
+
+        The car still goes into recovery. The waypoint table does not: no off-track count,
+        no revert, and updates are not held for having left the line.
+        """
+        grace = float(Settings.HWM_OFF_TRACK_WAYPOINT_GRACE)
+        if grace <= 0.0:
+            return True
+        return float(self.episode_timesteps) * float(Settings.TIMESTEP_CONTROL) >= grace
+
     def _note_off_track_pass(self, reward_drop: bool = False) -> None:
         """Count the waypoint the car is at, once per visit, when the car is off track there or its reward just dropped."""
         counts = getattr(self, "_wp_off_track_count", None)
@@ -1677,7 +1658,8 @@ class HirarchicalPlanner(template_planner):
         gap = (torch.arange(n) - car).remainder(n)
         gap = torch.minimum(gap, n - gap)
         self._wp_off_track_marked &= gap <= 10
-        if (self.off_track or reward_drop) and not bool(self._wp_off_track_marked[car]):
+        off = self.off_track and self._off_track_affects_waypoints()
+        if (off or reward_drop) and not bool(self._wp_off_track_marked[car]):
             self._wp_off_track_marked[car] = True
             counts[car] += 1.0
             self._publish_waypoint_display()
@@ -1705,10 +1687,12 @@ class HirarchicalPlanner(template_planner):
             self._seen_on_track = True
         self._update_stall(car_xy, self._car_waypoint)
         self.off_track = (not on_track) or self._stalled
-        if Settings.MPC_WAYPOINT_WINDOW_UPDATES and self.off_track and not self._was_off_track:
+        # Recovery follows the real pose. The waypoint table ignores the opening of the episode.
+        affects_waypoints = self.off_track and self._off_track_affects_waypoints()
+        if Settings.MPC_WAYPOINT_WINDOW_UPDATES and affects_waypoints and not self._was_off_track:
             # The window updates made the waypoints the car could not follow: walk the ones around it back.
             self._revert_nearby_waypoints()
-        self._was_off_track = self.off_track
+        self._was_off_track = affects_waypoints
         self._update_recover_mode(self.off_track)
         self._note_off_track_pass()
 
@@ -1722,6 +1706,9 @@ class HirarchicalPlanner(template_planner):
         """
         stalled = bool(getattr(self, "_stalled", False))
         self.off_track = nearest_distance > float(Settings.MPC_WAYPOINT_UPDATE_DISTANCE) or stalled
+        if self.off_track and not self._off_track_affects_waypoints():
+            self._update_recover_mode(True)
+            return True
         if self.off_track:
             if not getattr(self, "_waypoint_off_raceline", False):
                 self._waypoint_off_raceline = True
@@ -2129,6 +2116,10 @@ class HirarchicalPlanner(template_planner):
         start, returned after the unperturbed ones of its window.
         """
         batch = int(actions.shape[0])
+        if int(actions.shape[1]) != int(windows[0][3].shape[1]):
+            # Free driving uses MPC_FREE_TRAJECTORY_LENGTH. A window sample stays at MPC_TRAJECTORY_LENGTH.
+            trajectories = self.rollout_dynamics(state, actions)
+            return trajectories, [self._rollout_window(window) for window in windows]
         delay = int(windows[0][2].shape[0])
         rows, _ = self.memory.recent(self._episode_id, delay)
         drive_pending = rows[:, int(Settings.HWM_STATE_DIM):].to(torch.float32).cpu()
@@ -2150,6 +2141,17 @@ class HirarchicalPlanner(template_planner):
             torch.cat(starts).numpy(), torch.cat(sequences).numpy(), pending_actions=torch.cat(queues).numpy()
         )
         return out[:batch], list(torch.split(out[batch:], sizes))
+
+    def _rollout_window(self, window: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
+        """States of one window's samples, including the perturbed copies when robustness is on."""
+        _, start, pending, samples = window
+        count = int(samples.shape[0])
+        starts = start[None].expand(count, -1)
+        if Settings.MPC_WAYPOINT_WINDOW_ROBUST:
+            starts = torch.cat((starts, self._perturbed_starts(start, count)))
+            samples = torch.cat((samples, samples))
+        queue = pending[None].expand(int(samples.shape[0]), -1, -1)
+        return self.rollout_dynamics(starts.numpy(), samples.numpy(), pending_actions=queue.numpy())
 
     def _window_update(self, window: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor], states: torch.Tensor) -> None:
         """Accept the best window sample that reaches the waypoints after the window sooner and matches them as well.
@@ -2513,21 +2515,24 @@ class HirarchicalPlanner(template_planner):
         with torch.no_grad():
             self._refresh_recovery(state)
             # Recovery samples around the previous plan. Stored waypoint sequences are only
-            # used once the car is back out of recovery.
+            # used once the car is back out of recovery. Without one yet (the first lap) the
+            # plan is free too, and rolled out for MPC_FREE_TRAJECTORY_LENGTH. On the priors
+            # it is MPC_TRAJECTORY_LENGTH, the same length as a window-update sample.
             nominal = None if self.recover_mode else self._interpolated_waypoint_actions(state)
+            horizon = int(Settings.MPC_TRAJECTORY_LENGTH if nominal is not None else Settings.MPC_FREE_TRAJECTORY_LENGTH)
+            self.action_buffer = self._fit_horizon(self.action_buffer, horizon)
+            if nominal is not None:
+                nominal = self._fit_horizon(nominal, horizon)
             if nominal is not None and Settings.HWM_SEED_FROM_MEAN_STATES:
                 # Seed stored at the end of the previous step from its mean states: no rollout now.
                 if self._mean_state_seed is not None and int(self._mean_state_seed.shape[0]) == int(nominal.shape[0]):
                     nominal = self._mean_state_seed
             elif nominal is not None and Settings.HWM_SEED_FROM_ROLLOUT:
                 nominal = self._rollout_seeded_actions(state, nominal)
-            if Settings.HWM_GRADIENT_MPC and Settings.RUN_MPC_WITH_PACEJKA:
-                actions = self._gradient_optimize(state, nominal)
-            else:
-                actions = self._sample_mpc_actions(nominal)
-                if Settings.MPC_DRIVE_FALLBACK_SAMPLES:
-                    flat = np.asarray(state).reshape(-1)
-                    actions = self._with_fallback_samples(actions, nominal, float(flat[LINEAR_VEL_X_IDX]))
+            actions = self._sample_mpc_actions(nominal)
+            if Settings.MPC_DRIVE_FALLBACK_SAMPLES:
+                flat = np.asarray(state).reshape(-1)
+                actions = self._with_fallback_samples(actions, nominal, float(flat[LINEAR_VEL_X_IDX]))
             windows = self._window_jobs()
             with PROF.section("rollout_of_samples"):
                 if windows:
@@ -2872,91 +2877,6 @@ class HirarchicalPlanner(template_planner):
             out = np.array(run(jnp.asarray(s), jnp.asarray(actions), jnp.asarray(pending)), dtype=np.float32, copy=True)
         with PROF.section("stack_to_torch"):
             return torch.as_tensor(out[:batch])
-
-    def _grad_rollout_fns(self):
-        """JAX rollout of the Pacejka model over a horizon and its vector-Jacobian product, both jitted."""
-        fns = getattr(self, "_grad_rollout", None)
-        if fns is None:
-            import jax
-            import jax.numpy as jnp
-            from sim.f110_sim.envs.dynamic_model_pacejka_jax import car_dynamics_pacejka_jax_from_settings
-            from utilities.car_files.vehicle_parameters import VehicleParameters
-
-            car_params = jnp.asarray(VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array())
-            dt = float(Settings.TIMESTEP_CONTROL)
-            substeps = int(round(dt / float(Settings.TIMESTEP_SIM)))
-            step = jax.vmap(lambda s, u: car_dynamics_pacejka_jax_from_settings(s, u, car_params, dt, substeps))
-
-            def forward(s0, applied):  # (B, sd), (B, H, 2) -> (B, H + 1, sd)
-                def body(s, u):
-                    nxt = step(s, u)
-                    nxt = nxt.at[:, POSE_THETA_IDX].set(jnp.arctan2(nxt[:, POSE_THETA_SIN_IDX], nxt[:, POSE_THETA_COS_IDX]))
-                    return nxt, nxt
-
-                _, seq = jax.lax.scan(body, s0, jnp.swapaxes(applied, 0, 1))
-                return jnp.swapaxes(jnp.concatenate((s0[None], seq), axis=0), 0, 1)
-
-            def backward(s0, applied, cotangent):
-                return jax.vjp(lambda a: forward(s0, a), applied)[1](cotangent)[0]
-
-            fns = (jax.jit(forward), jax.jit(backward))
-            self._grad_rollout = fns
-        return fns
-
-    def _rollout_pacejka_grad(self, state, actions: torch.Tensor) -> torch.Tensor:
-        """``rollout_pacejka`` that keeps the graph to ``actions`` ``(B, H, 2)``: states ``(B, H + 1, state_dim)``."""
-        batch, horizon, _ = actions.shape
-        delay = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))
-        rows, _ = self.memory.recent(self._episode_id, delay)
-        pending = rows[:, int(Settings.HWM_STATE_DIM):].to(actions.dtype).expand(batch, delay, 2)
-        queue = torch.cat((pending, actions), dim=1)[:, :horizon]
-        applied = queue * torch.as_tensor(self.action_denormalization_array, dtype=actions.dtype)
-        cap = float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL)
-        applied = torch.stack((applied[..., 0], applied[..., 1].clamp(-cap, cap)), dim=-1)
-        s0 = np.broadcast_to(np.asarray(state, dtype=np.float32), (batch, int(Settings.HWM_STATE_DIM))).copy()
-        forward, backward = self._grad_rollout_fns()
-        return _JaxRollout.apply(applied, s0, forward, backward)
-
-    def _gradient_optimize(self, state: np.ndarray, nominal: torch.Tensor | None) -> torch.Tensor:
-        """Action sequences ``(K, H, 2)``: noisy copies of the nominal, improved by gradient descent on the MPC cost.
-
-        The cost is the same reward the sampler uses (recovery and backtrack costs included),
-        differentiated through the Pacejka rollout. The wall hit is not differentiable, so a soft
-        penalty on the corner distance to the walls stands in for it while descending. The caller
-        then scores the result like sampled actions.
-        """
-        count = max(1, int(Settings.HWM_GRAD_SAMPLES))
-        base = self.action_buffer if nominal is None else nominal
-        u = self._sample_mpc_actions(nominal, count=count)
-        u[0] = base  # one noise-free copy
-        steer_limit = 1.0
-        brake_limit, accel_limit = self._translational_limits()
-        u = u.detach().clone().requires_grad_(True)
-        optimizer = torch.optim.Adam([u], lr=float(Settings.HWM_GRAD_LR))
-        nearest = self.nearest_waypoint_index(state)
-        margin = float(Settings.HWM_GRAD_WALL_MARGIN)
-        wall_weight = float(Settings.HWM_GRAD_WALL_WEIGHT)
-        with torch.enable_grad():
-            for _ in range(max(0, int(Settings.HWM_GRAD_STEPS))):
-                optimizer.zero_grad()
-                states = self._rollout_pacejka_grad(state, u)
-                matched = (
-                    None if Settings.MPC_REWARD_INTERPOLATED_TARGETS
-                    else self.rollout_waypoint_states(states.detach(), nearest)
-                )
-                (reward, _), _ = self.MPC_reward(
-                    states, matched, nearest, waypoint_off_track_counts=self._wp_off_track_count, actions=u,
-                )
-                poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
-                cost = -reward + wall_weight * self.wall_geometry.soft_wall_penalty(poses, margin).mean(dim=1)
-                cost.sum().backward()
-                if u.grad is not None:
-                    u.grad.nan_to_num_(0.0)
-                optimizer.step()
-                with torch.no_grad():
-                    u[..., 0].clamp_(-steer_limit, steer_limit)
-                    u[..., 1].clamp_(brake_limit, accel_limit)
-        return u.detach()
 
     def _log_attention(self) -> None:
         """Log the attention statistics of the last LLD forward pass (main head, and the covariance head if on)."""

@@ -217,9 +217,14 @@ class LLD(nn.Module):
         )
         self.register_buffer("_factor_tril", torch.tril_indices(prediction_dim, prediction_dim), persistent=False)
         net_in = super_state_dim + self.extra_dim
-        self.correction_net = nn.Sequential(
-            nn.Linear(net_in, hidden), nn.ReLU(), nn.Linear(hidden, prediction_dim)
-        )
+        n_hidden = max(int(getattr(Settings, "HWM_LLD_CORRECTION_LAYERS", 1)), 1)
+        layers: list[nn.Module] = []
+        width_in = net_in
+        for _ in range(n_hidden):
+            layers += [nn.Linear(width_in, hidden), nn.ReLU()]
+            width_in = hidden
+        layers.append(nn.Linear(width_in, prediction_dim))
+        self.correction_net = nn.Sequential(*layers)
         nn.init.zeros_(self.correction_net[-1].weight)
         nn.init.zeros_(self.correction_net[-1].bias)
         self.last_n_soft = torch.zeros(())

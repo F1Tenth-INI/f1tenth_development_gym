@@ -103,8 +103,8 @@ async def _run(server: HWMLearnerServer, args: argparse.Namespace, settings_args
                 client.wait()
 
 
-def main() -> None:
-    args, settings_args = parse_args()
+def main(argv: Optional[list[str]] = None) -> None:
+    args, settings_args = parse_args(argv)
     apply_settings_overrides(settings_args)
 
     save_name = args.save_model_name or args.model_name

@@ -1,5 +1,6 @@
 from utilities.Settings import Settings
 from utilities.map_scale import median_waypoint_spacing, remap_sector_index, resample_waypoints_uniform
+from utilities.midline_waypoints import apply_midline_speeds, load_midline_array, uses_midline
 from utilities.state_utilities import *
 
 import time
@@ -68,6 +69,10 @@ class WaypointUtils:
         self.map_name = map_name
         self.waypoint_file_name = waypoint_file_name
         self.speed_scaling_file_name = speed_scaling_file_name
+        # The default file is the minimum-curvature raceline. An explicit other file
+        # (the alternative raceline) stays that file.
+        self._use_midline = uses_midline() and waypoint_file_name == f"{map_name}_wp"
+        self._logged_midline = False
         
         # print("WaypointUtils initialized with map path: " + self.map_path + " and map name: " + self.map_name)
         
@@ -268,6 +273,16 @@ class WaypointUtils:
         waypoints = WaypointUtils.get_interpolated_waypoints(waypoints, self.interpolation_steps)  # increased resolution
         waypoints = WaypointUtils.get_decreased_resolution_wps(waypoints, self.decrease_resolution_factor)  # decreased resolution
         waypoints = WaypointUtils.remove_duplicates(waypoints)
+        if getattr(self, "_use_midline", False) and waypoints is not None and len(waypoints) > 0:
+            note = apply_midline_speeds(waypoints)
+            if not self._logged_midline:
+                raw_count = 0 if self.original_waypoints is None else len(self.original_waypoints)
+                print(
+                    f"[waypoints] Midline {self.map_name}/centerline.csv: "
+                    f"{len(waypoints)} waypoints from {raw_count} centerline points. "
+                    f"Initial speed {note}."
+                )
+                self._logged_midline = True
 
         # Waypoint positions [x, y]
         waypoint_positions = get_waypoint_positions(waypoints)
@@ -286,6 +301,9 @@ class WaypointUtils:
         self.preprocess_waypoints()
         
     def load_waypoints(self, waypoint_file_name=None):
+        if getattr(self, "_use_midline", False):
+            return self._apply_map_scale(load_midline_array(self.map_path))
+
         if waypoint_file_name is None:
             waypoint_file_name = self.waypoint_file_name
 
@@ -325,11 +343,14 @@ class WaypointUtils:
 
         # Original Psi is the normal angle but we want the translational one
         waypoints[:, WP_PSI_IDX] += 0.5 * np.pi
+        return self._apply_map_scale(waypoints)
 
+    def _apply_map_scale(self, waypoints):
         map_scale = Settings.MAP_SCALE
         if map_scale != 1.0:
             spacing = Settings.WAYPOINT_SPACING or median_waypoint_spacing(waypoints)
             self._waypoint_count_before_resample = len(waypoints)
+            waypoints = np.array(waypoints, copy=True)
             waypoints[:, WP_X_IDX] *= map_scale
             waypoints[:, WP_Y_IDX] *= map_scale
             waypoints[:, WP_S_IDX] *= map_scale
@@ -471,8 +492,12 @@ class WaypointUtils:
 
     
     def correct_velocity(self, waypoints):
-        settings = Settings        
-        speed_scaling = get_speed_scaling(waypoints.shape[0], self.map_path, self.map_name, settings)
+        settings = Settings
+        if getattr(self, "_use_midline", False):
+            # The speed-scaling CSV is indexed to the minimum-curvature waypoints.
+            speed_scaling = np.clip(settings.GLOBAL_WAYPOINT_VEL_FACTOR, 0, settings.GLOBAL_SPEED_LIMIT)
+        else:
+            speed_scaling = get_speed_scaling(waypoints.shape[0], self.map_path, self.map_name, settings)
         waypoints[:, WP_VX_IDX] *= speed_scaling
         return waypoints, Settings.GLOBAL_SPEED_LIMIT
 
