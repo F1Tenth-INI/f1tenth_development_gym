@@ -11,9 +11,9 @@ from Control_Toolkit_ASF.Controllers import template_planner
 from utilities.car_files.vehicle_parameters import VehicleParameters
 from utilities.state_utilities import (
     NUMBER_OF_STATES, POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX, LINEAR_VEL_X_IDX,
-    LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX,
 )
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
+from Control_Toolkit_ASF.Controllers.MPPILite.shared_cost_jax import cost_function_sequence_jax, load_wall_map
 
 # Configure JAX for optimal GPU usage
 jax.config.update('jax_enable_x64', False)  # Use 32-bit for better GPU performance
@@ -36,6 +36,34 @@ This preserves RPGD's planning capability while maintaining smooth gradients.
 """
 # MODEL_TYPE = 'residual'  # Use residual model for dynamics
 MODEL_TYPE = 'pacejka'  # Use pacejka model for dynamics
+
+# Cost weights for the shared cost in shared_cost_jax.py. Same keys as the MPPI planner, different tuned values.
+# Passed to the jitted functions as a pytree, so changing a value needs no recompile.
+DEFAULT_COST_WEIGHTS = {
+    'lateral': 5.0,           # (lateral offset from raceline [m])^2
+    'heading': 0.0,           # (heading error to raceline [rad])^2
+    'speed': 0.0,             # (v - speed_factor * raceline speed)^2
+    'speed_factor': 1.0,      # scales the raceline speed profile
+    'progress': 3.0,          # reward per m/s driven along the raceline
+    'border': 200.0,          # (penetration into the border margin [m])^2
+    'border_margin': 0.1,     # [m] distance of the car centre to the raceline's track edge (d_left / d_right) where the border cost starts
+    'wall': 200.0,            # (penetration of the closest body corner into the wall margin [m])^2
+    'wall_margin': 0.3,       # [m] wall distance of the closest body corner where the wall cost starts
+    'crash': 1000.0,          # constant per step once a body corner is closer than crash_margin to a wall
+    'crash_margin': 0.15,     # [m] the simulator crashes at 0.005. The rest is buffer for state noise and model error
+    'angular_control': 0.1,   # |steering command|
+    'translational_control': 0.01,  # |acceleration command|
+    'angular_smoothness': 1.0,      # (steering change per step)^2
+    'translational_smoothness': 0.01,  # (acceleration change per step)^2
+    # Terminal cost on the last state, like the acados MPC terminal set (untuned)
+    'terminal_lateral': 25.0,        # (lateral offset from raceline [m])^2
+    'terminal_heading': 5.0,         # (heading error to raceline [rad])^2
+    'terminal_speed': 1000.0,        # (v - terminal_speed_factor * waypoint speed)^2, only above that speed. Slower is free: speed is rewarded by the stage progress cost
+    'terminal_speed_factor': 1.0,    # the waypoint speed is the maximum terminal speed
+    'terminal_heading_bound': 500.0, # (|heading error| - terminal_max_heading)^2, only beyond that bound
+    'terminal_max_heading': 0.087,   # [rad] (5 deg)
+}
+
 class RPGDPlanner(template_planner):
 
     def __init__(
@@ -120,11 +148,8 @@ class RPGDPlanner(template_planner):
         self.use_interpolation = False  
         self.num_interpolation_points = 1
         
-        # Control smoothness parameters
-        self.intra_horizon_smoothness_weight = 5.0  # Weight for smoothness within horizon
-        self.angular_smoothness_weight = 1.0  # Relative weight for angular control smoothness
-        self.translational_smoothness_weight = 0.1  # Relative weight for translational control smoothness
-        
+        self.cost_weights = {k: jnp.float32(v) for k, v in DEFAULT_COST_WEIGHTS.items()}
+
         # Control output smoothing (low pass filter). Safety filter uses 1.0 (no lag).
         self.control_smoothing_alpha = (
             float(control_smoothing_alpha) if control_smoothing_alpha is not None else 1.0
@@ -164,6 +189,9 @@ class RPGDPlanner(template_planner):
         with jax.default_device(self.default_device):
             self.car_params_jax = jnp.array(self.car_params_array)
 
+        vp = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+        self.wall_map = load_wall_map(vp.length, vp.width, self.default_device)
+
         self.key = jax.random.PRNGKey(0)
         
         # Pre-compile the main computation function
@@ -175,7 +203,7 @@ class RPGDPlanner(template_planner):
         """Pre-compile JAX functions to ensure they run on the selected device"""
         # Create dummy data for compilation
         dummy_state = jnp.zeros(10, dtype=jnp.float32)
-        dummy_waypoints = jnp.zeros((100, 6), dtype=jnp.float32)
+        dummy_waypoints = jnp.zeros((Settings.LOOK_AHEAD_STEPS, 10), dtype=jnp.float32)
         dummy_key = jax.random.PRNGKey(42)
         
         if not self.quiet:
@@ -196,9 +224,7 @@ class RPGDPlanner(template_planner):
             dummy_state, dummy_Q_batch, self.batch_size, self.horizon,
             self.car_params_jax, dummy_waypoints, dummy_key, dummy_dt,
             execute_control_index=4,
-            intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
-            angular_smoothness_weight=self.angular_smoothness_weight,
-            translational_smoothness_weight=self.translational_smoothness_weight,
+            w=self.cost_weights, wall_map=self.wall_map,
             gradient_steps=self.gradient_steps,
             adam_m=dummy_adam_m, adam_v=dummy_adam_v, adam_step=0,
             state_history=dummy_state_history, control_history=dummy_control_history
@@ -235,9 +261,7 @@ class RPGDPlanner(template_planner):
                 s, Q_batch_sequence, self.batch_size, self.horizon,
                 self.car_params_jax, waypoints, subkey, self.dt,
                 execute_control_index=int(Settings.CONTROL_DELAY / self.dt),
-                intra_horizon_smoothness_weight=self.intra_horizon_smoothness_weight,
-                angular_smoothness_weight=self.angular_smoothness_weight,
-                translational_smoothness_weight=self.translational_smoothness_weight,
+                w=self.cost_weights, wall_map=self.wall_map,
                 gradient_steps=self.gradient_steps,
                 adam_m=self.adam_m, adam_v=self.adam_v, adam_step=self.adam_step,
                 state_history=self.state_history, control_history=self.control_history
@@ -549,59 +573,6 @@ class RPGDPlanner(template_planner):
 
 
 @jax.jit
-def compute_waypoint_distance_jax(state, waypoints):
-    dx = state[POSE_X_IDX] - waypoints[:, 1]
-    dy = state[POSE_Y_IDX] - waypoints[:, 2]
-    dist_sq = dx ** 2 + dy ** 2
-    min_dist_sq = jnp.min(dist_sq)
-    min_idx = jnp.argmin(dist_sq)
-    return min_dist_sq, min_idx
-
-@jax.jit
-def cost_function_jax(state, control, waypoints, lr):
-    waypoint_dist_sq, min_idx = compute_waypoint_distance_jax(state, waypoints)
-    angular_control_cost = jnp.abs(control[0]) * 0.1
-    translational_control_cost = jnp.abs(control[1]) * 0.0
-    waypoint_cost = waypoint_dist_sq * 20.0
-    target_speed = waypoints[min_idx, 5]
-    speed_cost = 0.5 * (state[LINEAR_VEL_X_IDX] - target_speed) ** 2
-    v_x_safe = jnp.maximum(state[LINEAR_VEL_X_IDX], 0.1)
-    v_y_rear = state[LINEAR_VEL_Y_IDX] - state[ANGULAR_VEL_Z_IDX] * lr
-    slip_cost = 0.05 * (v_y_rear / v_x_safe) ** 2
-    # Add quadratic penalty for large angular controls to discourage extreme values
-    angular_quadratic_penalty = control[0] ** 2 * 0.0  # Heavy penalty for large steering angles
-    # translational_quadratic_penalty = control[1] ** 2 * 0.1  # Heavy penalty for large acceleration
-    translational_quadratic_penalty = 0
-    return speed_cost + angular_control_cost + translational_control_cost + waypoint_cost + angular_quadratic_penalty + translational_quadratic_penalty + slip_cost
-
-@jax.jit
-def cost_function_sequence_jax(state_sequence, control_sequence, waypoints, lr,
-                              intra_horizon_smoothness_weight=2.0, 
-                              angular_smoothness_weight=1.0, 
-                              translational_smoothness_weight=0.1):
-    
-    # Standard cost for each state-control pair
-    cost_fn = lambda s, u: cost_function_jax(s, u, waypoints, lr)
-    standard_costs = jax.vmap(cost_fn)(state_sequence, control_sequence)
-    
-    # Intra-horizon smoothness penalty - penalize sudden changes within the control sequence
-    control_diff = control_sequence[1:] - control_sequence[:-1]
-    
-    # Individual step smoothness costs
-    step_angular_smoothness = control_diff[:, 0] ** 2 * intra_horizon_smoothness_weight * angular_smoothness_weight
-    step_translational_smoothness = control_diff[:, 1] ** 2 * intra_horizon_smoothness_weight * translational_smoothness_weight
-    step_smoothness_costs = 10 * step_angular_smoothness + step_translational_smoothness
-    
-    # Add individual smoothness penalties to corresponding cost elements
-    total_costs = standard_costs.at[1:].add(step_smoothness_costs)
-    
-    # Also add overall smoothness penalty to first element for extra emphasis
-    total_smoothness_penalty = jnp.sum(step_smoothness_costs) * 0.1  # Small additional overall penalty
-    total_costs = total_costs.at[0].add(total_smoothness_penalty)
-    
-    return total_costs
-
-@jax.jit
 def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
     """RPGD Step 3: Select the plan with lowest cost"""
     best_idx = jnp.argmin(total_cost_batch)
@@ -611,9 +582,7 @@ def rpgd_select_best_plan_jax(Q_batch_sequence, total_cost_batch):
 @partial(jax.jit, static_argnames=["batch_size", "horizon", "execute_control_index", "gradient_steps"])
 def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, car_params, waypoints, key, dt,
                                execute_control_index=4,
-                               intra_horizon_smoothness_weight=2.0,
-                               angular_smoothness_weight=1.0,
-                               translational_smoothness_weight=0.1,
+                               w=None, wall_map=None,
                                gradient_steps=5,
                                adam_m=None, adam_v=None, adam_step=0,
                                state_history=None, control_history=None):
@@ -641,17 +610,12 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
         HISTORY_LENGTH = 10
         control_history = jnp.zeros((HISTORY_LENGTH, 2), dtype=jnp.float32)
 
-    lr = car_params[2]
-    
     # Cost function for gradient computation (operates directly on full sequences)
     def gradient_cost_fn(Q_full):
         # Rollout with constant timestep (use literal value for static compilation)
         trajectory = car_steps_sequential_jax(state, Q_full, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
         # Compute cost
-        costs = cost_function_sequence_jax(trajectory, Q_full, waypoints, lr,
-                                         intra_horizon_smoothness_weight,
-                                         angular_smoothness_weight, 
-                                         translational_smoothness_weight)
+        costs = cost_function_sequence_jax(trajectory, Q_full, waypoints, w, wall_map)
         return jnp.sum(costs)
     
     def gradient_step(carry, step_idx):
@@ -689,10 +653,7 @@ def rpgd_process_observation_jax(state, Q_batch_sequence, batch_size, horizon, c
     # Evaluate final costs
     def evaluation_cost_fn(Q_plan):
         trajectory = car_steps_sequential_jax(state, Q_plan, car_params, T_CONTROL, horizon=horizon, model_type=MODEL_TYPE, state_history=state_history, control_history=control_history)
-        costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints, lr,
-                                         intra_horizon_smoothness_weight,
-                                         angular_smoothness_weight, 
-                                         translational_smoothness_weight)
+        costs = cost_function_sequence_jax(trajectory, Q_plan, waypoints, w, wall_map)
         return jnp.sum(costs)
     
     final_costs = jax.vmap(evaluation_cost_fn)(Q_final)
