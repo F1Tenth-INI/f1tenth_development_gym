@@ -1,0 +1,72 @@
+# Yokomo1 system identification 2026-11-03: bench measurements (sysid/cars/yokomo1_bench.yml), steering locks from
+# full-lock laps, room sysid program, and the tyre shape refitted on room + transients + MPC laps + MPC speed sweep.
+# SysId fit 2026-11-03 08:52 from 2026-11-03_07-26-42_.csv, 2026-11-03_07-16-09_.csv, 2026-11-03_08-49-08_.csv, 2026-11-03_07-47-41_.csv, 2026-11-03_07-58-36_.csv
+# Estimated control delay: 0.04 s (set Settings.CONTROL_DELAY / CONTROL_DELAY_COMPENSATION_STEPS)
+# SysId fit 2026-11-03 07:34 from 2026-11-03_07-26-42_.csv, 2026-11-03_07-16-09_.csv
+# Estimated control delay: 0.04 s (set Settings.CONTROL_DELAY / CONTROL_DELAY_COMPENSATION_STEPS)
+# Bench measurements 2026-11-03 06:42 from yokomo1_bench.yml, base yokomo1_car_parameters.yml
+# Yokomo1 — parameters used by jax_pacejka / ODE_TF and simulation geometry
+
+mu: 0.6149  # sysid fit
+
+lf: 0.13463  # bench
+lr: 0.12137  # bench
+l_wb: 0.256  # bench
+h: 0.047  # bench
+m: 2.975  # bench
+I_z: 0.019527  # bench
+g: 9.81  # gravity [m/s²]
+
+width: 0.19  # bench
+length: 0.41  # bench
+
+s_min: -0.466  # full-lock laps 2026-11-03 07:26 (driving)
+s_max: 0.434  # full-lock laps 2026-11-03 07:26 (driving)
+sv_min: -3.2
+sv_max: 3.2
+
+a_max: 10.0
+a_min: -10.0
+v_min: -5.0
+v_max: 15.0
+v_switch: 7.319
+
+servo_p: 21.21  # sysid fit
+steering_diff_low: 0.0  # steering deadband [rad]
+
+C_Pf:  # Pacejka front (B, C, D, E)
+  - 9.748  # B_f, sysid fit
+  - 0.8371  # C_f, sysid fit
+  - 1.0
+  - 0.1846  # E_f, sysid fit
+
+C_Pr:  # Pacejka rear (B, C, D, E)
+  - 5.104  # B_r, sysid fit
+  - 1.767  # C_r, sysid fit
+  - 1.0
+  - 0.004749  # E_r, sysid fit
+
+c_rr: 0.1447  # sysid fit
+v_dead: 0.05  # velocity deadband for resistance sign at low speed [m/s]
+curve_resistance_factor: 0.0  # extra drag from lateral tire forces when cornering (now covered by -F_yf*sin(delta) in the model)
+brake_multiplier: 2.3  # sysid fit
+accel_multiplier: 1.036  # sysid fit
+steering_multiplier: 1.529  # sysid fit
+
+# IMU mount in body frame relative to rear axle (x forward, y left)
+imu_x: 0.15
+imu_y: 0.0
+
+wheel_radius: 0.030876  # bench
+motor_command_gain: 11.5  # speed-PI mode only: motor current from commanded speed [A/(m/s)]
+motor_current_offset: 4.0  # speed-PI mode only: motor current offset at zero command [A]
+# Tuned 2026-07-13 gym_bridge recording (PP, ackermann accel -> VESC current)
+velocity_to_current_gain: 0.0  # = racecar/config/yokomo1/vesc.yaml (2026-11-03)
+acceleration_to_current_gain: 8.938  # = vesc.yaml
+deceleration_to_current_gain: 4.0  # = vesc.yaml
+motor_current_max_a: 65.0  # max drive motor current [A]
+max_brake_current: 50.0  # max regen/brake motor current [A]
+# motor_angular_velocity [ERPM] = speed_to_erpm_gain * linear_vel_x + speed_to_erpm_offset
+# Fitted from 2026-07-13 recording (measured ERPM vs sim linear_vel_x).
+speed_to_erpm_gain: 3496.2  # bench
+speed_to_erpm_offset: 0.0  # = vesc.yaml (ERPM check 2026-11-03)

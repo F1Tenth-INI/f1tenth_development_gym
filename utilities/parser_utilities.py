@@ -56,6 +56,7 @@ _CONTROLLER_CHOICES = [
     "mpc-acados",
     "example",
     "sac_agent",
+    "sysid",
 ]
 
 

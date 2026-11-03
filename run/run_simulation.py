@@ -276,6 +276,8 @@ class RacingSimulation:
             self.simulation_step()
             if getattr(self.drivers[0], "lap_limit_reached", False):
                 break
+            if getattr(getattr(self.drivers[0], "planner", None), "experiment_complete", False):
+                break  # e.g. the SysId program has finished
 
         self.on_simulation_end(collision=False)
 
