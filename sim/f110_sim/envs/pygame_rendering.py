@@ -62,12 +62,24 @@ from utilities.state_utilities import (
 )
 
 
-def _car_size() -> tuple[float, float]:
-    """Body size the wall collision uses, from ``Settings.ENV_CAR_PARAMETER_FILE``."""
+def _load_body_size(parameter_file):
+    """(length, width) in meters from a car parameter YAML."""
     from utilities.car_files.vehicle_parameters import VehicleParameters
 
-    car = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-    return float(car.length), float(car.width)
+    params = VehicleParameters(parameter_file)
+    return float(params.length), float(params.width)
+
+
+def _load_ego_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(True))
+
+
+def _load_opponent_body_size():
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(False))
 
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR
@@ -101,6 +113,7 @@ DEFAULT_COLORS = {
     "map_dot": (183, 193, 222),
     "ego_car": (172, 97, 185),
     "opponent_car": (99, 52, 94),
+    "virtual_opponents": (255, 140, 0),
     "waypoints": (64, 190, 255),
     "waypoints_alternative": (170, 170, 170),
     "next_waypoints": (0, 127, 0),
@@ -233,6 +246,8 @@ class EnvRenderer:
         self.width = width
         self.height = height
         self.zoom_level = 60.0
+        self.car_length, self.car_width = _load_ego_body_size()
+        self.opponent_car_length, self.opponent_car_width = _load_opponent_body_size()
         self.camera_offset = np.array([0.0, 0.0], dtype=np.float32)
         self.camera_follow_ego = bool(getattr(Settings, "CAMERA_AUTO_FOLLOW", False))
 
@@ -586,8 +601,11 @@ class EnvRenderer:
         # Use only the first point for "single point" overlays.
         self._draw_points_array(arr[:1], color, radius)
 
-    def draw_car(self, pose, color):
-        vertices = get_vertices(pose, *_car_size())
+    def draw_car(self, pose, color, length=None, width=None):
+        body_length = self.car_length if length is None else float(length)
+        body_width = self.car_width if width is None else float(width)
+        pose_arr = np.asarray(pose, dtype=np.float64)
+        vertices = get_vertices(pose_arr, body_length, body_width)
         points = [self.world_to_screen(v) for v in vertices]
         pygame.draw.polygon(self.screen, color, points)
 
@@ -861,6 +879,8 @@ class EnvRenderer:
                 except (TypeError, ValueError, IndexError):
                     pass
 
+        self._draw_virtual_opponents(overlay)
+
         # Generic RenderScene layers (custom debug geometry, etc.).
         try:
             from utilities.render_adapters import PygameLayerDrawer
@@ -869,16 +889,38 @@ class EnvRenderer:
         except Exception:
             pass
 
+    def _draw_virtual_opponents(self, overlay):
+        poses = overlay.get("virtual_opponents")
+        if not isinstance(poses, list) or not poses:
+            return
+        length = self.car_length
+        width = self.car_width
+        size = overlay.get("virtual_opponent_size")
+        if isinstance(size, (list, tuple)) and len(size) >= 2:
+            width = float(size[0])
+            length = float(size[1])
+        color = _as_color(
+            (overlay.get("colors") or {}).get("virtual_opponents"),
+            DEFAULT_COLORS["virtual_opponents"],
+        )
+        for pose in poses:
+            if not isinstance(pose, (list, tuple)) or len(pose) < 3:
+                continue
+            self.draw_car(pose, color, length, width)
+
     def _draw_cars(self):
         if self.poses is None:
             return
         for i, pose in enumerate(self.poses):
-            color = (
-                DEFAULT_COLORS["ego_car"]
-                if i == self.ego_idx
-                else DEFAULT_COLORS["opponent_car"]
-            )
-            self.draw_car(pose, color)
+            if i == self.ego_idx:
+                self.draw_car(pose, DEFAULT_COLORS["ego_car"])
+            else:
+                self.draw_car(
+                    pose,
+                    DEFAULT_COLORS["opponent_car"],
+                    self.opponent_car_length,
+                    self.opponent_car_width,
+                )
 
     # ------------------------------------------------------------------
     # Status bar and HUD

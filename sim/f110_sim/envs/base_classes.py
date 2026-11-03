@@ -41,7 +41,7 @@ from f110_sim.envs.collision_models import get_vertices, collision_multiple
 
 from utilities.Settings import Settings
 from utilities.state_utilities import *
-from utilities.car_files.vehicle_parameters import VehicleParameters
+from utilities.car_files.vehicle_parameters import VehicleParameters, car_parameter_file_for_agent
 
 from math import fmod
 # Wraps the angle into range [-π, π]
@@ -84,7 +84,7 @@ class RaceCar(object):
 
     # static objects that don't need to be stored in class instances
 
-    def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7):
+    def __init__(self, params, seed, is_ego=False, time_step=0.01, num_beams=1080, fov=4.7, car_parameter_file=None):
         """
         Init function
 
@@ -99,14 +99,13 @@ class RaceCar(object):
             None
         """
 
-        # initialization - use VehicleParameters instead of params argument
-        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-        self.params = car_params.to_dict()
         self.seed = seed
         self.is_ego = is_ego
         self.time_step = time_step
         self.num_beams = num_beams
         self.fov = fov
+        self.car_parameter_file = car_parameter_file or car_parameter_file_for_agent(is_ego)
+        self._load_vehicle_parameters()
 
         self.ode_implementation = Settings.SIM_ODE_IMPLEMENTATION
 
@@ -121,7 +120,7 @@ class RaceCar(object):
             self.car_model = car_model(
                 model_of_car_dynamics = Settings.ODE_MODEL_OF_CAR_DYNAMICS,
                 batch_size = 1, 
-                car_parameter_file = Settings.ENV_CAR_PARAMETER_FILE, 
+                car_parameter_file = self.car_parameter_file, 
                 dt = Settings.TIMESTEP_SIM,
                 intermediate_steps=1,
                 computation_lib=NumpyLibrary()
@@ -137,9 +136,6 @@ class RaceCar(object):
             import jax.numpy as jnp
             self.step_dynamics = car_dynamics_pacejka_jax_from_settings
             u = np.array([0, 0])
-
-            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-            self.car_params_array = car_params.to_np_array()
 
             jax_state = jnp.array(self.state)
             jax_u = jnp.array(u)
@@ -182,9 +178,13 @@ class RaceCar(object):
         Returns:
             None
         """
-        # Use VehicleParameters for consistency
-        car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+        self._load_vehicle_parameters()
+
+    def _load_vehicle_parameters(self):
+        """Load this agent's car file into ``params`` and the jax parameter array."""
+        car_params = VehicleParameters(self.car_parameter_file)
         self.params = car_params.to_dict()
+        self.car_params_array = car_params.to_np_array()
     
     def reset(self, initial_state):
         """
@@ -348,9 +348,15 @@ class Simulator(object):
         self.sim_index = 0
         self._map_scan_simulator = None
         self.map_collision_margin = 0.005
-        
+
+        # Body size for wall and agent collision comes from the env car file
+        # (width, length), not from a hardcoded F1Tenth footprint.
         car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-        # self.params = car_params.to_dict()
+        self.car_length = float(car_params.length)
+        self.car_width = float(car_params.width)
+        if isinstance(self.params, dict):
+            self.params["length"] = self.car_length
+            self.params["width"] = self.car_width
 
         # initializing agents
         for i in range(self.num_agents):
@@ -397,11 +403,10 @@ class Simulator(object):
         if scan_sim.dt is None:
             return
 
-        length = self.params['length']
-        width = self.params['width']
         margin = self.map_collision_margin
 
         for agent in self.agents:
+            length, width = self._body_size(agent)
             pose = np.array(
                 [
                     agent.state[POSE_X_IDX],
@@ -429,8 +434,18 @@ class Simulator(object):
             pos_x = self.agents[i].state[POSE_X_IDX]
             pos_y = self.agents[i].state[POSE_Y_IDX]
             yaw = self.agents[i].state[POSE_THETA_IDX]
-            all_vertices[i, :, :] = get_vertices(np.append([pos_x, pos_y], yaw), self.params['length'], self.params['width'])
+            length, width = self._body_size(self.agents[i])
+            all_vertices[i, :, :] = get_vertices(
+                np.append([pos_x, pos_y], yaw), length, width
+            )
         self.collisions, self.collision_idx = collision_multiple(all_vertices)
+
+    def _body_size(self, agent):
+        """Return (length, width) in meters from the agent's car parameters."""
+        params = getattr(agent, "params", None)
+        if isinstance(params, dict) and "length" in params and "width" in params:
+            return float(params["length"]), float(params["width"])
+        return float(self.car_length), float(self.car_width)
 
     def get_sim_observation(self):
         """

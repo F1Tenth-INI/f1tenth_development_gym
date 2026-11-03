@@ -53,10 +53,12 @@ _CONTROLLER_CHOICES = [
     "mppi-lite-jax",
     "mppi-c",
     "rpgd-lite-jax",
+    "mpc-acados",
     "example",
     "sac_agent",
     "sac_MidlineReturner",
     "HirarchicalPlanner",
+    "sysid",
 ]
 
 

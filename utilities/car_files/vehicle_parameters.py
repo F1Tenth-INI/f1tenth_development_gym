@@ -32,8 +32,8 @@ class VehicleParameters:
     c_rr: float  # Rolling resistance coefficient (dimensionless)
     v_dead: float  # Velocity deadband for smooth sign [m/s]
     curve_resistance_factor: float  # Extra longitudinal drag scaling with lateral tire load
-    brake_multiplier: float  # Scales commanded deceleration (values < 1 weaken braking)
-    accel_multiplier: float  # Scales commanded acceleration (values < 1 weaken acceleration)
+    brake_multiplier: float  # Sim-only ESC scale on commanded braking; the controller does not cancel it
+    accel_multiplier: float  # Sim-only ESC scale on commanded acceleration; the controller does not cancel it
     steering_multiplier: float  # Scales commanded steering angle (values < 1 reduce steering)
     imu_x: float  # IMU offset from rear axle, body x forward [m]
     imu_y: float  # IMU offset from rear axle, body y left [m]
@@ -109,3 +109,13 @@ class VehicleParameters:
             self.accel_multiplier,
             self.steering_multiplier,
         ], dtype=np.float32)
+
+
+def car_parameter_file_for_agent(is_ego: bool) -> str:
+    """YAML name under utilities/car_files for this agent's simulated car."""
+    if is_ego:
+        return Settings.ENV_CAR_PARAMETER_FILE
+    opponent_file = getattr(Settings, "OPPONENT_CAR_PARAMETER_FILE", None)
+    if opponent_file:
+        return str(opponent_file)
+    return Settings.ENV_CAR_PARAMETER_FILE

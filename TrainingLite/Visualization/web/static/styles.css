@@ -206,7 +206,7 @@ header h1 { font-size: 1.15rem; font-weight: 600; flex: 1; }
 
 .modal-close:hover { color: var(--text); background: var(--bg); }
 
-.modal-body .file-list { max-height: 200px; }
+.modal-body .file-list { max-height: min(420px, 50vh); }
 
 .layout {
   display: flex;
@@ -450,11 +450,30 @@ button:hover { background: var(--accent-hover); }
 }
 
 .browse-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
   font-size: 0.75rem;
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.browse-path button {
+  width: auto;
+  display: inline-block;
+  margin: 0;
+  padding: 0.1rem 0.3rem;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.browse-path button:hover { background: var(--bg); }
+
+#browse-filter {
+  width: 100%;
+  margin-bottom: 0.4rem;
 }
 
 .file-list {

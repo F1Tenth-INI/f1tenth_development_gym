@@ -62,6 +62,10 @@ class Settings():
 
     # Oponents
     NUMBER_OF_OPPONENTS = 0
+    # YAML in utilities/car_files for opponent physics, size, and collision.
+    # None uses ENV_CAR_PARAMETER_FILE.
+    OPPONENT_CAR_PARAMETER_FILE = "ini_car_parameters.yml"
+
     OPPONENTS_CONTROLLER = 'pp'
     OPPONENTS_VEL_FACTOR = 0.6
     OPPONENTS_GET_WAYPOINTS_FROM_MPC = False
@@ -194,6 +198,15 @@ class Settings():
 
     
     ## MPC Controller ##
+    # SysId (CONTROLLER = 'sysid', see Control_Toolkit_ASF/Controllers/SysId and f1tenth_system/sysid/README.md)
+    SYSID_PROGRAM = "full"            # "full" (~4.5 min), "quick" (~2.5 min: fewer speeds, one staircase per direction) or "transients" (~1.5 min: only the large steering doublets)
+    SYSID_DIRECTIONS = "both"         # "both" (figure eight between ccw and cw), "ccw" or "cw" (start the car in that direction)
+    SYSID_WALL_MARGIN = 0.35          # [m] body-to-wall margin of the main circle
+    SYSID_ABORT_CLEARANCE = 0.12      # [m] body-to-wall distance at which the program brakes to a stop and ends
+    SYSID_ABORT_RADIUS_ERROR = 0.7    # [m] distance from the circle at which the program aborts
+    SYSID_SPEED_MAX = 4.5             # [m/s] highest speed any maneuver asks for
+    SYSID_RECORDING_FOLDER = "./ExperimentRecordings/Sysid/"
+
     CONTROLLER_CAR_PARAMETER_FILE = "yokomo1_car_parameters.yml"  # Car parameters for future state estimation (might derrive from the GYM_CAR_PARAMETER_FILE) for simulationg "wrong" model
     ODE_MODEL_OF_CAR_DYNAMICS = 'ODE:ks_pacejka'  # Its the model that the predictor uses. Only used for mpc predictions, if ODE predictor chosen
     

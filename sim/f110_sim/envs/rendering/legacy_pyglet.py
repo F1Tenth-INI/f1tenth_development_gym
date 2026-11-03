@@ -51,12 +51,19 @@ from f110_sim.envs.collision_models import get_vertices
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1/ZOOM_IN_FACTOR
 
-def _car_size() -> tuple[float, float]:
-    """Body size the wall collision uses, from ``Settings.ENV_CAR_PARAMETER_FILE``."""
+def _load_body_size(parameter_file):
+    """(length, width) in meters from a car parameter YAML."""
     from utilities.car_files.vehicle_parameters import VehicleParameters
 
-    car = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
-    return float(car.length), float(car.width)
+    params = VehicleParameters(parameter_file)
+    return float(params.length), float(params.width)
+
+
+def _car_size(is_ego: bool = True) -> tuple[float, float]:
+    """Body size of the ego car or an opponent, read when drawing (after Settings overrides)."""
+    from utilities.car_files.vehicle_parameters import car_parameter_file_for_agent
+
+    return _load_body_size(car_parameter_file_for_agent(is_ego))
 
 class EnvRenderer(pyglet.window.Window):
     """
@@ -420,14 +427,14 @@ class EnvRenderer(pyglet.window.Window):
                     car = self.batch.add(4, GL_QUADS, None, ('v2f', vertices), ('c3B', [172, 97, 185, 172, 97, 185, 172, 97, 185, 172, 97, 185]))
                     self.cars.append(car)
                 else:
-                    vertices_np = get_vertices(np.array([0., 0., 0.]), *_car_size())
+                    vertices_np = get_vertices(np.array([0., 0., 0.]), *_car_size(is_ego=False))
                     vertices = list(vertices_np.flatten())
                     car = self.batch.add(4, GL_QUADS, None, ('v2f', vertices), ('c3B', [99, 52, 94, 99, 52, 94, 99, 52, 94, 99, 52, 94]))
                     self.cars.append(car)
 
         poses = np.stack((poses_x, poses_y, poses_theta)).T
         for j in range(poses.shape[0]):
-            vertices_np = 50. * get_vertices(poses[j, :], *_car_size())
+            vertices_np = 50. * get_vertices(poses[j, :], *_car_size(is_ego=(j == self.ego_idx)))
             vertices = list(vertices_np.flatten())
             self.cars[j].vertices = vertices
         self.poses = poses

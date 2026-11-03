@@ -583,34 +583,51 @@ class VisualizationService:
     def _resolve_safe_path(self, path: str) -> str:
         if not path:
             raise ValueError("Path is empty")
-        abs_path = os.path.abspath(path if os.path.isabs(path) else os.path.join(REPO_ROOT, path))
-        if not abs_path.startswith(REPO_ROOT):
+        raw = path.strip()
+        abs_path = os.path.abspath(raw if os.path.isabs(raw) else os.path.join(REPO_ROOT, raw))
+        try:
+            inside = os.path.commonpath([abs_path, REPO_ROOT]) == os.path.abspath(REPO_ROOT)
+        except ValueError:
+            inside = False
+        if not inside:
             raise ValueError("Path is outside repository root")
         return abs_path
 
     def browse_csv(self, rel_path: str = "") -> Dict[str, Any]:
-        rel_path = rel_path.strip().strip("/")
+        rel_path = (rel_path or "").strip()
+        if rel_path and not os.path.isabs(rel_path):
+            rel_path = rel_path.strip("/")
         target = self._resolve_safe_path(rel_path) if rel_path else REPO_ROOT
         if not os.path.isdir(target):
             raise ValueError(f"Not a directory: {rel_path or '.'}")
 
-        entries = []
-        for name in sorted(os.listdir(target)):
+        directories = []
+        files = []
+        for name in os.listdir(target):
+            if name.startswith("."):
+                continue
             full = os.path.join(target, name)
             rel = os.path.relpath(full, REPO_ROOT)
             if os.path.isdir(full):
-                entries.append({"name": name, "path": rel, "type": "dir"})
-            elif name.endswith(".csv"):
-                entries.append({"name": name, "path": rel, "type": "file"})
+                directories.append({"name": name, "path": rel, "type": "dir"})
+            elif name.lower().endswith(".csv"):
+                files.append({"name": name, "path": rel, "type": "file"})
+        directories.sort(key=lambda entry: entry["name"].lower())
+        files.sort(key=lambda entry: entry["name"].lower())
 
-        parent = os.path.relpath(os.path.dirname(target), REPO_ROOT)
-        if parent == ".":
+        if os.path.abspath(target) == os.path.abspath(REPO_ROOT):
+            current = ""
             parent = ""
+        else:
+            current = os.path.relpath(target, REPO_ROOT)
+            parent = os.path.relpath(os.path.dirname(os.path.abspath(target)), REPO_ROOT)
+            if parent in (".", "..") or parent.startswith(".." + os.sep):
+                parent = ""
         return {
-            "current_path": os.path.relpath(target, REPO_ROOT) if target != REPO_ROOT else "",
+            "current_path": current,
             "parent_path": parent,
             "roots": BROWSE_ROOTS,
-            "entries": entries,
+            "entries": directories + files,
         }
 
     def load_csv_path(self, path: str) -> Dict[str, Any]:

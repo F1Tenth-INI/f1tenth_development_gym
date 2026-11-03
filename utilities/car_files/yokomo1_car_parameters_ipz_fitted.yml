@@ -1,0 +1,65 @@
+# Yokomo1 — parameters used by jax_pacejka / ODE_TF and simulation geometry
+
+mu: 0.6  # friction coefficient [-] (fit 2026-10-26 recordings; steady |a_y| saturates ~5.5-6 m/s^2)
+
+lf: 0.13  # distance from CoG to front axle [m]
+lr: 0.12  # distance from CoG to rear axle [m]
+l_wb: 0.25  # wheel base [m]
+h: 0.06  # center of gravity height [m]
+m: 2.9  # total mass [kg]
+I_z: 0.03  # yaw moment of inertia [kg·m²] (weakly identified by the fit, 0.02-0.03)
+g: 9.81  # gravity [m/s²]
+
+width: 0.25  # car width [m]
+length: 0.38  # car length [m]
+
+s_min: -0.25  # effective steering lock [rad] (fit; larger commands give little extra curvature)
+s_max: 0.25
+sv_min: -3.2
+sv_max: 3.2
+
+a_max: 10.0
+a_min: -10.0
+v_min: -5.0
+v_max: 15.0
+v_switch: 7.319
+
+servo_p: 34
+steering_diff_low: 0.0  # steering deadband [rad]
+
+C_Pf:  # Pacejka front (B, C, D, E)
+  - 4.7
+  - 1.0
+  - 1.0
+  - 0.0
+
+C_Pr:  # Pacejka rear (B, C, D, E)
+  - 4.85
+  - 1.3  # C=1.3 keeps ~90% of peak grip at large slip (data does not identify the fall-off)
+  - 1.0
+  - 0.0
+
+c_rr: 0.10  # rolling resistance coefficient
+v_dead: 0.05  # velocity deadband for resistance sign at low speed [m/s]
+curve_resistance_factor: 0.0  # extra drag from lateral tire forces when cornering (now covered by -F_yf*sin(delta) in the model)
+brake_multiplier: 6.9  # sim-only ESC scale on braking; controller commands are not pre-divided
+accel_multiplier: 1.23  # sim-only ESC scale on acceleration; controller commands are not pre-divided
+steering_multiplier: 1.49  # scales commanded steering (< 1 = less steering)
+
+# IMU mount in body frame relative to rear axle (x forward, y left)
+imu_x: 0.15
+imu_y: 0.0
+
+wheel_radius: 0.05  # drive wheel radius [m]
+motor_command_gain: 11.5  # speed-PI mode only: motor current from commanded speed [A/(m/s)]
+motor_current_offset: 4.0  # speed-PI mode only: motor current offset at zero command [A]
+# Tuned 2026-07-13 gym_bridge recording (PP, ackermann accel -> VESC current)
+velocity_to_current_gain: 2.96  # speed-dependent motor load [A/(m/s)]
+acceleration_to_current_gain: 9.07  # accel demand [A/(m/s^2)]
+deceleration_to_current_gain: 3.62  # decel/regen demand [A/(m/s^2)]
+motor_current_max_a: 65.0  # max drive motor current [A]
+max_brake_current: 50.0  # max regen/brake motor current [A]
+# motor_angular_velocity [ERPM] = speed_to_erpm_gain * linear_vel_x + speed_to_erpm_offset
+# Fitted from 2026-07-13 recording (measured ERPM vs sim linear_vel_x).
+speed_to_erpm_gain: 3079.0  # VESC ERPM gain [ERPM/(m/s)]
+speed_to_erpm_offset: 1281.0  # VESC ERPM offset at zero speed [ERPM]

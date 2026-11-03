@@ -170,12 +170,13 @@
       <div class="modal-body">
         <div class="browse-bar">
           <button type="button" id="browse-up" title="Parent folder">↑</button>
-          <span id="browse-path" class="browse-path">(root)</span>
+          <nav id="browse-path" class="browse-path" aria-label="Current folder"></nav>
         </div>
+        <input type="search" id="browse-filter" placeholder="Filter this folder" autocomplete="off">
         <ul id="file-list" class="file-list"></ul>
         <label class="upload-label">
           Upload CSV
-          <input type="file" id="csv-upload" accept=".csv" hidden>
+          <input type="file" id="csv-upload" hidden>
         </label>
       </div>
     </div>

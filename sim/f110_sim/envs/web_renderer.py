@@ -153,6 +153,8 @@ HTML_PAGE = """<!doctype html>
     let zoom = 60.0; // pixels per meter
     let carLengthM = 0.58;
     let carWidthM = 0.31;
+    let opponentCarLengthM = carLengthM;
+    let opponentCarWidthM = carWidthM;
     const ZOOM_MIN = 15.0;
     const ZOOM_MAX = 300.0;
     const ZOOM_FACTOR = 1.15;
@@ -630,6 +632,8 @@ HTML_PAGE = """<!doctype html>
         const cfg = await r.json();
         if (Number.isFinite(cfg.car_length)) carLengthM = cfg.car_length;
         if (Number.isFinite(cfg.car_width)) carWidthM = cfg.car_width;
+        if (Number.isFinite(cfg.opponent_car_length)) opponentCarLengthM = cfg.opponent_car_length;
+        if (Number.isFinite(cfg.opponent_car_width)) opponentCarWidthM = cfg.opponent_car_width;
       } catch (e) {
         // Keep defaults when ui-config is unavailable.
       }
@@ -861,11 +865,16 @@ HTML_PAGE = """<!doctype html>
           }
         }
 
+        if (Number.isFinite(frame.car_length)) carLengthM = frame.car_length;
+        if (Number.isFinite(frame.car_width)) carWidthM = frame.car_width;
+        if (Number.isFinite(frame.opponent_car_length)) opponentCarLengthM = frame.opponent_car_length;
+        if (Number.isFinite(frame.opponent_car_width)) opponentCarWidthM = frame.opponent_car_width;
         frame.poses.forEach((p, i) => {
           const [sx, sy] = worldToScreen(p[0], p[1], cx, cy);
           const heading = p[2];
-          const carLen = carLengthM * zoom;
-          const carWid = carWidthM * zoom;
+          const isEgo = i === (frame.ego_idx || 0);
+          const carLen = (isEgo ? carLengthM : opponentCarLengthM) * zoom;
+          const carWid = (isEgo ? carWidthM : opponentCarWidthM) * zoom;
           ctx.save();
           ctx.translate(sx, sy);
           ctx.rotate(-heading);
@@ -1471,14 +1480,26 @@ class WebEnvRenderer:
                 payload["frame"] = self._compact_ws_frame(self._state)
         return payload
 
-    def _compact_ws_frame(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def _car_body_payload(self) -> Dict[str, float]:
+        car_length = float(self._ui_config.get("car_length", 0.58))
+        car_width = float(self._ui_config.get("car_width", 0.31))
         return {
+            "car_length": car_length,
+            "car_width": car_width,
+            "opponent_car_length": float(self._ui_config.get("opponent_car_length", car_length)),
+            "opponent_car_width": float(self._ui_config.get("opponent_car_width", car_width)),
+        }
+
+    def _compact_ws_frame(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        frame = {
             "frame_id": int(state.get("frame_id", 0)),
             "ego_idx": int(state.get("ego_idx", 0)),
             "simulation_time": float(state.get("simulation_time", 0.0)),
             "poses": state.get("poses", []),
             "web_overlay": state.get("web_overlay", {}),
         }
+        frame.update(self._car_body_payload())
+        return frame
 
     def _broadcast_ws_frame(self) -> None:
         hub = self._ws_hub
@@ -1598,6 +1619,7 @@ class WebEnvRenderer:
                         "simulation_time": round(sim_time, self._float_precision_digits),
                         "poses": self._round_floats([ego_pose], self._float_precision_digits),
                         "web_overlay": overlay,
+                        **self._car_body_payload(),
                     }
                 )
 
@@ -1699,6 +1721,8 @@ class WebEnvRenderer:
     ) -> Dict[str, Any]:
         car_length = 0.58
         car_width = 0.31
+        opponent_car_length = car_length
+        opponent_car_width = car_width
         control_dt, control_hz, max_sim_frequency = WebEnvRenderer._read_control_timing()
         effective_hz = control_hz
         if max_sim_frequency is not None:
@@ -1706,7 +1730,10 @@ class WebEnvRenderer:
         expected_sim_time_rate = effective_hz * control_dt
         try:
             from utilities.Settings import Settings
-            from utilities.car_files.vehicle_parameters import VehicleParameters
+            from utilities.car_files.vehicle_parameters import (
+                VehicleParameters,
+                car_parameter_file_for_agent,
+            )
 
             controller = str(getattr(Settings, "CONTROLLER", "") or "")
             metrics_enabled = bool(getattr(Settings, "LEARNER_METRICS_HTTP_ENABLED", True))
@@ -1715,9 +1742,12 @@ class WebEnvRenderer:
                 or getattr(Settings, "LEARNER_METRICS_HTTP_PORT", 8070)
             )
             open_default = bool(getattr(Settings, "SAC_METRICS_PANEL_OPEN_DEFAULT", False))
-            car_params = VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE)
+            car_params = VehicleParameters(car_parameter_file_for_agent(True))
             car_length = float(car_params.length)
             car_width = float(car_params.width)
+            opponent_car_params = VehicleParameters(car_parameter_file_for_agent(False))
+            opponent_car_length = float(opponent_car_params.length)
+            opponent_car_width = float(opponent_car_params.width)
         except Exception:
             controller = ""
             metrics_enabled = False
@@ -1754,6 +1784,8 @@ class WebEnvRenderer:
             "draw_polynomial_raceline": draw_polynomial_raceline,
             "car_length": car_length,
             "car_width": car_width,
+            "opponent_car_length": opponent_car_length,
+            "opponent_car_width": opponent_car_width,
             "virtual_opponent_size": [opponent_width, opponent_length],
             "replay_recording_enabled": replay_recording_enabled,
             "replay_total_time": replay_total_time,
@@ -2035,6 +2067,7 @@ class WebEnvRenderer:
                 "simulation_time": round(simulation_time, self._float_precision_digits),
                 "poses": self._round_floats(poses, self._float_precision_digits),
                 "web_overlay": overlay,
+                **self._car_body_payload(),
             }
             self._state.update(self._sim_timing_payload())
             if self._replay_archive_preloaded:
