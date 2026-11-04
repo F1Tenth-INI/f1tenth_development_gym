@@ -56,38 +56,42 @@ class Recorder:
         return self.data_manager.starting_recording
 
     def start_csv_recording(self, time_limited_recording=False):
-        if self.recording_started:
+        if self.recording_started or self.recording_running:
             return
-        
+
         self.recording_started = True
         self.recording_on_off(time_limited_recording)
         self.start_csv_recording_if_requested()
+        if not self.recording_running:
+            self.recording_started = False
 
     def toggle_recording(self, time_limited_recording=False):
         """
         Toggle recording on/off. If not recording, start recording. If recording, stop recording.
-        Returns True if recording was started, False if recording was stopped.
+        Returns True only once the CSV is actually being written, False only once it has stopped,
+        and None when the call changed nothing (still starting, or the start did not come up).
         """
         # (Exclude situation when recording is just being initialized, it may take more than one control iteration)
-        if not self.starting_recording:
-            if not self.recording_running:
-                # Start recording
-                self.controller_info = self.driver.controller_name                
-                self.csv_name = create_csv_file_name(Settings)
+        if self.starting_recording:
+            return None
 
-                if time_limited_recording:
-                    self.recording_length = self.time_limited_recording_length
-                else:
-                    self.recording_length = np.inf
+        if not self.recording_running:
+            self.controller_info = self.driver.controller_name
+            self.csv_name = create_csv_file_name(Settings)
 
-                self.start_recording_flag = True
-                return True  # Recording started
+            if time_limited_recording:
+                self.recording_length = self.time_limited_recording_length
             else:
-                # Stop recording
-                self.finish_csv_recording(wait_till_complete=True)
-                return False  # Recording stopped
-        
-        return None  # No action taken (recording is starting up)
+                self.recording_length = np.inf
+
+            self.start_recording_flag = True
+            # Open the file now. Returning before this used to announce "started"
+            # while recording_running was still false.
+            self.start_csv_recording_if_requested()
+            return True if self.recording_running else None
+
+        self.finish_csv_recording(wait_till_complete=True)
+        return False if not self.recording_running else None
 
     def recording_on_off(self, time_limited_recording=False):
         """
