@@ -165,11 +165,25 @@ def create_track():
     track_xy = [(x, y) for (a1, b1, x, y) in track]
     track_xy = np.asarray(track_xy)
     track_poly = shp.Polygon(track_xy)
-    track_xy_offset_in = track_poly.buffer(WIDTH)
-    track_xy_offset_out = track_poly.buffer(-WIDTH)
-    track_xy_offset_in_np = np.array(track_xy_offset_in.exterior)
-    track_xy_offset_out_np = np.array(track_xy_offset_out.exterior)
+    track_xy_offset_in_np = _wall_coords(track_poly.buffer(WIDTH))
+    track_xy_offset_out_np = _wall_coords(track_poly.buffer(-WIDTH))
+    if track_xy_offset_in_np is None or track_xy_offset_out_np is None:
+        return False
     return track_xy, track_xy_offset_in_np, track_xy_offset_out_np
+
+
+def _wall_coords(geom):
+    """Point array of a wall polygon. Shapely 2's ``np.array(ring)`` is not coordinates."""
+    if geom.is_empty:
+        return None
+    if geom.geom_type == "MultiPolygon":
+        geom = max(geom.geoms, key=lambda g: g.area)
+    if geom.geom_type != "Polygon":
+        return None
+    coords = np.asarray(geom.exterior.coords)
+    if coords.ndim != 2 or len(coords) < 3:
+        return None
+    return coords
 
 
 def convert_track(track, track_int, track_ext, iter):

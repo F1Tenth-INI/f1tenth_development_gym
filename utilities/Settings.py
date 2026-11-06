@@ -9,7 +9,7 @@ class Settings():
     CAR_NAME = "yokomo1"
 
     ## Map ##
-    MAP_NAME = "RCA1"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
+    MAP_NAME = "icra2022"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
     MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
@@ -23,7 +23,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = None   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = 25   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -36,7 +36,7 @@ class Settings():
     
     REVERSE_DIRECTION = False # Drive reverse waypoints
     WAYPOINT_SOURCE = "raceline"  # "raceline": MAP_wp.csv (minimum curvature). "midline": centerline.csv in the map folder. Same interpolation and resolution either way.
-    GLOBAL_WAYPOINT_VEL_FACTOR = 1
+    GLOBAL_WAYPOINT_VEL_FACTOR = 1.0
     
     RANDOM_WAYPOINT_VEL_FACTOR = False
 
@@ -146,9 +146,9 @@ class Settings():
     CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
-    NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    #NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
     #NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    #NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     #NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
@@ -390,7 +390,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 10                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 0.1     # kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0. The offline search preferred 0.1, with the density division left on. There the distance was on standardized inputs; here it is in the encoder embedding, so this is sharper attention in that embedding, not the same bandwidth number
@@ -424,7 +424,7 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
-    MPC_NUM_OF_TRAJECTORIES = 50 
+    MPC_NUM_OF_TRAJECTORIES = 50
     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
@@ -460,7 +460,7 @@ class Settings():
     MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see HWM_WINDOW_ERROR
     MPC_WAYPOINT_WINDOW_MARGIN = 0.15  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
     HWM_PERMANENT_FREEZE_LAPS = 5  # after this many finished laps without a faster one, the table goes back to the one the fastest lap was driven on and is frozen for good: no window updates, staging, filling or HWM_BEST_LAP_RESET_LAPS resets any more, and reverts only as HWM_FROZEN_REVERT allows. 0: off
-    HWM_FROZEN_REVERT = True  # while HWM_PERMANENT_FREEZE_LAPS holds the table, leaving the raceline or crashing still puts the waypoints from MPC_WAYPOINT_REVERT_BEHIND behind the car to MPC_WAYPOINT_REVERT_AHEAD ahead of it back, each time one lap further than the version they hold (starting at the fastest lap), from the window history kept through the freeze. No window updates otherwise. False: the frozen table never changes
+    HWM_FROZEN_REVERT = False  # while HWM_PERMANENT_FREEZE_LAPS holds the table, leaving the raceline or crashing still puts the waypoints from MPC_WAYPOINT_REVERT_BEHIND behind the car to MPC_WAYPOINT_REVERT_AHEAD ahead of it back, each time one lap further than the version they hold (starting at the fastest lap), from the window history kept through the freeze. No window updates otherwise. False: the frozen table never changes
     HWM_BEST_LAP_DRIVEN_TABLE = True  # the table kept for the fastest lap (HWM_PERMANENT_FREEZE_LAPS, HWM_BEST_LAP_RESET_LAPS) is every waypoint as it was when the car reached it in that lap. False: the table at the start of that lap, which still has the window updates made during the lap to the waypoints near its end
     HWM_BEST_LAP_RESET_LAPS = 5  # with window updates: after this many laps without a faster one, the table goes back to the one the fastest lap started with, and window updates go on from there. None: off
     HWM_WINDOW_LAGS = None  # several window updates per step, at these lags behind the car, sharing MPC_WAYPOINT_WINDOW_SAMPLES. They must be at least MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM + 1 apart, so their waypoints do not overlap. None: one at MPC_WAYPOINT_WINDOW_LAG
