@@ -1,0 +1,13 @@
+image: OAI_generator_7_4.png
+resolution: 0.05
+origin:
+- -19.976287238109432
+- -17.366288711046913
+- 0.0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196
+starting_positions:
+- - 37.44639827599986
+  - -6.2357903458364365
+  - 1.4384993727168478

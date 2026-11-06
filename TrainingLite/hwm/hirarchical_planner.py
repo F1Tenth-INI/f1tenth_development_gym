@@ -2987,10 +2987,69 @@ class HirarchicalPlanner(template_planner):
         s = np.broadcast_to(np.asarray(state, dtype=np.float32), (batch, int(Settings.HWM_STATE_DIM))).copy()
         run = self._pacejka_scan_rollout()
         PROF.end()
+
+        def rollout(lo: int, hi: int, rows: int) -> np.ndarray:
+            """Sequences ``lo`` to ``hi``, padded with copies of the last one to ``rows`` rows."""
+            pad = np.repeat(np.arange(lo, hi), [1] * (hi - lo - 1) + [rows - (hi - lo) + 1])
+            out = run(jnp.asarray(s[pad]), jnp.asarray(actions[pad]), jnp.asarray(pending[pad]))
+            return np.array(out, dtype=np.float32, copy=True)[: hi - lo]
+
         with PROF.section("jax_scan_incl_transfer_and_sync"):
-            out = np.array(run(jnp.asarray(s), jnp.asarray(actions), jnp.asarray(pending)), dtype=np.float32, copy=True)
+            out = self._split_rollout(rollout, batch, (batch, horizon, int(pending.shape[1])))
         with PROF.section("stack_to_torch"):
             return torch.as_tensor(out[:batch])
+
+    def _split_rollout(self, rollout, batch: int, shape: tuple[int, int, int]) -> np.ndarray:
+        """``rollout(lo, hi, rows)`` over the whole batch, run in chunks on ``HWM_ROLLOUT_THREADS`` threads.
+
+        XLA's code for a batch computes most samples vectorized and the last few on a scalar path that
+        rounds differently, and which samples those are depends on the batch size. So a split is only used
+        once it reproduced one call over the whole batch bit for bit; the first rollout of every shape
+        makes that check, the shapes no split reproduces stay one call.
+        """
+        threads = int(Settings.HWM_ROLLOUT_THREADS)
+        if threads <= 1 or batch < 32:
+            return rollout(0, batch, batch)
+        plans = getattr(self, "_rollout_plans", None)
+        if plans is None:
+            plans = self._rollout_plans = {}
+        if shape in plans:
+            plan = plans[shape]
+            if plan is None:
+                return rollout(0, batch, batch)
+            return np.concatenate(list(self._rollout_pool(threads).map(lambda chunk: rollout(*chunk), plan)))
+        whole = rollout(0, batch, batch)
+        plans[shape] = None
+        for plan in self._rollout_split_candidates(batch, threads):
+            out = np.concatenate(list(self._rollout_pool(threads).map(lambda chunk: rollout(*chunk), plan)))
+            if out.tobytes() == whole.tobytes():
+                plans[shape] = plan
+                break
+        return whole
+
+    @staticmethod
+    def _rollout_split_candidates(batch: int, threads: int) -> list[list[tuple[int, int, int]]]:
+        """Splits ``[(lo, hi, rows)]`` to try: the first ``vectorized`` samples in chunks of a multiple of 8 and
+        the rest padded to 9 rows, a batch size XLA computes entirely on the scalar path."""
+        candidates = []
+        for vectorized in dict.fromkeys((batch - batch % 8, batch - batch % 4, batch, batch - batch % 16)):
+            per_thread = -(-vectorized // threads)
+            size = -(-per_thread // 8) * 8
+            plan = [(lo, min(lo + size, vectorized), min(lo + size, vectorized) - lo) for lo in range(0, vectorized, size)]
+            if vectorized < batch:
+                plan.append((vectorized, batch, max(batch - vectorized, 9)))
+            candidates.append(plan)
+        return candidates
+
+    def _rollout_pool(self, threads: int):
+        pools = getattr(self, "_rollout_pools", None)
+        if pools is None:
+            pools = self._rollout_pools = {}
+        if threads not in pools:
+            from concurrent.futures import ThreadPoolExecutor
+
+            pools[threads] = ThreadPoolExecutor(threads, thread_name_prefix="hwm-rollout")
+        return pools[threads]
 
     def _log_attention(self) -> None:
         """Log the attention statistics of the last LLD forward pass (main head, and the covariance head if on)."""

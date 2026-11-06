@@ -390,7 +390,7 @@ class Settings():
     
     # ----------- Important settings -----------
 
-    HWM_SIM_SPEED = 1                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
+    HWM_SIM_SPEED = 10                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 0.1     # kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0. The offline search preferred 0.1, with the density division left on. There the distance was on standardized inputs; here it is in the encoder embedding, so this is sharper attention in that embedding, not the same bandwidth number
@@ -424,6 +424,7 @@ class Settings():
     HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
+    HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
     MPC_NUM_OF_TRAJECTORIES = 50
     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
