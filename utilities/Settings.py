@@ -362,20 +362,15 @@ class Settings():
     ## Hierarchical world-model planner (TrainingLite/hwm) 
     HWM_INFERENCE_MODEL_NAME = None      # None -> training mode (weights from learner over TCP); str -> load models/<name>/ from disk, no TCP
     HWM_AGENT_DEBUG = False
-    HWM_STREAM_BATCH_SIZE = 16 #128           # stream [state, action] rows to the learner every N control steps
-    HWM_MIN_EPISODE_END_BATCH_SIZE = 2   # skip episode-end batches shorter than this
     HWM_MAX_TRANSLATIONAL_CONTROL = 12.0  # clip on physical translational control
     HWM_WALL_POINTS = 40                 # relative wall points per side fed to the observation builder
-    HWM_CONTEXT_LEN = 16                 # recent [state, action] rows available to the observation builder
     HWM_SUPER_STATE_SIZE = 3             # [state, action] steps in one LLD superstate
     HWM_LLD_BATCH_SIZE = 32              # independent random transitions per LLD update
     HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They are dropped with the other unreferenced rows once the episode closes. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
     HWM_PP_DRIVES = False                # Pure Pursuit drives instead of the actor; its rows still train the learner
-    HWM_PP_UNTIL_WEIGHTS = False         # Pure Pursuit until the learner's first weight broadcast; False -> drive immediately with the local weights, including the random init
     HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
     HWM_SIM_USE_LLD = False              # the car is stepped by the LLD once per control step, instead of the Pacejka model. The action is the one just commanded, matching how the LLD is trained
-    HWM_SIM_LLD_SAMPLE = False           # with HWM_SIM_USE_LLD: False -> the LLD mean (expected next state). True -> one sample from the LLD
     HWM_LLD_PREVIEW_SAMPLES = 10         # sampled LLD rollouts for the mean path and its uncertainty band
     HWM_LLD_STUDENT_T = True            # False: the LLD predicts a Gaussian. True: one multivariate Student-t with the same weighted mean and weighted covariance (no (1 + 1/n) factor, that is Gaussian only) and nu = max(HWM_LLD_T_MIN_DOF, n - d), d the delta dimension, n = n_soft. Training maximizes its log likelihood. The predicted mean, scale_tril and noise inversion keep their meaning; sample() draws from the t
     HWM_LLD_CORRECTION_INPUT_RESIDUAL = False  # the attention mean of the retrieved residuals (detached) is an extra input of g at the query (zero at the keys, whose residuals must not depend on it)
@@ -392,7 +387,6 @@ class Settings():
 
     HWM_SIM_SPEED = 10                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
-    HWM_LLD_PREVIEW_EVERY = 1            # recompute the preview every N control steps
     HWM_LLD_ATTENTION_TEMPERATURE = 0.1     # kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0. The offline search preferred 0.1, with the density division left on. There the distance was on standardized inputs; here it is in the encoder embedding, so this is sharper attention in that embedding, not the same bandwidth number
     HWM_LLD_T_MIN_DOF = 5             # floor of nu. None: 2, the smallest nu with a finite covariance. Must be > 0
     HWM_LLD_ALONE_LIKELIHOOD = True    # with HWM_LLD_CORRECTION_ALONE. False: g(q) is trained by the squared error against the recorded delta. True: by the log-likelihood of the delta with g(q) alone as the mean (Student-t / Gaussian as the LLD), the scale and df being those of the LLD prediction, detached. Bounded gradient for large errors, channels weighted by the covariance
@@ -408,7 +402,6 @@ class Settings():
     MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT = False  # after two finished laps without a new best lap time, the waypoints (state targets and action sequences) are put back to what they were right after the last lap that improved the best, and then frozen. While frozen the live table stays put, but each lap's own target states and action sequences are recorded aside; a lap that beats the best replaces the table with those and updates resume. A slower frozen lap is discarded. The best starts unset, so the first two laps can never trigger it
     HWM_LLD_TRAIN_ON_ALL_ROWS = True  # the learner keeps every incoming row (except the dropped final rows of an episode) and the residual net and encoder train on all of them. The key bank still limits which windows can be retrieved as neighbors. False: rows no kept key reads are dropped, so training sees only the bank's windows. memory.pt then holds all rows too
     HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation. Rows no kept key uses are dropped; the arrays grow when more rows arrive
-    HWM_LOW_LEVEL_DISCOUNT = 0.99        # per-control-step discount for low-level values, on top of crash survival
     HWM_MEMORY_BANK_SIZE = 3000       # number of superstates (keys) kept in the memory's key bank. The LLD attends over all of them, expanded over the whole batch
     HWM_MEMORY_BANK_EXCLUDE_OVERLAP = True  # n_soft of a key ignores keys that share a row with it (|Δ row| <= S), which are near copies of it
 
@@ -551,8 +544,6 @@ class Settings():
     MPC_WAYPOINT_REJECT_OFF_TRACK = False  # True: a stored action sequence whose path leaves the track (farther than MPC_WAYPOINT_UPDATE_DISTANCE from the raceline) counts as bad too, like a wall hit. Handled as the flag above says: restore the last good one if that flag is on, else delete. False: only walls count
     MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS = False  # True: when a waypoint's action update is rejected, its state (position, speed, heading, drift, steer, yaw rate, slip) goes back to the last good one with it. When its sequence is deleted, the state is reset to the loaded raceline. False: only the action sequence is touched
     HWM_SEED_FROM_ROLLOUT = True  # True: once stored sequences exist, the sampling seed is not the blend of the two neighbouring waypoints' sequences. That blend is rolled out with the model, and action k becomes the mix of the first stored actions of the two waypoints around rollout state k (the running plan's action k where neither has one)
-    HWM_LLD_ROLLOUT_CPU_COMPILE = "horizon"  # CPU path when no GPU graph is used: "horizon" compiles the whole 25-step LLD rollout (about 20 s per batch size, once, at the first rollout), "step" compiles one step (fast to build, slower to run), None: eager. Same math as the eager rollout up to float32 rounding; default config only (no REFLECT / displacement channels), else eager
-    HWM_LLD_ROLLOUT_CUDA_GRAPH = True  # the planner's LLD rollout (memory mode) replays the whole horizon as one CUDA graph on a GPU copy of the LLD, instead of ~25 sequential eager steps. Same math; the key bank is padded with invalid keys. Falls back to eager if there is no GPU or capture fails
     HWM_LLD_RESIDUAL_ONLY = False  # TEST. Inference (planner rollouts, preview, LLD-sim, rewards) uses the residual net g(q) alone as the LLD: no memory retrieval, no attention. Training (learner, train mode) is unchanged. The predicted covariance becomes a fixed isotropic one, so sampled paths and the crash probability see almost no uncertainty
     HWM_LLD_RESIDUAL_ONLY_STD = 1e-3  # scale of that fixed covariance, in delta units
     HWM_PROFILE = False  # time every part of the HWM control step and write a report (HWM_PROFILE_FILE .txt/.json) at exit. See TrainingLite/hwm/profiling.py and scripts/profile_hwm.py
@@ -566,7 +557,6 @@ class Settings():
     MPC_ACTION_DEVIATION_CHANNEL_WEIGHTS = [1.0, 1.0]  # [steering, acceleration] weights of that distance
     MPC_WALL_DISTANCE_WEIGHT = 0  # reward per meter of distance to the nearest wall, averaged over each sampled rollout (every state counts, crash or not). Added to the drive reward only. 0: off
     MPC_WALL_DISTANCE_CAP = 0.3  # [m] distances above this earn nothing more
-    HWM_SHOW_LLD_PATH = True  # draw the black path: the LLD's mean prediction of the driven action sequence from the current state (the orange path is the same sequence in Pacejka). Costs one LLD rollout per control step
     HWM_SHOW_WAYPOINT_PATHS = True  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
     HWM_LIMIT_INITIAL_WP_SPEED = True # Limits initial target speed of Waypoints to 
     HWM_INITIAL_SPEED_LIMIT = 1.5 # [m/s]

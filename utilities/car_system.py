@@ -823,7 +823,7 @@ class CarSystem:
         hwm_drives = (
             planner is not None
             and type(planner).__name__ == "HirarchicalPlanner"
-            and planner._hwm_policy_drives()
+            and planner.autonomous_driving
         )
         if hwm_drives:
             planner._ensure_waypoints()

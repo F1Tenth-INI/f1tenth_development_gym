@@ -333,6 +333,23 @@ class WallGeometry:
 
     def _grid_cells(self, p: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """``(rows, cols, inside)`` of the map cells under world points ``(..., 2)``, clamped to the image."""
+        if p.device.type == "cpu":
+            q = p.detach().numpy()
+            x_t = q[..., 0] - self.origin_x
+            y_t = q[..., 1] - self.origin_y
+            x_rot = x_t * self.origin_cos + y_t * self.origin_sin
+            y_rot = -x_t * self.origin_sin + y_t * self.origin_cos
+            inside = (
+                (x_rot >= 0) & (x_rot < self.map_width * self.resolution)
+                & (y_rot >= 0) & (y_rot < self.map_height * self.resolution)
+            )
+            # fmax takes 0 over NaN, as nan_to_num does in the torch path.
+            cols = np.fmin(np.fmax(np.floor(x_rot / self.resolution), 0.0), self.map_width - 1)
+            rows = np.fmin(np.fmax(np.floor(y_rot / self.resolution), 0.0), self.map_height - 1)
+            return (
+                torch.from_numpy(np.asarray(rows, dtype=np.int64)), torch.from_numpy(np.asarray(cols, dtype=np.int64)),
+                torch.from_numpy(np.asarray(inside)),
+            )
         x_t = p[..., 0] - self.origin_x
         y_t = p[..., 1] - self.origin_y
         x_rot = x_t * self.origin_cos + y_t * self.origin_sin

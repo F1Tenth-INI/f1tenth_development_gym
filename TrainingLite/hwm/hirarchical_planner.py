@@ -1,30 +1,13 @@
-"""Hierarchical world-model planner (client side).
+"""Hierarchical planner: sampling MPC on the Pacejka model, seeded from a waypoint table it improves while driving.
 
-Mirrors the SAC actor lifecycle in ``TrainingLite/rl_racing/sac_agent_planner.py``:
-
-* ``Settings.HWM_INFERENCE_MODEL_NAME`` is None  -> TRAINING: connect to the learner,
-  stream ``[state, action]`` rows (10-d car state + the raw model action, before
-  clipping or denormalization, nothing else from the observation dict), apply broadcast
-  weights, Pure Pursuit until the first weights arrive.
-* ``Settings.HWM_INFERENCE_MODEL_NAME`` is a name -> INFERENCE: load
-  ``TrainingLite/hwm/models/<name>/`` from disk, no TCP.
-
-Insertion points (the only methods meant to be edited):
-
-    build_observation(state)          -> torch.Tensor      (delegates to shared/observation.py)
-    select_action(obs, state)         -> np.ndarray [-1,1]^2
-
-Everything else is transport, bookkeeping and fallback plumbing.
+The control step is ``select_action(state)``. The commands go out in network units: ``±1`` is
+``±HWM_ACTION_DENORM`` on the car.
 """
 
 from __future__ import annotations
 
 import collections
-import copy
-import os
-import signal
 import sys
-import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -33,26 +16,12 @@ import torch
 
 from Control_Toolkit_ASF.Controllers import template_planner
 from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
-from TrainingLite.hwm.comm.tcp_client import HWMTCPClient
-from TrainingLite.hwm.lld_preview import BackgroundPreview, LLDPreview
-from TrainingLite.hwm.paths import resolve_model_dir
 from TrainingLite.hwm.profiling import PROF
-from TrainingLite.hwm.models.bundle import ModelBundle
-from TrainingLite.hwm.models.networks import build_models, residual_only_inference
-from TrainingLite.hwm.shared.memory_manager import MemoryManager
-from TrainingLite.hwm.shared.observation import (
-    _normalize_rows,
-    _normalize_states,
-    build_actor_observation,
-    build_LLD_observation_inference,
-    lld_rows_for_super,
-)
 from TrainingLite.hwm.shared.speed_profile import grip_speed_profile as _grip_speed_profile
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
 from utilities.Settings import Settings
 from utilities.test_track import command as test_track_command
 from utilities.test_track import enabled as test_track_enabled
-from utilities.test_track import store_memory as test_track_store_memory
 
 from utilities.state_utilities import (
     ANGULAR_VEL_Z_IDX,
@@ -94,8 +63,6 @@ except RuntimeError:
 
 
 class HirarchicalPlanner(template_planner):
-    BOOTSTRAP_ROWS = 2
-
     # ------------------------------------------------------------------
     # Logging
     # ------------------------------------------------------------------
@@ -113,39 +80,7 @@ class HirarchicalPlanner(template_planner):
         super().__init__()
         self._log_info("Initializing HirarchicalPlanner")
 
-        self.inference_model_name: Optional[str] = Settings.HWM_INFERENCE_MODEL_NAME
-        self.training_mode = self.inference_model_name is None
-
-        # Shared components (identical construction on the learner, both from Settings).
         self.wall_geometry = WallGeometry()
-        self.models: ModelBundle = build_models().to("cpu").eval()
-        self.memory = MemoryManager(device="cpu")
-        lld = self.models["LLD"]
-        self.memory.attach_projector(lld.attention_norm_projector)
-        # Bumped at every episode start so preview results from older episodes are ignored.
-        self._generation = 0
-        # The background preview rolls out its own copies of the actor and the LLD. The control thread
-        # also runs the LLD every step, and a shared module produces garbage paths.
-        self._display_lock = threading.Lock()
-        self._display_actor = copy.deepcopy(self.models["actor"]).eval()
-        self._display_lld = copy.deepcopy(self.models["LLD"]).eval()
-
-        self.client: Optional[HWMTCPClient] = None
-        self.latest_training_info: Optional[Dict[str, Any]] = None
-        self._received_weights = not self.training_mode
-        self._warned_no_weights = False
-        self._server_handshake: Optional[dict] = None
-
-        if self.training_mode:
-            self._log_info("[HirarchicalPlanner] Mode: TRAINING (weights from learner over TCP)")
-            host = str(getattr(Settings, "LEARNER_TCP_HOST", "127.0.0.1"))
-            port = int(getattr(Settings, "LEARNER_TCP_PORT", 5555))
-            self.client = HWMTCPClient(host=host, port=port)
-            self.client.start()
-            self._log_info(f"[HirarchicalPlanner] TCP client -> {host}:{port}")
-        else:
-            self._log_info(f"[HirarchicalPlanner] Mode: INFERENCE (model: {self.inference_model_name})")
-            self._init_inference_models()
         if Settings.HWM_SIM_SPEED is not None:
             speed = float(Settings.HWM_SIM_SPEED)
             if speed <= 0:
@@ -163,30 +98,18 @@ class HirarchicalPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
-        self.terminate_server_after_simulation = True
         self.autonomous_driving = not Settings.HWM_PP_DRIVES
 
         self.fallback_planner = PurePursuitPlanner()
         self._controller_observation: Optional[Dict[str, Any]] = None
-        self.lld_preview: Optional[LLDPreview] = None
-        self.preview_worker: Optional[BackgroundPreview] = None
-        self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
-        if Settings.HWM_LLD_PREVIEW and not Settings.HWM_LIVE_MODE:
-            self.lld_preview = LLDPreview(self._display_lld, self._display_actor, self.memory, self.wall_geometry)
-            self.preview_worker = BackgroundPreview(self._preview_job)
 
-        # Episode / streaming bookkeeping.
         self.control_index = 0
         self.total_timesteps = 0
         self.episode_timesteps = 0
         self._episode_id = 0
-        # Test track without memory storage: the drive's own [state, action] rows, which the
-        # preview needs for its history and the control-delay line.
-        self._test_rows: list[np.ndarray] = []
-        self._stream_send_idx = 0
-        self._stream_batch_size = int(Settings.HWM_STREAM_BATCH_SIZE)
-        self._bootstrap_sent = False
-        
+        # The commands issued this episode that the car has not applied yet (CONTROL_DELAY), oldest first.
+        self._issued: collections.deque[np.ndarray] = collections.deque(maxlen=self._control_delay_steps())
+
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self.former_nearest_waypoint = None
         # Turns on when the car leaves the raceline or the reward EMA drops. Updates stay
@@ -219,43 +142,26 @@ class HirarchicalPlanner(template_planner):
         PROF.enable(
             output_path=str(getattr(Settings, "HWM_PROFILE_FILE", "hwm_profile")),
             skip_first=int(getattr(Settings, "HWM_PROFILE_SKIP_STEPS", 30)),
-            dynamics="pacejka" if Settings.RUN_MPC_WITH_PACEJKA else (
-                "lld_residual_only" if residual_only_inference() else "lld"
-            ),
+            dynamics="pacejka",
             samples=int(Settings.MPC_NUM_OF_TRAJECTORIES),
             horizon=int(Settings.MPC_TRAJECTORY_LENGTH),
         )
         PROF.instrument(self, [
             "_refresh_recovery", "_interpolated_waypoint_actions", "_rollout_seeded_actions",
-            "_sample_mpc_actions", "rollout_dynamics", "rollout_pacejka", "rollout_lld",
+            "_sample_mpc_actions", "rollout_dynamics", "rollout_pacejka",
             "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_interpolated_target_costs", "_matched_waypoint_costs", "_recovery_cost",
             "_backtrack_cost", "_note_reward", "_draw_mpc_trajectories", "_weighted_state_trajectory",
             "_update_from_driven_plan", "_commit_staged_waypoints",
             "_commit_staged_actions", "_record_waypoint_action", "_discard_wall_sequences",
             "_paths_leave_track", "_publish_waypoint_display", "_refresh_waypoint_paths",
-            "_seed_from_states", "_ensure_waypoints", "build_observation", "_apply_normalized_action",
-            "_maybe_update_lld_preview", "_record_step", "_sync_from_server", "_maybe_handle_server_terminate",
-            "get_car_state", "_fallback_action", "_update_stall", "_update_recover_mode",
-            "_maybe_stream_send", "_maybe_bootstrap_send", "_log_attention_test_track",
-            "lld_dynamics_step", "select_action",
+            "_seed_from_states", "_ensure_waypoints", "_apply_normalized_action",
+            "_record_step", "get_car_state", "_fallback_action", "_update_stall", "_update_recover_mode",
+            "select_action",
         ])
-        PROF.instrument(self.memory, [
-            "add_step", "recent", "lld_bank", "get_all_matches", "refresh_embeddings", "preceding",
-        ], prefix="memory.")
         PROF.instrument(self.wall_geometry, [
             "in_wall", "distance_at", "crash_probability",
         ], prefix="wall.")
-        PROF.instrument(self.models["LLD"], [
-            "reconstruct_next_state", "mean_delta", "_mean_delta_core", "_correct", "forward",
-        ], prefix="LLD.")
-        PROF.instrument(self.models["actor"], ["forward"], prefix="actor.")
         PROF.instrument(self.fallback_planner, ["process_observation"], prefix="pure_pursuit.")
-        glob = globals()
-        for name in ("build_actor_observation", "build_LLD_observation_inference"):
-            if not getattr(glob[name], "_profiled", False):
-                timed = PROF.wrap(glob[name], name)
-                timed._profiled = True
-                glob[name] = timed
 
     def reset(self):
         self.control_index = 0
@@ -264,9 +170,6 @@ class HirarchicalPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
-        # Episode rows are kept until on_step_end() sees done; see _reset_episode_state().
-        self._generation += 1
-        self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self._last_opt_wp = None
         self._mean_state_seed = None
@@ -508,24 +411,6 @@ class HirarchicalPlanner(template_planner):
         width = min(int(source.shape[1]), WP_TARGET_DRIFT_IDX)
         source[:, :width] = self.waypoints[:, :width].detach().cpu().numpy()
 
-    def _hwm_policy_drives(self) -> bool:
-        """True only while this planner's own policy is commanding the car."""
-        if not self.autonomous_driving:
-            return False
-        if not self._received_weights and Settings.HWM_PP_UNTIL_WEIGHTS:
-            return False
-        return True
-
-    def _refresh_display_models(self) -> None:
-        """Copy the live actor and LLD into the modules the background paths roll out."""
-        with self._display_lock:
-            self._display_actor.load_state_dict(self.models["actor"].state_dict())
-            self._display_lld.load_state_dict(self.models["LLD"].state_dict())
-
-    def _preview_job(self, **kwargs: Any) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
-        self._refresh_display_models()
-        return self.lld_preview.compute(**kwargs)
-    
     def nearest_waypoint_index(self, state: torch.Tensor) -> torch.Tensor:
         """First raceline index ahead of each state along the track. Returns ``(B,)`` long.
 
@@ -615,15 +500,15 @@ class HirarchicalPlanner(template_planner):
         dist = (pos.unsqueeze(2) - wp.unsqueeze(1)).pow(2).sum(dim=-1)
         in_range = offset.unsqueeze(0) < counts.unsqueeze(1)
         dist = dist.masked_fill(~in_range.unsqueeze(1), float("inf"))
-        taken = torch.zeros(batch, steps, dtype=torch.bool)
+        dist, in_range, out_np = dist.numpy(), in_range.numpy(), out.numpy()
+        taken = np.zeros((batch, steps), dtype=bool)
+        rows = np.arange(batch)
         for j in range(look):
-            column = dist[:, :, j].masked_fill(taken, float("inf"))
-            best = column.argmin(dim=1)
-            reachable = in_range[:, j] & torch.isfinite(column.gather(1, best.unsqueeze(1)).squeeze(1))
-            out[reachable, j] = best[reachable].to(out.dtype)
-            mark = torch.zeros_like(taken)
-            mark.scatter_(1, best.unsqueeze(1), reachable.unsqueeze(1))
-            taken |= mark
+            column = np.where(taken, np.float32(np.inf), dist[:, :, j])
+            best = column.argmin(axis=1)
+            reachable = in_range[:, j] & np.isfinite(column[rows, best])
+            out_np[reachable, j] = best[reachable]
+            taken[rows[reachable], best[reachable]] = True
         return out
 
     def _matched_waypoint_costs(
@@ -978,15 +863,6 @@ class HirarchicalPlanner(template_planner):
             + float(cfg["yaw_rate"]) * yaw.mean(dim=1)
         )
 
-    def build_observation(self, state: np.ndarray) -> dict[str, torch.Tensor]:
-            """Actor input for the current raw state. Shared implementation with the learner."""
-            return build_actor_observation(
-                state=state,
-                memory=self.memory,
-                wall_geometry=self.wall_geometry,
-                episode_id=self._episode_id,
-            )
-
     def _fit_horizon(self, seq: torch.Tensor, horizon: int) -> torch.Tensor:
         """Crop or repeat the last action so ``seq`` ``(H, 2)`` has ``horizon`` steps."""
         seq = seq.reshape(-1, 2)
@@ -1017,9 +893,16 @@ class HirarchicalPlanner(template_planner):
         if rho > 0.0:
             with PROF.section("temporal_correlation_loop"):
                 fresh = (1.0 - rho * rho) ** 0.5
-                actions[:, 0] = nominal[0] + eps[:, 0] * noise_std
-                for t in range(1, eps.shape[1]):
-                    actions[:, t] = rho * actions[:, t - 1] + (1.0 - rho) * nominal[t] + fresh * noise_std * eps[:, t]
+                drift = ((1.0 - rho) * nominal).numpy()
+                kick = (fresh * noise_std * eps).numpy().transpose(1, 0, 2).copy()
+                out = actions.numpy()
+                steps = out.transpose(1, 0, 2).copy()
+                for t in range(1, int(eps.shape[1])):
+                    step = steps[t]
+                    np.multiply(steps[t - 1], np.float32(rho), out=step)
+                    np.add(step, drift[t], out=step)
+                    np.add(step, kick[t], out=step)
+                out[:] = steps.transpose(1, 0, 2)
         with PROF.section("clamp"):
             brake_limit, accel_limit = self._translational_limits()
             actions[..., 0].clamp_(-1.0, 1.0)
@@ -2011,11 +1894,12 @@ class HirarchicalPlanner(template_planner):
     def _timeline_at(values: torch.Tensor, start: float, times: torch.Tensor) -> torch.Tensor:
         """``values`` ``(L, 2)`` issued at times ``start, start + 1, ...``, linearly interpolated at ``times`` ``(Q,)``, held at both ends."""
         last = int(values.shape[0]) - 1
-        pos = (times - float(start)).clamp(0.0, float(last))
-        lo = pos.floor().long().clamp(max=last)
-        hi = (lo + 1).clamp(max=last)
-        frac = (pos - lo.to(pos.dtype))[:, None]
-        return values[lo] * (1.0 - frac) + values[hi] * frac
+        values, times = values.numpy(), times.numpy()
+        pos = np.minimum(np.maximum(times - times.dtype.type(start), 0.0), float(last))
+        lo = np.minimum(np.floor(pos).astype(np.int64), last)
+        hi = np.minimum(lo + 1, last)
+        frac = (pos - lo.astype(pos.dtype))[:, None]
+        return torch.from_numpy(values[lo] * (1.0 - frac) + values[hi] * frac)
 
     def _write_waypoint_state(self, idx: int, state: torch.Tensor) -> None:
         """Waypoint ``idx`` takes the car state ``state``, its position put on the waypoint's cross-track line."""
@@ -2067,9 +1951,7 @@ class HirarchicalPlanner(template_planner):
         if not idx.numel():
             return
         times, at = self._line_crossings(path, idx, reach=None if refill is None else float(Settings.HWM_REFILL_REACH))
-        delay = int(self._wp_pending.shape[1])
-        rows, _ = self.memory.recent(self._episode_id, delay)
-        pending = rows[:, int(Settings.HWM_STATE_DIM):].to(torch.float32).cpu()
+        pending = self._issued_actions()
         filled = False
         for j in torch.nonzero(~torch.isnan(times[0])).flatten().tolist():
             k = int(idx[j])
@@ -2230,9 +2112,7 @@ class HirarchicalPlanner(template_planner):
             # Free driving uses MPC_FREE_TRAJECTORY_LENGTH. A window sample stays at MPC_TRAJECTORY_LENGTH.
             trajectories = self.rollout_dynamics(state, actions)
             return trajectories, [self._rollout_window(window) for window in windows]
-        delay = int(windows[0][2].shape[0])
-        rows, _ = self.memory.recent(self._episode_id, delay)
-        drive_pending = rows[:, int(Settings.HWM_STATE_DIM):].to(torch.float32).cpu()
+        drive_pending = self._issued_actions()
         starts = [torch.as_tensor(state, dtype=torch.float32).reshape(1, -1).expand(batch, -1)]
         queues = [drive_pending[None].expand(batch, -1, -1)]
         sequences = [actions]
@@ -2434,14 +2314,12 @@ class HirarchicalPlanner(template_planner):
             from utilities.car_files.vehicle_parameters import VehicleParameters
             self._arrow_speed_max = max(float(VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).v_max), 1e-3)
         scale = np.clip(np.abs(speed) / self._arrow_speed_max, 0.0, 1.0)
-        stops = ((0, 190, 0), (240, 220, 0), (255, 140, 0), (210, 30, 20))
-        colors = []
-        for t in scale:
-            x = float(t) * (len(stops) - 1)
-            i = min(int(x), len(stops) - 2)
-            f = x - i
-            a, b = stops[i], stops[i + 1]
-            colors.append([int(round(a[c] + (b[c] - a[c]) * f)) for c in range(3)])
+        stops = np.array(((0, 190, 0), (240, 220, 0), (255, 140, 0), (210, 30, 20)), dtype=np.float64)
+        x = scale.astype(np.float64) * (len(stops) - 1)
+        i = np.minimum(x.astype(np.int64), len(stops) - 2)
+        f = (x - i)[:, None]
+        a, b = stops[i], stops[i + 1]
+        colors = np.rint(a + (b - a) * f).astype(np.int64).tolist()
         counts = getattr(self, "_wp_off_track_count", None)
         if counts is not None:
             scene.set_dynamic_points(
@@ -2611,21 +2489,8 @@ class HirarchicalPlanner(template_planner):
         scene.set_trajectories("hwm.opt_plan", None)
         scene.set_dynamic_points("hwm.waypoints", None)
 
-    def select_action(self, obs: dict[str, torch.Tensor], state: np.ndarray) -> np.ndarray:
-        """Policy in network output units. ``±1`` is ``±action_denorm`` on the car.
-
-        Default: one sample of the actor (``HWM_SAMPLE_ACTIONS``) or its squashed
-        Gaussian mean once weights are available, Pure Pursuit before that when
-        ``HWM_PP_UNTIL_WEIGHTS`` is set. Pure Pursuit is not clipped, so it can leave ``[-1, 1]``.
-        """
-        if not self._received_weights and Settings.HWM_PP_UNTIL_WEIGHTS:
-            self._ensure_waypoints()
-            self._clear_waypoint_display()
-            if not self._warned_no_weights:
-                self._log_info("[HirarchicalPlanner] No weights yet; using Pure Pursuit fallback")
-                self._warned_no_weights = True
-           # return self._fallback_action()
-
+    def select_action(self, state: np.ndarray) -> np.ndarray:
+        """The MPC command for ``state``, in network output units. ``±1`` is ``±action_denorm`` on the car."""
         with torch.no_grad():
             self._refresh_recovery(state)
             # Recovery samples around the previous plan. Stored waypoint sequences are only
@@ -2680,11 +2545,7 @@ class HirarchicalPlanner(template_planner):
                 with PROF.section("display_rollouts"):
                     with PROF.section("pacejka_of_mean_sequence"):
                         pacejka = self.rollout_pacejka(state, action_seq)
-                    lld_path = None
-                    if Settings.HWM_SHOW_LLD_PATH and getattr(self, "render_utils", None) is not None:
-                        with PROF.section("lld_of_mean_sequence"):
-                            lld_path = self.rollout_lld(state, action_seq)[0][0]
-                    self._draw_mpc_trajectories(trajectories, pacejka, lld_path)
+                    self._draw_mpc_trajectories(trajectories, pacejka)
             if self._stall_phase != 1 and Settings.MPC_STALL_ON_BLOCKED and self._blocked(
                 float(np.asarray(state).reshape(-1)[LINEAR_VEL_X_IDX]), trajectories, drive_crash,
                 int(drive_total.argmax()),
@@ -2737,10 +2598,8 @@ class HirarchicalPlanner(template_planner):
                 action = action_seq[0].cpu().numpy().astype(np.float32)
             return action
 
-    def _draw_mpc_trajectories(
-        self, trajectories: torch.Tensor, pacejka: torch.Tensor, lld_path: torch.Tensor | None = None
-    ) -> None:
-        """MPC samples, Pacejka driven by the mean action sequence (orange), and the LLD's prediction of it (black, ``lld_path`` or None)."""
+    def _draw_mpc_trajectories(self, trajectories: torch.Tensor, pacejka: torch.Tensor) -> None:
+        """MPC samples, and Pacejka driven by the mean action sequence (orange)."""
         if getattr(self, "render_utils", None) is None:
             return
         xy = trajectories[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu()
@@ -2750,168 +2609,15 @@ class HirarchicalPlanner(template_planner):
             scene.set_trajectories("hwm.mpc_samples", xy.numpy(), color=(140, 140, 140), width=1.0, **caps)
         else:
             scene.set_trajectories("hwm.mpc_samples", None)
-        if lld_path is None:
-            scene.set_trajectories("hwm.mpc_plan", None)
-        else:
-            lld_xy = lld_path[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy().reshape(-1, 2)
-            scene.set_trajectories(
-                "hwm.mpc_plan", lld_xy[None], color=(20, 20, 20), width=3.0,
-                max_trajectories=1, max_points_per_trajectory=int(lld_xy.shape[0]),
-            )
         pace_xy = pacejka[..., [POSE_X_IDX, POSE_Y_IDX]].detach().cpu().numpy()
         scene.set_trajectories(
             "hwm.mpc_pacejka", pace_xy, color=(230, 90, 0), width=3.0,
             max_trajectories=int(pace_xy.shape[0]), max_points_per_trajectory=int(pace_xy.shape[1]),
         )
 
-    @torch.no_grad()
-    def _lld_graph_ready(self) -> bool:
-        """True when ``HWM_LLD_ROLLOUT_CUDA_GRAPH`` is on and a GPU is there; builds the GPU copy on first use."""
-        if not getattr(Settings, "HWM_LLD_ROLLOUT_CUDA_GRAPH", False) or getattr(self, "_lld_graph_failed", False):
-            return False
-        if getattr(self, "_lld_graph", None) is None:
-            try:
-                if not torch.cuda.is_available():
-                    print("[LLD] CUDA graph rollout off: no GPU visible (Settings.DISABLE_GPU hides it). Using the eager rollout.")
-                    self._lld_graph_failed = True
-                    return False
-                from TrainingLite.hwm.lld_graph import LLDGraphRollout
-
-                self._lld_graph = LLDGraphRollout(self.models["LLD"], int(self.memory.bank_size))
-                self._lld_graph_stale = False
-            except Exception as error:
-                print(f"[LLD] CUDA graph rollout disabled: {type(error).__name__}: {error}")
-                self._lld_graph_failed = True
-                return False
-        return True
-
     def rollout_dynamics(self, state, actions, pending_actions=None) -> torch.Tensor:
-        """States ``(B, N + 1, state_dim)`` on the CPU from the planner's model: Pacejka with
-        ``RUN_MPC_WITH_PACEJKA``, else the LLD. Arguments as ``rollout_pacejka``."""
-        if Settings.RUN_MPC_WITH_PACEJKA:
-            return self.rollout_pacejka(state, actions, pending_actions=pending_actions)
-        states, _, _ = self.rollout_lld(state, actions, pending_actions=pending_actions)
-        return states.detach().to(device="cpu", dtype=torch.float32)
-
-    def _lld_history_from_pending(self, starts: torch.Tensor, pending_actions, length: int) -> torch.Tensor:
-        """``(B, length, row_dim)`` earlier superstate rows for starts ``(B, state_dim)`` with the
-        commands issued before them ``(B, delay, 2)``, the latest last. Fewer commands than rows:
-        the earliest one is repeated (none: zero commands)."""
-        batch = int(starts.shape[0])
-        pending = torch.as_tensor(pending_actions, dtype=torch.float32, device=starts.device).reshape(batch, -1, 2)
-        if int(pending.shape[1]) == 0:
-            pending = starts.new_zeros((batch, 1, 2))
-        if int(pending.shape[1]) < length:
-            pad = pending[:, :1].expand(-1, length - int(pending.shape[1]), -1)
-            pending = torch.cat((pad, pending), dim=1)
-        pending = pending[:, int(pending.shape[1]) - length:]
-        states = _normalize_states(starts)[:, None].expand(-1, length, -1)
-        return lld_rows_for_super(torch.cat((states, pending), dim=-1), int(Settings.HWM_STATE_DIM)).contiguous()
-
-    def rollout_lld(self, state, actions, pending_actions=None):
-        """LLD mean rollout of action sequences.
-
-        ``actions`` is ``(B, N, 2)`` or ``(N, 2)``, the command chosen at each step, in network
-        units. ``state`` is the shared start ``(state_dim,)`` or one start per sequence ``(B, state_dim)``.
-
-        The superstate's earlier rows are the car's last recorded rows. With ``pending_actions``
-        ``(B, delay, 2)``, the commands issued before a start that is not the car (a waypoint's
-        stored state), they are built per sequence instead: those commands, each with the start
-        state, as only its velocities, steering and yaw rate enter and those change little over
-        a few control steps.
-
-        Returns ``states`` ``(B, N + 1, state_dim)``, and ``n_soft`` and ``n_soft_norm`` ``(B, N)``.
-        Row ``k`` of those two is the attention mass at ``states[:, k]`` under ``actions[:, k]``.
-        ``n_soft`` is the sum of ``exp(-distance / temperature)`` over the keys.
-        ``n_soft_norm`` divides each key's kernel by that key's stored n_soft before summing.
-
-        The key bank is read once, as views. Imagined rows stay in a small history and are not
-        written into memory. The control delay is already in the training pairs, so ``actions``
-        is not shifted.
-        """
-        PROF.begin("setup")
-        actions = torch.as_tensor(actions, dtype=torch.float32, device=self.memory.device)
-        if actions.ndim == 2:
-            actions = actions.unsqueeze(0)
-        batch, horizon, _ = (int(actions.shape[0]), int(actions.shape[1]), int(actions.shape[2]))
-        state_dim = int(Settings.HWM_STATE_DIM)
-        width = int(Settings.HWM_SUPER_STATE_SIZE)
-        s = torch.as_tensor(state, dtype=torch.float32, device=self.memory.device)
-        if s.ndim == 1:
-            s = s.reshape(1, -1).expand(batch, -1).contiguous()
-        elif int(s.shape[0]) != batch:
-            raise ValueError(f"state batch {int(s.shape[0])} does not match actions batch {batch}")
-
-        lld = self.models["LLD"]
-        memory_free = residual_only_inference()
-        if lld.mean_delta_compiled is None and not memory_free:
-            lld._compile_rollout_step(lld._rollout_super_state_dim)
-        if lld.extra_dim:
-            raise ValueError(
-                "rollout_lld assumes the residual net has no retrieved inputs "
-                "(HWM_LLD_CORRECTION_INPUT_RESIDUAL and HWM_LLD_CORRECTION_INPUT_COV are off)"
-            )
-        if pending_actions is None:
-            past, _ = self.memory.recent(self._episode_id, width - 1)
-            history = lld_rows_for_super(_normalize_rows(past.unsqueeze(0), state_dim), state_dim)
-            history = history.expand(batch, -1, -1).contiguous()
-        else:
-            history = self._lld_history_from_pending(s, pending_actions, width - 1)
-        PROF.end()
-        PROF.begin("bank_and_key_embedding")
-        bank = None if memory_free else self.memory.lld_bank()
-        if bank is not None and self._lld_graph_ready():
-            PROF.end()
-            supers, deltas, density, rows = bank
-            cutoff = int(self.memory.next_step) - (width - 1)
-            with PROF.section("lld_cuda_graph_rollout"):
-                try:
-                    if self._lld_graph_stale:
-                        self._lld_graph.sync_weights(lld)
-                        self._lld_graph_stale = False
-                    return self._lld_graph.run(s, actions, history, supers, deltas, density, rows + 1 < cutoff)
-                except Exception as error:  # fall back to the eager loop for good
-                    print(f"[LLD] CUDA graph rollout disabled: {type(error).__name__}: {error}")
-                    self._lld_graph_failed = True
-            PROF.begin("bank_and_key_embedding")
-        if bank is None:
-            key_emb = s.new_zeros((0, lld.attention_norm_projector[-1].out_features))
-            tokens = s.new_zeros((0, lld.prediction_dim))
-            density = s.new_zeros((0,))
-            valid = torch.zeros((0,), dtype=torch.bool, device=s.device)
-        else:
-            supers, deltas, density, rows = bank
-            cutoff = int(self.memory.next_step) - (width - 1)
-            valid = rows + 1 < cutoff
-            key_emb = lld.attention_norm_projector(supers)
-            tokens = deltas - lld._correct(supers)
-
-        states = [s]
-        n_softs = []
-        n_soft_norms = []
-        PROF.end()
-        PROF.begin("horizon_loop")
-        for k in range(horizon):
-            with PROF.section("build_query_superstate"):
-                a = actions[:, k]
-                current = lld_rows_for_super(
-                    torch.cat((_normalize_states(s), a), dim=-1), state_dim
-                )
-                query = torch.cat((history.flatten(start_dim=1), current), dim=-1)
-            with PROF.section("mean_delta_step"):
-                step = lld.mean_delta if memory_free else getattr(lld, "mean_delta_compiled", lld.mean_delta)
-                delta, n_soft, n_soft_norm = step(query, key_emb, tokens, density, valid)
-            with PROF.section("reconstruct_next_state"):
-                s = lld.reconstruct_next_state(s, delta)
-            with PROF.section("history_update"):
-                history = torch.cat((history[:, 1:], current.unsqueeze(1)), dim=1)
-                states.append(s)
-                n_softs.append(n_soft)
-                n_soft_norms.append(n_soft_norm)
-        PROF.end()
-        n_soft = torch.stack(n_softs, dim=1) if n_softs else s.new_zeros((batch, 0))
-        n_soft_norm = torch.stack(n_soft_norms, dim=1) if n_soft_norms else n_soft
-        return torch.stack(states, dim=1), n_soft, n_soft_norm
+        """States ``(B, N + 1, state_dim)`` from the planner's model. Arguments as ``rollout_pacejka``."""
+        return self.rollout_pacejka(state, actions, pending_actions=pending_actions)
 
     def _pacejka_batch_step(self):
         """One Pacejka control step, compiled for whatever batch size it is given."""
@@ -2969,19 +2675,16 @@ class HirarchicalPlanner(template_planner):
 
     def rollout_pacejka(self, state, actions, use_control_delay: bool = True, pending_actions=None):
         """states (B, N+1, 10) for the same actions. Applies the command from 2 control steps ago. For testing the Planner with ground truth model in simulation."""
-        import jax.numpy as jnp
         PROF.begin("setup")
         actions = np.asarray(actions, dtype=np.float32)
         if actions.ndim == 2:
             actions = actions[None]
         batch, horizon, _ = actions.shape
-        delay = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))  # 2
         if pending_actions is not None:
-            # Control-delay queue given per sequence (B, delay, 2), instead of the last recorded actions.
+            # Control-delay queue given per sequence (B, delay, 2), instead of the car's.
             pending = np.asarray(pending_actions, dtype=np.float32).reshape(batch, -1, 2).copy()
         elif use_control_delay:
-            rows, _ = self.memory.recent(self._episode_id, delay)
-            pending = np.broadcast_to(rows[:, int(Settings.HWM_STATE_DIM):].numpy(), (batch, delay, 2)).copy()
+            pending = np.broadcast_to(self._issued_actions().numpy(), (batch, self._control_delay_steps(), 2)).copy()
         else:
             pending = np.zeros((batch, 0, 2), dtype=np.float32)
         s = np.broadcast_to(np.asarray(state, dtype=np.float32), (batch, int(Settings.HWM_STATE_DIM))).copy()
@@ -2991,7 +2694,7 @@ class HirarchicalPlanner(template_planner):
         def rollout(lo: int, hi: int, rows: int) -> np.ndarray:
             """Sequences ``lo`` to ``hi``, padded with copies of the last one to ``rows`` rows."""
             pad = np.repeat(np.arange(lo, hi), [1] * (hi - lo - 1) + [rows - (hi - lo) + 1])
-            out = run(jnp.asarray(s[pad]), jnp.asarray(actions[pad]), jnp.asarray(pending[pad]))
+            out = run(s[pad], actions[pad], pending[pad])
             return np.array(out, dtype=np.float32, copy=True)[: hi - lo]
 
         with PROF.section("jax_scan_incl_transfer_and_sync"):
@@ -3051,69 +2754,6 @@ class HirarchicalPlanner(template_planner):
             pools[threads] = ThreadPoolExecutor(threads, thread_name_prefix="hwm-rollout")
         return pools[threads]
 
-    def _log_attention(self) -> None:
-        """Log the attention statistics of the last LLD forward pass (main head, and the covariance head if on)."""
-        lld = self.models["LLD"]
-        tag = " (single encoder)" if lld.standalone else ""
-        text = f"[attention]{tag} keys for top 50% weight: {float(lld.last_top_keys):.1f} n_soft: {float(lld.last_n_soft):.2f}"
-        text += f" n_soft_norm: {float(lld.last_n_soft_norm):.2f}"
-        if lld.cov_head:
-            text += f" | cov head: keys50 {float(lld.last_cov_top_keys):.1f} n_soft {float(lld.last_cov_n_soft):.2f}"
-        self._log_info(text)
-
-    @torch.no_grad()
-    def _log_attention_test_track(self) -> None:
-        """Test track only: one LLD pass on the last stored row, to log the attention statistics every step.
-
-        Needs the drive in memory (``TEST_TRACK_STORE_MEMORY``); the output is not used otherwise.
-        """
-        width = int(Settings.HWM_SUPER_STATE_SIZE)
-        state_dim = int(Settings.HWM_STATE_DIM)
-        rows, mask = self.memory.recent(self._episode_id, width)
-        if not bool(mask[-1]):
-            return
-        obs = build_LLD_observation_inference(
-            rows[-1:, :state_dim],
-            rows[-1:, state_dim:],
-            self.memory,
-            self._episode_id,
-            past_states=rows[None, :-1],
-            before_steps=torch.tensor([self.memory.next_step - 1]),
-        )
-        self.models["LLD"](obs)
-        self._log_attention()
-
-    @torch.no_grad()
-    def lld_dynamics_step(self, state: np.ndarray, physical_control: np.ndarray) -> np.ndarray:
-        """Next car state from the LLD, one control step.
-
-        ``state`` is the simulator state before the step. The action is the one just
-        stored with it (network units), which is the pair the LLD is trained on.
-        ``HWM_SIM_LLD_SAMPLE`` draws one delta; otherwise the mean is used.
-        """
-        state_dim = int(Settings.HWM_STATE_DIM)
-        width = int(Settings.HWM_SUPER_STATE_SIZE)
-        rows, mask = self.memory.recent(self._episode_id, width)
-        state_t = torch.as_tensor(np.asarray(state, dtype=np.float32), dtype=torch.float32).reshape(1, -1)
-        if bool(mask[-1]):
-            action_t = rows[-1:, state_dim:]
-            past = rows[None, :-1]
-            before = torch.tensor([self.memory.next_step - 1])
-        else:
-            action_t = torch.as_tensor(
-                np.asarray(physical_control, dtype=np.float32) / self.action_denormalization_array,
-                dtype=torch.float32,
-            ).reshape(1, -1)
-            past = torch.zeros(1, width - 1, state_dim + int(Settings.HWM_ACTION_DIM))
-            before = None
-        obs = build_LLD_observation_inference(
-            state_t, action_t, self.memory, self._episode_id, past_states=past, before_steps=before
-        )
-        prediction = self.models["LLD"](obs)
-        delta = prediction.sample() if Settings.HWM_SIM_LLD_SAMPLE else prediction.mean
-        nxt = self.models["LLD"].reconstruct_next_state(state_t, delta)
-        return nxt[0].cpu().numpy().astype(np.float64)
-
     # ------------------------------------------------------------------
     # Control loop
     # ------------------------------------------------------------------
@@ -3132,49 +2772,29 @@ class HirarchicalPlanner(template_planner):
         if test_track_enabled():
             self._clear_waypoint_display()
             return self._test_track_step(controller_observation)
-        self._maybe_handle_server_terminate()
-        self._sync_from_server()
 
         if not self.autonomous_driving:
             self._clear_waypoint_display()
             action = self._fallback_action(controller_observation)
             self._apply_normalized_action(action)
-            state = self.get_car_state(controller_observation)
-            self._maybe_update_lld_preview(state, controller_observation)
-            self._record_step(state, action)
+            self._record_step(action)
             return self.angular_control, self.translational_control
 
         state = self.get_car_state(controller_observation)
-        obs = self.build_observation(state)
-        action = np.asarray(self.select_action(obs, state), dtype=np.float32).reshape(-1)
+        action = np.asarray(self.select_action(state), dtype=np.float32).reshape(-1)
         self._apply_normalized_action(action)
-        self._maybe_update_lld_preview(state, controller_observation)
         # Network-scale action, unclipped. Pure Pursuit fallback is physical / action_denorm.
-        self._record_step(state, action)
+        self._record_step(action)
         return self.angular_control, self.translational_control
 
     def _test_track_step(self, controller_observation: Dict[str, Any]) -> tuple[float, float]:
-        """Constant acceleration and a growing sine steer. The LLD weights are left as they are."""
-        self._maybe_handle_server_terminate()
-        self._sync_from_server()
-        state = self.get_car_state(controller_observation)
+        """Constant acceleration and a growing sine steer."""
         steer, accel = test_track_command(self.control_index * float(Settings.TIMESTEP_CONTROL))
-        action = np.array([steer, accel], dtype=np.float32) / self.action_denormalization_array
         self.angular_control = float(steer)
         self.translational_control = float(accel)
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
-        self._maybe_update_lld_preview(state, controller_observation)
-        if test_track_store_memory():
-            self._log_attention_test_track()
-            self._record_step(state, action)
-        else:
-            keep = max(int(Settings.HWM_SUPER_STATE_SIZE), 2 * self.lld_preview.delay + 1) if self.lld_preview else 0
-            row = np.concatenate((np.asarray(state, dtype=np.float32), action.astype(np.float32)))
-            self._test_rows = (self._test_rows + [row])[-keep:] if keep else []
-            self.control_index += 1
-            self.total_timesteps += 1
-            self.episode_timesteps += 1
+        self._record_step(np.array([steer, accel], dtype=np.float32) / self.action_denormalization_array)
         return self.angular_control, self.translational_control
 
     def _apply_normalized_action(self, action: np.ndarray) -> None:
@@ -3186,67 +2806,26 @@ class HirarchicalPlanner(template_planner):
         self.prev_angular_control = self.angular_control
         self.prev_translational_control = self.translational_control
 
-    def _maybe_update_lld_preview(self, state: np.ndarray, controller_observation: Dict[str, Any]) -> None:
-        """Draw the newest background preview and start the next one; before the step is recorded.
-
-        A new preview starts at most every ``HWM_LLD_PREVIEW_EVERY`` steps, once LLD
-        weights exist and the previous one has finished.
-        """
-        if self.preview_worker is None or Settings.HWM_LIVE_MODE or not (self._received_weights or test_track_enabled()):
-            return
-        # MPC draws its own rollouts. The actor preview stays only while Pure Pursuit drives.
-        if self.autonomous_driving and not test_track_enabled():
-            return
-        result = self.preview_worker.pop_result()
-        if result is not None and result.generation != self._generation:
-            result = None
-        if result is not None and self.render_utils is not None:
-            age = self.control_index - result.control_index
-            plan_states, lld_states, mean_states, residual_states = result.value
-            self.lld_preview.render(self.render_utils, plan_states, lld_states, age, mean_states, residual_states)
-            self.render_utils.set_label_dict({"LLD preview of": result.source})
-        else:
-            self.lld_preview.advance(self.render_utils)
-        if self.control_index - self._preview_submitted < int(Settings.HWM_LLD_PREVIEW_EVERY):
-            return
-        on_test_track = test_track_enabled()
-        if on_test_track:
-            source = "test track"
-        elif self.autonomous_driving:
-            source = "actor"
-        else:
-            source = "Pure Pursuit"
-        started = self.preview_worker.submit(
-            self._generation,
-            self.control_index,
-            source,
-            state=np.array(state, dtype=np.float32),
-            past=self.lld_preview.past_rows(
-                self._episode_id, self._test_rows if on_test_track and not test_track_store_memory() else None
-            ),
-            controller_observation=dict(controller_observation),
-            waypoint_utils=self.waypoint_utils,
-            nearest_index=int(self.waypoint_utils.nearest_waypoint_index or 0),
-            correcting_index=self.fallback_planner.correcting_index,
-            use_actor=self.autonomous_driving and not on_test_track,
-            scripted_time=self.control_index * float(Settings.TIMESTEP_CONTROL) if on_test_track else None,
-        )
-        if started:
-            self._preview_submitted = self.control_index
-
-    def _record_step(self, state: np.ndarray, action: np.ndarray) -> None:
-        """Append one ``[state, action]`` row in network output units and stream it."""
-        self.memory.add_step(state, np.asarray(action, dtype=np.float32).reshape(-1), self._episode_id)
-        self._maybe_bootstrap_send()
-        self._maybe_stream_send()
+    def _record_step(self, action: np.ndarray) -> None:
+        """Note the command issued this step, in network output units."""
+        self._issued.append(np.array(action, dtype=np.float32).reshape(-1))
         self.control_index += 1
         self.total_timesteps += 1
         self.episode_timesteps += 1
 
+    @staticmethod
+    def _control_delay_steps() -> int:
+        return int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))
+
+    def _issued_actions(self) -> torch.Tensor:
+        """``(delay, 2)`` the last commands of this episode, oldest first, zeros before its first one."""
+        pending = torch.zeros((self._control_delay_steps(), 2), dtype=torch.float32)
+        if self._issued:
+            pending[-len(self._issued):] = torch.from_numpy(np.stack(self._issued))
+        return pending
+
     def on_step_end(self, driver_obs: Dict[str, Any]) -> None:
         """Called by CarSystem after the physics step; only episode boundaries matter here."""
-        self._maybe_handle_server_terminate()
-
         done = bool(driver_obs.get("done", False))
         if done:
             term = driver_obs.get("episode_termination") or driver_obs
@@ -3267,24 +2846,8 @@ class HirarchicalPlanner(template_planner):
             if hasattr(self, "_wp_action_staged"):
                 self._wp_action_staged.zero_()
             self._revert_nearby_waypoints()
-            n_rows = self.memory.open_length(self._episode_id)
-            self._flush_stream_send(episode_end=True)
-            self.memory.end_episode(self._episode_id)
-            self._log_debug(f"[HirarchicalPlanner] Episode {self._episode_id} done: {n_rows} rows")
+            self._log_debug(f"[HirarchicalPlanner] Episode {self._episode_id} done: {self.episode_timesteps} steps")
             self._reset_episode_state()
-
-    def on_simulation_end(self, collision: bool = False) -> None:
-        if self.terminate_server_after_simulation and self.training_mode and self.client is not None:
-            self._terminate_server_with_retry()
-
-    def close(self) -> None:
-        if self.preview_worker is not None:
-            self.preview_worker.close()
-        if self.client is not None:
-            try:
-                self.client.close()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Fallback
@@ -3297,87 +2860,8 @@ class HirarchicalPlanner(template_planner):
         control = np.asarray(self.fallback_planner.process_observation(controller_observation), dtype=np.float32)
         return (control / self.action_denormalization_array).astype(np.float32)
 
-    # ------------------------------------------------------------------
-    # Models
-    # ------------------------------------------------------------------
-    def _init_inference_models(self) -> None:
-        model_dir = resolve_model_dir(self.inference_model_name)
-        loaded = self.models.load(model_dir, device="cpu")
-        self.models.eval()
-        if "LLD" in loaded:
-            self.memory.refresh_embeddings()
-        if "actor" not in loaded:
-            raise FileNotFoundError(f"[HirarchicalPlanner] actor.pt not found in {model_dir}")
-        self._seed_memory(self.inference_model_name)
-        self._log_info(f"[HirarchicalPlanner] Loaded modules {loaded} from {model_dir}")
-
-    def _seed_memory(self, model_name: Optional[str]) -> None:
-        """Load the learner's saved neighbor bank once, while this memory is still empty.
-
-        The LLD's prediction is g(q) plus the average of stored residuals. With an empty bank
-        that average is zero and g starts at zero, so the predicted step is zero and a car
-        that starts at rest never moves. Driving that zero step back into memory keeps it there.
-        """
-        if not model_name or self.memory.total_steps > 0:
-            return
-        path = resolve_model_dir(str(model_name)) / "memory.pt"
-        if not path.is_file():
-            if Settings.HWM_SIM_USE_LLD:
-                self._log_info(
-                    "[HirarchicalPlanner] LLD sim memory is empty, so the predicted step is zero and the car stays still. "
-                    "memory.pt is written when the learner saves a run driven by the real dynamics."
-                )
-            return
-        payload = torch.load(path, weights_only=True)
-        n_file = int(payload["rows"].shape[0])
-        imported = self.memory.import_rows(payload)
-        if imported < n_file:
-            snapshot = self.memory.export_rows()
-            if snapshot is not None:
-                tmp = path.with_name("memory.pt.tmp")
-                torch.save(snapshot, tmp)
-                tmp.replace(path)
-        self.memory.refresh_embeddings()
-        self._log_info(f"[HirarchicalPlanner] Loaded {imported} memory rows from {path.name}")
-
-    def _apply_weights(self, sds: dict) -> None:
-        # The test track keeps the LLD that was loaded at the start. A later broadcast is a training update.
-        if test_track_enabled() and self._received_weights:
-            return
-        with self._display_lock:
-            loaded = self.models.load_state_dicts(sds, strict=True)
-            self.models.eval()
-            if "LLD" in loaded:
-                #self.memory.refresh_embeddings()
-                self._lld_graph_stale = True  # the CUDA-graph copy of the LLD takes the new weights before its next rollout
-        if loaded:
-            self._received_weights = True
-            self._log_debug(f"[HirarchicalPlanner] Weights updated: {loaded}")
-
-    # ------------------------------------------------------------------
-    # Networking
-    # ------------------------------------------------------------------
-    def _sync_from_server(self) -> None:
-        if not self.training_mode or self.client is None:
-            return
-        handshake = self.client.pop_handshake()
-        if isinstance(handshake, dict):
-            self._server_handshake = handshake
-            self._seed_memory(handshake.get("model_name"))
-            if handshake.get("map_name") and handshake["map_name"] != str(Settings.MAP_NAME):
-                self._log_info(
-                    f"[HirarchicalPlanner] WARNING: learner map '{handshake['map_name']}' "
-                    f"!= client map '{Settings.MAP_NAME}'"
-                )
-        info = self.client.pop_latest_training_info()
-        if isinstance(info, dict):
-            self.latest_training_info = info
-        sds = self.client.pop_latest_weights()
-        if sds:
-            self._apply_weights(sds)
-
     def report_lap_time(self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float) -> None:
-        """Forward a finished lap to the learner so it is printed there, not on every train step."""
+        """A finished lap: the freezes and the best-lap table take it, and the lap's waypoint updates are logged."""
         self._completed_laps = int(getattr(self, "_completed_laps", 0)) + 1
         previous = getattr(self, "_lap_end_step", None)
         self._lap_end_step = int(self.total_timesteps)
@@ -3394,98 +2878,21 @@ class HirarchicalPlanner(template_planner):
         rejected = int(getattr(self, "_wp_rejected_lap", 0))
         self._wp_discarded_lap = 0
         self._wp_rejected_lap = 0
-        if not self._can_stream():
-            if Settings.MPC_WAYPOINT_WINDOW_UPDATES and hasattr(self, "_wp_window_tried"):
-                known = self._waypoint_known(torch.arange(self._waypoints_n))
-                speed = float(self.waypoints[known, WP_TARGET_SPEED_IDX].mean()) if bool(known.any()) else 0.0
-                self._log_info(
-                    f"[HirarchicalPlanner] Lap: {self._wp_window_accepted}/{self._wp_window_tried} window updates accepted, "
-                    f"{int(known.sum())}/{self._waypoints_n} waypoints stored, mean stored speed {speed:.2f} m/s"
-                )
-                self._wp_window_accepted = self._wp_window_tried = 0
-            else:
-                self._log_info(f"[HirarchicalPlanner] Lap: reset {discarded} waypoint action sequences, rejected {rejected} updates")
-            return
-        self.client.send_lap_time(
-            lap_time, mean_distance, std_distance, max_distance,
-            wp_discarded=discarded, wp_rejected=rejected,
-        )
-
-    def _can_stream(self) -> bool:
-        return self.training_mode and self.client is not None
-
-    def _send_rows(self, start: int, end: int, episode_end: bool = False) -> bool:
-        states, actions = self.memory.slice_open(self._episode_id, start, end)
-        if states.shape[0] == 0:
-            return True
-        return self.client.send_raw_batch(states, actions, self._episode_id, episode_end=episode_end)
-
-    def _maybe_bootstrap_send(self) -> None:
-        """Send the first rows early (once per planner lifetime) so the learner can init."""
-        if not self._can_stream() or self._bootstrap_sent:
-            return
-        n = self.memory.open_length(self._episode_id)
-        if n < self.BOOTSTRAP_ROWS:
-            return
-        if self._send_rows(0, n):
-            self._stream_send_idx = n
-            self._bootstrap_sent = True
-
-    def _maybe_stream_send(self) -> None:
-        if not self._can_stream():
-            return
-        n = self.memory.open_length(self._episode_id)
-        if n - self._stream_send_idx < self._stream_batch_size:
-            return
-        end = self._stream_send_idx + self._stream_batch_size
-        if self._send_rows(self._stream_send_idx, end):
-            self._stream_send_idx = end
-
-    def _flush_stream_send(self, episode_end: bool = False) -> None:
-        if not self._can_stream():
-            return
-        n = self.memory.open_length(self._episode_id)
-        min_len = int(Settings.HWM_MIN_EPISODE_END_BATCH_SIZE)
-        if episode_end and n < min_len:
-            self._log_debug(f"[HirarchicalPlanner] Skipping short episode ({n} rows, min={min_len})")
-            self._stream_send_idx = n
-            return
-        if self._send_rows(self._stream_send_idx, n, episode_end=episode_end):
-            self._stream_send_idx = n
+        if Settings.MPC_WAYPOINT_WINDOW_UPDATES and hasattr(self, "_wp_window_tried"):
+            known = self._waypoint_known(torch.arange(self._waypoints_n))
+            speed = float(self.waypoints[known, WP_TARGET_SPEED_IDX].mean()) if bool(known.any()) else 0.0
+            self._log_info(
+                f"[HirarchicalPlanner] Lap: {self._wp_window_accepted}/{self._wp_window_tried} window updates accepted, "
+                f"{int(known.sum())}/{self._waypoints_n} waypoints stored, mean stored speed {speed:.2f} m/s"
+            )
+            self._wp_window_accepted = self._wp_window_tried = 0
+        else:
+            self._log_info(f"[HirarchicalPlanner] Lap: reset {discarded} waypoint action sequences, rejected {rejected} updates")
 
     def _reset_episode_state(self) -> None:
         self._episode_id += 1
-        self._stream_send_idx = 0
+        self._issued.clear()
         self.control_index = 0
         self.episode_timesteps = 0
-        self._generation += 1
-        self._preview_submitted = -int(Settings.HWM_LLD_PREVIEW_EVERY)
-        self._test_rows = []
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self._reset_stall()
-
-    def _terminate_server_with_retry(self) -> None:
-        delivered = False
-        try:
-            for _ in range(2):
-                delivered = bool(self.client.send_terminate(wait_for_ack=True, ack_timeout=2.0, urgent=True))
-                if delivered:
-                    break
-            if not delivered:
-                self.client.send_terminate(wait_for_ack=False, urgent=True)
-            self._log_info("[HirarchicalPlanner] Sent terminate message to server")
-        except Exception as e:
-            self._log_info(f"[HirarchicalPlanner] Failed to send terminate message: {e}")
-        finally:
-            self.close()
-
-    def _maybe_handle_server_terminate(self) -> None:
-        if self.client is None:
-            return
-        payload = self.client.pop_server_terminate()
-        if payload is None:
-            return
-        reason = payload.get("reason", "server_requested_terminate")
-        self._log_info(f"[HirarchicalPlanner] Received terminate from server: {reason}. Stopping client process.")
-        self.close()
-        os.kill(os.getpid(), signal.SIGTERM)
