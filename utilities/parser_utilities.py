@@ -120,7 +120,10 @@ def get_setting_choices(attr_name: str) -> Optional[list[str]]:
     if attr_name == "CONTROLLER":
         return _CONTROLLER_CHOICES
     if attr_name == "MAP_NAME":
-        return _list_subdirectory_names(_REPO_ROOT / "utilities" / "maps")
+        return sorted(set(
+            _list_subdirectory_names(_REPO_ROOT / "utilities" / "maps")
+            + _list_subdirectory_names(_REPO_ROOT / "Control_Toolkit_ASF" / "Controllers" / "DeepEvolution" / "maps")
+        ))
     if attr_name == "SAC_INFERENCE_MODEL_NAME":
         return _list_subdirectory_names(_REPO_ROOT / "TrainingLite" / "rl_racing" / "models")
     return None

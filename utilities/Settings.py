@@ -1,5 +1,19 @@
 import math
 import os
+
+_UTILITIES_DIR = os.path.dirname(os.path.abspath(__file__))
+_GENERATED_MAPS_DIR = os.path.join(os.path.dirname(_UTILITIES_DIR), "Control_Toolkit_ASF", "Controllers", "DeepEvolution", "maps")
+
+
+def map_path(name: str) -> str:
+    """``utilities/maps/<name>``, or the generated map of that name under DeepEvolution/maps if only that exists."""
+    bundled = os.path.join(_UTILITIES_DIR, "maps", name)
+    generated = os.path.join(_GENERATED_MAPS_DIR, name)
+    if not os.path.isdir(bundled) and os.path.isfile(os.path.join(generated, name + ".yaml")):
+        return generated
+    return bundled
+
+
 class Settings():
 
     ## Environment ##
@@ -10,7 +24,7 @@ class Settings():
 
     ## Map ##
     MAP_NAME = "icra2022"  # hangar3, hangar9, hangar12, hangar14, hangar16, london3_small, london3_large, ETF1, ini10, icra2022, RCA1, RCA2, IPZ2, IPZ50
-    MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
+    MAP_PATH = map_path(MAP_NAME)  # Absolute: acados codegen chdirs while the waypoint reload thread runs
     MAP_CONFIG_FILE = os.path.join(MAP_PATH, MAP_NAME+".yaml")
     MAP_SCALE = 1.0  # Uniform scale for map origin/resolution and waypoint positions (1.0 = unchanged)
     WAYPOINT_SPACING = None  # Resample spacing [m] after MAP_SCALE; None = median spacing from CSV
@@ -403,7 +417,7 @@ class Settings():
     RUN_MPC_WITH_PACEJKA = True
     HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
     HWM_JAX_REWARDS = True  # the drive samples' waypoint matching, matched-waypoint costs and wall terms run compiled in JAX, on the rollout threads. Same terms as the torch code in float32 (the torch wall lookup is float64), so near-ties can differ. False: torch
-    MPC_NUM_OF_TRAJECTORIES = 500
+    MPC_NUM_OF_TRAJECTORIES = 50
     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
@@ -562,7 +576,7 @@ class Settings():
     @classmethod
     def recalculate_paths(cls) -> None:
         """Recompute path dependent settings after attribute overrides."""
-        cls.MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maps", cls.MAP_NAME)
+        cls.MAP_PATH = map_path(cls.MAP_NAME)
         cls.MAP_CONFIG_FILE = os.path.join(cls.MAP_PATH, cls.MAP_NAME + ".yaml")
         cls.RECORDING_PATH = os.path.join(cls.RECORDING_FOLDER, cls.RECORDING_NAME)
 

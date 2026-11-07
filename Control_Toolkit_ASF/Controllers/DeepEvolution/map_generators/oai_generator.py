@@ -228,6 +228,8 @@ def _wall_clearance(trajectory, outer_m, inner_m):
     """
     xy = trajectory[:, 1:3]
     step = np.roll(xy, -1, axis=0) - xy
+    if np.allclose(xy[-1], xy[0]):  # closed line: the last point repeats the first
+        step[-1] = step[0]
     heading = np.arctan2(step[:, 1], step[:, 0])
     left = np.column_stack((-np.sin(heading), np.cos(heading)))
     outer = LinearRing(outer_m)
