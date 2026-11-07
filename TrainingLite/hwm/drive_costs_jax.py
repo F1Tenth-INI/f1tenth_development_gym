@@ -1,9 +1,8 @@
-"""Per-sample drive and waypoint costs of the HW planner, compiled with JAX.
+"""Per-sample drive costs of the HW planner, compiled with JAX.
 
 The same terms as ``HirarchicalPlanner.rollout_waypoint_states``, ``_matched_waypoint_costs`` and the crash
 and wall part of ``MPC_reward``, for every rollout on its own: matching the upcoming waypoints to rollout
-states, the matched-waypoint costs, the first body-corner crash, the first state too close to a wall and
-the corner clearance. The terms that need the whole batch (the crash cost scale, the softmax) stay with
+states, the matched-waypoint cost, the first body-corner crash and the corner clearance. The terms that need the whole batch (the crash cost scale, the softmax) stay with
 the caller. float32 like the torch code, and like it the body corners and the wall lookup in float64:
 ``drive_costs`` must be called under ``jax.experimental.enable_x64`` (thread-local).
 """
@@ -29,8 +28,7 @@ ROW_X, ROW_Y, ROW_HEADING, ROW_SPEED, ROW_DRIFT = range(5)
 
 # Order of the ``consts`` argument.
 CONST_NAMES = (
-    "ahead", "span", "target_speed_factor", "overspeed_weight", "arrival_weight",
-    "border", "min_wall_distance", "clearance", "clearance_span", "wall_cap",
+    "target_speed_factor", "overspeed_weight", "arrival_weight", "border", "clearance", "clearance_span",
     "origin_x", "origin_y", "origin_cos", "origin_sin", "resolution", "map_width", "map_height",
 )
 
@@ -67,9 +65,6 @@ def _one(states, dist, rows, count, grid, corner_x, corner_y, c):
     _, (best, valid) = jax.lax.scan(match, jnp.zeros(steps, dtype=bool), jnp.arange(width))
 
     count_valid = valid.sum()
-    position_in_list = jnp.cumsum(valid) - 1
-    window = valid & (position_in_list >= c["ahead"]) & (position_in_list < c["ahead"] + c["span"])
-    update = valid & ~window
     indices = jnp.where(valid, best, 0)
     matched = states[indices]  # (J, D)
 
@@ -80,31 +75,20 @@ def _one(states, dist, rows, count, grid, corner_x, corner_y, c):
     speed = matched[:, LINEAR_VEL_X_IDX]
     target_speed = rows[:, ROW_SPEED]
     drift_error = jnp.where(valid, jnp.abs(matched[:, LINEAR_VEL_Y_IDX] - rows[:, ROW_DRIFT]), 0.0).sum()
-    shortfall = jnp.where(valid, jnp.maximum(target_speed - speed, 0.0), 0.0)
-    overspeed = jnp.where(valid, jnp.maximum(speed - target_speed, 0.0), 0.0)
     drive_target = target_speed * c["target_speed_factor"]
     drive_shortfall = jnp.where(valid, jnp.maximum(drive_target - speed, 0.0), 0.0)
     drive_overspeed = jnp.where(valid, jnp.maximum(speed - drive_target, 0.0), 0.0)
 
     index_f = indices.astype(jnp.float32)
     fast_driving = jnp.where(valid, index_f, -jnp.inf).max()
-    legal = jnp.where(window, index_f, -jnp.inf).max()
-    fast_driving_legal = jnp.where(window.any(), legal, 0.0)
-
-    update_f, window_f = update.astype(jnp.float32), window.astype(jnp.float32)
     counts = jnp.maximum(count_valid, 1).astype(jnp.float32)
     drive = (
         10 * distance + 2 * heading.sum() + drive_shortfall.sum() + drive_overspeed.sum() * c["overspeed_weight"]
         + 0.25 * drift_error + c["arrival_weight"] * fast_driving
     ) / counts
-    optimize = (10 * distance) / counts
-    optimize = optimize + ((shortfall * update_f).sum() * 2 + (overspeed * update_f).sum() * 2) / jnp.maximum(update_f.sum(), 1.0)
-    optimize = optimize + (shortfall * window_f).sum() * 10 / jnp.maximum(window_f.sum(), 1.0)
-    optimize = optimize + 0.5 * fast_driving_legal / c["span"]
     min_speed = states[1:, LINEAR_VEL_X_IDX].min()
     reverse = jnp.where(min_speed < 0, 100 * jnp.abs(min_speed), 0.0)
     drive = drive + reverse
-    optimize = optimize + reverse
 
     # Walls: a body corner within ``border`` of a wall or off the map is a crash.
     pose = states[:, jnp.array([POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX])].astype(jnp.float64)
@@ -115,19 +99,14 @@ def _one(states, dist, rows, count, grid, corner_x, corner_y, c):
     corner_wall = grid[r, k]
     crashed = (~inside | (corner_wall < c["border"])).any(axis=1)
     corner_distance = jnp.where(inside, corner_wall, 0.0).min(axis=1)
-    r, k, inside = _cells(pose[:, 0], pose[:, 1], c)
-    wall_distance = jnp.where(inside, grid[r, k], 0.0)
-    close = crashed | (wall_distance < c["min_wall_distance"])
     late = steps - jnp.where(crashed.any(), jnp.argmax(crashed), steps)
-    late_opt = steps - jnp.where(close.any(), jnp.argmax(close), steps)
     closeness = jnp.clip((c["clearance"] - corner_distance) / c["clearance_span"], 0.0, 1.0).sum()
-    wall_mean = jnp.minimum(wall_distance, c["wall_cap"]).mean()
-    return drive, optimize, count_valid > 0, late, late_opt, closeness, wall_mean
+    return drive, count_valid > 0, late, closeness
 
 
 @partial(jax.jit, static_argnames=("consts",))
 def drive_costs(states, dist, rows, count, grid, corner_x, corner_y, consts):
-    """Per-rollout ``(drive, optimize, active, late, late_opt, closeness, wall_mean)`` for ``states`` ``(B, T, D)``.
+    """Per-rollout ``(drive, active, late, closeness)`` for ``states`` ``(B, T, D)``.
 
     ``dist`` ``(B, T, J)`` are the squared distances of the states to the upcoming waypoints, from
     ``squared_distances``: XLA fuses the multiply-add, and the matching must break exact ties as the torch

@@ -368,15 +368,9 @@ class Settings():
     HWM_LLD_BATCH_SIZE = 32              # independent random transitions per LLD update
     HWM_MEMORY_DROP_FINAL_STEPS = 5   # the last this many rows of every finished episode (the crash) are excluded from the LLD's neighbor bank and from every training batch and root. They are dropped with the other unreferenced rows once the episode closes. 0 -> keep everything
     HWM_SAMPLE_ACTIONS = True            # planner samples from the actor; False -> tanh of the Gaussian mean
-    HWM_PP_DRIVES = False                # Pure Pursuit drives instead of the actor; its rows still train the learner
     HWM_LLD_PREVIEW = True               # render the driving controller's plan (actor or Pure Pursuit) in the simulator's dynamics (black) next to the LLD's prediction of it (orange mean, 2σ band)
     HWM_SIM_USE_LLD = False              # the car is stepped by the LLD once per control step, instead of the Pacejka model. The action is the one just commanded, matching how the LLD is trained
     HWM_LLD_PREVIEW_SAMPLES = 10         # sampled LLD rollouts for the mean path and its uncertainty band
-    HWM_LLD_STUDENT_T = True            # False: the LLD predicts a Gaussian. True: one multivariate Student-t with the same weighted mean and weighted covariance (no (1 + 1/n) factor, that is Gaussian only) and nu = max(HWM_LLD_T_MIN_DOF, n - d), d the delta dimension, n = n_soft. Training maximizes its log likelihood. The predicted mean, scale_tril and noise inversion keep their meaning; sample() draws from the t
-    HWM_LLD_CORRECTION_INPUT_RESIDUAL = False  # the attention mean of the retrieved residuals (detached) is an extra input of g at the query (zero at the keys, whose residuals must not depend on it)
-    HWM_LLD_CORRECTION_INPUT_COV = False       # the retrieved covariance (its lower-triangular Cholesky factor, detached) is an extra input of g at the query, same as above
-    HWM_LLD_CORRECTION_HIDDEN = 512       # hidden width of the residual net g. The offline search on the wrong-Pacejka residual preferred 512 over 64 or 256. Needs a new model: the residual net changes width
-    HWM_LLD_CORRECTION_LAYERS = 2         # hidden layers of g, each of width HWM_LLD_CORRECTION_HIDDEN. 1 is the previous single hidden layer. 2 is what that search preferred. Needs a new model: the residual net gains a layer
     HWM_LLD_GRAD_CLIP = 1.0             # max gradient norm of an LLD update
     HWM_LLD_TRAIN_FUTURE_MARGIN = 25     # LLD training only: a sample may retrieve memory windows from the past and from the far future, but not from the rows right after it. Windows that start fewer than this many rows after the sample's next row are hidden (25 control steps = 1 s, about one curve). Inference still sees only the past
     HWM_LLD_SKIP_START_ROWS = 10         # LLD training ignores steps from the first N rows of each episode (padded history, delayed first commands)
@@ -388,18 +382,10 @@ class Settings():
     HWM_SIM_SPEED = 10                 # max simulation speed as a multiple of real time (1.0: one control step per TIMESTEP_CONTROL wall seconds, 0.5: half speed). Sets MAX_SIM_FREQUENCY = this / TIMESTEP_CONTROL. None -> MAX_SIM_FREQUENCY untouched
     HWM_DISPLAY_PATH_STEPS = 50         # control steps of every drawn path: the preview's sim plan and LLD replay
     HWM_LLD_ATTENTION_TEMPERATURE = 0.1     # kernel temperature for LLD memory distances. Below 1 makes attention sharper; must be > 0. The offline search preferred 0.1, with the density division left on. There the distance was on standardized inputs; here it is in the encoder embedding, so this is sharper attention in that embedding, not the same bandwidth number
-    HWM_LLD_T_MIN_DOF = 5             # floor of nu. None: 2, the smallest nu with a finite covariance. Must be > 0
-    HWM_LLD_ALONE_LIKELIHOOD = True    # with HWM_LLD_CORRECTION_ALONE. False: g(q) is trained by the squared error against the recorded delta. True: by the log-likelihood of the delta with g(q) alone as the mean (Student-t / Gaussian as the LLD), the scale and df being those of the LLD prediction, detached. Bounded gradient for large errors, channels weighted by the covariance
     HWM_LLD_CORRECTION_ALONE = True    # True: g is trained so g(q) equals the recorded delta, with no gradient from the retrieved samples. The retrieval encoder is trained on the full residual prediction g(q) + sum_j w_j (delta_j - g(k_j)) with g held fixed, so it learns to help g. At inference that sum is used, and delta - g(key) is evaluated with the current g, not stored. False: g and the memory residuals are trained together
     HWM_LLD_REFLECT = False              # TEST. Works with or without HWM_LLD_DIRECT_DELTA; it makes LLD and actor superstates pose-free by itself (no x, y, heading, sin, cos). Assume dynamics are symmetric about the car's x-axis: every LLD superstate row is mirrored on its own so its steering angle is not negative, the value tokens and training target are mirrored by the steering sign of the row they leave, and the predicted delta (mean, covariance, noise) is mirrored back. Actor inputs stay in the true frame. Needs a new model: the memory embeddings and LLD weights change meaning
-    HWM_LLD_T_GRAD_THROUGH_N = False     # False: n (hence nu) is detached, so the encoder is trained only through the attention weights of the mean and covariance. True: gradients also flow through n into the attention
-    HWM_LLD_STANDALONE_ENCODER = True   # True: a single encoder (overrides HWM_LLD_COV_HEAD) is trained only on its own likelihood: the attention-weighted mean and covariance of the stored deltas (no g, no residuals), Student-t / Gaussian as set, on the recorded delta. The rest of the model (residual tokens, covariance, g's training, inference) uses that encoder detached. n_soft and keys50 of this encoder are the ones logged
-    HWM_LLD_COV_CENTER_TRANSITIONS = False  # with HWM_LLD_COV_HEAD. True (a): the covariance is the spread of the stored transitions delta_j about the final prediction g(q) + mu, so it also contains how much g differs between the neighbor and the query, g(k_j) - g(q). False (b): the spread of the residual tokens delta_j - g(k_j) (g(k_j) detached) about their weighted mean mu, the error scatter of g at the neighbors only. 
-    HWM_LLD_COV_DETACH_TOKENS = True     # True: the residual tokens delta_j - g(k_j) are constants everywhere (mean and covariance), so g is trained only through g(q) of the current state and the retrieval encoders only through the attention weights. Without HWM_LLD_COV_HEAD the covariance (of the retrieved tokens around their weighted mean) is not trained at all. False: g also gets gradient through the tokens, and the covariance is trained
-    HWM_LLD_COV_HEAD = True             # the covariance uses its own attention weights, from its own encoder, trained on the same likelihood. The residual tokens are centered on the main head's detached weighted mean (every neighbor's transition is compared with g(k_j) plus that correction). The main head retrieves what corrects the mean, the covariance head what shows the error spread. Needs a new model: extra weights
     HWM_LLD_DIRECT_DELTA = False         # TEST. False restores the previous LLD. True: the value token is the delta of every state channel, and the next state is the current state plus that delta (no integration of velocity into position). LLD superstates drop pose_x, pose_y, heading, and sin/cos of heading. Needs a new model: the LLD changes width
     HWM_LLD_PREDICT_DISPLACEMENT = False  # the delta also predicts the step's displacement in the car frame (forward, then left), instead of integrating position from velocity. Rotated back to the world by the heading at the start of the step. Lateral is odd under HWM_LLD_REFLECT. Needs a new model: two more delta channels, so the LLD changes width
-    MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT = False  # after two finished laps without a new best lap time, the waypoints (state targets and action sequences) are put back to what they were right after the last lap that improved the best, and then frozen. While frozen the live table stays put, but each lap's own target states and action sequences are recorded aside; a lap that beats the best replaces the table with those and updates resume. A slower frozen lap is discarded. The best starts unset, so the first two laps can never trigger it
     HWM_LLD_TRAIN_ON_ALL_ROWS = True  # the learner keeps every incoming row (except the dropped final rows of an episode) and the residual net and encoder train on all of them. The key bank still limits which windows can be retrieved as neighbors. False: rows no kept key reads are dropped, so training sees only the bank's windows. memory.pt then holds all rows too
     HWM_MEMORY_MAX_ROWS = 3_000       # initial row allocation. Rows no kept key uses are dropped; the arrays grow when more rows arrive
     HWM_MEMORY_BANK_SIZE = 3000       # number of superstates (keys) kept in the memory's key bank. The LLD attends over all of them, expanded over the whole batch
@@ -413,8 +399,6 @@ class Settings():
     TEST_TRACK_STEER_SLOPE =.05 #0.2      # [rad/s]. Steering amplitude is this times the time since the episode start
     TEST_TRACK_STORE_MEMORY = False    # True: the drive is still written into memory and streamed. The LLD weights are not updated either way
 
-    HWM_LLD_ENCODER_DIM = 10            # dimensionality of the encoder's latent vector (the embedding that attention distances, keys and the density are computed in). Changing it needs a new model: the encoder's last layer changes width
-    HWM_LLD_ENCODER_L1 = 0.0            # weight of an L1 penalty on the activations of the encoded vectors (queries and the whole key bank): weight * mean over those vectors of sum |z|, added to the LLD loss. 0 -> off
 
     RUN_MPC_WITH_PACEJKA = True
     HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
@@ -425,52 +409,33 @@ class Settings():
     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall
     MPC_DRAW_SAMPLES = False  # gray sample rollouts in the web viewer. False: only the black mean path and the orange Pacejka line
-    MPC_WAYPOINT_UPDTE_EMA = 0.5
-    MPC_WAYPOINT_EMA_RECOVERY_DIVISOR = 1.414  # every waypoint has its own EMA gamma (state and actions). Each time a recovery resets a waypoint (see MPC_WAYPOINT_REVERT_AHEAD / _BEHIND), only that waypoint's gamma is divided by this, on top of earlier divisions. 1: off
-    MPC_WAYPOINT_AHEAD_SPAN = 5  # the update is staged at every waypoint from nearest + MPC_WAYPOINT_AHEAD to nearest + MPC_WAYPOINT_AHEAD + this. 0: just the one
-    MPC_WAYPOINT_AHEAD = 2  # stage the driven plan's state at the waypoint this many steps ahead of the nearest one
-    MPC_WAYPOINT_REVERT_STEPS = 2  # how many committed updates (of state and of action sequence) each of those waypoints goes back per revert. Stops at the oldest one. With MPC_WAYPOINT_WINDOW_UPDATES not used: those waypoints all go back to what they were one lap earlier
+    MPC_WAYPOINT_AHEAD_SPAN = 5  # waypoints in the window of a window update
     MPC_WAYPOINT_REVERT_AHEAD = 5  # on an EMA drop, a stall or leaving the raceline, roll back this many waypoints in front of the car's nearest one (and the nearest one itself)
     MPC_WAYPOINT_REVERT_BEHIND = 50  # same, this many waypoints behind it
-    MPC_WAYPOINT_REVERT_HOLD = 0 # 3  # laps those rolled-back waypoints and their action sequences stay frozen
-    MPC_WAYPOINT_COMMIT_LAG = 25  # write a staged waypoint only once the car is at least this many waypoints past it
-    MPC_WAYPOINT_UPDATE_DISTANCE = 0.6  #0.3  # [m] stage a waypoint update only while the car is at most this far from the nearest waypoint. This is the threshold for self.off_track
-    HWM_OFF_TRACK_WAYPOINT_GRACE = 3.0  # [s] from the start of an episode, being off the raceline does not touch the waypoint table: no off-track count, no revert, no held updates. Recovery still runs. 0: off
+    MPC_WAYPOINT_UPDATE_DISTANCE = 0.6  #0.3  # [m] the car is off the raceline (self.off_track) when farther than this from the nearest waypoint
+    HWM_OFF_TRACK_WAYPOINT_GRACE = 3.0  # [s] from the start of an episode, being off the raceline does not touch the waypoint table: no off-track count, no revert. Recovery still runs. 0: off
     MPC_STALL_DISTANCE = 0.5  # [m] the car counts as stalled, and goes into recovery, when it moved less than this in MPC_STALL_TIME
     MPC_STALL_TIME = 2.0  # [s]
     MPC_STALL_REVERSE_STEPS = 25  # max control steps of the backtrack phase when the car stalls, on or off the track, before recovery starts. 0: no backtrack
     MPC_STALL_BACKTRACK_WAYPOINTS = 3  # the backtrack phase drives to the waypoint this many behind the car
-    MPC_WAYPOINT_UPDATE_RESUME_DELAY = 3.5  # [s] once the car has been farther than that, refuse waypoint updates for this long after it is close again
-    MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA. (The waypoint EMA setting works the other way round: its gamma weighs the new value)
-    MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # discard staged updates and hold for that delay when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
+    MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA
+    MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # revert the waypoints around the car (MPC_WAYPOINT_REVERT_AHEAD / _BEHIND) and go into recovery when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
     HWM_MIN_BORDER_DISTANCE = 0.07  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
-    MPC_WAYPOINT_MIN_WALL_DISTANCE = 0.2  # [m] every waypoint keeps at least this distance from the walls. An update that would move one closer slides it along its cross-track line to the closest spot that keeps it. 0: off
-    MPC_WAYPOINT_WINDOW_UPDATES = True  # True: a stored waypoint changes only through window updates, rolled out from the state stored at a waypoint behind the car (see MPC_WAYPOINT_WINDOW_*). The car's own plan only fills waypoints that have nothing stored yet. False: the staging from the car's plan above (MPC_WAYPOINT_AHEAD, _COMMIT_LAG, _UPDTE_EMA)
-    MPC_WAYPOINT_WINDOW_SAMPLES = 50  # action sequences rolled out per window update, besides the MPC_NUM_OF_TRAJECTORIES driving samples. One of them is the stored sequence itself. With MPC_WAYPOINT_WINDOW_ROBUST each is rolled out twice
-    MPC_WAYPOINT_WINDOW_ROBUST = False  # each window sample is also rolled out from a perturbed start (speed, drift, yaw rate); an update is accepted only if that copy also gets through
-    MPC_WAYPOINT_WINDOW_ROBUST_TOLERANCE = 0.2  # largest error after the window of the perturbed copy (the perturbation alone is about 0.065)
-    HWM_WINDOW_SPAN_FIT_DOWNSTREAM = None  # where the stored sequence crosses too few waypoint lines within the horizon for a full window of MPC_WAYPOINT_AHEAD_SPAN, the window shrinks so that at least this many compared waypoints follow it (and at least 1 waypoint stays in it). None: no update there
+    MPC_WAYPOINT_WINDOW_SAMPLES = 50  # action sequences rolled out per window update, besides the MPC_NUM_OF_TRAJECTORIES driving samples. One of them is the stored sequence itself
     MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
     MPC_WAYPOINT_WINDOW_TOLERANCE = 0.2  # an update is accepted while its error at the waypoints after the window is at most max(error of the stored sequence, this). Error units: m of cross-track offset, see HWM_WINDOW_ERROR
     MPC_WAYPOINT_WINDOW_MARGIN = 0.15  # [m] every body corner along a window update's rollout keeps at least this distance from the walls. Larger than HWM_MIN_BORDER_DISTANCE, so the car has room around the stored line
-    HWM_PERMANENT_FREEZE_LAPS = 5  # after this many finished laps without a faster one, the table goes back to the one the fastest lap was driven on and is frozen for good: no window updates, staging, filling or HWM_BEST_LAP_RESET_LAPS resets any more, and reverts only as HWM_FROZEN_REVERT allows. 0: off
-    HWM_FROZEN_REVERT = False  # while HWM_PERMANENT_FREEZE_LAPS holds the table, leaving the raceline or crashing still puts the waypoints from MPC_WAYPOINT_REVERT_BEHIND behind the car to MPC_WAYPOINT_REVERT_AHEAD ahead of it back, each time one lap further than the version they hold (starting at the fastest lap), from the window history kept through the freeze. No window updates otherwise. False: the frozen table never changes
-    HWM_BEST_LAP_DRIVEN_TABLE = True  # the table kept for the fastest lap (HWM_PERMANENT_FREEZE_LAPS, HWM_BEST_LAP_RESET_LAPS) is every waypoint as it was when the car reached it in that lap. False: the table at the start of that lap, which still has the window updates made during the lap to the waypoints near its end
+    HWM_PERMANENT_FREEZE_LAPS = 5  # after this many finished laps without a faster one, the table goes back to the one the fastest lap was driven on and is frozen for good: no window updates, filling, reverts or HWM_BEST_LAP_RESET_LAPS resets any more. 0: off
     HWM_BEST_LAP_RESET_LAPS = 5  # with window updates: after this many laps without a faster one, the table goes back to the one the fastest lap started with, and window updates go on from there. None: off
-    HWM_WINDOW_LAGS = None  # several window updates per step, at these lags behind the car, sharing MPC_WAYPOINT_WINDOW_SAMPLES. They must be at least MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM + 1 apart, so their waypoints do not overlap. None: one at MPC_WAYPOINT_WINDOW_LAG
     HWM_WINDOW_SHIFT_STEPS = [-2, -1, 1, 2]  # window samples that are the stored sequence with its translational, then its steering commands shifted by this many control steps (positive: sooner). Empty: off
     HWM_WINDOW_STEER_SCALES = []  # window samples that are the stored sequence with its steering scaled by these: a tighter or wider line. Empty: off
-    MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE = True  # one window sample is the commands the car issued after it last crossed the window's first waypoint, rolled out from the stored state like the others
-    MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM = True  # an accepted update also writes its states and commands to the compared waypoints after the window, all but the last, which it rejoins. Ignored while MPC_WAYPOINT_WINDOW_ONLY is on
-    MPC_WAYPOINT_WINDOW_ONLY = True  # an accepted update rewrites only the waypoints in the window, and its commands only up to the sample's crossing of the first waypoint after the window; from there the sequence stored at that waypoint continues. The waypoints after the window keep their states and sequences, and the update must match all of them within MPC_WAYPOINT_WINDOW_TOLERANCE
-    MPC_WAYPOINT_WINDOW_GRIP_SHARE = 0.0  # an update's rollout may brake and corner together (friction circle of forward and lateral acceleration) at most at this share of the tires' mu * g. 0: no limit
     MPC_WAYPOINT_WINDOW_MIN_MARGIN = 0.12  # [m] where the stored sequence itself is closer to a wall than MPC_WAYPOINT_WINDOW_MARGIN, an update must keep the stored sequence's distance, but at least this
     MPC_WAYPOINT_WINDOW_CORRELATION = 0.8  # MPC_ACTION_CORRELATION of the window samples. High: smooth changes (brake later, a wider line) instead of jitter that averages out
     MPC_WAYPOINT_WINDOW_NOISE = 0.7  # sampling noise of window updates, relative to the driving noise
     MPC_DRIVE_FALLBACK_SAMPLES = True  # the last drive samples are fixed alternatives: the previous plan, the seed with less steering (HWM_FALLBACK_STEER_SCALES), and the creep and back-off samples of a slow car
     MPC_SEED_SPEED_GAIN = 3.0  # 1/s. The waypoint-seeded drive action gets this much extra acceleration (m/s^2) per m/s the seed path is below the stored speed there (negative above it)
-    MPC_DRIVE_ARRIVAL_WEIGHT = 0.6  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate (MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE). 0: the stored speeds alone set the pace
+    MPC_DRIVE_ARRIVAL_WEIGHT = 0.6  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate. 0: the stored speeds alone set the pace
     MPC_DRIVE_NOISE = [0.08, 1.5]  # [steering rad, translational command] std of the drive samples, in physical command units. Window samples scale it by MPC_WAYPOINT_WINDOW_NOISE
     HWM_CLIP_TO_CAR_LIMITS = True  # sampled translational commands stay within what the car does not saturate: max(a_min, -mu g) / brake_multiplier to min(a_max, mu g) / accel_multiplier. Beyond that every command has the same effect. False: +-HWM_MAX_TRANSLATIONAL_CONTROL
     MPC_DRIVE_OVERSPEED_WEIGHT = 1.0  # drive cost per m/s a matched rollout state is faster than its waypoint's stored speed. A shortfall costs 1 per m/s
@@ -480,11 +445,6 @@ class Settings():
     MPC_RECOVERY_HEADING_ERROR = 1.8  # 0.5  [rad] a car on the raceline but heading this far from the nearest waypoint's heading also counts as off track (recovery). 0: distance only
     MPC_SAFE_MEAN = True  # when some samples crash, the weighted mean plan is rolled out once more; if it crashes and the best sample does not, the best sample is driven
     MPC_STALL_ON_BLOCKED = True  # a car slower than 1 m/s whose best rollout crashes or drives less than 0.3 m forward backtracks at once, without waiting MPC_STALL_TIME
-    HWM_BRAKE_WEIGHT = 0.0  # drive cost per m/s a rollout ends faster than it can brake (at HWM_BRAKE_SHARE of mu * g) for the stored speeds of the HWM_BRAKE_LOOKAHEAD waypoints after it. Sees braking points beyond the horizon. 0: off
-    HWM_BRAKE_SHARE = 0.8
-    HWM_BRAKE_LOOKAHEAD = 30
-    MPC_DRIVE_GRIP_SHARE = 1.0  # drive rollouts are penalized where braking and cornering together need more than this share of the tire grip (mu * g)
-    MPC_DRIVE_GRIP_WEIGHT = 0.0  # drive cost per m/s^2 of the largest overshoot of that grip along a rollout. 0: off
     # Waypoint matching
     HWM_TRACK_WINDOW = 8  # waypoints on either side of the one the free-space path leads to that a position can be matched to
     HWM_DETOUR_START = 0.5  # [m] path around the walls longer than the straight distance to the line by more than this: a wall is in the way
@@ -519,17 +479,9 @@ class Settings():
     HWM_WINDOW_ERROR = {"lateral": 0.5, "heading": 0.5, "speed": 0.2, "drift": 0.2, "yaw_rate": 0.05}
     HWM_WINDOW_ERROR_COST = 10.0  # control steps of arrival time one unit of that error is worth when accepted updates are ranked
     HWM_WINDOW_LINE_REACH = 0.5  # [m] a rollout crosses a waypoint's line only within this distance of the point stored on it
-    HWM_REFILL_DISTANCE = None  # [m] a stored waypoint whose cross-track line the car crossed farther than this from the stored point takes the car's state, plan and delay queue there, like an empty one, also in recovery. Keeps the table to lines the car can follow. None: off
-    HWM_REFILL_REACH = 3.0  # [m] crossings that far from the stored point still count for that
     HWM_FILL_MIN_SPEED = 0.5  # [m/s] the car stores its state at an empty waypoint only when at least this fast
     HWM_DRIVEN_MEMORY = 400  # control steps of issued commands kept for the driven window candidate
     HWM_WINDOW_HISTORY = 40  # earlier states and sequences each waypoint keeps from window updates, to go back one lap when the car leaves the line
-    # Start perturbation of the robustness copy of a window sample (MPC_WAYPOINT_WINDOW_ROBUST), applied with a random sign
-    HWM_WINDOW_SPEED_PERTURBATION = 0.15  # [m/s] always upward: arriving faster than stored is what misses a braking point
-    HWM_WINDOW_SPEED_PERTURBATION_SHARE = 0.025  # plus this share of the speed: the driven car's speed error grows with its speed
-    HWM_WINDOW_SLIDE_PERTURBATION = 0.1  # [m/s] sideways speed; a sliding start always slides more
-    HWM_WINDOW_SLIDE_PERTURBATION_SHARE = 0.25  # plus this share of the slide: a slide grows by itself when the countersteer comes late
-    HWM_WINDOW_YAW_RATE_PERTURBATION = 0.3  # [rad/s]
     HWM_WINDOW_MAX_SLIP = 5.0  # [rad] largest slip angle along an accepted window update; the speed counts as at least HWM_CREEP_SPEED
     # A plan the car follows closely while most of its drive samples crash is at the edge: the sim's
     # noise alone tips it over. Its waypoints are then fragile, and window updates over them take
@@ -539,26 +491,12 @@ class Settings():
     HWM_FRAGILE_MEMORY = 0.5  # [laps] how long a mark lasts: the window update right after the pass sees it, the next lap's does not
     HWM_FRAGILE_CLEARANCE_GAIN = 0.02  # [m] wall clearance an update over fragile waypoints must add, nominal and perturbed
 
-    MPC_WAYPOINT_DISCARD_WALL_SEQUENCES = False  # True: a stored action sequence whose path reaches a wall counts as bad (deleted, or restored if the flag below is on). False: wall hits are not checked, those sequences stay. The off-track check below is separate
-    MPC_WAYPOINT_KEEP_ON_BAD_UPDATE = True  # True: a stored action sequence whose path used to be fine is not deleted when it reaches a wall (or leaves the track, see next flag). The update that broke it is rejected and the last good sequence is restored. Sequences that were never fine are still deleted. False: bad sequences are always deleted
-    MPC_WAYPOINT_REJECT_OPT_OFF_TRACK_UPDATE = False  # True: a waypoint target-state update is rejected when the optimizer's trajectory (opt reward, not the drive reward) leaves the raceline (farther than MPC_WAYPOINT_UPDATE_DISTANCE). Only the state update at that waypoint is dropped; other waypoints and the action sequence at that waypoint are not affected
-    MPC_WAYPOINT_REJECT_OFF_TRACK = False  # True: a stored action sequence whose path leaves the track (farther than MPC_WAYPOINT_UPDATE_DISTANCE from the raceline) counts as bad too, like a wall hit. Handled as the flag above says: restore the last good one if that flag is on, else delete. False: only walls count
-    MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS = False  # True: when a waypoint's action update is rejected, its state (position, speed, heading, drift, steer, yaw rate, slip) goes back to the last good one with it. When its sequence is deleted, the state is reset to the loaded raceline. False: only the action sequence is touched
-    HWM_SEED_FROM_ROLLOUT = True  # True: once stored sequences exist, the sampling seed is not the blend of the two neighbouring waypoints' sequences. That blend is rolled out with the model, and action k becomes the mix of the first stored actions of the two waypoints around rollout state k (the running plan's action k where neither has one)
     HWM_LLD_RESIDUAL_ONLY = False  # TEST. Inference (planner rollouts, preview, LLD-sim, rewards) uses the residual net g(q) alone as the LLD: no memory retrieval, no attention. Training (learner, train mode) is unchanged. The predicted covariance becomes a fixed isotropic one, so sampled paths and the crash probability see almost no uncertainty
-    HWM_LLD_RESIDUAL_ONLY_STD = 1e-3  # scale of that fixed covariance, in delta units
     HWM_PROFILE = False  # time every part of the HWM control step and write a report (HWM_PROFILE_FILE .txt/.json) at exit. See TrainingLite/hwm/profiling.py and scripts/profile_hwm.py
     HWM_PROFILE_FILE = "hwm_profile"  # path prefix of the report
     HWM_PROFILE_SKIP_STEPS = 30  # control steps ignored at the start (JIT/torch.compile warmup, empty memory)
-    HWM_LIVE_MODE = True  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview. The optimistic rollout still runs while the waypoint update needs it (see HWM_UPDATE_FROM_OPT_MEAN_STATES)
-    HWM_SEED_FROM_MEAN_STATES = True  # TEST. True: no rollout for the seed. At the end of every step, the softmax-averaged states of the samples give the next step's seed: for each averaged state, the mix of the first stored actions of the two waypoints around it (like HWM_SEED_FROM_ROLLOUT, but the states are the averages instead of a model rollout of the blended sequence). Replaces HWM_SEED_FROM_ROLLOUT
-    HWM_UPDATE_FROM_OPT_MEAN_STATES = True  # TEST. True: no optimistic rollout. The waypoint update takes the optimistic-reward softmax-averaged states as the path, and interpolates the two of them nearest to the waypoint's line
-    MPC_REWARD_INTERPOLATED_TARGETS = False  # True: every rollout state gets a target by blending the targets (position, heading, speed, drift) of its 2 closest waypoints, weighted toward the closer one; its error to that target is the cost, averaged over the rollout's states. False: legacy, each waypoint is matched to its closest rollout state
-    MPC_ACTION_DEVIATION_WEIGHT = 0  # penalty for a sampled action sequence deviating from last step's plan (executed action popped, last action repeated). Mean over the horizon of the channel-weighted L1 distance in network units. Drive reward only. 0: off
-    MPC_ACTION_DEVIATION_CHANNEL_WEIGHTS = [1.0, 1.0]  # [steering, acceleration] weights of that distance
-    MPC_WALL_DISTANCE_WEIGHT = 0  # reward per meter of distance to the nearest wall, averaged over each sampled rollout (every state counts, crash or not). Added to the drive reward only. 0: off
-    MPC_WALL_DISTANCE_CAP = 0.3  # [m] distances above this earn nothing more
-    HWM_SHOW_WAYPOINT_PATHS = True  # draw, from every waypoint, the path its stored action sequence leads to. The wall check of the stored sequences needs those paths anyway and runs either way
+    HWM_LIVE_MODE = True  # True: nothing is computed only to be displayed: no orange/black path rollouts, no sample drawing, no waypoint paths, no preview
+    HWM_SHOW_WAYPOINT_PATHS = True  # draw, from every waypoint, the path its stored action sequence leads to (not with HWM_LIVE_MODE)
     HWM_LIMIT_INITIAL_WP_SPEED = True # Limits initial target speed of Waypoints to 
     HWM_INITIAL_SPEED_LIMIT = 1.5 # [m/s]
     HWM_INITIAL_SPEED_GRIP_SHARE = None #1.25  # share of the car's mu * g. Set: the initial target speeds are the raceline's grip-limited profile at that acceleration (cornering, braking and accelerating within one friction circle), capped by the raceline's own speeds, instead of HWM_INITIAL_SPEED_LIMIT. None: off
@@ -598,7 +536,6 @@ class Settings():
     ]
     HWM_STATE_DIM = 10                   # car-state width stored in memory and predicted by the dynamics
     HWM_ACTION_DIM = 2                   # [angular, translational] action width
-    HWM_HIDDEN_DIM = 128                 # MLP width for the actor and the placeholder dynamics
     HWM_ACTION_DENORM = [0.375, 5.0]     # network output ±1 -> physical [steering rad, translational]; 0.375 = s_max 0.6 / steering_multiplier 1.6 of the car, so ±1 is full lock
     HWM_CLIENT_MODULES = ["actor", "LLD"]       # modules the learner broadcasts to the planner after each train round
     

@@ -15,7 +15,6 @@ import numpy as np
 import torch
 
 from Control_Toolkit_ASF.Controllers import template_planner
-from Control_Toolkit_ASF.Controllers.PurePursuit.pp_planner import PurePursuitPlanner
 from TrainingLite.hwm.profiling import PROF
 from TrainingLite.hwm.shared.speed_profile import grip_speed_profile as _grip_speed_profile
 from TrainingLite.hwm.shared.wall_geometry import WallGeometry
@@ -50,7 +49,6 @@ WP_TARGET_DRIFT_IDX = 10  # m/s. Target speed along the car y axis. HWM only; th
 WP_TARGET_STEER_IDX = 11  # rad. Steering angle of the car at the waypoint. HWM only.
 WP_TARGET_YAW_RATE_IDX = 12  # rad/s. Yaw rate of the car at the waypoint. HWM only.
 WP_TARGET_SLIP_IDX = 13  # rad. Slip angle of the car at the waypoint. HWM only.
-WP_HWM_COLUMNS = (WP_TARGET_DRIFT_IDX, WP_TARGET_STEER_IDX, WP_TARGET_YAW_RATE_IDX, WP_TARGET_SLIP_IDX)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
@@ -98,9 +96,8 @@ class HirarchicalPlanner(template_planner):
         self.translational_control = 0.0
         self.prev_angular_control = 0.0
         self.prev_translational_control = 0.0
-        self.autonomous_driving = not Settings.HWM_PP_DRIVES
+        self.autonomous_driving = True
 
-        self.fallback_planner = PurePursuitPlanner()
         self._controller_observation: Optional[Dict[str, Any]] = None
 
         self.control_index = 0
@@ -112,11 +109,7 @@ class HirarchicalPlanner(template_planner):
 
         self.action_buffer = torch.zeros(Settings.MPC_TRAJECTORY_LENGTH, 2)
         self.former_nearest_waypoint = None
-        # Turns on when the car leaves the raceline or the reward EMA drops. Updates stay
-        # refused until the car has been close again for MPC_WAYPOINT_UPDATE_RESUME_DELAY.
-        self._waypoint_updates_held = False
-        self._waypoint_update_close_since = None
-        self._waypoint_off_raceline = False
+        # Turns on when the reward EMA drops, and keeps the car in recovery.
         self._reward_drop_warned = False
         self.recover_mode = False
         self.off_track = False
@@ -126,7 +119,6 @@ class HirarchicalPlanner(template_planner):
         self._completed_laps = 0
         self._wp_speed_cap_applied = False
         self._last_opt_wp = None
-        self._wp_recording = None
         self._reward_EMA = 1
         self._mean_state_seed: torch.Tensor | None = None
         self._grid_crashes = 0
@@ -147,21 +139,18 @@ class HirarchicalPlanner(template_planner):
             horizon=int(Settings.MPC_TRAJECTORY_LENGTH),
         )
         PROF.instrument(self, [
-            "_refresh_recovery", "_interpolated_waypoint_actions", "_rollout_seeded_actions",
+            "_refresh_recovery", "_interpolated_waypoint_actions",
             "_sample_mpc_actions", "rollout_dynamics", "rollout_pacejka",
-            "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_interpolated_target_costs", "_matched_waypoint_costs", "_recovery_cost",
+            "nearest_waypoint_index", "rollout_waypoint_states", "MPC_reward", "_matched_waypoint_costs", "_recovery_cost",
             "_backtrack_cost", "_note_reward", "_draw_mpc_trajectories", "_weighted_state_trajectory",
-            "_update_from_driven_plan", "_commit_staged_waypoints",
-            "_commit_staged_actions", "_record_waypoint_action", "_discard_wall_sequences",
-            "_paths_leave_track", "_publish_waypoint_display", "_refresh_waypoint_paths",
+            "_publish_waypoint_display", "_refresh_waypoint_paths",
             "_seed_from_states", "_ensure_waypoints", "_apply_normalized_action",
-            "_record_step", "get_car_state", "_fallback_action", "_update_stall", "_update_recover_mode",
+            "_record_step", "get_car_state", "_update_stall", "_update_recover_mode",
             "select_action",
         ])
         PROF.instrument(self.wall_geometry, [
             "in_wall", "distance_at", "crash_probability",
         ], prefix="wall.")
-        PROF.instrument(self.fallback_planner, ["process_observation"], prefix="pure_pursuit.")
 
     def reset(self):
         self.control_index = 0
@@ -177,64 +166,6 @@ class HirarchicalPlanner(template_planner):
         self._fill_previous_state = None
         self._driven = None
         self._reset_stall()
-
-    def _blend_heading(self, old: torch.Tensor, new: torch.Tensor, gamma: float) -> torch.Tensor:
-        """Circular blend. A linear mix of two angles flips when they sit on opposite sides of ±π."""
-        return torch.atan2(
-            (1.0 - gamma) * torch.sin(old) + gamma * torch.sin(new),
-            (1.0 - gamma) * torch.cos(old) + gamma * torch.cos(new),
-        )
-
-    def _record_waypoint_action(self, state: np.ndarray, action_seq: torch.Tensor) -> None:
-        """Store the plan from the closest state on this pass of a waypoint.
-
-        The first pass writes that sequence directly. Later passes stage it, and the commit
-        blends it with the same EMA as the waypoint state. A staged sequence is dropped by
-        the same holds as a staged waypoint.
-        """
-        self._ensure_waypoints()
-        if not hasattr(self, "_wp_actions") or self._permanently_frozen():
-            return
-        pos = torch.as_tensor(state, dtype=torch.float32).reshape(-1)[[POSE_X_IDX, POSE_Y_IDX]]
-        dist = (self._waypoint_xy - pos).pow(2).sum(dim=-1)
-        idx = int(dist.argmin())
-        if self._wp_recording != idx:
-            previous = self._wp_recording
-            if previous is not None and not bool(self._wp_action_known[previous]):
-                if float(self._wp_action_dist[previous]) < float("inf"):
-                    self._wp_action_known[previous] = True
-            self._wp_recording = idx
-            self._wp_action_dist[idx] = float("inf")
-        best = float(dist[idx])
-        if getattr(self, "_wp_laptime_frozen", False):
-            # The live table stays at the last best lap. This lap's plan is kept aside and
-            # installed only if the lap beats that best.
-            self._capture_frozen_action(idx, best, action_seq)
-            return
-        if best > float(self._wp_action_dist[idx]) or self._waypoint_frozen(idx):
-            return
-        seq = torch.as_tensor(action_seq, dtype=torch.float32).reshape(-1, 2)
-        horizon = int(self._wp_actions.shape[1])
-        if int(seq.shape[0]) < horizon:
-            seq = torch.cat((seq, seq[-1:].expand(horizon - int(seq.shape[0]), -1)), dim=0)
-        seq = seq[:horizon]
-        if not bool(self._wp_action_known[idx]):
-            if not bool(self._wp_action_snapped[idx]):
-                self._wp_hist_actions[idx].append((self._wp_actions[idx].clone(), False))
-                self._wp_action_snapped[idx] = True
-            self._wp_actions[idx] = seq
-            self._wp_action_dist[idx] = best
-            return
-        if (
-            bool(getattr(self, "recover_mode", False))
-            or bool(getattr(self, "_waypoint_updates_held", False))
-            or self.episode_timesteps < 100
-        ):
-            return
-        self._wp_actions_staged[idx] = seq
-        self._wp_action_staged[idx] = True
-        self._wp_action_dist[idx] = best
-
 
     def _matchable_waypoints(self, pos: torch.Tensor) -> torch.Tensor | None:
         """``(B, N)`` bool for positions ``(B, 2)``: the waypoints each one may be matched to, or ``None`` for all.
@@ -284,19 +215,6 @@ class HirarchicalPlanner(template_planner):
         if has_start != has_end:
             return self._wp_actions[start if has_start else end]
         return (1.0 - alpha) * self._wp_actions[start] + alpha * self._wp_actions[end]
-
-    def _rollout_seeded_actions(self, state: np.ndarray, nominal: torch.Tensor) -> torch.Tensor:
-        """Seed built from every waypoint along the path, not only the two around the car.
-
-        ``nominal`` (the blend of the two neighbours' stored sequences) is rolled out with the
-        model. Each rollout state ``k`` looks up the two raceline waypoints around it and takes
-        the mix, by position between them, of the first action of their stored sequences as
-        action ``k``. A waypoint without a stored sequence is skipped; if neither has one, action
-        ``k`` of the running plan (``action_buffer``) is used.
-        """
-        horizon = int(nominal.shape[0])
-        path = self.rollout_dynamics(state, nominal)[0, :horizon]  # (H, state_dim), the state each action starts from
-        return self._seed_from_states(path)
 
     def _seed_from_states(self, path: torch.Tensor) -> torch.Tensor:
         """Seed ``(H, 2)`` for the states ``path`` ``(H, state_dim)``, the state each action starts from.
@@ -370,27 +288,15 @@ class HirarchicalPlanner(template_planner):
         positive = step[step > 1e-4]
         self._waypoint_spacing = float(positive.median()) if positive.numel() else 0.1
 
-        self.waypoints_update_staged = self.waypoints.clone()
-        self._wp_staged = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         horizon = int(Settings.MPC_TRAJECTORY_LENGTH)
         self._wp_actions = torch.zeros((self._waypoints_n, horizon, 2), dtype=torch.float32)
-        self._wp_actions_staged = torch.zeros_like(self._wp_actions)
-        self._wp_action_staged = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._wp_action_known = torch.zeros((self._waypoints_n,), dtype=torch.bool)
-        self._wp_action_dist = torch.full((self._waypoints_n,), float("inf"))
         delay = int(round(Settings.CONTROL_DELAY / Settings.TIMESTEP_CONTROL))
         # Control-delay queue at each waypoint's stored state: the commands issued before it that are still to be applied.
         self._wp_pending = torch.zeros((self._waypoints_n, delay, 2), dtype=torch.float32)
-        self._wp_initial = self.waypoints.clone()  # as loaded, for a full reset of a waypoint
-        # Every committed value, oldest first: each commit pushes what it replaced. A revert pops one.
-        self._wp_gamma_divisions = torch.zeros((self._waypoints_n,), dtype=torch.long)  # times each waypoint was reset
-        self._wp_hist_state = [[] for _ in range(self._waypoints_n)]  # rows of the waypoint table
-        self._wp_hist_actions = [[] for _ in range(self._waypoints_n)]  # (action sequence, was it known)
         # What each window update replaced: (control step, table row, action sequence, was it known, delay queue).
         self._wp_window_hist = [[] for _ in range(self._waypoints_n)]
         self._wp_fragile_at = torch.full((self._waypoints_n,), -1, dtype=torch.long)  # last control step marked fragile
-        self._wp_action_snapped = torch.zeros((self._waypoints_n,), dtype=torch.bool)
-        self._wp_frozen_until = torch.zeros((self._waypoints_n,), dtype=torch.long)
         self._wp_off_track_count = torch.zeros((self._waypoints_n,), dtype=torch.float32)
         self._wp_path_states = None
         self._wp_window_accepted = 0
@@ -398,7 +304,6 @@ class HirarchicalPlanner(template_planner):
         self._wp_vehicle_state_set = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._wp_off_track_marked = torch.zeros((self._waypoints_n,), dtype=torch.bool)
         self._car_waypoint = None
-        self._wp_recording = None
         self.last_wp_distance = np.inf
         self._write_raceline()
         self._publish_waypoint_display()
@@ -514,44 +419,28 @@ class HirarchicalPlanner(template_planner):
         return out
 
     def _matched_waypoint_costs(
-        self,
-        states: torch.Tensor,
-        nearest_waypoint_indices: torch.Tensor,
-        nearest_waypoint: int,
-        ignore_waypoint: int | None,
-        waypoint_off_track_counts: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Legacy costs (``MPC_REWARD_INTERPOLATED_TARGETS`` False): each waypoint is matched to its closest rollout state.
+        self, states: torch.Tensor, nearest_waypoint_indices: torch.Tensor, nearest_waypoint: int,
+    ) -> torch.Tensor:
+        """``(B,)`` drive cost, lower is better, where each waypoint is matched to its closest rollout state.
 
         Batched over the rollouts. Rollout ``i`` uses its ``count_i`` matched waypoints (``nearest_waypoint_indices``
-        is NaN padded); padded or ignored slots are masked out of every sum, max and count.
+        is NaN padded); padded slots are masked out of every sum, max and count.
         """
         batch = int(states.shape[0])
         drive = torch.zeros(batch)
-        optimize = torch.zeros(batch)
         if self.off_track:
-            # The loop used to stop at the first rollout that has a waypoint, leaving every cost at zero.
-            return drive, optimize
+            return drive
         width = int(nearest_waypoint_indices.shape[1])
         if width == 0:
-            return drive, optimize
+            return drive
         start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
         n = self._waypoints_n
         wp_index = (torch.arange(width) + start) % n  # (J,)
-        has_index = ~nearest_waypoint_indices.isnan()
-        valid = has_index.clone()
-        if ignore_waypoint is not None:
-            valid &= (wp_index != (int(ignore_waypoint) % n))[None, :]
+        valid = ~nearest_waypoint_indices.isnan()
         count = valid.sum(dim=1)  # (B,)
-        # Position of each kept waypoint among the kept ones (the AHEAD window is counted in that order).
-        position_in_list = valid.long().cumsum(dim=1) - 1
-        ahead = int(Settings.MPC_WAYPOINT_AHEAD)
-        span = int(Settings.MPC_WAYPOINT_AHEAD_SPAN)
-        window = valid & (position_in_list >= ahead) & (position_in_list < ahead + span)  # ~update_mask
-        update = valid & ~window  # update_mask
 
         PROF.begin("batched_waypoint_reward")
-        indices = torch.where(has_index, nearest_waypoint_indices, torch.zeros_like(nearest_waypoint_indices)).long()
+        indices = torch.where(valid, nearest_waypoint_indices, torch.zeros_like(nearest_waypoint_indices)).long()
         matched = states[torch.arange(batch)[:, None], indices]  # (B, J, D)
         local_waypoints = self.waypoints[wp_index]  # (J, 14)
         zero = matched.new_zeros(())
@@ -566,196 +455,36 @@ class HirarchicalPlanner(template_planner):
         drift_error = torch.where(
             valid, (matched[..., LINEAR_VEL_Y_IDX] - local_waypoints[None, :, WP_TARGET_DRIFT_IDX]).abs(), zero
         ).sum(dim=1)
-        shortfall = torch.where(valid, (target_speed - speed).clamp(min=0), zero)
-        overspeed = torch.where(valid, (speed - target_speed).clamp(min=0), zero)
         drive_target = target_speed * float(Settings.MPC_DRIVE_TARGET_SPEED_FACTOR)
         drive_shortfall = torch.where(valid, (drive_target - speed).clamp(min=0), zero)
         drive_overspeed = torch.where(valid, (speed - drive_target).clamp(min=0), zero)
 
         index_f = indices.float()
-        neg_inf = torch.full_like(index_f, float("-inf"))
-        fast_driving = torch.where(valid, index_f, neg_inf).max(dim=1).values
-        legal = torch.where(window, index_f, neg_inf).max(dim=1).values
-        fast_driving_legal = torch.where(window.any(dim=1), legal, torch.zeros_like(legal))
-
-        update_f, window_f = update.to(speed.dtype), window.to(speed.dtype)
+        fast_driving = torch.where(valid, index_f, torch.full_like(index_f, float("-inf"))).max(dim=1).values
         counts = count.clamp(min=1).to(speed.dtype)
         drive_cost = (
             10 * distance + 2 * heading.sum(dim=1) + drive_shortfall.sum(dim=1)
             + drive_overspeed.sum(dim=1) * float(Settings.MPC_DRIVE_OVERSPEED_WEIGHT)
             + 0.25 * drift_error + float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT) * fast_driving
         ) / counts
-        optimize_cost = (10 * distance) / counts
-        optimize_cost = optimize_cost + (
-            (shortfall * update_f).sum(dim=1) * 2 + (overspeed * update_f).sum(dim=1) * 2
-        ) / update_f.sum(dim=1).clamp(min=1)
-        optimize_cost = optimize_cost + (shortfall * window_f).sum(dim=1) * 10 / window_f.sum(dim=1).clamp(min=1)
-        optimize_cost = optimize_cost + 0.5 * fast_driving_legal / Settings.MPC_WAYPOINT_AHEAD_SPAN
 
         # Every predicted state counts: with only the matched ones, a rollout that backs away from the
         # waypoints is matched by its first, still slow states and its reversing goes unpunished.
         min_speed = states[:, 1:, LINEAR_VEL_X_IDX].min(dim=1).values
         reverse = torch.where(min_speed < 0, 100 * min_speed.abs(), torch.zeros_like(min_speed))
-        drive_cost = drive_cost + reverse + self._grip_excess_cost(states) + self._braking_excess_cost(states, start)
-        optimize_cost = optimize_cost + reverse
+        drive_cost = drive_cost + reverse
         PROF.end()
-        active = count > 0
-        drive = torch.where(active, drive_cost, drive)
-        optimize = torch.where(active, optimize_cost, optimize)
-        return drive, optimize
-
-    def _braking_excess_cost(self, states: torch.Tensor, start: int) -> torch.Tensor:
-        """``(B,)`` cost of ending a rollout too fast to brake for the stored speeds after it.
-
-        The horizon ends before most braking points. From the waypoint nearest to the last state, each of
-        the next ``HWM_BRAKE_LOOKAHEAD`` waypoints allows ``sqrt(v_k^2 + 2 a d_k)``, with ``d_k`` the distance
-        along the stored line and ``a`` ``HWM_BRAKE_SHARE`` of mu * g. Every m/s over the tightest of them costs
-        ``HWM_BRAKE_WEIGHT``.
-        """
-        weight = float(Settings.HWM_BRAKE_WEIGHT)
-        if weight <= 0.0:
-            return torch.zeros(int(states.shape[0]))
-        n = self._waypoints_n
-        lookahead = int(Settings.HWM_BRAKE_LOOKAHEAD)
-        reach = 60
-        rows = (int(start) + torch.arange(reach + lookahead)) % n
-        xy = self._waypoint_xy[rows]
-        final = states[:, -1]
-        nearest = (final[:, None, [POSE_X_IDX, POSE_Y_IDX]] - xy[None, :reach]).pow(2).sum(dim=-1).argmin(dim=1)  # (B,)
-        step = torch.linalg.norm(torch.diff(xy, dim=0), dim=-1)
-        along = torch.cat((step.new_zeros(1), step.cumsum(dim=0)))  # (R + L,)
-        ahead = nearest[:, None] + torch.arange(lookahead)[None]  # (B, L)
-        distance = (along[ahead] - along[nearest][:, None]).clamp(min=0.0)
-        speed = self.waypoints[rows, WP_TARGET_SPEED_IDX][ahead]
-        accel = float(Settings.HWM_BRAKE_SHARE) * self._car_friction_accel()
-        allowed = torch.sqrt(speed.pow(2) + 2.0 * accel * distance).amin(dim=1)
-        return weight * (final[:, LINEAR_VEL_X_IDX] - allowed).clamp(min=0.0)
-
-    def _grip_excess_cost(self, states: torch.Tensor) -> torch.Tensor:
-        """``(B,)`` cost of the largest friction-circle overshoot along each rollout.
-
-        The model limits braking and cornering each on its own, so it predicts a hard braking turn that the
-        tires cannot deliver together and the car spins.
-        """
-        weight = float(Settings.MPC_DRIVE_GRIP_WEIGHT)
-        if weight <= 0.0:
-            return torch.zeros(int(states.shape[0]))
-        speed = states[..., LINEAR_VEL_X_IDX]
-        lateral = speed[:, 1:] * states[:, 1:, ANGULAR_VEL_Z_IDX]
-        forward = torch.diff(speed, dim=1) / float(Settings.TIMESTEP_CONTROL)
-        limit = float(Settings.MPC_DRIVE_GRIP_SHARE) * self._car_friction_accel()
-        excess = (torch.hypot(lateral, forward) - limit).clamp(min=0).amax(dim=1)
-        return weight * excess
-
-    def _interpolated_target_costs(
-        self, states: torch.Tensor, start: int, ignore_waypoint: int | None = None
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Drive and optimize costs ``(B,)`` (lower is better) with a target for every rollout state.
-
-        Each state takes its two closest waypoints (among those from ``start - 4`` to as far ahead
-        as the fastest rollout can travel). Their target position, heading, speed and drift are
-        blended with weights that favour the closer one, and the state's error to that blended
-        target is the cost. Every term is averaged over the ``T`` rollout states.
-        """
-        n = self._waypoints_n
-        batch, steps, _ = (int(states.shape[0]), int(states.shape[1]), int(states.shape[2]))
-        spacing = max(float(getattr(self, "_waypoint_spacing", 0.1)), 1e-3)
-        dt = float(Settings.TIMESTEP_CONTROL)
-        speed_over_ground = torch.hypot(states[..., LINEAR_VEL_X_IDX], states[..., LINEAR_VEL_Y_IDX]).detach()
-        travel = float(speed_over_ground.mean(dim=1).max()) * max(steps - 1, 0) * dt
-        behind = 4
-        ahead = min(int(travel / spacing) + 8, n - behind - 1)
-        offsets = torch.arange(-behind, max(ahead, 2) + 1)
-        index = (start + offsets) % n
-        rows = self.waypoints[index]  # (K, 14)
-        wp_xy = rows[:, [WP_X_IDX, WP_Y_IDX]]
-        pos = states[..., [POSE_X_IDX, POSE_Y_IDX]]  # (B, T, 2)
-        delta = pos[:, :, None, :] - wp_xy[None, None]
-        distance = (delta.pow(2).sum(dim=-1) + 1e-12).sqrt()  # (B, T, K)
-        if ignore_waypoint is not None:
-            distance = distance.masked_fill((index == (int(ignore_waypoint) % n))[None, None], float("inf"))
-        nearest = torch.topk(distance.detach(), k=2, dim=-1, largest=False).indices  # (B, T, 2)
-        d1 = distance.gather(-1, nearest[..., :1])[..., 0]
-        d2 = distance.gather(-1, nearest[..., 1:])[..., 0]
-        total = d1 + d2
-        w1 = torch.where(total > 1e-6, d2 / total.clamp_min(1e-6), torch.full_like(total, 0.5))
-        w2 = 1.0 - w1
-        row1, row2 = rows[nearest[..., 0]], rows[nearest[..., 1]]  # (B, T, 14)
-
-        def blend(column: int) -> torch.Tensor:
-            return w1 * row1[..., column] + w2 * row2[..., column]
-
-        target_x, target_y = blend(WP_X_IDX), blend(WP_Y_IDX)
-        target_heading = torch.atan2(
-            w1 * torch.sin(row1[..., WP_HEADING_IDX]) + w2 * torch.sin(row2[..., WP_HEADING_IDX]),
-            w1 * torch.cos(row1[..., WP_HEADING_IDX]) + w2 * torch.cos(row2[..., WP_HEADING_IDX]),
-        )
-        target_speed, target_drift = blend(WP_TARGET_SPEED_IDX), blend(WP_TARGET_DRIFT_IDX)
-        along = w1 * offsets[nearest[..., 0]].to(w1.dtype) + w2 * offsets[nearest[..., 1]].to(w1.dtype)  # waypoints past ``start``
-
-        distance_cost = ((pos[..., 0] - target_x).pow(2) + (pos[..., 1] - target_y).pow(2) + 1e-12).sqrt()
-        heading_error = states[..., POSE_THETA_IDX] - target_heading
-        heading_cost = torch.atan2(torch.sin(heading_error), torch.cos(heading_error)).abs()
-        speed = states[..., LINEAR_VEL_X_IDX]
-        shortfall = (target_speed - speed).clamp(min=0)
-        overspeed = (speed - target_speed).clamp(min=0)
-        drift_cost = (states[..., LINEAR_VEL_Y_IDX] - target_drift).abs()
-
-        # Replaces the old "time of the farthest matched waypoint": waypoints advanced per rollout step.
-        progress = (along[:, -1] - along[:, 0]) / max(steps - 1, 1)
-        drive = (
-            10 * distance_cost.sum(dim=1) + 2 * heading_cost.sum(dim=1) + shortfall.sum(dim=1)
-            + 2 * overspeed.sum(dim=1) + 0.25 * drift_cost.sum(dim=1)
-        ) / steps - 0.5 * progress
-
-        if self.off_track:
-            optimize = torch.zeros(batch)
-        else:
-            first = int(Settings.MPC_WAYPOINT_AHEAD)
-            span = int(Settings.MPC_WAYPOINT_AHEAD_SPAN)
-            # States lying at the waypoints whose targets the update stages (start + AHEAD ... + SPAN - 1).
-            inside = (along >= first - 0.5) & (along < first + span - 0.5)
-            outside = ~inside
-            inside_f, outside_f = inside.to(speed.dtype), outside.to(speed.dtype)
-            optimize = 10 * distance_cost.sum(dim=1) / steps
-            optimize = optimize + (
-                2 * (shortfall * outside_f).sum(dim=1) + 2 * (overspeed * outside_f).sum(dim=1)
-            ) / outside_f.sum(dim=1).clamp(min=1)
-            optimize = optimize + 10 * (shortfall * inside_f).sum(dim=1) / inside_f.sum(dim=1).clamp(min=1)
-            # Time (rollout step) at which the last waypoint of that window is passed; the whole horizon if never.
-            passed = along >= first + span - 1.5
-            reach = torch.where(
-                passed.any(dim=1), passed.to(torch.int8).argmax(dim=1), torch.full((batch,), steps - 1)
-            ).to(speed.dtype)
-            if span > 0:
-                optimize = optimize + 0.5 * reach / span
-            optimize = optimize - (speed * inside_f).sum(dim=1) / steps
-        reverse = 100 * (-speed.min(dim=1).values).clamp(min=0)
-        return drive + reverse, optimize + reverse
+        return torch.where(count > 0, drive_cost, drive)
 
     def MPC_reward(
-        self,
-        states: torch.tensor,
-        nearest_waypoint_indices: torch.tensor,
-        nearest_waypoint: int,
-        ignore_waypoint: int | None = None,
-        waypoint_off_track_counts: torch.Tensor | None = None,
-        actions: torch.Tensor | None = None,
-    ) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
-        """Driving and waypoint rewards, each split into the normal part and the crash part.
+        self, states: torch.Tensor, nearest_waypoint_indices: torch.Tensor, nearest_waypoint: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Drive reward ``(B,)``, split into the normal part and the crash part.
 
         The caller adds the two parts. The crash part is left out of the reward EMA.
         """
         start = int(torch.as_tensor(nearest_waypoint).reshape(-1)[0])
-        if Settings.MPC_REWARD_INTERPOLATED_TARGETS:
-            PROF.begin("interpolated_target_costs")
-            drive, optimize = self._interpolated_target_costs(states, start, ignore_waypoint)
-            PROF.end()
-        else:
-            drive, optimize = self._matched_waypoint_costs(
-                states, nearest_waypoint_indices, nearest_waypoint, ignore_waypoint, waypoint_off_track_counts
-            )
-
+        drive = self._matched_waypoint_costs(states, nearest_waypoint_indices, nearest_waypoint)
         if self.off_track:
             drive = self._recovery_cost(states, start)
         if self._stall_phase == 1:
@@ -771,20 +500,9 @@ class HirarchicalPlanner(template_planner):
         # so a plan that follows the corner and clips late beats one that drives into the wall now.
         survived = torch.where(has_crash, first, torch.full_like(first, horizon))
         late = horizon - survived
-        # The optimize reward also counts a car position closer to a wall than the waypoints may be.
-        wall_distance = self.wall_geometry.distance_at(poses[..., :2]).to(crashed.device)  # (B, T) per state
-        close = crashed | (wall_distance < float(Settings.MPC_WAYPOINT_MIN_WALL_DISTANCE))
-        first_close = close.float().argmax(dim=1)
-        survived_opt = torch.where(close.any(dim=1), first_close, torch.full_like(first_close, horizon))
-        late_opt = horizon - survived_opt
-
-        def _split(raw: torch.Tensor, late: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-            # At least 1 per step of the horizon lost: with every cost near 0 a crash must still cost something.
-            crash = -(raw.abs().max().clamp_min(1.0) * 10 * late)
-            return -raw, crash
-
-        drive_reward, drive_crash = _split(drive, late)
-        optimize_reward, optimize_crash = _split(optimize, late_opt)
+        # At least 1 per step of the horizon lost: with every cost near 0 a crash must still cost something.
+        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * late)
+        drive_reward = -drive
         clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
         if clearance_weight > 0.0:
             # A plan that passes a wall by a hair is a crash after a few cm of tracking error. Each state
@@ -795,28 +513,13 @@ class HirarchicalPlanner(template_planner):
             span = max(start - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3)
             closeness = ((start - corner) / span).clamp(0.0, 1.0).sum(dim=1)
             drive_reward = drive_reward - clearance_weight * closeness
-        wall_weight = float(Settings.MPC_WALL_DISTANCE_WEIGHT)
-        if wall_weight != 0.0:
-            # General reward for staying away from the walls, crash or not: the mean over the rollout of
-            # the distance of each state to the nearest wall, capped. Drive reward only.
-            cap = float(Settings.MPC_WALL_DISTANCE_CAP)
-            drive_reward = drive_reward + wall_weight * wall_distance.clamp(max=cap).mean(dim=1).to(drive_reward)
-        deviation_weight = float(Settings.MPC_ACTION_DEVIATION_WEIGHT)
-        if deviation_weight != 0.0 and actions is not None and getattr(self, "_action_buffer_valid", False):
-            # Penalty for leaving last step's plan: ``action_buffer`` is that plan with the executed action
-            # popped and the last one repeated. Mean over the horizon of the weighted L1 distance, network units.
-            reference = self.action_buffer.to(actions)
-            if int(reference.shape[0]) == int(actions.shape[1]):
-                channel = torch.as_tensor(Settings.MPC_ACTION_DEVIATION_CHANNEL_WEIGHTS, dtype=actions.dtype)
-                deviation = ((actions - reference).abs() * channel).sum(dim=-1).mean(dim=1)
-                drive_reward = drive_reward - deviation_weight * deviation.to(drive_reward)
         PROF.end()
-        return (drive_reward, optimize_reward), (drive_crash, optimize_crash)
+        return drive_reward, drive_crash
 
     def _jax_rewards_usable(self) -> bool:
         """``MPC_reward_jax`` covers this configuration: matched-waypoint costs on a map, on the CPU."""
         return (
-            Settings.HWM_JAX_REWARDS and not Settings.MPC_REWARD_INTERPOLATED_TARGETS and not Settings.BLANK_MAP
+            Settings.HWM_JAX_REWARDS and not Settings.BLANK_MAP
             and self.wall_geometry.device.type == "cpu"
         )
 
@@ -837,8 +540,8 @@ class HirarchicalPlanner(template_planner):
         return cached[1:]
 
     def MPC_reward_jax(
-        self, states: torch.Tensor, nearest_waypoint: int | torch.Tensor, actions: torch.Tensor | None = None,
-    ) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
+        self, states: torch.Tensor, nearest_waypoint: int | torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """``MPC_reward`` of ``rollout_waypoint_states`` matches, with the per-rollout part compiled
         (``drive_costs_jax``) and run in chunks on ``HWM_ROLLOUT_THREADS`` threads."""
         from jax.experimental import enable_x64
@@ -859,11 +562,9 @@ class HirarchicalPlanner(template_planner):
         grid, corner_x, corner_y = self._jax_wall_inputs()
         clearance = float(Settings.MPC_DRIVE_WALL_CLEARANCE)
         consts = (
-            float(Settings.MPC_WAYPOINT_AHEAD), float(Settings.MPC_WAYPOINT_AHEAD_SPAN),
             float(Settings.MPC_DRIVE_TARGET_SPEED_FACTOR), float(Settings.MPC_DRIVE_OVERSPEED_WEIGHT),
-            float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT), float(Settings.HWM_MIN_BORDER_DISTANCE),
-            float(Settings.MPC_WAYPOINT_MIN_WALL_DISTANCE), clearance,
-            max(clearance - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3), float(Settings.MPC_WALL_DISTANCE_CAP),
+            float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT), float(Settings.HWM_MIN_BORDER_DISTANCE), clearance,
+            max(clearance - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3),
             geometry.origin_x, geometry.origin_y, geometry.origin_cos, geometry.origin_sin, geometry.resolution,
             float(geometry.map_width), float(geometry.map_height),
         )
@@ -886,41 +587,22 @@ class HirarchicalPlanner(template_planner):
                 size = -(-per_thread // 8) * 8
                 chunks = [(lo, min(lo + size, batch), size) for lo in range(0, batch, size)]
                 parts = list(self._rollout_pool(threads).map(lambda chunk: costs(*chunk), chunks))
-            drive_m, optimize_m, active, late, late_opt, closeness, wall_mean = (
+            drive_m, active, late, closeness = (
                 torch.from_numpy(np.concatenate(column)) for column in zip(*parts)
             )
 
-        drive = torch.zeros(batch)
-        optimize = torch.zeros(batch)
         if not self.off_track:
-            drive_cost = drive_m + self._grip_excess_cost(states) + self._braking_excess_cost(states, start)
-            drive = torch.where(active, drive_cost, drive)
-            optimize = torch.where(active, optimize_m, optimize)
+            drive = torch.where(active, drive_m, torch.zeros(batch))
         else:
             drive = self._recovery_cost(states, start)
         if self._stall_phase == 1:
             drive = self._backtrack_cost(states)
-
-        def _split(raw: torch.Tensor, late: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-            crash = -(raw.abs().max().clamp_min(1.0) * 10 * late.to(raw.dtype))
-            return -raw, crash
-
-        drive_reward, drive_crash = _split(drive, late)
-        optimize_reward, optimize_crash = _split(optimize, late_opt)
+        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * late.to(drive.dtype))
+        drive_reward = -drive
         clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
         if clearance_weight > 0.0:
             drive_reward = drive_reward - clearance_weight * closeness
-        wall_weight = float(Settings.MPC_WALL_DISTANCE_WEIGHT)
-        if wall_weight != 0.0:
-            drive_reward = drive_reward + wall_weight * wall_mean
-        deviation_weight = float(Settings.MPC_ACTION_DEVIATION_WEIGHT)
-        if deviation_weight != 0.0 and actions is not None and getattr(self, "_action_buffer_valid", False):
-            reference = self.action_buffer.to(actions)
-            if int(reference.shape[0]) == int(actions.shape[1]):
-                channel = torch.as_tensor(Settings.MPC_ACTION_DEVIATION_CHANNEL_WEIGHTS, dtype=actions.dtype)
-                deviation = ((actions - reference).abs() * channel).sum(dim=-1).mean(dim=1)
-                drive_reward = drive_reward - deviation_weight * deviation.to(drive_reward)
-        return (drive_reward, optimize_reward), (drive_crash, optimize_crash)
+        return drive_reward, drive_crash
 
 
     def _recovery_cost(self, states: torch.Tensor, start: int) -> torch.Tensor:
@@ -1088,133 +770,15 @@ class HirarchicalPlanner(template_planner):
         actions[-int(fixed.shape[0]):] = fixed
         return actions
 
-    def _keep_wall_distance(self, xy: torch.Tensor, idx: int) -> torch.Tensor:
-        """Slide ``xy`` along waypoint ``idx``'s cross-track line until it is ``MPC_WAYPOINT_MIN_WALL_DISTANCE`` from the walls.
-
-        A point that already keeps the distance is returned as it is. Otherwise it goes to the
-        closest spot on the line, to where it was, that keeps it. If no spot on the line does,
-        it goes to the one farthest from the walls.
-        """
-        minimum = float(Settings.MPC_WAYPOINT_MIN_WALL_DISTANCE)
-        if minimum <= 0.0:
-            return xy
-        anchor = self._wp_anchor_xy[idx]
-        ortho = self._wp_ortho[idx]
-        slide = float((xy - anchor).dot(ortho))
-        offsets = torch.cat((torch.tensor([slide]), torch.linspace(-1.5, 1.5, 301)))
-        points = anchor[None, :] + offsets[:, None] * ortho[None, :]
-        distance = self.wall_geometry.distance_at(points).to(offsets.dtype)
-        if float(distance[0]) >= minimum:
-            return xy
-        ok = distance[1:] >= minimum
-        if bool(ok.any()):
-            candidates = offsets[1:][ok]
-            best = candidates[(candidates - slide).abs().argmin()]
-        else:
-            best = offsets[1:][distance[1:].argmax()]
-        return anchor + best * ortho
-
-    def _state_on_orthogonal_line(self, path: torch.Tensor, idx: int):
-        """Blend the two path states nearest the waypoint's fixed cross-track line.
-
-        The line passes through the original waypoint and is perpendicular to its original
-        heading. The result is projected onto that line, so the point cannot leave it.
-        Returns ``None`` when the path never comes near the line.
-        """
-        anchor = self._wp_anchor_xy[idx]
-        tangent = self._wp_tangent[idx]
-        ortho = self._wp_ortho[idx]
-        pos = path[:, [POSE_X_IDX, POSE_Y_IDX]]
-        distance = (pos - anchor).matmul(tangent).abs()
-        count = int(path.shape[0])
-        if count < 2:
-            return None
-        if float(distance.min()) > 0.5:
-            return None
-        nearest = torch.topk(distance, k=2, largest=False).indices
-        d1 = distance[nearest[0]]
-        d2 = distance[nearest[1]]
-        if float(d1 + d2) < 1e-8:
-            w1 = w2 = 0.5
-        else:
-            w1 = d2 / (d1 + d2)
-            w2 = d1 / (d1 + d2)
-        first = path[nearest[0]]
-        second = path[nearest[1]]
-        xy = w1 * first[[POSE_X_IDX, POSE_Y_IDX]] + w2 * second[[POSE_X_IDX, POSE_Y_IDX]]
-        slide = (xy - anchor).dot(ortho)
-        xy = anchor + slide * ortho
-        heading = torch.atan2(
-            w1 * torch.sin(first[POSE_THETA_IDX]) + w2 * torch.sin(second[POSE_THETA_IDX]),
-            w1 * torch.cos(first[POSE_THETA_IDX]) + w2 * torch.cos(second[POSE_THETA_IDX]),
-        )
-        speed = (w1 * first[LINEAR_VEL_X_IDX] + w2 * second[LINEAR_VEL_X_IDX]).clamp(min=0.0)
-        drift = w1 * first[LINEAR_VEL_Y_IDX] + w2 * second[LINEAR_VEL_Y_IDX]
-        steer = w1 * first[STEERING_ANGLE_IDX] + w2 * second[STEERING_ANGLE_IDX]
-        yaw_rate = w1 * first[ANGULAR_VEL_Z_IDX] + w2 * second[ANGULAR_VEL_Z_IDX]
-        slip = w1 * first[SLIP_ANGLE_IDX] + w2 * second[SLIP_ANGLE_IDX]
-        return xy, heading, speed, drift, steer, yaw_rate, slip
-
-    def _waypoint_resume_steps(self) -> int:
-        return max(1, int(round(
-            float(Settings.MPC_WAYPOINT_UPDATE_RESUME_DELAY) / float(Settings.TIMESTEP_CONTROL)
-        )))
-
-    def _hold_waypoint_updates(self) -> None:
-        """Drop every staged waypoint and refuse new ones until the resume delay has elapsed."""
-        if hasattr(self, "_wp_staged"):
-            self._wp_staged.zero_()
-        if hasattr(self, "_wp_action_staged"):
-            self._wp_action_staged.zero_()
-        self._revert_nearby_waypoints()
-        self._waypoint_updates_held = True
-        self._waypoint_update_close_since = None
-
     def _revert_nearby_waypoints(self) -> None:
-        """Put the k waypoints ahead and behind one committed update further back, each time this runs.
-
-        Every waypoint keeps all its earlier states and action sequences, so repeated misses
-        walk back through them. A waypoint with nothing left to pop stays as it is.
-        """
-        if not hasattr(self, "_wp_hist_state") or self._car_waypoint is None:
+        """Put the waypoints around the car back to where the car last got through (``_revert_window_updates``)."""
+        if not hasattr(self, "_wp_window_hist") or self._car_waypoint is None:
             return
         if self._permanently_frozen():
-            if getattr(Settings, "HWM_FROZEN_REVERT", False):
-                self._revert_frozen_waypoints()
             return
         if not getattr(self, "_seen_on_track", True):
             return  # spawned off the raceline and not on it yet: recovery runs, but no waypoint is reset
-        if Settings.MPC_WAYPOINT_WINDOW_UPDATES:
-            self._revert_window_updates()
-            return
-        behind = max(0, int(Settings.MPC_WAYPOINT_REVERT_BEHIND))
-        ahead = max(0, int(Settings.MPC_WAYPOINT_REVERT_AHEAD))
-        steps = max(1, int(Settings.MPC_WAYPOINT_REVERT_STEPS))
-        n = self._waypoints_n
-        center = int(self._car_waypoint)
-        for offset in range(-behind, ahead + 1):
-            idx = (center + offset) % n
-            was_reset = False
-            for _ in range(steps):
-                if not self._wp_hist_state[idx]:
-                    break
-                self.waypoints[idx] = self._wp_hist_state[idx].pop()
-                was_reset = True
-            for _ in range(steps):
-                if not self._wp_hist_actions[idx]:
-                    break
-                actions, known = self._wp_hist_actions[idx].pop()
-                self._wp_actions[idx] = actions
-                self._wp_action_known[idx] = bool(known)
-                self._wp_action_snapped[idx] = False
-                was_reset = True
-            if was_reset:
-                self._wp_gamma_divisions[idx] += 1  # only reset waypoints get a smaller EMA gamma
-                self._wp_action_staged[idx] = False
-            hold = max(0, int(Settings.MPC_WAYPOINT_REVERT_HOLD))
-            self._wp_frozen_until[idx] = int(getattr(self, "_completed_laps", 0)) + hold
-        self._write_raceline()
-        self._publish_waypoint_display()
+        self._revert_window_updates()
 
     def _revert_window_updates(self) -> None:
         """Put the waypoints from ``MPC_WAYPOINT_REVERT_BEHIND`` behind the car to ``MPC_WAYPOINT_REVERT_AHEAD``
@@ -1248,60 +812,9 @@ class HirarchicalPlanner(template_planner):
         self._write_raceline()
         self._publish_waypoint_display()
 
-    def _revert_frozen_waypoints(self) -> None:
-        """``HWM_FROZEN_REVERT``: on the frozen table, put the waypoints from ``MPC_WAYPOINT_REVERT_BEHIND`` behind
-        the car to ``MPC_WAYPOINT_REVERT_AHEAD`` ahead of it one lap further back than the version they hold, all to
-        the same time, from the window history kept through the freeze. The table stays frozen otherwise.
-        """
-        lap_steps = getattr(self, "_last_lap_steps", None)
-        version = getattr(self, "_wp_frozen_version", None)
-        if lap_steps is None or version is None:
-            return
-        n = self._waypoints_n
-        idx = (int(self._car_waypoint) + torch.arange(-max(0, int(Settings.MPC_WAYPOINT_REVERT_BEHIND)),
-                                                      max(0, int(Settings.MPC_WAYPOINT_REVERT_AHEAD)) + 1)) % n
-        # Like the reverts before the freeze, an area goes back at most one lap per lap: a car that keeps
-        # crossing the line's distance limit in one place must not walk it back lap after lap at once.
-        last = getattr(self, "_wp_frozen_revert_at", None)
-        if last is None or int(last.shape[0]) != n:
-            last = self._wp_frozen_revert_at = torch.full((n,), -(10 ** 9), dtype=torch.long)
-        if bool((int(self.total_timesteps) - last[idx] < int(lap_steps)).any()):
-            return
-        last[idx] = int(self.total_timesteps)
-        since = int(version[idx].min()) - int(lap_steps)
-        version[idx] = since
-        reverted = 0
-        for k in idx.tolist():
-            history = self._wp_window_hist[k]
-            entry = None
-            while history and history[-1][0] > since:
-                entry = history.pop()
-            if entry is None:
-                continue
-            _, row, actions, known, pending = entry
-            self.waypoints[k] = row
-            self._wp_actions[k] = actions
-            self._wp_action_known[k] = known
-            self._wp_pending[k] = pending
-            reverted += 1
-        self._frozen_table = self._waypoint_snapshot()
-        self._write_raceline()
-        self._publish_waypoint_display()
-        self._log_info(f"[HirarchicalPlanner] Frozen table: {reverted} waypoints around the car put one lap further back")
-
     def _permanently_frozen(self) -> bool:
         """True once ``HWM_PERMANENT_FREEZE_LAPS`` laps passed without a faster lap: the table never changes again."""
         return bool(getattr(self, "_wp_permanently_frozen", False))
-
-    def _waypoint_frozen(self, idx: int) -> bool:
-        if self._permanently_frozen():
-            return True  # HWM_PERMANENT_FREEZE_LAPS: the table is held at the best lap for good
-        if getattr(self, "_wp_laptime_frozen", False):
-            return True  # MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT: the whole table is held at the last improving lap
-        until = getattr(self, "_wp_frozen_until", None)
-        if until is None:
-            return False
-        return int(getattr(self, "_completed_laps", 0)) < int(until[int(idx)])
 
     def _waypoint_snapshot(self) -> dict:
         """Everything a lap-time reset has to put back: the targets, the action sequences and their bookkeeping."""
@@ -1338,9 +851,9 @@ class HirarchicalPlanner(template_planner):
         }
 
     def _best_lap_snapshot(self, start: dict) -> dict:
-        """The table to keep for a lap that just ended: the one it drove (HWM_BEST_LAP_DRIVEN_TABLE), else the one it started on."""
+        """The table to keep for a lap that just ended: the one it drove, else (before one was captured) the one it started on."""
         driven = getattr(self, "_driven_table", None)
-        if not getattr(Settings, "HWM_BEST_LAP_DRIVEN_TABLE", False) or driven is None:
+        if driven is None:
             return start
         return {key: values.clone() for key, values in driven.items()}
 
@@ -1351,86 +864,15 @@ class HirarchicalPlanner(template_planner):
         self._wp_vehicle_state_set.copy_(snapshot["vehicle_state_set"])
         if "pending" in snapshot:
             self._wp_pending.copy_(snapshot["pending"])
-        self._wp_staged.zero_()
-        self._wp_action_staged.zero_()
-        self._wp_action_dist.fill_(float("inf"))
-        self._wp_action_snapped.zero_()
-        for history in self._wp_hist_state:
-            history.clear()
-        for history in self._wp_hist_actions + self._wp_window_hist:
+        for history in self._wp_window_hist:
             history.clear()
         self._write_raceline()
         self._publish_waypoint_display()
-
-    def _reset_lap_capture(self) -> None:
-        """Empty the buffer that holds one frozen lap's plans. The live table is not touched."""
-        n = self._waypoints_n
-        horizon = int(self._wp_actions.shape[1])
-        self._lap_actions = torch.zeros((n, horizon, 2), dtype=torch.float32)
-        self._lap_action_known = torch.zeros((n,), dtype=torch.bool)
-        self._lap_action_dist = torch.full((n,), float("inf"))
-        self._lap_rows = self.waypoints.clone()
-        self._lap_state_known = torch.zeros((n,), dtype=torch.bool)
-
-    def _capture_frozen_action(self, idx: int, distance: float, action_seq: torch.Tensor) -> None:
-        """Closest plan seen at waypoint ``idx`` during the frozen lap."""
-        if not hasattr(self, "_lap_actions"):
-            self._reset_lap_capture()
-        if (
-            bool(getattr(self, "recover_mode", False))
-            or bool(getattr(self, "_waypoint_updates_held", False))
-            or self.episode_timesteps < 100
-        ):
-            return
-        if distance > float(self._lap_action_dist[idx]):
-            return
-        seq = torch.as_tensor(action_seq, dtype=torch.float32).reshape(-1, 2)
-        horizon = int(self._lap_actions.shape[1])
-        if int(seq.shape[0]) < horizon:
-            seq = torch.cat((seq, seq[-1:].expand(horizon - int(seq.shape[0]), -1)), dim=0)
-        self._lap_actions[idx] = seq[:horizon]
-        self._lap_action_known[idx] = True
-        self._lap_action_dist[idx] = distance
-
-    def _capture_frozen_state(self, idx: int, row: torch.Tensor) -> None:
-        """Target state staged for waypoint ``idx`` during the frozen lap."""
-        if not hasattr(self, "_lap_rows"):
-            self._reset_lap_capture()
-        self._lap_rows[idx] = row
-        self._lap_state_known[idx] = True
-
-    def _install_frozen_lap(self) -> tuple[int, int]:
-        """Copy this lap's captured states and action sequences onto the live table.
-
-        A waypoint the lap never recorded keeps the frozen value.
-        """
-        states = actions = 0
-        if hasattr(self, "_lap_state_known"):
-            known = self._lap_state_known
-            self.waypoints[known] = self._lap_rows[known]
-            self._wp_vehicle_state_set |= known
-            states = int(known.sum())
-        if hasattr(self, "_lap_action_known"):
-            known = self._lap_action_known
-            self._wp_actions[known] = self._lap_actions[known]
-            self._wp_action_known |= known
-            actions = int(known.sum())
-        self._wp_staged.zero_()
-        self._wp_action_staged.zero_()
-        self._wp_action_dist.fill_(float("inf"))
-        self._wp_action_snapped.zero_()
-        for history in self._wp_hist_state:
-            history.clear()
-        for history in self._wp_hist_actions + self._wp_window_hist:
-            history.clear()
-        self._write_raceline()
-        self._publish_waypoint_display()
-        return states, actions
 
     def _update_permanent_freeze(self, lap_time: float) -> None:
         """After ``HWM_PERMANENT_FREEZE_LAPS`` finished laps without a faster one, put the table back to the one
         the fastest lap was driven on and freeze it for good: no window updates, staging, filling or
-        further resets, and reverts only as ``HWM_FROZEN_REVERT`` allows. 0: off.
+        further resets or reverts. 0: off.
         """
         patience = int(getattr(Settings, "HWM_PERMANENT_FREEZE_LAPS", 0) or 0)
         if self._permanently_frozen():
@@ -1445,22 +887,13 @@ class HirarchicalPlanner(template_planner):
             table = self._best_lap_snapshot(start)
             self._freeze_best_lap, self._freeze_best_table, self._freeze_laps_since_best = float(lap_time), table, 0
             self._freeze_best_changed = self._count_changed(start, table)
-            self._freeze_best_start_step = int(self.total_timesteps) - int(getattr(self, "_last_lap_steps", 0) or 0)
             return
         if best is None:
             return  # the first lap has no start table: nothing to freeze to yet
         self._freeze_laps_since_best = int(getattr(self, "_freeze_laps_since_best", 0)) + 1
         if self._freeze_laps_since_best < patience:
             return
-        keep_history = bool(getattr(Settings, "HWM_FROZEN_REVERT", False))
-        history = [list(entries) for entries in self._wp_window_hist]
         self._restore_waypoint_snapshot(self._freeze_best_table)
-        for entries, kept in zip(self._wp_window_hist, history):
-            entries.clear()
-            if keep_history:
-                entries.extend(kept)
-        # The time each waypoint's frozen version stands for; a revert while frozen goes one lap back from it.
-        self._wp_frozen_version = torch.full((self._waypoints_n,), int(getattr(self, "_freeze_best_start_step", 0)))
         self._wp_permanently_frozen = True
         self._frozen_table = self._waypoint_snapshot()
         self._log_info(
@@ -1470,7 +903,7 @@ class HirarchicalPlanner(template_planner):
         )
 
     def _check_frozen_table(self) -> None:
-        """Log any waypoint of the frozen table that changed other than by ``HWM_FROZEN_REVERT``."""
+        """Log any waypoint of the frozen table that changed."""
         frozen = getattr(self, "_frozen_table", None)
         if frozen is None:
             return
@@ -1494,51 +927,11 @@ class HirarchicalPlanner(template_planner):
         actions = (a["actions"] != b["actions"]).flatten(1).any(dim=1)
         return int((rows | actions).sum())
 
-    def _update_laptime_freeze(self, lap_time: float) -> None:
-        """Keep the waypoints of the fastest lap so far, and freeze them after two laps without a faster one.
-
-        While frozen the live table is held, but the lap's own target states and action sequences are
-        recorded aside. A frozen lap that beats the best replaces the table with those, and updates resume.
-        """
-        if not getattr(Settings, "MPC_WAYPOINT_FREEZE_ON_NO_IMPROVEMENT", False) or not hasattr(self, "_wp_actions"):
-            return
-        if self._permanently_frozen():
-            return
-        frozen = bool(getattr(self, "_wp_laptime_frozen", False))
-        best = getattr(self, "_wp_best_lap", None)
-        if best is None or float(lap_time) < best:
-            if frozen:
-                n_states, n_actions = self._install_frozen_lap()
-                self._log_info(
-                    f"[HirarchicalPlanner] Lap {lap_time:.3f}s is a new best: "
-                    f"installed its {n_states} waypoint states and {n_actions} action sequences"
-                )
-            self._wp_best_lap = float(lap_time)
-            self._wp_best_snapshot = self._waypoint_snapshot()
-            self._wp_laps_since_best = 0
-            self._wp_laptime_frozen = False
-            self._reset_lap_capture()
-            return
-        since = int(getattr(self, "_wp_laps_since_best", 0)) + 1
-        self._wp_laps_since_best = since
-        if frozen:
-            self._reset_lap_capture()
-            return
-        if since < 2:
-            return
-        self._restore_waypoint_snapshot(self._wp_best_snapshot)
-        self._wp_laptime_frozen = True
-        self._reset_lap_capture()
-        self._log_info(
-            f"[HirarchicalPlanner] No faster lap for {since} laps (best {best:.3f}s): "
-            "waypoints reset to that lap and frozen"
-        )
-
     def _update_best_lap_table(self, lap_time: float) -> None:
-        """With window updates: after ``HWM_BEST_LAP_RESET_LAPS`` laps without a faster one, put the table back to
-        the one the fastest lap started with. Window updates go on from there."""
+        """After ``HWM_BEST_LAP_RESET_LAPS`` laps without a faster one, put the table back to the one the fastest
+        lap started with. Window updates go on from there."""
         patience = Settings.HWM_BEST_LAP_RESET_LAPS
-        if patience is None or not Settings.MPC_WAYPOINT_WINDOW_UPDATES or not hasattr(self, "_wp_actions"):
+        if patience is None or not hasattr(self, "_wp_actions"):
             return
         if self._permanently_frozen():
             return
@@ -1568,7 +961,7 @@ class HirarchicalPlanner(template_planner):
         self._log_info(f"[HirarchicalPlanner] No lap faster than {best:.3f}s for {patience} laps: table put back to that lap's")
 
     def _note_reward(self, reward_mean: torch.Tensor) -> None:
-        """Track the softmax-weighted reward. A reward far under its EMA holds waypoint updates.
+        """Track the softmax-weighted reward. A reward far under its EMA reverts the waypoints around the car.
 
         The value is the negation of a cost, so a smaller reward is a worse plan. This step's reward
         is compared with the EMA from before this step. The first steps are skipped: the EMA is
@@ -1586,21 +979,16 @@ class HirarchicalPlanner(template_planner):
                 self._note_off_track_pass(reward_drop=True)
                 self._log_info(
                     f"[HirarchicalPlanner] Warning: reward {float(reward_mean):.4f} fell under its EMA "
-                    f"{previous:.4f} by more than {float(Settings.MPC_WAYPOINT_REWARD_DROP):.0%}. Staged waypoint updates discarded."
+                    f"{previous:.4f} by more than {float(Settings.MPC_WAYPOINT_REWARD_DROP):.0%}."
                 )
-            self._hold_waypoint_updates()
-            self._update_recover_mode(bool(getattr(self, "_waypoint_off_raceline", False)))
+            self._revert_nearby_waypoints()
+            self._update_recover_mode(False)
 
     def _update_recover_mode(self, off_track: bool) -> None:
         """True while the car is off the raceline or a reward-EMA drop is still in effect."""
         self.recover_mode = bool(
             off_track or getattr(self, "_reward_drop_warned", False) or getattr(self, "_stall_phase", 0) == 1
         )
-
-    def _ema_gamma(self, idx: int) -> float:
-        """EMA gamma of waypoint ``idx``: ``MPC_WAYPOINT_UPDTE_EMA`` divided by ``MPC_WAYPOINT_EMA_RECOVERY_DIVISOR`` once per time it was reset."""
-        divisor = max(1.0, float(Settings.MPC_WAYPOINT_EMA_RECOVERY_DIVISOR))
-        return float(Settings.MPC_WAYPOINT_UPDTE_EMA) / divisor ** int(self._wp_gamma_divisions[int(idx)])
 
     def _reset_stall(self) -> None:
         # Also the per-episode reset. A car that spawns off the raceline does not reset any waypoint
@@ -1793,55 +1181,12 @@ class HirarchicalPlanner(template_planner):
         self.off_track = (not on_track) or self._stalled
         # Recovery follows the real pose. The waypoint table ignores the opening of the episode.
         affects_waypoints = self.off_track and self._off_track_affects_waypoints()
-        if Settings.MPC_WAYPOINT_WINDOW_UPDATES and affects_waypoints and not self._was_off_track:
+        if affects_waypoints and not self._was_off_track:
             # The window updates made the waypoints the car could not follow: walk the ones around it back.
             self._revert_nearby_waypoints()
         self._was_off_track = affects_waypoints
         self._update_recover_mode(self.off_track)
         self._note_off_track_pass()
-
-    def _waypoint_update_accepted(self, nearest_distance: float) -> bool:
-        """Refuse a new waypoint while the car is off the raceline, and for a fixed time after it returns.
-
-        Going farther than ``MPC_WAYPOINT_UPDATE_DISTANCE`` turns the hold on and drops every
-        staged update. The resume clock stays unset while the car is away, including during a
-        hold that the reward EMA started. It starts once the car is close, and leaving clears
-        it, so the full delay has to elapse while the car stays close.
-        """
-        stalled = bool(getattr(self, "_stalled", False))
-        self.off_track = nearest_distance > float(Settings.MPC_WAYPOINT_UPDATE_DISTANCE) or stalled
-        if self.off_track and not self._off_track_affects_waypoints():
-            self._update_recover_mode(True)
-            return True
-        if self.off_track:
-            if not getattr(self, "_waypoint_off_raceline", False):
-                self._waypoint_off_raceline = True
-                reason = (
-                    f"car barely moved (less than {float(Settings.MPC_STALL_DISTANCE):.2f} m in {float(Settings.MPC_STALL_TIME):.1f} s)"
-                    if stalled else f"car left the raceline ({nearest_distance:.3f} m from the line)"
-                )
-                self._log_info(f"[HirarchicalPlanner] Warning: {reason}. Staged waypoint updates discarded.")
-            just_left = (not self._waypoint_updates_held) or self._waypoint_update_close_since is not None
-            if just_left:
-                self._hold_waypoint_updates()
-            self._waypoint_update_close_since = None
-            self._update_recover_mode(True)
-            return False
-        self._waypoint_off_raceline = False
-        if not self._waypoint_updates_held:
-            self._update_recover_mode(False)
-            return True
-        if self._waypoint_update_close_since is None:
-            self._waypoint_update_close_since = int(self.total_timesteps)
-        wait = self._waypoint_resume_steps()
-        if int(self.total_timesteps) - int(self._waypoint_update_close_since) < wait:
-            self._update_recover_mode(False)
-            return False
-        self._waypoint_updates_held = False
-        self._waypoint_update_close_since = None
-        self._reward_drop_warned = False
-        self._update_recover_mode(False)
-        return True
 
     def _weighted_state_trajectory(self, trajectories: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
         """Mean state rollout. Same weighted sum as the black plan line, over the whole state.
@@ -1851,108 +1196,6 @@ class HirarchicalPlanner(template_planner):
         mean = torch.sum(weights[:, None, None] * trajectories, dim=0)
         mean[:, POSE_THETA_IDX] = torch.atan2(mean[:, POSE_THETA_SIN_IDX], mean[:, POSE_THETA_COS_IDX])
         return mean
-
-    def _update_from_driven_plan(self, state: np.ndarray, pacejka: torch.Tensor) -> None:
-        """Stage the car's own plan at the waypoint ``k`` steps ahead, and commit it once passed."""
-        if not hasattr(self, "waypoints"):
-            return
-        path = pacejka[0] if pacejka.ndim == 3 else pacejka
-        nearest = int(self.nearest_waypoint_index(state).reshape(-1)[0])
-        nearest_distance = self._raceline_distance(state)
-        k = max(1, int(Settings.MPC_WAYPOINT_AHEAD))
-        target = (nearest + k) % self._waypoints_n
-        accepted = self._waypoint_update_accepted(nearest_distance)
-        if not bool(torch.isfinite(path).all()):
-            accepted = False  # a NaN plan would be staged as garbage (the start of the path, i.e. the car's own slow state)
-        reject = (
-            self.episode_timesteps >= 100 and accepted
-            and bool(getattr(Settings, "MPC_WAYPOINT_REJECT_OPT_OFF_TRACK_UPDATE", False))
-            and bool(self._paths_leave_track(path[None, :, [POSE_X_IDX, POSE_Y_IDX]].detach().cpu())[0])
-        )  # Only the target-state updates are dropped; the action sequences are untouched.
-        span = max(0, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
-        if self.episode_timesteps >= 100 and accepted and not reject:
-            # Each waypoint from nearest + AHEAD to nearest + AHEAD + SPAN takes the state where the path crosses its own line.
-            for offset in range(span + 1):
-                target = (nearest + k + offset) % self._waypoints_n
-                on_line = self._state_on_orthogonal_line(path, target)
-                if on_line is None:
-                    continue
-                xy, heading, speed, drift, steer, yaw_rate, slip = on_line
-                xy = self._keep_wall_distance(xy, target)
-                row = self.waypoints[target].clone()
-                row[WP_X_IDX] = xy[0]
-                row[WP_Y_IDX] = xy[1]
-                row[WP_HEADING_IDX] = heading
-                row[WP_TARGET_SPEED_IDX] = speed
-                row[WP_TARGET_DRIFT_IDX] = drift
-                row[WP_TARGET_STEER_IDX] = steer
-                row[WP_TARGET_YAW_RATE_IDX] = yaw_rate
-                row[WP_TARGET_SLIP_IDX] = slip
-                if getattr(self, "_wp_laptime_frozen", False):
-                    self._capture_frozen_state(target, row)
-                    continue
-                if self._waypoint_frozen(target):
-                    continue
-                self.waypoints_update_staged[target] = row
-                self._wp_staged[target] = True
-        self._commit_staged_waypoints(nearest)
-
-    def _commit_staged_waypoints(self, nearest: int) -> None:
-        """Copy a staged waypoint onto the raceline once the car has driven past it."""
-        if not hasattr(self, "_wp_staged"):
-            return
-        lag = max(1, int(Settings.MPC_WAYPOINT_COMMIT_LAG))
-        n = self._waypoints_n
-        for idx in torch.nonzero(self._wp_staged).flatten().tolist():
-            passed = (int(nearest) - int(idx)) % n
-            # passed > n/2 means the waypoint is still ahead; the difference wrapped the long way.
-            if not lag <= passed <= n // 2 or self._waypoint_frozen(idx):
-                continue
-            gamma = self._ema_gamma(idx)
-            current = self.waypoints[idx].clone()
-            self._wp_hist_state[idx].append(current)
-            staged = self.waypoints_update_staged[idx]
-            self.waypoints[idx, WP_X_IDX] = (1.0 - gamma) * current[WP_X_IDX] + gamma * staged[WP_X_IDX]
-            self.waypoints[idx, WP_Y_IDX] = (1.0 - gamma) * current[WP_Y_IDX] + gamma * staged[WP_Y_IDX]
-            self.waypoints[idx, [WP_X_IDX, WP_Y_IDX]] = self._keep_wall_distance(
-                self.waypoints[idx, [WP_X_IDX, WP_Y_IDX]].clone(), idx
-            )
-            self.waypoints[idx, WP_TARGET_SPEED_IDX] = (
-                (1.0 - gamma) * current[WP_TARGET_SPEED_IDX] + gamma * staged[WP_TARGET_SPEED_IDX]
-            )
-            for column in WP_HWM_COLUMNS:
-                self.waypoints[idx, column] = (1.0 - gamma) * current[column] + gamma * staged[column]
-            if not bool(self._wp_vehicle_state_set[idx]):
-                # Steering, yaw rate and slip start at 0 only because nothing was stored yet. The
-                # first commit takes the staged values, so 0 does not pull them down.
-                for column in (WP_TARGET_STEER_IDX, WP_TARGET_YAW_RATE_IDX, WP_TARGET_SLIP_IDX):
-                    self.waypoints[idx, column] = staged[column]
-                self._wp_vehicle_state_set[idx] = True
-            self.waypoints[idx, WP_HEADING_IDX] = self._blend_heading(
-                current[WP_HEADING_IDX], staged[WP_HEADING_IDX], gamma
-            )
-            self._wp_staged[idx] = False
-        self._commit_staged_actions(nearest)
-        self._write_raceline()
-        self._publish_waypoint_display()
-
-    def _commit_staged_actions(self, nearest: int) -> None:
-        """Blend a staged action sequence once the car has passed that waypoint."""
-        if not hasattr(self, "_wp_action_staged"):
-            return
-        lag = max(1, int(Settings.MPC_WAYPOINT_COMMIT_LAG))
-        n = self._waypoints_n
-        for idx in torch.nonzero(self._wp_action_staged).flatten().tolist():
-            passed = (int(nearest) - int(idx)) % n
-            if not lag <= passed <= n // 2 or self._waypoint_frozen(idx):
-                continue
-            gamma = self._ema_gamma(idx)
-            current = self._wp_actions[idx]
-            self._wp_hist_actions[idx].append((current.clone(), True))
-            staged = self._wp_actions_staged[idx]
-            self._wp_actions[idx] = (1.0 - gamma) * current + gamma * staged
-            self._wp_action_staged[idx] = False
-
 
     def _waypoint_known(self, idx: torch.Tensor) -> torch.Tensor:
         return self._wp_action_known[idx] & self._wp_vehicle_state_set[idx]
@@ -2036,32 +1279,20 @@ class HirarchicalPlanner(template_planner):
         current = torch.as_tensor(state, dtype=torch.float32).reshape(1, -1)
         previous = getattr(self, "_fill_previous_state", None)
         self._fill_previous_state = current
-        refill = Settings.HWM_REFILL_DISTANCE
         if previous is None or self._car_waypoint is None or self._stall_phase == 1:
             return
         if self._permanently_frozen():
             return
-        if self.recover_mode and refill is None:
+        if self.recover_mode:
             return
         if float(current[0, LINEAR_VEL_X_IDX]) < Settings.HWM_FILL_MIN_SPEED:
             return
         idx = (int(self._car_waypoint) + torch.arange(-3, 4)) % self._waypoints_n
         path = torch.cat((previous, current))[None]
-        if refill is not None:
-            # The table must be what the car can drive: where it crossed a stored waypoint's line this far
-            # from the stored point, that waypoint takes what the car had there, as if it were empty.
-            known = self._waypoint_known(idx)
-            times, at = self._line_crossings(path, idx, reach=float(Settings.HWM_REFILL_REACH))
-            offset = ((at[0, :, [POSE_X_IDX, POSE_Y_IDX]] - self._waypoint_xy[idx]) * self._wp_ortho[idx]).sum(dim=-1).abs()
-            missed = known & ~torch.isnan(times[0]) & (offset > float(refill))
-            idx = idx[~known | missed]
-            if self.recover_mode:
-                idx = idx[missed[~known | missed]]
-        else:
-            idx = idx[~self._waypoint_known(idx)]
+        idx = idx[~self._waypoint_known(idx)]
         if not idx.numel():
             return
-        times, at = self._line_crossings(path, idx, reach=None if refill is None else float(Settings.HWM_REFILL_REACH))
+        times, at = self._line_crossings(path, idx)
         pending = self._issued_actions()
         filled = False
         for j in torch.nonzero(~torch.isnan(times[0])).flatten().tolist():
@@ -2112,37 +1343,34 @@ class HirarchicalPlanner(template_planner):
         return self._timeline_at(timeline, float(driven["first"]), crossed + torch.arange(horizon, dtype=torch.float32))
 
     def _window_jobs(self) -> list[tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]]:
-        """This step's window updates: one per lag of ``HWM_WINDOW_LAGS`` (default ``MPC_WAYPOINT_WINDOW_LAG``),
-        which share ``MPC_WAYPOINT_WINDOW_SAMPLES``."""
-        lags = Settings.HWM_WINDOW_LAGS or [Settings.MPC_WAYPOINT_WINDOW_LAG]
-        count = max(1, int(Settings.MPC_WAYPOINT_WINDOW_SAMPLES) // len(lags))
-        jobs = [self._window_job(int(lag), count) for lag in lags]
-        return [job for job in jobs if job is not None]
+        """This step's window update, as a list of none or one."""
+        job = self._window_job()
+        return [] if job is None else [job]
 
-    def _window_job(self, lag: int | None = None, count: int | None = None) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    def _window_job(self) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor] | None:
         """This step's window update, or None.
 
         The window is the ``MPC_WAYPOINT_AHEAD_SPAN`` waypoints after waypoint ``w``, which is
         ``MPC_WAYPOINT_WINDOW_LAG`` behind the car. Returns ``(w, state stored at w, its delay queue,
         samples (K, H, 2))``. Sample 0 is the sequence stored at ``w``, the others are noise around it.
         """
-        if not Settings.MPC_WAYPOINT_WINDOW_UPDATES or self.recover_mode or self._car_waypoint is None:
+        if self.recover_mode or self._car_waypoint is None:
             return None
         if self._permanently_frozen():
             return None
         n = self._waypoints_n
         span = max(1, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
-        w = (int(self._car_waypoint) - int(Settings.MPC_WAYPOINT_WINDOW_LAG if lag is None else lag)) % n
+        w = (int(self._car_waypoint) - int(Settings.MPC_WAYPOINT_WINDOW_LAG)) % n
         if not bool(self._waypoint_known((w + torch.arange(span + 2)) % n).all()):
             return None
         stored = self._wp_actions[w]
         samples = self._sample_mpc_actions(
-            stored, count=int(Settings.MPC_WAYPOINT_WINDOW_SAMPLES if count is None else count),
+            stored, count=int(Settings.MPC_WAYPOINT_WINDOW_SAMPLES),
             noise_scale=float(Settings.MPC_WAYPOINT_WINDOW_NOISE),
             correlation=float(Settings.MPC_WAYPOINT_WINDOW_CORRELATION),
         )
         samples[0] = stored
-        if Settings.MPC_WAYPOINT_WINDOW_DRIVEN_CANDIDATE and int(samples.shape[0]) > 1:
+        if int(samples.shape[0]) > 1:
             driven = self._driven_candidate(w, int(samples.shape[1]))
             if driven is not None:
                 samples[1] = driven
@@ -2190,34 +1418,10 @@ class HirarchicalPlanner(template_planner):
         return bool(recent.any())
 
 
-    def _perturbed_starts(self, start: torch.Tensor, count: int) -> torch.Tensor:
-        """``count`` copies of ``start`` with ``HWM_WINDOW_*_PERTURBATION`` added at random signs, except that the
-        speed is always faster and a slide always larger."""
-        starts = start[None].repeat(count, 1)
-        perturbation = {
-            LINEAR_VEL_X_IDX: float(Settings.HWM_WINDOW_SPEED_PERTURBATION),
-            LINEAR_VEL_Y_IDX: float(Settings.HWM_WINDOW_SLIDE_PERTURBATION),
-            ANGULAR_VEL_Z_IDX: float(Settings.HWM_WINDOW_YAW_RATE_PERTURBATION),
-        }
-        for component, size in perturbation.items():
-            if component == LINEAR_VEL_X_IDX:
-                starts[:, component] = starts[:, component] + size + Settings.HWM_WINDOW_SPEED_PERTURBATION_SHARE * starts[:, component].abs()
-                continue
-            sign = torch.randint(0, 2, (count,), dtype=starts.dtype) * 2 - 1
-            if component == LINEAR_VEL_Y_IDX and abs(float(start[component])) > 1e-3:
-                sign = torch.full_like(sign, float(np.sign(float(start[component]))))
-                size = size + Settings.HWM_WINDOW_SLIDE_PERTURBATION_SHARE * abs(float(start[component]))
-            starts[:, component] = starts[:, component] + sign * size
-        return starts
-
     def _rollout_with_window(
         self, state: np.ndarray, actions: torch.Tensor, windows: list[tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]]
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        """Driving samples from the car and each window's samples from its waypoint state, in one rollout call.
-
-        With ``MPC_WAYPOINT_WINDOW_ROBUST`` every window sample is also rolled out from a perturbed
-        start, returned after the unperturbed ones of its window.
-        """
+        """Driving samples from the car and each window's samples from its waypoint state, in one rollout call."""
         batch = int(actions.shape[0])
         if int(actions.shape[1]) != int(windows[0][3].shape[1]):
             # Free driving uses MPC_FREE_TRAJECTORY_LENGTH. A window sample stays at MPC_TRAJECTORY_LENGTH.
@@ -2230,11 +1434,7 @@ class HirarchicalPlanner(template_planner):
         sizes = []
         for _, start, pending, samples in windows:
             count = int(samples.shape[0])
-            window_starts = start[None].expand(count, -1)
-            if Settings.MPC_WAYPOINT_WINDOW_ROBUST:
-                window_starts = torch.cat((window_starts, self._perturbed_starts(start, count)))
-                samples = torch.cat((samples, samples))
-            starts.append(window_starts)
+            starts.append(start[None].expand(count, -1))
             queues.append(pending[None].expand(int(samples.shape[0]), -1, -1))
             sequences.append(samples)
             sizes.append(int(samples.shape[0]))
@@ -2244,13 +1444,9 @@ class HirarchicalPlanner(template_planner):
         return out[:batch], list(torch.split(out[batch:], sizes))
 
     def _rollout_window(self, window: tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        """States of one window's samples, including the perturbed copies when robustness is on."""
+        """States of one window's samples."""
         _, start, pending, samples = window
-        count = int(samples.shape[0])
-        starts = start[None].expand(count, -1)
-        if Settings.MPC_WAYPOINT_WINDOW_ROBUST:
-            starts = torch.cat((starts, self._perturbed_starts(start, count)))
-            samples = torch.cat((samples, samples))
+        starts = start[None].expand(int(samples.shape[0]), -1)
         queue = pending[None].expand(int(samples.shape[0]), -1, -1)
         return self.rollout_dynamics(starts.numpy(), samples.numpy(), pending_actions=queue.numpy())
 
@@ -2272,34 +1468,24 @@ class HirarchicalPlanner(template_planner):
         Then the window waypoints take that sample's state at their lines, and ``w`` and the window
         waypoints take its commands from their crossing on, followed by the plan stored at the last
         compared waypoint from its crossing on. The commands between two control steps are interpolated.
-        With ``MPC_WAYPOINT_WINDOW_ONLY`` only the window waypoints are written, the handover is at the
-        first waypoint after the window, and the error is taken at every waypoint after the window.
+        Only the window waypoints are written, the handover is at the first waypoint after the window, and the
+        error is taken at every waypoint after the window.
         """
         w, _, pending, actions = window
         n = self._waypoints_n
         span = max(1, int(Settings.MPC_WAYPOINT_AHEAD_SPAN))
         down = max(1, int(Settings.MPC_WAYPOINT_WINDOW_DOWNSTREAM))
         idx = (w + 1 + torch.arange(span + down)) % n
-        perturbed = None
-        if int(states.shape[0]) == 2 * int(actions.shape[0]):
-            states, perturbed = states[: int(actions.shape[0])], states[int(actions.shape[0]):]
         times, at = self._line_crossings(states, idx)
         usable = (~torch.isnan(times[0])) & self._waypoint_known(idx)
         count = int(usable.long().cumprod(dim=0).sum())
-        fit_down = getattr(Settings, "HWM_WINDOW_SPAN_FIT_DOWNSTREAM", None)
-        if fit_down is not None:
-            # A slow stored sequence crosses fewer lines within the horizon than a full window needs.
-            span = max(1, min(span, count - int(fit_down)))
         if count < span + 1:
             return
         idx, times, at = idx[:count], times[:, :count], at[:, :count]
         self._wp_window_tried += 1
         crossed = (~torch.isnan(times)).all(dim=1) & (times[:, 1:] > times[:, :-1]).all(dim=1)
-        # Written waypoints take the sample's states, so only the ones it must rejoin count.
-        window_only = bool(getattr(Settings, "MPC_WAYPOINT_WINDOW_ONLY", False))
-        write_downstream = Settings.MPC_WAYPOINT_WINDOW_WRITE_DOWNSTREAM and not window_only
-        first = count - 1 if write_downstream else span
-        error = self._window_error(at[:, first:], idx[first:]).amax(dim=1)
+        # The window waypoints take the sample's states, so only the ones after it, which it must rejoin, count.
+        error = self._window_error(at[:, span:], idx[span:]).amax(dim=1)
         arrival = times[:, -1]
         horizon = int(states.shape[1])
         poses = states[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
@@ -2315,31 +1501,6 @@ class HirarchicalPlanner(template_planner):
         # A slow car pivoting at a large slip angle is a state the driven car does not get into again.
         slip = torch.atan2(states[..., LINEAR_VEL_Y_IDX].abs(), states[..., LINEAR_VEL_X_IDX].clamp(min=Settings.HWM_CREEP_SPEED))
         valid = valid & (torch.where(compared, slip, torch.zeros_like(slip)).amax(dim=1) <= Settings.HWM_WINDOW_MAX_SLIP)
-        share = float(Settings.MPC_WAYPOINT_WINDOW_GRIP_SHARE)
-        if share > 0.0:
-            # Braking and cornering share the tires: the model limits each on its own, the real grip is a circle.
-            # A share below 1 also keeps grip in reserve for the driven car's noise and control delay.
-            lateral = states[..., LINEAR_VEL_X_IDX] * states[..., ANGULAR_VEL_Z_IDX]
-            forward = torch.diff(states[..., LINEAR_VEL_X_IDX], dim=1, append=states[:, -1:, LINEAR_VEL_X_IDX])
-            grip = torch.hypot(lateral, forward / float(Settings.TIMESTEP_CONTROL))
-            peak = torch.where(compared, grip, torch.zeros_like(grip)).amax(dim=1)
-            valid = valid & (peak <= share * self._car_friction_accel())
-        if perturbed is not None:
-            # The same commands from a perturbed start must still get through: no wall (at the drive's
-            # margin), every line crossed in order, and a bounded error after the window.
-            p_times, p_at = self._line_crossings(perturbed, idx)
-            p_crossed = (~torch.isnan(p_times)).all(dim=1) & (p_times[:, 1:] > p_times[:, :-1]).all(dim=1)
-            p_error = torch.nan_to_num(self._window_error(p_at[:, first:], idx[first:]).amax(dim=1), nan=float("inf"))
-            p_until = torch.nan_to_num(p_times[:, -1], nan=float(horizon)).ceil() + 1
-            p_crashed = self.wall_geometry.in_wall(perturbed[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]).cpu()
-            p_collide = (p_crashed & (torch.arange(horizon)[None] <= p_until[:, None])).any(dim=1)
-            robust = p_crossed & ~p_collide & (p_error <= float(Settings.MPC_WAYPOINT_WINDOW_ROBUST_TOLERANCE))
-            valid = valid & robust
-            p_poses = perturbed[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
-            p_distance = self.wall_geometry.distance_at(self.wall_geometry.corners(p_poses)).amin(dim=-1).cpu().to(times.dtype)
-            p_compared = torch.arange(horizon)[None] <= p_until[:, None]
-            p_clearance = torch.where(p_compared, p_distance, torch.full_like(p_distance, float("inf"))).amin(dim=1)
-            clearance = torch.minimum(clearance, p_clearance)
         stored_arrival = float(arrival[0]) if bool(valid[0]) else float("inf")
         tolerance = float(Settings.MPC_WAYPOINT_WINDOW_TOLERANCE)
         repair = float(error[0]) > tolerance
@@ -2360,10 +1521,9 @@ class HirarchicalPlanner(template_planner):
         horizon_steps = int(actions.shape[1])
         delay = int(pending.shape[0])
         sample_timeline = torch.cat((pending, actions[best]))  # issued at -delay .. H - 1
-        # The sample's commands are followed until it crosses the handover waypoint: the last compared
-        # one, or with MPC_WAYPOINT_WINDOW_ONLY the first one after the window, whose stored sequence
-        # (and all stored sequences after it) stays as it is.
-        handover = span if window_only else count - 1
+        # The sample's commands are followed until it crosses the handover waypoint, the first one after
+        # the window, whose stored sequence (and all stored sequences after it) stays as it is.
+        handover = span
         last = int(idx[handover])
         reached = float(times[best, handover])
         stored_timeline = torch.cat((self._wp_pending[last], self._wp_actions[last]))  # issued from reached - delay on
@@ -2376,8 +1536,7 @@ class HirarchicalPlanner(template_planner):
         steps = torch.arange(horizon_steps, dtype=torch.float32)
         queue = torch.arange(-delay, 0, dtype=torch.float32)
         updates = [(w, commands(steps), None, None)]
-        written = count - 1 if write_downstream else span
-        for j in range(written):
+        for j in range(span):
             t = float(times[best, j])
             updates.append((int(idx[j]), commands(t + steps), commands(t + queue), at[best, j]))
         for k, seq, queue_k, state_k in updates:
@@ -2498,93 +1657,6 @@ class HirarchicalPlanner(template_planner):
             return None
         return states[self._wp_action_known][:, :, [POSE_X_IDX, POSE_Y_IDX]].numpy()
 
-    def _paths_leave_track(self, xy: torch.Tensor) -> torch.Tensor:
-        """``(K,)`` bool: some point of path ``k`` is farther than ``MPC_WAYPOINT_UPDATE_DISTANCE`` from the raceline."""
-        a = self._waypoint_xy
-        seg = torch.roll(a, shifts=-1, dims=0) - a
-        length2 = seg.pow(2).sum(dim=-1).clamp_min(1e-12)
-        limit = float(Settings.MPC_WAYPOINT_UPDATE_DISTANCE)
-        out = torch.zeros(int(xy.shape[0]), dtype=torch.bool)
-        for k in range(int(xy.shape[0])):
-            p = xy[k]  # (T+1, 2)
-            t = (((p[:, None, :] - a[None]) * seg[None]).sum(-1) / length2[None]).clamp(0.0, 1.0)
-            proj = a[None] + t[..., None] * seg[None]
-            out[k] = bool((p[:, None, :] - proj).norm(dim=-1).min(dim=1).values.max() > limit)
-        return out
-
-    def _discard_wall_sequences(self) -> None:
-        """Forget every stored action sequence whose path from its waypoint comes within the wall margin.
-
-        The path is the one drawn from the waypoint (see ``_refresh_waypoint_paths``), judged with
-        the planner's own crash rule (``HWM_MIN_BORDER_DISTANCE``). A forgotten sequence is written
-        again, without averaging, the next time the car passes that waypoint.
-        """
-        if not (Settings.MPC_WAYPOINT_DISCARD_WALL_SEQUENCES or bool(getattr(Settings, "MPC_WAYPOINT_REJECT_OFF_TRACK", False))):
-            return  # no check is on, so nothing would be marked bad: skip the rollout from every waypoint
-        if self._permanently_frozen():
-            return  # the frozen table is kept as it is, bad sequences included
-        self._refresh_waypoint_paths()
-        states = getattr(self, "_wp_path_states", None)
-        if states is None or getattr(self, "_wp_paths_checked", None) == self._wp_paths_step:
-            return
-        self._wp_paths_checked = self._wp_paths_step
-        poses = states[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]
-        if Settings.MPC_WAYPOINT_DISCARD_WALL_SEQUENCES:
-            bad = self.wall_geometry.in_wall(poses).any(dim=1).cpu()
-        else:
-            bad = torch.zeros(int(poses.shape[0]), dtype=torch.bool)
-        if bool(getattr(Settings, "MPC_WAYPOINT_REJECT_OFF_TRACK", False)):
-            bad = bad | self._paths_leave_track(states[:, :, [POSE_X_IDX, POSE_Y_IDX]])
-        bad = bad & self._wp_action_known
-        if not hasattr(self, "_wp_good_actions"):
-            self._wp_good_actions = torch.zeros_like(self._wp_actions)
-            self._wp_good_known = torch.zeros_like(self._wp_action_known)
-            self._wp_good_rows = self.waypoints.clone()
-        changed = False
-        if bool(getattr(Settings, "MPC_WAYPOINT_KEEP_ON_BAD_UPDATE", False)):
-            fine = self._wp_action_known & ~bad
-            self._wp_good_actions[fine] = self._wp_actions[fine]
-            self._wp_good_rows[fine] = self.waypoints[fine]
-            self._wp_good_known |= fine
-            restore = bad & self._wp_good_known
-            for idx in torch.nonzero(restore).flatten().tolist():
-                # The waypoint state goes back together with its actions: the path was fine with that pair.
-                self._wp_actions[idx] = self._wp_good_actions[idx]
-                if Settings.MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS:
-                    self.waypoints[idx] = self._wp_good_rows[idx]
-                    self._wp_staged[idx] = False
-                    changed = True
-                self._wp_actions_staged[idx].zero_()
-                self._wp_action_staged[idx] = False
-                # If the restored sequence is still bad at the next check, it gets deleted then.
-                self._wp_good_known[idx] = False
-            if bool(restore.any()):
-                self._wp_rejected_total = int(getattr(self, "_wp_rejected_total", 0)) + int(restore.sum())
-                self._wp_rejected_lap = int(getattr(self, "_wp_rejected_lap", 0)) + int(restore.sum())
-            bad = bad & ~restore
-        for idx in torch.nonzero(bad).flatten().tolist():
-            self._wp_good_known[idx] = False
-            self._wp_action_known[idx] = False
-            self._wp_actions[idx].zero_()
-            self._wp_actions_staged[idx].zero_()
-            self._wp_action_staged[idx] = False
-            self._wp_action_dist[idx] = float("inf")
-            self._wp_hist_actions[idx].clear()
-            self._wp_action_snapped[idx] = False
-            # The waypoint state is reset like the sequence: back to the loaded raceline, nothing averaged.
-            if Settings.MPC_WAYPOINT_STATE_FOLLOWS_ACTIONS:
-                self.waypoints[idx] = self._wp_initial[idx]
-                self._wp_staged[idx] = False
-                self._wp_hist_state[idx].clear()
-                self._wp_vehicle_state_set[idx] = False
-                changed = True
-        if changed:
-            self._write_raceline()
-            self._publish_waypoint_display()
-        if bool(bad.any()):
-            self._wp_discarded_total = int(getattr(self, "_wp_discarded_total", 0)) + int(bad.sum())
-            self._wp_discarded_lap = int(getattr(self, "_wp_discarded_lap", 0)) + int(bad.sum())
-
     _WP_PATH_EVERY = 25
 
     def _clear_waypoint_display(self) -> None:
@@ -2613,12 +1685,9 @@ class HirarchicalPlanner(template_planner):
             self.action_buffer = self._fit_horizon(self.action_buffer, horizon)
             if nominal is not None:
                 nominal = self._fit_horizon(nominal, horizon)
-            if nominal is not None and Settings.HWM_SEED_FROM_MEAN_STATES:
+            if nominal is not None and self._mean_state_seed is not None and int(self._mean_state_seed.shape[0]) == int(nominal.shape[0]):
                 # Seed stored at the end of the previous step from its mean states: no rollout now.
-                if self._mean_state_seed is not None and int(self._mean_state_seed.shape[0]) == int(nominal.shape[0]):
-                    nominal = self._mean_state_seed
-            elif nominal is not None and Settings.HWM_SEED_FROM_ROLLOUT:
-                nominal = self._rollout_seeded_actions(state, nominal)
+                nominal = self._mean_state_seed
             actions = self._sample_mpc_actions(nominal)
             if Settings.MPC_DRIVE_FALLBACK_SAMPLES:
                 flat = np.asarray(state).reshape(-1)
@@ -2631,21 +1700,12 @@ class HirarchicalPlanner(template_planner):
                     trajectories = self.rollout_dynamics(state, actions)
             nearest_waypoint_idx = self.nearest_waypoint_index(state)
             if self._jax_rewards_usable():
-                (drive_rewards, opt_rewards), (drive_crash, opt_crash) = self.MPC_reward_jax(
-                    trajectories, nearest_waypoint_idx, actions=actions,
-                )
+                drive_rewards, drive_crash = self.MPC_reward_jax(trajectories, nearest_waypoint_idx)
             else:
-                trajectry_waypoin_matching = (
-                    None if Settings.MPC_REWARD_INTERPOLATED_TARGETS
-                    else self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
-                )
-                (drive_rewards, opt_rewards), (drive_crash, opt_crash) = self.MPC_reward(
-                    trajectories, trajectry_waypoin_matching, nearest_waypoint_idx,
-                    waypoint_off_track_counts=self._wp_off_track_count, actions=actions,
-                )
+                matching = self.rollout_waypoint_states(trajectories, nearest_waypoint_idx)
+                drive_rewards, drive_crash = self.MPC_reward(trajectories, matching, nearest_waypoint_idx)
             with PROF.section("softmax_weights_and_plan"):
                 drive_total = drive_rewards + drive_crash
-                opt_total = opt_rewards + opt_crash
                 weights = torch.softmax(drive_total / Settings.MPC_TEMPERATURE, dim=0)
                 reward_mean = torch.sum(drive_rewards * weights, dim=0)
             self._note_reward(reward_mean)
@@ -2673,46 +1733,18 @@ class HirarchicalPlanner(template_planner):
                 self._reverse_left -= 1
                 self._mean_state_seed = None
                 return action_seq[0].cpu().numpy().astype(np.float32)
-            if Settings.MPC_WAYPOINT_WINDOW_UPDATES:
-                self._mark_fragile(drive_crash)
-                with PROF.section("window_update"):
-                    for window, states_of_window in zip(windows, window_states if windows else []):
-                        self._window_update(window, states_of_window)
-                self._record_driven(state, action_seq[0].detach())
-                self._fill_passed_waypoints(state, action_seq.detach())
-                if Settings.HWM_SEED_FROM_MEAN_STATES:
-                    horizon = int(action_seq.shape[0])
-                    drive_mean = self._weighted_state_trajectory(trajectories, weights)
-                    self._mean_state_seed = self._seed_from_states(drive_mean[1 : 1 + horizon].detach())
-                return action_seq[0].cpu().numpy().astype(np.float32)
-            opt_weights = torch.softmax(opt_total / Settings.MPC_TEMPERATURE, dim=0)
-            drive_mean = None
-            if Settings.HWM_SEED_FROM_MEAN_STATES or Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
-                with PROF.section("mean_state_trajectories"):
-                    if Settings.HWM_SEED_FROM_MEAN_STATES:
-                        drive_mean = self._weighted_state_trajectory(trajectories, weights)
-                    if Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
-                        opt_mean = self._weighted_state_trajectory(trajectories, opt_weights)
-            if Settings.HWM_UPDATE_FROM_OPT_MEAN_STATES:
-                # The waypoint update reads the optimistic softmax-averaged states directly: no rollout.
-                opt_path = opt_mean
-            else:
-                with PROF.section("optimistic_sequence"):
-                    opt_seq = (opt_weights[:, None, None] * actions).sum(dim=0)
-                with PROF.section("model_of_optimistic_sequence"):
-                    opt_path = self.rollout_dynamics(state, opt_seq)
-            self._update_from_driven_plan(state, opt_path)
-            self._record_waypoint_action(state, action_seq.detach())
-            self._discard_wall_sequences()
-            if Settings.HWM_SEED_FROM_MEAN_STATES:
-                # Next step's seed: the stored first actions at the waypoints around each averaged state
-                # (the state the next step's action k starts from is state k + 1 of this plan).
-                # Built after the waypoint sequences above were recorded or committed, so a fresh one is used at once.
-                horizon = int(action_seq.shape[0])
-                self._mean_state_seed = self._seed_from_states(drive_mean[1 : 1 + horizon].detach())
-            with PROF.section("first_action_to_numpy"):
-                action = action_seq[0].cpu().numpy().astype(np.float32)
-            return action
+            self._mark_fragile(drive_crash)
+            with PROF.section("window_update"):
+                for window, states_of_window in zip(windows, window_states if windows else []):
+                    self._window_update(window, states_of_window)
+            self._record_driven(state, action_seq[0].detach())
+            self._fill_passed_waypoints(state, action_seq.detach())
+            # Next step's seed: the stored first actions at the waypoints around each averaged state
+            # (the state the next step's action k starts from is state k + 1 of this plan).
+            horizon = int(action_seq.shape[0])
+            drive_mean = self._weighted_state_trajectory(trajectories, weights)
+            self._mean_state_seed = self._seed_from_states(drive_mean[1 : 1 + horizon].detach())
+            return action_seq[0].cpu().numpy().astype(np.float32)
 
     def _draw_mpc_trajectories(self, trajectories: torch.Tensor, pacejka: torch.Tensor) -> None:
         """MPC samples, and Pacejka driven by the mean action sequence (orange)."""
@@ -2889,17 +1921,10 @@ class HirarchicalPlanner(template_planner):
             self._clear_waypoint_display()
             return self._test_track_step(controller_observation)
 
-        if not self.autonomous_driving:
-            self._clear_waypoint_display()
-            action = self._fallback_action(controller_observation)
-            self._apply_normalized_action(action)
-            self._record_step(action)
-            return self.angular_control, self.translational_control
-
         state = self.get_car_state(controller_observation)
         action = np.asarray(self.select_action(state), dtype=np.float32).reshape(-1)
         self._apply_normalized_action(action)
-        # Network-scale action, unclipped. Pure Pursuit fallback is physical / action_denorm.
+        # Network-scale action, unclipped.
         self._record_step(action)
         return self.angular_control, self.translational_control
 
@@ -2957,10 +1982,6 @@ class HirarchicalPlanner(template_planner):
                     counts = self._grid_crash_reasons = {}
                 for name in reasons:
                     counts[name] = int(counts.get(name, 0)) + 1
-            if hasattr(self, "_wp_staged"):
-                self._wp_staged.zero_()
-            if hasattr(self, "_wp_action_staged"):
-                self._wp_action_staged.zero_()
             self._revert_nearby_waypoints()
             self._log_debug(f"[HirarchicalPlanner] Episode {self._episode_id} done: {self.episode_timesteps} steps")
             self._reset_episode_state()
@@ -2968,16 +1989,8 @@ class HirarchicalPlanner(template_planner):
     # ------------------------------------------------------------------
     # Fallback
     # ------------------------------------------------------------------
-    def _fallback_action(self, controller_observation: Optional[Dict[str, Any]] = None) -> np.ndarray:
-        self.fallback_planner.waypoint_utils = self.waypoint_utils
-        self.fallback_planner.lidar_utils = self.lidar_utils
-        if controller_observation is None:
-            controller_observation = self._controller_observation
-        control = np.asarray(self.fallback_planner.process_observation(controller_observation), dtype=np.float32)
-        return (control / self.action_denormalization_array).astype(np.float32)
-
     def report_lap_time(self, lap_time: float, mean_distance: float, std_distance: float, max_distance: float) -> None:
-        """A finished lap: the freezes and the best-lap table take it, and the lap's waypoint updates are logged."""
+        """A finished lap: the freeze and the best-lap table take it, and the lap's window updates are logged."""
         self._completed_laps = int(getattr(self, "_completed_laps", 0)) + 1
         previous = getattr(self, "_lap_end_step", None)
         self._lap_end_step = int(self.total_timesteps)
@@ -2988,13 +2001,8 @@ class HirarchicalPlanner(template_planner):
             laps = self._grid_laps = []
         laps.append(float(lap_time))
         self._update_permanent_freeze(float(lap_time))
-        self._update_laptime_freeze(float(lap_time))
         self._update_best_lap_table(float(lap_time))
-        discarded = int(getattr(self, "_wp_discarded_lap", 0))
-        rejected = int(getattr(self, "_wp_rejected_lap", 0))
-        self._wp_discarded_lap = 0
-        self._wp_rejected_lap = 0
-        if Settings.MPC_WAYPOINT_WINDOW_UPDATES and hasattr(self, "_wp_window_tried"):
+        if hasattr(self, "_wp_window_tried"):
             known = self._waypoint_known(torch.arange(self._waypoints_n))
             speed = float(self.waypoints[known, WP_TARGET_SPEED_IDX].mean()) if bool(known.any()) else 0.0
             self._log_info(
@@ -3002,8 +2010,6 @@ class HirarchicalPlanner(template_planner):
                 f"{int(known.sum())}/{self._waypoints_n} waypoints stored, mean stored speed {speed:.2f} m/s"
             )
             self._wp_window_accepted = self._wp_window_tried = 0
-        else:
-            self._log_info(f"[HirarchicalPlanner] Lap: reset {discarded} waypoint action sequences, rejected {rejected} updates")
 
     def _reset_episode_state(self) -> None:
         self._episode_id += 1

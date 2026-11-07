@@ -34,7 +34,6 @@ def child(mode: str, model: str, steps: int, out: str, skip: int, samples: int |
     Settings.HWM_PROFILE = True
     Settings.HWM_PROFILE_FILE = f"{out}_{mode}"
     Settings.HWM_PROFILE_SKIP_STEPS = skip
-    Settings.HWM_PP_DRIVES = False
     if samples is not None:
         Settings.MPC_NUM_OF_TRAJECTORIES = int(samples)
     for key, value in MODES[mode].items():
