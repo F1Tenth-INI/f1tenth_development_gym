@@ -830,8 +830,8 @@ class HirarchicalPlanner(template_planner):
             cached = (
                 geometry.wall_distance,
                 jax.device_put(geometry.wall_distance.numpy()),
-                jax.device_put(geometry._corner_x.numpy().astype(np.float32)),
-                jax.device_put(geometry._corner_y.numpy().astype(np.float32)),
+                geometry._corner_x.numpy().astype(np.float64),
+                geometry._corner_y.numpy().astype(np.float64),
             )
             self._jax_walls = cached
         return cached[1:]
@@ -841,7 +841,9 @@ class HirarchicalPlanner(template_planner):
     ) -> tuple[tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]:
         """``MPC_reward`` of ``rollout_waypoint_states`` matches, with the per-rollout part compiled
         (``drive_costs_jax``) and run in chunks on ``HWM_ROLLOUT_THREADS`` threads."""
-        from TrainingLite.hwm.drive_costs_jax import drive_costs
+        from jax.experimental import enable_x64
+
+        from TrainingLite.hwm.drive_costs_jax import drive_costs, squared_distances
 
         self._ensure_waypoints()
         geometry = self.wall_geometry
@@ -869,8 +871,11 @@ class HirarchicalPlanner(template_planner):
 
         def costs(lo: int, hi: int, size: int) -> list[np.ndarray]:
             pad = np.minimum(np.arange(lo, lo + size), hi - 1)
-            out = drive_costs(s[pad], match_xy, rows, np.int32(count), grid, corner_x, corner_y, consts)
-            return [np.asarray(o)[: hi - lo] for o in out]
+            chunk = s[pad]
+            dist = squared_distances(chunk, match_xy)
+            with enable_x64():
+                out = drive_costs(chunk, dist, rows, np.int32(count), grid, corner_x, corner_y, consts)
+                return [np.asarray(o)[: hi - lo] for o in out]
 
         with PROF.section("jax_drive_costs"):
             threads = int(Settings.HWM_ROLLOUT_THREADS)
