@@ -112,6 +112,8 @@ class HWMLearnerServer:
         self.optimizers: dict[str, torch.optim.Optimizer] = {
             "LLD": torch.optim.Adam(self.models["LLD"].parameters(), lr=lr)
         }
+        if not bool(getattr(Settings, "HWM_TRAIN_LLD", True)):
+            print("[server] LLD training is off (HWM_TRAIN_LLD). Weights stay as loaded.")
 
         # Networking / lifecycle.
         self._clients: set[asyncio.StreamWriter] = set()
@@ -267,7 +269,7 @@ class HWMLearnerServer:
                 self._train_event.clear()
             if self._should_terminate:
                 break
-            if test_track_enabled():
+            if test_track_enabled() or not bool(getattr(Settings, "HWM_TRAIN_LLD", True)):
                 # Rows may still be stored. No gradient step, so the LLD weights are not broadcast.
                 self._pending_rows = 0
                 continue

@@ -23,7 +23,7 @@ class Settings():
 
     TIMESTEP_CONTROL = 0.04    # Multiple of 0.01; how often to recalculate control input
     TIMESTEP_SIM = 0.01       # Dont touch.
-    MAX_SIM_FREQUENCY = 25   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
+    MAX_SIM_FREQUENCY = 2500   # Max simulation frequency in Hz (e.g. 250). None = no limit. If step is faster, waits so it takes exactly 1/freq.
     ACCELERATION_TIME = 20                   #nni 50, mpc 10 (necessary to overcome initial velocity of 0 m/s)
     ACCELERATION_AMPLITUDE = 10           #nni 2, mpc 10 [Float!]
 
@@ -418,7 +418,8 @@ class Settings():
 
     RUN_MPC_WITH_PACEJKA = True
     HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
-    MPC_NUM_OF_TRAJECTORIES = 50
+    HWM_JAX_REWARDS = True  # the drive samples' waypoint matching, matched-waypoint costs and wall terms run compiled in JAX, on the rollout threads. Same terms as the torch code in float32 (the torch wall lookup is float64), so near-ties can differ. False: torch
+    MPC_NUM_OF_TRAJECTORIES = 500
     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
@@ -566,6 +567,7 @@ class Settings():
     #--------------- end of important settings ---------------
 
     HWM_LEARNING_RATE = 3e-4             # Adam learning rate for each HWM module optimizer
+    HWM_TRAIN_LLD = False                # False: an HW run stores rows but does not take LLD gradient steps. Weights stay as loaded.
     # Divisors for raw state channels, STATE_VARIABLES order. Observation uses state / scale.
     HWM_STATE_SCALE = [
         10.0 / 3.0,  # angular_vel_z
