@@ -500,21 +500,35 @@ class HirarchicalPlanner(template_planner):
         # so a plan that follows the corner and clips late beats one that drives into the wall now.
         survived = torch.where(has_crash, first, torch.full_like(first, horizon))
         late = horizon - survived
-        # At least 1 per step of the horizon lost: with every cost near 0 a crash must still cost something.
-        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * late)
-        drive_reward = -drive
         clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
+        depth_weight = float(Settings.MPC_DRIVE_CRASH_DEPTH_WEIGHT)
+        border = float(Settings.HWM_MIN_BORDER_DISTANCE)
+        corner = None
+        if clearance_weight > 0.0 or depth_weight > 0.0:
+            corner = self.wall_geometry.distance_at(self.wall_geometry.corners(poses)).amin(dim=-1).to(drive)
+        crash_steps = late.to(drive.dtype)
+        if depth_weight > 0.0:
+            # The time of the first hit alone says nothing about how close to the real wall a plan inside the
+            # margin gets. Each state adds up to 1 more, reached at the real wall.
+            crash_steps = crash_steps + depth_weight * ((border - corner) / max(border, 1e-3)).clamp(0.0, 1.0).sum(dim=1)
+        # At least 1 per step of the horizon lost: with every cost near 0 a crash must still cost something.
+        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * crash_steps)
+        drive_reward = -drive
         if clearance_weight > 0.0:
             # A plan that passes a wall by a hair is a crash after a few cm of tracking error. Each state
             # whose closest body corner is within MPC_DRIVE_WALL_CLEARANCE of a wall costs up to 1, reached
-            # at the crash margin.
-            corner = self.wall_geometry.distance_at(self.wall_geometry.corners(poses)).amin(dim=-1).to(drive_reward)
+            # at MPC_DRIVE_WALL_RAMP_END.
             start = float(Settings.MPC_DRIVE_WALL_CLEARANCE)
-            span = max(start - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3)
+            span = max(start - self._wall_ramp_end(), 1e-3)
             closeness = ((start - corner) / span).clamp(0.0, 1.0).sum(dim=1)
             drive_reward = drive_reward - clearance_weight * closeness
         PROF.end()
         return drive_reward, drive_crash
+
+    @staticmethod
+    def _wall_ramp_end() -> float:
+        end = Settings.MPC_DRIVE_WALL_RAMP_END
+        return float(Settings.HWM_MIN_BORDER_DISTANCE if end is None else end)
 
     def _jax_rewards_usable(self) -> bool:
         """``MPC_reward_jax`` covers this configuration: matched-waypoint costs on a map, on the CPU."""
@@ -564,7 +578,7 @@ class HirarchicalPlanner(template_planner):
         consts = (
             float(Settings.MPC_DRIVE_TARGET_SPEED_FACTOR), float(Settings.MPC_DRIVE_OVERSPEED_WEIGHT),
             float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT), float(Settings.HWM_MIN_BORDER_DISTANCE), clearance,
-            max(clearance - float(Settings.HWM_MIN_BORDER_DISTANCE), 1e-3),
+            max(clearance - self._wall_ramp_end(), 1e-3),
             geometry.origin_x, geometry.origin_y, geometry.origin_cos, geometry.origin_sin, geometry.resolution,
             float(geometry.map_width), float(geometry.map_height),
         )
@@ -587,7 +601,7 @@ class HirarchicalPlanner(template_planner):
                 size = -(-per_thread // 8) * 8
                 chunks = [(lo, min(lo + size, batch), size) for lo in range(0, batch, size)]
                 parts = list(self._rollout_pool(threads).map(lambda chunk: costs(*chunk), chunks))
-            drive_m, active, late, closeness = (
+            drive_m, active, late, closeness, depth = (
                 torch.from_numpy(np.concatenate(column)) for column in zip(*parts)
             )
 
@@ -597,7 +611,8 @@ class HirarchicalPlanner(template_planner):
             drive = self._recovery_cost(states, start)
         if self._stall_phase == 1:
             drive = self._backtrack_cost(states)
-        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * late.to(drive.dtype))
+        crash_steps = late.to(drive.dtype) + float(Settings.MPC_DRIVE_CRASH_DEPTH_WEIGHT) * depth.to(drive.dtype)
+        drive_crash = -(drive.abs().max().clamp_min(1.0) * 10 * crash_steps)
         drive_reward = -drive
         clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
         if clearance_weight > 0.0:

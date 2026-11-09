@@ -22,7 +22,8 @@ are inactive, so model and plant coincide there apart from the ESC scale.
 
 Terminal-set MPC:
 
-* every car corner stays ``BORDER_MARGIN`` inside the track at every stage;
+* every car corner stays ``BORDER_MARGIN`` off the walls (ray-cast in the map image) and the
+  car centre inside the CSV borders (plus ``CENTER_BORDER_SLACK``) at every stage;
 * terminal set: inside the track, ``v_x <= TERMINAL_SPEED_FACTOR * v_wp(s)`` (waypoint speed) and
   ``|mu| <= TERMINAL_MAX_HEADING_DEG`` (heading relative to the raceline);
 * the previous solution shifted by one stage and extended with one step of a
@@ -53,7 +54,7 @@ NX_CAR, NU = 7, 2
 NX = NX_CAR + 1  # + previous accel command (for the input-rate cost)
 IX_S, IX_N, IX_MU, IX_VX, IX_VY, IX_R, IX_DELTA, IX_ACCEL_PREV = range(NX)
 IU_STEER, IU_ACCEL = range(NU)
-N_BORDER = 8  # left/right border for each car corner
+N_BORDER = 10  # left/right wall for each car corner + left/right CSV border for the car centre
 
 
 class OcpFunctions(NamedTuple):
@@ -202,6 +203,23 @@ def corner_lateral_positions(veh, n, mu):
     return [n + cx * ca.sin(mu) + cy * ca.cos(mu) for cx, cy in corner_offsets(veh)]
 
 
+def border_residuals(veh, interp, s, n, mu):
+    """Track constraints as ``h <= -margin`` / ``h <= slack``: ``(h, upper bound)``.
+
+    Each corner is checked against the walls at its own arc length (wall tips of folded
+    curves end within a car length), the centre against the CSV borders.
+    """
+    h_left, h_right = [], []
+    for cx, cy in corner_offsets(veh):
+        n_c = n + cx * ca.sin(mu) + cy * ca.cos(mu)
+        s_c = s + cx * ca.cos(mu) - cy * ca.sin(mu)
+        h_left.append(n_c - interp["wall_left"](s_c))
+        h_right.append(-n_c - interp["wall_right"](s_c))
+    h = ca.vertcat(*h_left, *h_right, n - interp["d_left"](s), -n - interp["d_right"](s))
+    uh = np.concatenate([-cfg.BORDER_MARGIN * np.ones(8), cfg.CENTER_BORDER_SLACK * np.ones(2)])
+    return h, uh
+
+
 def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     from acados_template import AcadosModel, AcadosOcp
 
@@ -226,8 +244,6 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     model.disc_dyn_expr = ca.vertcat(xk, accel)
 
     kappa = interp["kappa"](s)
-    d_left = interp["d_left"](s)
-    d_right = interp["d_right"](s)
     v_ref = interp["v_ref"](s)
     yaw_err = r - kappa * vx
     servo_rate = veh.servo_p * (veh.steering_multiplier * steer_cmd - delta)
@@ -285,10 +301,8 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     accel_lh = np.array([-0.98 * mu_g, -0.98 * mu_g, -1e4])
     accel_uh = np.array([0.98 * mu_g, 0.98 * mu_g, veh.a_max * veh.v_switch])
 
-    corners = corner_lateral_positions(veh, n, mu)
-    border_h = ca.vertcat(*[c - d_left for c in corners], *[-c - d_right for c in corners])
+    border_h, border_uh = border_residuals(veh, interp, s, n, mu)
     n_border = N_BORDER
-    border_uh = -cfg.BORDER_MARGIN * np.ones(n_border)
     border_lh = -1e3 * np.ones(n_border)
 
     slip_h = ca.vertcat(*slip_angles(veh, vx, vy, r, delta))
@@ -302,7 +316,7 @@ def build_ocp(veh, track, dt: float, n_sub: int, name: str):
     # The solver gets limits tightened by SOLVER_TIGHTENING; the rollout check uses the nominal
     # ones, so plans that are only approximately converged still pass it.
     tight = 1.0 - cfg.SOLVER_TIGHTENING
-    border_uh_ocp = (1.0 + cfg.SOLVER_TIGHTENING) * border_uh
+    border_uh_ocp = border_uh - cfg.SOLVER_TIGHTENING * cfg.BORDER_MARGIN
 
     model.con_h_expr_0 = accel_h
     ocp.constraints.lh_0 = tight * accel_lh

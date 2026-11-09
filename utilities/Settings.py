@@ -160,9 +160,9 @@ class Settings():
     CONTROL_DELAY = 0.08 # Delay between control calculated and control applied to the car, multiple of 0.01 [s]
     # Delay on physical car is about 0.06s (Baseline right now is 0.1s)
     
-    #NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    NOISE_LEVEL_CAR_STATE = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
     #NOISE_LEVEL_CAR_STATE = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03]
-    NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    #NOISE_LEVEL_CAR_STATE = [ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     NOISE_LEVEL_CONTROL = [0.0, 0.0] # noise level [angular, translational]
     #NOISE_LEVEL_CONTROL = [0.05, 0.1] # noise level [angular, translational]
@@ -434,7 +434,7 @@ class Settings():
     MPC_STALL_BACKTRACK_WAYPOINTS = 3  # the backtrack phase drives to the waypoint this many behind the car
     MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA
     MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # revert the waypoints around the car (MPC_WAYPOINT_REVERT_AHEAD / _BEHIND) and go into recovery when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
-    HWM_MIN_BORDER_DISTANCE = 0.07  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
+    HWM_MIN_BORDER_DISTANCE = 0.2  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
     MPC_WAYPOINT_WINDOW_SAMPLES = 50  # action sequences rolled out per window update, besides the MPC_NUM_OF_TRAJECTORIES driving samples. One of them is the stored sequence itself
     MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
@@ -455,7 +455,9 @@ class Settings():
     MPC_DRIVE_OVERSPEED_WEIGHT = 1.0  # drive cost per m/s a matched rollout state is faster than its waypoint's stored speed. A shortfall costs 1 per m/s
     MPC_DRIVE_TARGET_SPEED_FACTOR = 1.0  # the drive cost's target speeds are the stored ones times this. Above 1 the car keeps trying to beat the stored laps, and the window updates keep what gets through
     MPC_DRIVE_WALL_CLEARANCE = 0.10  # [m] drive rollout states whose closest body corner is nearer to a wall than this are penalized
-    MPC_DRIVE_WALL_WEIGHT = 1.0  # drive cost per such state, scaled from 0 at MPC_DRIVE_WALL_CLEARANCE to 1 at HWM_MIN_BORDER_DISTANCE. 0: off
+    MPC_DRIVE_WALL_WEIGHT = 1.0  # drive cost per such state, scaled from 0 at MPC_DRIVE_WALL_CLEARANCE to 1 at MPC_DRIVE_WALL_RAMP_END. 0: off
+    MPC_DRIVE_WALL_RAMP_END = None  # [m] wall distance where the wall cost reaches 1. None: HWM_MIN_BORDER_DISTANCE, below which the cost is flat. 0: it keeps rising to the real wall
+    MPC_DRIVE_CRASH_DEPTH_WEIGHT = 0.0  # a crashing rollout additionally loses up to this many horizon steps per state inside HWM_MIN_BORDER_DISTANCE, from 0 at the margin to the full weight at the real wall. 0: only the time of the first hit counts
     MPC_RECOVERY_HEADING_ERROR = 1.8  # 0.5  [rad] a car on the raceline but heading this far from the nearest waypoint's heading also counts as off track (recovery). 0: distance only
     MPC_SAFE_MEAN = True  # when some samples crash, the weighted mean plan is rolled out once more; if it crashes and the best sample does not, the best sample is driven
     MPC_STALL_ON_BLOCKED = True  # a car slower than 1 m/s whose best rollout crashes or drives less than 0.3 m forward backtracks at once, without waiting MPC_STALL_TIME

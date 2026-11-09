@@ -22,10 +22,15 @@ FEASIBILITY_TOL = 1.0e-3       # max OCP constraint violation of a rolled-out in
 SOLVER_TIGHTENING = 0.10       # solver limits are this fraction tighter than the checked ones
 
 # --- Track constraints ------------------------------------------------------------
-BORDER_MARGIN = 0.10           # [m] every car corner keeps this distance to the border
-MAX_SLIP_FRONT = 0.25          # [rad] soft tyre slip-angle limits (keeps the NLP well conditioned)
-MAX_SLIP_REAR = 0.15
-KAPPA_SMOOTHING_WINDOW = 5     # waypoints, circular moving average on geometric curvature
+# Car corners are kept off the walls, the car centre inside the CSV borders (the episode
+# ends when the centre is LEAVE_TRACK_SLACK past them, or a corner touches a wall).
+WALL_SOURCE = "map"            # "map": walls ray-cast along the raceline normals in the map image; "csv": CSV borders
+WALL_MIN_FILTER = 0.10         # [m] wall distance at s = minimum over [s - this, s + this] (wall tips)
+BORDER_MARGIN = 0.10           # [m] every car corner keeps this distance to the wall
+CENTER_BORDER_SLACK = -0.05      # [m] the car centre may go this far past the CSV border
+MAX_SLIP_FRONT = 0.35          # [rad] soft tyre slip-angle limits (keeps the NLP well conditioned)
+MAX_SLIP_REAR = 0.25
+KAPPA_SMOOTHING_WINDOW = 3     # waypoints, circular moving average on geometric curvature
 
 # --- Terminal set: inside the track, v_x <= factor * waypoint speed, heading close to the raceline ---
 TERMINAL_SPEED_FACTOR = 0.9     # waypoint speeds are the maximum the raceline allows
@@ -34,6 +39,10 @@ TERMINAL_MAX_HEADING_DEG = 5.0  # |mu_N| bound
 # --- Speed reference ---------------------------------------------------------------
 LAT_ACC_FACTOR_REF = 0.85      # cost reference: v_ref = min(v_wp, sqrt(f * mu g / |kappa|))
 
+# --- State filter: plant prediction from the last estimate + gain * (measurement - prediction) ---
+STATE_FILTER_GAIN = 0.15        # 1: use the measured state as is
+STATE_FILTER_RESET = 0.5       # [m] / [rad] larger position / heading innovations reset to the measurement
+
 # Smoothing of the simulator's near-singular resistance terms in the OCP model
 OCP_V_DEAD = 0.3               # [m/s] sign deadband of rolling/cornering resistance
 OCP_LAT_FORCE_SMOOTH = 0.3     # [N] |F_y| ~ sqrt(F_y^2 + eps^2) - eps
@@ -41,13 +50,13 @@ OCP_LAT_FORCE_SMOOTH = 0.3     # [N] |F_y| ~ sqrt(F_y^2 + eps^2) - eps
 # --- Cost weights -----------------------------------------------------------------
 W_LATERAL = 15.0
 W_HEADING = 0.0
-W_PROGRESS = 3.0               # reward on progress rate s_dot (m/s); the MPC picks its own speed
+W_PROGRESS = 15.0               # reward on progress rate s_dot (m/s); the MPC picks its own speed
 W_SPEED = 0.0                  # optional tracking of the relative error 1 - vx / v_ref
 W_YAW_ERR = 0.00
 W_VY = 0.0
 W_STEER_RATE = 0.05            # on servo rate (rad/s)
 W_ACCEL = 0.0
-W_ACCEL_RATE = 0.5             # on accel change per stage (m/s^2)
+W_ACCEL_RATE = 0.2             # on accel change per stage (m/s^2)
 W_TERMINAL_SCALE = 5.0
 SLACK_L1 = 1.0e4               # exact penalty: soft == hard solution whenever the hard problem is feasible
 SLACK_L2 = 1.0e2

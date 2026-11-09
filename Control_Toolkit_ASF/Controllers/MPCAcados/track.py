@@ -9,6 +9,7 @@ The Frenet frame is attached to the raceline: ``n > 0`` is left, ``d_left`` /
 from __future__ import annotations
 
 import hashlib
+import os
 
 import numpy as np
 
@@ -17,6 +18,55 @@ from utilities.waypoint_utils import WP_D_LEFT_IDX, WP_D_RIGHT_IDX, WP_VX_IDX, W
 
 def wrap_angle(a):
     return (np.asarray(a) + np.pi) % (2.0 * np.pi) - np.pi
+
+
+def wall_distances(xy: np.ndarray, tangent: np.ndarray, map_yaml: str, max_dist: float = 2.5,
+                   step: float = 0.01) -> tuple[np.ndarray, np.ndarray]:
+    """Distance from each raceline point to the first occupied map pixel along the left / right normal.
+
+    The rays stop at the first wall, so a wall between two legs of a folded curve is never
+    crossed. Occupancy is the simulator's (pixel <= 128), dilated by one pixel.
+    """
+    import yaml
+    from PIL import Image
+    from scipy.ndimage import binary_dilation
+
+    from utilities.map_scale import scale_map_metadata
+
+    with open(map_yaml) as f:
+        meta = scale_map_metadata(yaml.safe_load(f))
+    img_path = meta["image"]
+    if not os.path.isabs(img_path):
+        img_path = os.path.join(os.path.dirname(map_yaml), img_path)
+    img = np.array(Image.open(img_path).convert("L").transpose(Image.FLIP_TOP_BOTTOM), dtype=np.float64)
+    # One-pixel dilation closes diagonal gaps in thin walls that a ray could slip through.
+    occupied = binary_dilation(img <= 128.0, structure=np.ones((3, 3), dtype=bool))
+    res = float(meta["resolution"])
+    ox, oy = float(meta["origin"][0]), float(meta["origin"][1])
+    h, w = occupied.shape
+
+    ts = np.arange(0.0, max_dist + step, step)
+    normal = np.stack([-np.sin(tangent), np.cos(tangent)], axis=1)
+
+    def ray(sign):
+        px = xy[:, None, 0] + sign * normal[:, None, 0] * ts[None, :]
+        py = xy[:, None, 1] + sign * normal[:, None, 1] * ts[None, :]
+        c = np.floor((px - ox) / res).astype(int)
+        r = np.floor((py - oy) / res).astype(int)
+        outside = (c < 0) | (c >= w) | (r < 0) | (r >= h)
+        hit = outside | occupied[np.clip(r, 0, h - 1), np.clip(c, 0, w - 1)]
+        first = np.where(hit.any(axis=1), hit.argmax(axis=1), len(ts) - 1)
+        return ts[first]
+
+    return ray(1.0), ray(-1.0)
+
+
+def _circular_min_filter(values: np.ndarray, half_window: int) -> np.ndarray:
+    if half_window <= 0:
+        return values.copy()
+    n = len(values)
+    idx = (np.arange(n)[:, None] + np.arange(-half_window, half_window + 1)[None, :]) % n
+    return values[idx].min(axis=1)
 
 
 def _circular_smooth(values: np.ndarray, window: int) -> np.ndarray:
@@ -37,6 +87,8 @@ class RacelineTrack:
         g: float,
         lat_acc_factor_ref: float,
         kappa_smoothing_window: int,
+        map_yaml: str | None = None,
+        wall_min_filter: float = 0.0,
     ):
         wps = np.asarray(waypoints, dtype=np.float64)
         xy = wps[:, [WP_X_IDX, WP_Y_IDX]]
@@ -69,12 +121,22 @@ class RacelineTrack:
         self.d_right = wps[:, WP_D_RIGHT_IDX].copy()
         self.v_wp = np.maximum(wps[:, WP_VX_IDX], 0.0)
 
+        # Wall distances for the car corners: ray-cast in the map image, or the CSV borders without a map.
+        if map_yaml is not None and os.path.isfile(map_yaml):
+            w_left, w_right = wall_distances(xy, self.tangent, map_yaml)
+            half = int(round(wall_min_filter / max(float(np.median(seg_len)), 1e-6)))
+            self.wall_left = _circular_min_filter(w_left, half)
+            self.wall_right = _circular_min_filter(w_right, half)
+        else:
+            self.wall_left, self.wall_right = self.d_left.copy(), self.d_right.copy()
+
         mu_g = mu * g
         abs_k = np.maximum(np.abs(self.kappa), 1e-6)
         self.v_ref = np.minimum(self.v_wp, np.sqrt(lat_acc_factor_ref * mu_g / abs_k))
 
         self.fingerprint = hashlib.sha1(
-            np.concatenate([xy.ravel(), self.d_left, self.d_right, self.v_wp]).round(5).tobytes()
+            np.concatenate([xy.ravel(), self.d_left, self.d_right, self.v_wp,
+                            self.wall_left, self.wall_right]).round(5).tobytes()
             + repr((mu, g, lat_acc_factor_ref, kappa_smoothing_window)).encode()
         ).hexdigest()[:12]
 
@@ -89,6 +151,8 @@ class RacelineTrack:
             "kappa": tile(self.kappa),
             "d_left": tile(self.d_left),
             "d_right": tile(self.d_right),
+            "wall_left": tile(self.wall_left),
+            "wall_right": tile(self.wall_right),
             "v_ref": tile(self.v_ref),
             "v_wp": tile(self.v_wp),
         }
@@ -107,6 +171,12 @@ class RacelineTrack:
 
     def d_right_at(self, s):
         return self._interp(self.d_right, s)
+
+    def wall_left_at(self, s):
+        return self._interp(self.wall_left, s)
+
+    def wall_right_at(self, s):
+        return self._interp(self.wall_right, s)
 
     def v_ref_at(self, s):
         return self._interp(self.v_ref, s)

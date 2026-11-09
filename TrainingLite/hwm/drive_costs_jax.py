@@ -2,7 +2,7 @@
 
 The same terms as ``HirarchicalPlanner.rollout_waypoint_states``, ``_matched_waypoint_costs`` and the crash
 and wall part of ``MPC_reward``, for every rollout on its own: matching the upcoming waypoints to rollout
-states, the matched-waypoint cost, the first body-corner crash and the corner clearance. The terms that need the whole batch (the crash cost scale, the softmax) stay with
+states, the matched-waypoint cost, the first body-corner crash, the corner clearance and how deep the corners get into the crash margin. The terms that need the whole batch (the crash cost scale, the softmax) stay with
 the caller. float32 like the torch code, and like it the body corners and the wall lookup in float64:
 ``drive_costs`` must be called under ``jax.experimental.enable_x64`` (thread-local).
 """
@@ -101,12 +101,13 @@ def _one(states, dist, rows, count, grid, corner_x, corner_y, c):
     corner_distance = jnp.where(inside, corner_wall, 0.0).min(axis=1)
     late = steps - jnp.where(crashed.any(), jnp.argmax(crashed), steps)
     closeness = jnp.clip((c["clearance"] - corner_distance) / c["clearance_span"], 0.0, 1.0).sum()
-    return drive, count_valid > 0, late, closeness
+    depth = jnp.clip((c["border"] - corner_distance) / c["border"], 0.0, 1.0).sum()
+    return drive, count_valid > 0, late, closeness, depth
 
 
 @partial(jax.jit, static_argnames=("consts",))
 def drive_costs(states, dist, rows, count, grid, corner_x, corner_y, consts):
-    """Per-rollout ``(drive, active, late, closeness)`` for ``states`` ``(B, T, D)``.
+    """Per-rollout ``(drive, active, late, closeness, depth)`` for ``states`` ``(B, T, D)``.
 
     ``dist`` ``(B, T, J)`` are the squared distances of the states to the upcoming waypoints, from
     ``squared_distances``: XLA fuses the multiply-add, and the matching must break exact ties as the torch

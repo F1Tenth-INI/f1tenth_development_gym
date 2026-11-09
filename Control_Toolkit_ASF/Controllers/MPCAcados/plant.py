@@ -52,15 +52,15 @@ class Plant:
 
 # ------------------------------------------------------------------ geometry helpers
 def border_clearance(track, veh, s, n, mu) -> np.ndarray:
-    """Minimum corner clearance to either border (>= 0 inside the track)."""
+    """Minimum corner clearance to either wall (>= 0 inside the track)."""
     s, n, mu = (np.atleast_1d(np.asarray(a, dtype=np.float64)) for a in (s, n, mu))
-    d_l, d_r = track.d_left_at(s), track.d_right_at(s)
     half_l, half_w = 0.5 * veh.length, 0.5 * veh.width
     clear = np.full(s.shape, np.inf)
     for cx in (half_l, -half_l):
         for cy in (half_w, -half_w):
             nc = n + cx * np.sin(mu) + cy * np.cos(mu)
-            clear = np.minimum(clear, np.minimum(d_l - nc, d_r + nc))
+            sc = s + cx * np.cos(mu) - cy * np.sin(mu)
+            clear = np.minimum(clear, np.minimum(track.wall_left_at(sc) - nc, track.wall_right_at(sc) + nc))
     return clear
 
 

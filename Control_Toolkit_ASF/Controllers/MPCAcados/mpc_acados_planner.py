@@ -26,6 +26,11 @@ from utilities.state_utilities import (
     ANGULAR_VEL_Z_IDX,
     LINEAR_VEL_X_IDX,
     LINEAR_VEL_Y_IDX,
+    POSE_THETA_COS_IDX,
+    POSE_THETA_IDX,
+    POSE_THETA_SIN_IDX,
+    POSE_X_IDX,
+    POSE_Y_IDX,
     STEERING_ANGLE_IDX,
 )
 
@@ -65,6 +70,8 @@ class SafeMPCPlanner(template_planner):
         self.prev_U: np.ndarray | None = None
         self.pending_iterate: tuple[np.ndarray, np.ndarray] | None = None
         self.s_hint: float | None = None
+        self.x_est: np.ndarray | None = None
+        self.applied_prev: np.ndarray | None = None
 
     # ------------------------------------------------------------------ setup
     def _ensure_track(self, waypoints: np.ndarray) -> None:
@@ -74,6 +81,8 @@ class SafeMPCPlanner(template_planner):
             g=self.veh.g,
             lat_acc_factor_ref=cfg.LAT_ACC_FACTOR_REF,
             kappa_smoothing_window=cfg.KAPPA_SMOOTHING_WINDOW,
+            map_yaml=None if (cfg.WALL_SOURCE != "map" or Settings.BLANK_MAP) else Settings.MAP_CONFIG_FILE,
+            wall_min_filter=cfg.WALL_MIN_FILTER,
         )
         if self.track is not None and track.fingerprint == self.track.fingerprint:
             return
@@ -88,6 +97,25 @@ class SafeMPCPlanner(template_planner):
         self.reset()
 
     # --------------------------------------------------------------- helpers
+    def _filter_state(self, measured: np.ndarray) -> np.ndarray:
+        """Predict-correct filter: plant prediction from the last estimate with the commands applied
+        since, corrected towards the (noisy) measurement with gain ``STATE_FILTER_GAIN``."""
+        gain = cfg.STATE_FILTER_GAIN
+        est = measured
+        if gain < 1.0 and self.x_est is not None and self.applied_prev is not None:
+            pred = self.plant.rollout(self.x_est, self.applied_prev, n_sub=1)[-1].astype(np.float64)
+            innov = measured - pred
+            innov[POSE_THETA_IDX] = (innov[POSE_THETA_IDX] + np.pi) % (2.0 * np.pi) - np.pi
+            jump = (np.hypot(innov[POSE_X_IDX], innov[POSE_Y_IDX]) > cfg.STATE_FILTER_RESET
+                    or abs(innov[POSE_THETA_IDX]) > cfg.STATE_FILTER_RESET)
+            if np.all(np.isfinite(pred)) and not jump:
+                est = pred + gain * innov
+                est[POSE_THETA_IDX] = (est[POSE_THETA_IDX] + np.pi) % (2.0 * np.pi) - np.pi
+                est[POSE_THETA_COS_IDX] = np.cos(est[POSE_THETA_IDX])
+                est[POSE_THETA_SIN_IDX] = np.sin(est[POSE_THETA_IDX])
+        self.x_est = est
+        return est
+
     def _frenet_state(self, state: np.ndarray, accel_prev: float) -> np.ndarray:
         s, n, mu = gym_to_frenet(self.track, state, self.s_hint)
         return np.array([s[0], n[0], mu[0], state[LINEAR_VEL_X_IDX], state[LINEAR_VEL_Y_IDX],
@@ -155,8 +183,8 @@ class SafeMPCPlanner(template_planner):
     # ------------------------------------------------------------------- main
     def process_observation(self, controller_observation):
         t_step = time.perf_counter()
-        state = np.asarray(controller_observation["car_state"], dtype=np.float64)
         self._ensure_track(np.asarray(controller_observation["waypoints"]))
+        state = self._filter_state(np.asarray(controller_observation["car_state"], dtype=np.float64))
 
         if self.delay_steps > 0:
             x_pred = self.plant.rollout(state, np.asarray(self.delay_buffer), n_sub=1)[-1].astype(np.float64)
@@ -207,6 +235,12 @@ class SafeMPCPlanner(template_planner):
         self.debug = {"x_pred": x_pred, "X": X, "U": U}
 
         command = commands[0]
+        if self.delay_steps > 0:
+            # commands that act until the next control step (the oldest ones in the buffer)
+            pending = list(self.delay_buffer) + [command] * self.n_sub
+            self.applied_prev = np.asarray(pending[:self.n_sub], dtype=np.float64)
+        else:
+            self.applied_prev = np.repeat(command[None], self.n_sub, axis=0)
         for _ in range(self.n_sub if self.delay_steps > 0 else 0):
             self.delay_buffer.append(command.copy())
 
