@@ -417,7 +417,7 @@ class Settings():
     RUN_MPC_WITH_PACEJKA = True
     HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
     HWM_JAX_REWARDS = True  # the drive samples' waypoint matching, matched-waypoint costs and wall terms run compiled in JAX, on the rollout threads. Same terms as the torch code in float32 (the torch wall lookup is float64), so near-ties can differ. False: torch
-    MPC_NUM_OF_TRAJECTORIES = 50
+    MPC_NUM_OF_TRAJECTORIES = 1000  # HWM_MIN_BORDER_DISTANCE and MPC_DRIVE_NOISE below are tuned for 1000 (icra2022, mu 0.9, noise 0.05)
     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
@@ -434,7 +434,7 @@ class Settings():
     MPC_STALL_BACKTRACK_WAYPOINTS = 3  # the backtrack phase drives to the waypoint this many behind the car
     MPC_REWARD_EMA_GAMMA = 0.9  # weight of the OLD value in the reward EMA that MPC_WAYPOINT_REWARD_DROP compares against: ema = gamma * ema + (1 - gamma) * reward. Higher: slower EMA
     MPC_WAYPOINT_REWARD_DROP = 2 * 1e9   # revert the waypoints around the car (MPC_WAYPOINT_REVERT_AHEAD / _BEHIND) and go into recovery when the current reward is more than this fraction of the reward EMA (the value before this step) below that EMA
-    HWM_MIN_BORDER_DISTANCE = 0.2  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
+    HWM_MIN_BORDER_DISTANCE = 0.05  # [m] a body corner closer to a wall than this counts as a crash in the HWM planner and its reward. The simulator still crashes only at the real wall. Must exceed the position noise of the observed state (NOISE_LEVEL_CAR_STATE), else a planned pass that clears the wall can still hit it
     MPC_WAYPOINT_WINDOW_SAMPLES = 50  # action sequences rolled out per window update, besides the MPC_NUM_OF_TRAJECTORIES driving samples. One of them is the stored sequence itself
     MPC_WAYPOINT_WINDOW_LAG = 20  # the window update starts at the waypoint this many behind the car's nearest one. Must exceed MPC_WAYPOINT_AHEAD_SPAN + MPC_WAYPOINT_WINDOW_DOWNSTREAM, so every compared waypoint was passed already
     MPC_WAYPOINT_WINDOW_DOWNSTREAM = 10  # at most this many waypoints after the window (of MPC_WAYPOINT_AHEAD_SPAN waypoints) are compared with their stored states. The time is taken at the last of them
@@ -450,7 +450,7 @@ class Settings():
     MPC_DRIVE_FALLBACK_SAMPLES = True  # the last drive samples are fixed alternatives: the previous plan, the seed with less steering (HWM_FALLBACK_STEER_SCALES), and the creep and back-off samples of a slow car
     MPC_SEED_SPEED_GAIN = 3.0  # 1/s. The waypoint-seeded drive action gets this much extra acceleration (m/s^2) per m/s the seed path is below the stored speed there (negative above it)
     MPC_DRIVE_ARRIVAL_WEIGHT = 0.6  # drive cost per control step until a rollout reaches the last waypoint it is matched to. Above 0 the car is paid to beat the stored target speeds, and what it drives becomes a window candidate. 0: the stored speeds alone set the pace
-    MPC_DRIVE_NOISE = [0.08, 1.5]  # [steering rad, translational command] std of the drive samples, in physical command units. Window samples scale it by MPC_WAYPOINT_WINDOW_NOISE
+    MPC_DRIVE_NOISE = [0.12, 2.0]  # [steering rad, translational command] std of the drive samples, in physical command units. Window samples scale it by MPC_WAYPOINT_WINDOW_NOISE
     HWM_CLIP_TO_CAR_LIMITS = True  # sampled translational commands stay within what the car does not saturate: max(a_min, -mu g) / brake_multiplier to min(a_max, mu g) / accel_multiplier. Beyond that every command has the same effect. False: +-HWM_MAX_TRANSLATIONAL_CONTROL
     MPC_DRIVE_OVERSPEED_WEIGHT = 1.0  # drive cost per m/s a matched rollout state is faster than its waypoint's stored speed. A shortfall costs 1 per m/s
     MPC_DRIVE_TARGET_SPEED_FACTOR = 1.0  # the drive cost's target speeds are the stored ones times this. Above 1 the car keeps trying to beat the stored laps, and the window updates keep what gets through
