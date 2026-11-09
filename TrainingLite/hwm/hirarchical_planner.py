@@ -499,7 +499,7 @@ class HirarchicalPlanner(template_planner):
         # Steps until impact. A clean rollout survives the whole horizon. An earlier hit costs more,
         # so a plan that follows the corner and clips late beats one that drives into the wall now.
         survived = torch.where(has_crash, first, torch.full_like(first, horizon))
-        late = horizon - survived
+        late = (self._crash_end(horizon) - survived).clamp(min=0)
         clearance_weight = float(Settings.MPC_DRIVE_WALL_WEIGHT)
         depth_weight = float(Settings.MPC_DRIVE_CRASH_DEPTH_WEIGHT)
         border = float(Settings.HWM_MIN_BORDER_DISTANCE)
@@ -524,6 +524,35 @@ class HirarchicalPlanner(template_planner):
             drive_reward = drive_reward - clearance_weight * closeness
         PROF.end()
         return drive_reward, drive_crash
+
+    @staticmethod
+    def _crash_end(steps: int) -> int:
+        """States of a drive rollout in which a wall hit counts as a crash: ``HWM_CRASH_HORIZON`` control steps."""
+        limit = Settings.HWM_CRASH_HORIZON
+        return int(steps) if limit is None else min(int(steps), int(limit) + 1)
+
+    def _freeze_late_crashes(self, trajectories: torch.Tensor) -> torch.Tensor:
+        """Rollouts that first hit a wall after the crash horizon stop at their last clean state.
+
+        They keep no progress from driving on through the wall, and the hit itself is not a crash.
+        """
+        steps = int(trajectories.shape[1])
+        end = self._crash_end(steps)
+        if end >= steps:
+            return trajectories
+        crashed = self.wall_geometry.in_wall(trajectories[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]])
+        first = torch.where(crashed.any(dim=1), crashed.float().argmax(dim=1), torch.full((crashed.shape[0],), steps))
+        late = first >= end
+        late &= first < steps
+        if not bool(late.any()):
+            return trajectories
+        out = trajectories.clone()
+        for k in torch.nonzero(late).flatten().tolist():
+            f = int(first[k])
+            frozen = out[k, f - 1].clone()
+            frozen[[LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, ANGULAR_VEL_Z_IDX]] = 0.0
+            out[k, f:] = frozen
+        return out
 
     @staticmethod
     def _wall_ramp_end() -> float:
@@ -580,7 +609,7 @@ class HirarchicalPlanner(template_planner):
             float(Settings.MPC_DRIVE_ARRIVAL_WEIGHT), float(Settings.HWM_MIN_BORDER_DISTANCE), clearance,
             max(clearance - self._wall_ramp_end(), 1e-3),
             geometry.origin_x, geometry.origin_y, geometry.origin_cos, geometry.origin_sin, geometry.resolution,
-            float(geometry.map_width), float(geometry.map_height),
+            float(geometry.map_width), float(geometry.map_height), float(self._crash_end(steps)),
         )
         s = np.ascontiguousarray(states.numpy(), dtype=np.float32)
 
@@ -1090,6 +1119,7 @@ class HirarchicalPlanner(template_planner):
         if float(crash[best]) < 0 or not bool((crash < 0).any()):
             return mean, weights
         path = self.rollout_dynamics(state, mean)
+        path = path[..., : self._crash_end(int(path.shape[-2])), :]
         if not bool(self.wall_geometry.in_wall(path[..., [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]]).any()):
             return mean, weights
         return actions[best].clone(), torch.nn.functional.one_hot(torch.tensor(best), int(weights.shape[0])).to(weights)
@@ -1713,6 +1743,7 @@ class HirarchicalPlanner(template_planner):
                     trajectories, window_states = self._rollout_with_window(state, actions, windows)
                 else:
                     trajectories = self.rollout_dynamics(state, actions)
+            trajectories = self._freeze_late_crashes(trajectories)
             nearest_waypoint_idx = self.nearest_waypoint_index(state)
             if self._jax_rewards_usable():
                 drive_rewards, drive_crash = self.MPC_reward_jax(trajectories, nearest_waypoint_idx)

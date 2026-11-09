@@ -29,7 +29,7 @@ ROW_X, ROW_Y, ROW_HEADING, ROW_SPEED, ROW_DRIFT = range(5)
 # Order of the ``consts`` argument.
 CONST_NAMES = (
     "target_speed_factor", "overspeed_weight", "arrival_weight", "border", "clearance", "clearance_span",
-    "origin_x", "origin_y", "origin_cos", "origin_sin", "resolution", "map_width", "map_height",
+    "origin_x", "origin_y", "origin_cos", "origin_sin", "resolution", "map_width", "map_height", "crash_end",
 )
 
 
@@ -99,7 +99,9 @@ def _one(states, dist, rows, count, grid, corner_x, corner_y, c):
     corner_wall = grid[r, k]
     crashed = (~inside | (corner_wall < c["border"])).any(axis=1)
     corner_distance = jnp.where(inside, corner_wall, 0.0).min(axis=1)
-    late = steps - jnp.where(crashed.any(), jnp.argmax(crashed), steps)
+    # Steps lost to a hit, counted up to ``crash_end`` (the crash horizon, at most ``steps``).
+    survived = jnp.where(crashed.any(), jnp.argmax(crashed), steps)
+    late = jnp.maximum(jnp.int32(c["crash_end"]) - survived, 0)
     closeness = jnp.clip((c["clearance"] - corner_distance) / c["clearance_span"], 0.0, 1.0).sum()
     depth = jnp.clip((c["border"] - corner_distance) / c["border"], 0.0, 1.0).sum()
     return drive, count_valid > 0, late, closeness, depth
