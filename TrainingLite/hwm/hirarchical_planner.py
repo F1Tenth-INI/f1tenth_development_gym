@@ -540,6 +540,13 @@ class HirarchicalPlanner(template_planner):
         end = self._crash_end(steps)
         if end >= steps:
             return trajectories
+        cpp = self._cpp()
+        if cpp is not None and not Settings.BLANK_MAP:
+            # The rollout's own fresh array: changed in place.
+            out = trajectories.detach().to(torch.float32).contiguous()
+            cpp.set_map(self.wall_geometry)
+            cpp.freeze_late(out.numpy(), end, float(Settings.HWM_MIN_BORDER_DISTANCE))
+            return out
         crashed = self.wall_geometry.in_wall(trajectories[:, :, [POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX]])
         first = torch.where(crashed.any(dim=1), crashed.float().argmax(dim=1), torch.full((crashed.shape[0],), steps))
         late = first >= end
@@ -559,12 +566,41 @@ class HirarchicalPlanner(template_planner):
         end = Settings.MPC_DRIVE_WALL_RAMP_END
         return float(Settings.HWM_MIN_BORDER_DISTANCE if end is None else end)
 
+    def _cpp(self):
+        """The C++ kernels (``HWM_BACKEND = "cpp_kernels"``), made on first use; None with the JAX backend.
+
+        ``HWM_BACKEND = "cpp"`` runs the whole control step in C++ (``hirarchical_planner_cpp``) instead of this
+        class; made directly, this class then uses the kernels too."""
+        backend = str(getattr(Settings, "HWM_BACKEND", "jax")).lower()
+        if backend == "jax":
+            return None
+        if backend not in ("cpp", "cpp_kernels"):
+            raise ValueError(f"HWM_BACKEND must be 'jax', 'cpp_kernels' or 'cpp', got {Settings.HWM_BACKEND!r}")
+        cpp = getattr(self, "_cpp_kernels", None)
+        if cpp is None:
+            from TrainingLite.hwm.hw_cpp import HwCpp
+            from utilities.car_files.vehicle_parameters import VehicleParameters
+
+            dt = float(Settings.TIMESTEP_CONTROL)
+            cpp = HwCpp(
+                threads=int(Settings.HWM_ROLLOUT_THREADS),
+                car_params=VehicleParameters(Settings.ENV_CAR_PARAMETER_FILE).to_np_array(),
+                ode_model=Settings.ODE_MODEL_OF_CAR_DYNAMICS,
+                dt=dt, substeps=int(round(dt / float(Settings.TIMESTEP_SIM))),
+                denorm=self.action_denormalization_array, cap=float(Settings.HWM_MAX_TRANSLATIONAL_CONTROL),
+            )
+            if Settings.MOTOR_PID_IN_CAR_MODEL:
+                raise ValueError("HWM_BACKEND 'cpp' models acceleration control only (MOTOR_PID_IN_CAR_MODEL = False)")
+            self._cpp_kernels = cpp
+            self._log_info(f"[HirarchicalPlanner] C++ backend on {cpp.threads} threads")
+        return cpp
+
     def _jax_rewards_usable(self) -> bool:
-        """``MPC_reward_jax`` covers this configuration: matched-waypoint costs on a map, on the CPU."""
-        return (
-            Settings.HWM_JAX_REWARDS and not Settings.BLANK_MAP
-            and self.wall_geometry.device.type == "cpu"
-        )
+        """``MPC_reward_jax`` covers this configuration: matched-waypoint costs on a map, on the CPU.
+        With the C++ backend it always does on a map."""
+        if Settings.BLANK_MAP or self.wall_geometry.device.type != "cpu":
+            return False
+        return bool(Settings.HWM_JAX_REWARDS) or self._cpp() is not None
 
     def _jax_wall_inputs(self) -> tuple[Any, Any, Any]:
         """The wall distance map and the body corners as device arrays, made once per map."""
@@ -586,11 +622,7 @@ class HirarchicalPlanner(template_planner):
         self, states: torch.Tensor, nearest_waypoint: int | torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """``MPC_reward`` of ``rollout_waypoint_states`` matches, with the per-rollout part compiled
-        (``drive_costs_jax``) and run in chunks on ``HWM_ROLLOUT_THREADS`` threads."""
-        from jax.experimental import enable_x64
-
-        from TrainingLite.hwm.drive_costs_jax import drive_costs, squared_distances
-
+        (``drive_costs_jax``, or the C++ kernel with ``HWM_BACKEND = "cpp"``) and run on ``HWM_ROLLOUT_THREADS`` threads."""
         self._ensure_waypoints()
         geometry = self.wall_geometry
         batch, steps = int(states.shape[0]), int(states.shape[1])
@@ -612,6 +644,18 @@ class HirarchicalPlanner(template_planner):
             float(geometry.map_width), float(geometry.map_height), float(self._crash_end(steps)),
         )
         s = np.ascontiguousarray(states.numpy(), dtype=np.float32)
+        cpp = self._cpp()
+        if cpp is not None:
+            with PROF.section("cpp_drive_costs"):
+                cpp.set_map(geometry)
+                drive_m, active, late, closeness, depth = (
+                    torch.from_numpy(x) for x in cpp.drive_costs(s, match_xy, rows, count, consts[:6], self._crash_end(steps))
+                )
+            return self._drive_reward_from_costs(states, start, batch, drive_m, active, late, closeness, depth)
+
+        from jax.experimental import enable_x64
+
+        from TrainingLite.hwm.drive_costs_jax import drive_costs, squared_distances
 
         def costs(lo: int, hi: int, size: int) -> list[np.ndarray]:
             pad = np.minimum(np.arange(lo, lo + size), hi - 1)
@@ -633,7 +677,10 @@ class HirarchicalPlanner(template_planner):
             drive_m, active, late, closeness, depth = (
                 torch.from_numpy(np.concatenate(column)) for column in zip(*parts)
             )
+        return self._drive_reward_from_costs(states, start, batch, drive_m, active, late, closeness, depth)
 
+    def _drive_reward_from_costs(self, states, start, batch, drive_m, active, late, closeness, depth):
+        """``(drive reward, crash part)`` from the per-rollout terms of ``MPC_reward_jax``."""
         if not self.off_track:
             drive = torch.where(active, drive_m, torch.zeros(batch))
         else:
@@ -725,6 +772,14 @@ class HirarchicalPlanner(template_planner):
         if self.off_track or self._stall_phase == 1:
             noise_std = noise_std * float(Settings.HWM_RECOVERY["noise_scale"])
         eps = torch.randn(int(count or Settings.MPC_NUM_OF_TRAJECTORIES), int(nominal.shape[0]), 2)
+        cpp = self._cpp()
+        if cpp is not None:
+            PROF.end()
+            brake_limit, accel_limit = self._translational_limits()
+            with PROF.section("cpp_correlated_samples"):
+                return torch.from_numpy(cpp.correlated_samples(
+                    nominal.numpy(), eps.numpy(), noise_std.tolist(), rho, brake_limit, accel_limit,
+                ))
         actions = nominal + eps * noise_std
         PROF.end()
         if rho > 0.0:
@@ -1882,6 +1937,11 @@ class HirarchicalPlanner(template_planner):
         else:
             pending = np.zeros((batch, 0, 2), dtype=np.float32)
         s = np.broadcast_to(np.asarray(state, dtype=np.float32), (batch, int(Settings.HWM_STATE_DIM))).copy()
+        cpp = self._cpp()
+        if cpp is not None:
+            PROF.end()
+            with PROF.section("cpp_rollout"):
+                return torch.from_numpy(cpp.rollout(s, actions, pending))
         run = self._pacejka_scan_rollout()
         PROF.end()
 

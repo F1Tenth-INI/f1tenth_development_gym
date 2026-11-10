@@ -1,6 +1,7 @@
 """Factory for controller/planner instances used by CarSystem."""
 
 import importlib
+from utilities.Settings import Settings
 
 
 def initialize_planner(controller: str):
@@ -71,6 +72,11 @@ def initialize_planner(controller: str):
 
         importlib.reload(random_planner)
         planner = random_planner.random_planner()
+    elif controller == "HirarchicalPlanner" and str(getattr(Settings, "HWM_BACKEND", "jax")).lower() == "cpp":
+        from TrainingLite.hwm import hirarchical_planner_cpp
+
+        importlib.reload(hirarchical_planner_cpp)
+        planner = hirarchical_planner_cpp.HirarchicalPlannerCpp()
     elif controller == "HirarchicalPlanner":
         from TrainingLite.hwm import hirarchical_planner
 

@@ -34,7 +34,7 @@ if "XLA_FLAGS" not in os.environ:
         "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1 inter_op_parallelism_threads=1"
     )
 
-CONTROLLERS = {"hw": "HirarchicalPlanner", "mppi": "mppi-lite-jax", "rpgd": "rpgd-lite-jax"}
+CONTROLLERS = {"hw": "HirarchicalPlanner", "mppi": "mppi-lite-jax", "rpgd": "rpgd-lite-jax", "acados": "mpc-acados"}
 
 
 def parse_args():

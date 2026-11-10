@@ -415,6 +415,7 @@ class Settings():
 
 
     RUN_MPC_WITH_PACEJKA = True
+    HWM_BACKEND = "jax"  # "jax": Python planner, rollouts and drive costs compiled with JAX. "cpp": the whole control step in C++ (TrainingLite/hwm/hirarchical_planner_cpp.py, cpp/hw_planner.cpp, built with g++ on first use; no torch or JAX per step), for the car. "cpp_kernels": Python planner with the C++ rollouts and costs
     HWM_ROLLOUT_THREADS = 8  # CPU threads the Pacejka rollout batch is split over. The results are bitwise the same as in one call. 1: one call
     HWM_JAX_REWARDS = True  # the drive samples' waypoint matching, matched-waypoint costs and wall terms run compiled in JAX, on the rollout threads. Same terms as the torch code in float32 (the torch wall lookup is float64), so near-ties can differ. False: torch
     MPC_NUM_OF_TRAJECTORIES = 1000  # HWM_MIN_BORDER_DISTANCE and MPC_DRIVE_NOISE below are tuned for 1000 (icra2022, mu 0.9, noise 0.05)

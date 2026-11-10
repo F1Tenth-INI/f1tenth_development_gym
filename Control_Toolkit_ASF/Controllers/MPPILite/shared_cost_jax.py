@@ -14,10 +14,11 @@ from scipy import ndimage
 
 from utilities.Settings import Settings
 from utilities.map_scale import scale_map_metadata
-from utilities.state_utilities import LINEAR_VEL_X_IDX, POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
+from utilities.state_utilities import LINEAR_VEL_X_IDX, LINEAR_VEL_Y_IDX, POSE_THETA_IDX, POSE_X_IDX, POSE_Y_IDX
 from utilities.waypoint_utils import (
     WP_D_LEFT_IDX,
     WP_D_RIGHT_IDX,
+    WP_KAPPA_IDX,
     WP_PSI_IDX,
     WP_VX_IDX,
     WP_X_IDX,
@@ -107,6 +108,12 @@ def cost_function_jax(state, control, waypoints, w, wall_map):
     target_speed = w['speed_factor'] * wp[WP_VX_IDX]
     speed_cost = w['speed'] * (v - target_speed) ** 2
     progress_cost = -w['progress'] * v * jnp.cos(heading_error)
+    # acados-style progress rate s_dot = (v_x cos mu - v_y sin mu) / (1 - n kappa): also rewards the inside line
+    if 'progress_sdot' in w:
+        v_y = state[LINEAR_VEL_Y_IDX]
+        s_dot = ((v * jnp.cos(heading_error) - v_y * jnp.sin(heading_error))
+                 / jnp.maximum(1.0 - lateral * wp[WP_KAPPA_IDX], 0.2))
+        progress_cost = progress_cost - w['progress_sdot'] * s_dot
 
     tracking_cost = w['lateral'] * lateral ** 2 + w['heading'] * heading_error ** 2
     control_cost = w['angular_control'] * jnp.abs(control[0]) + w['translational_control'] * jnp.abs(control[1])

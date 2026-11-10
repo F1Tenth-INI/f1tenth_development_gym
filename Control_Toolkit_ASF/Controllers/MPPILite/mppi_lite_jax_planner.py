@@ -17,6 +17,9 @@ from Control_Toolkit_ASF.Controllers.MPPILite.shared_cost_jax import (
 )
 
 from sim.f110_sim.envs.car_model_jax import (car_steps_sequential_jax)
+from Control_Toolkit_ASF.Controllers.MPCAcados.plant import Plant
+from utilities.state_utilities import (POSE_THETA_COS_IDX, POSE_THETA_IDX, POSE_THETA_SIN_IDX, POSE_X_IDX,
+                                       POSE_Y_IDX)
 
 
 # Configure JAX for optimal GPU usage
@@ -106,6 +109,12 @@ class MPPILitePlanner(template_planner):
         # Odd window of a Savitzky-Golay filter (quadratic) on the weighted plan. 0: off. 9 makes the steering ~4x
         # calmer at equal lap time, but on RCA1 it raised the crash rate from ~2.5% to ~6-8% per lap (hairpin wall tips)
         self.plan_filter_window = 0
+        # Predict-correct state filter (as in mpc-acados): plant prediction from the last estimate with the command
+        # applied since, moved towards the noisy measurement by this gain. 1: use the measurement as is
+        self.state_filter_gain = 1.0
+        self.state_filter_reset = 0.5  # [m] / [rad] larger position / heading innovations reset to the measurement
+        self.x_est = None
+        self.applied_prev = None
 
         # Controls already sent but not yet applied (CONTROL_DELAY). They are fixed at the start of every rollout.
         self.delay_steps = int(round(Settings.CONTROL_DELAY / self.dt))
@@ -131,6 +140,10 @@ class MPPILitePlanner(template_planner):
             self.control_limits = jnp.array([[-steering_limit, brake_limit], [steering_limit, accel_limit]], dtype=jnp.float32)
 
         self.wall_map = load_wall_map(vp.length, vp.width, self.default_device)
+        vp_plant = VehicleParameters(Settings.CONTROLLER_CAR_PARAMETER_FILE)
+        if Settings.FRICTION_FOR_CONTROLLER is not None:
+            vp_plant.mu = Settings.FRICTION_FOR_CONTROLLER
+        self.plant = Plant(vp_plant, Settings.TIMESTEP_SIM, int(round(self.dt / Settings.TIMESTEP_SIM)))
 
         self.key = jax.random.PRNGKey(0)
         
@@ -160,11 +173,30 @@ class MPPILitePlanner(template_planner):
         super().reset()
         self.last_Q_sq = np.zeros((self.horizon, 2), dtype=np.float32)
         self.sent_controls = np.zeros((self.delay_steps, 2), dtype=np.float32)
+        self.x_est = None
+        self.applied_prev = None
+
+    def _filter_state(self, measured):
+        est = measured
+        if self.state_filter_gain < 1.0 and self.x_est is not None and self.applied_prev is not None:
+            pred = self.plant.rollout(self.x_est, self.applied_prev[None])[-1].astype(np.float64)
+            innov = measured - pred
+            innov[POSE_THETA_IDX] = (innov[POSE_THETA_IDX] + np.pi) % (2.0 * np.pi) - np.pi
+            jump = (np.hypot(innov[POSE_X_IDX], innov[POSE_Y_IDX]) > self.state_filter_reset
+                    or abs(innov[POSE_THETA_IDX]) > self.state_filter_reset)
+            if np.all(np.isfinite(pred)) and not jump:
+                est = pred + self.state_filter_gain * innov
+                est[POSE_THETA_IDX] = (est[POSE_THETA_IDX] + np.pi) % (2.0 * np.pi) - np.pi
+                est[POSE_THETA_COS_IDX] = np.cos(est[POSE_THETA_IDX])
+                est[POSE_THETA_SIN_IDX] = np.sin(est[POSE_THETA_IDX])
+        self.x_est = est
+        return est
 
     def process_observation(self, controller_observation):
         # Ensure all data is on the default device
         with jax.default_device(self.default_device):
-            s = jnp.array(self.get_car_state(controller_observation), dtype=jnp.float32)
+            measured = np.asarray(self.get_car_state(controller_observation), dtype=np.float64)
+            s = jnp.array(self._filter_state(measured), dtype=jnp.float32)
             waypoints = jnp.array(controller_observation["next_waypoints"], dtype=jnp.float32)
 
             self.key, subkey = jax.random.split(self.key)
@@ -187,6 +219,8 @@ class MPPILitePlanner(template_planner):
 
             # Q_sequence[:delay_steps] are the controls already in the delay buffer; this one is applied next
             Q_sequence = np.array(Q_sequence)
+            # Command the car executes until the next observation: the oldest one in the delay buffer
+            self.applied_prev = np.array(Q_sequence[0], dtype=np.float32)
             self.angular_control, self.translational_control = Q_sequence[self.delay_steps]
 
             if self.delay_steps > 0:
