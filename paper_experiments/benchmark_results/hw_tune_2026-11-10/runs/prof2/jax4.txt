@@ -1,0 +1,75 @@
+HWM control-step profile (2900 steps measured; dynamics=pacejka, samples=1000, horizon=35)
+controller step: mean 31.191 ms, median 31.085, p95 33.379, max 199.044, min 27.141
+full loop period (controller + simulator + render + anything else): mean 34.261 ms, median 34.113, p95 36.658, max 202.135  -> 29.2 control steps/s
+outside the controller (simulator, rendering, glue): 3.070 ms/step
+
+section                                                                calls/stp   mean ms    med ms    p95 ms    max ms   ms/step self/step  %step  self%
+  get_car_state                                                             1.00     0.002     0.002     0.003     0.010     0.002     0.002    0.0    0.0
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.001     0.008     0.001     0.001    0.0    0.0
+      _update_stall                                                         1.00     0.023     0.022     0.032     0.204     0.023     0.023    0.1    0.1
+      _update_recover_mode                                                  1.00     0.001     0.001     0.002     0.009     0.001     0.001    0.0    0.0
+    _refresh_recovery                                                       1.00     0.622     0.594     0.820     1.220     0.622     0.596    2.0    1.9
+    _interpolated_waypoint_actions                                          1.00     0.232     0.216     0.325     0.656     0.232     0.232    0.7    0.7
+      noise_draw                                                            2.00     0.185     0.227     0.419     0.777     0.370     0.370    1.2    1.2
+      temporal_correlation_loop                                             2.00     0.619     0.657     1.288     2.067     1.238     1.238    4.0    4.0
+      clamp                                                                 2.00     0.038     0.047     0.077     0.170     0.075     0.075    0.2    0.2
+    _sample_mpc_actions                                                     2.00     0.854     0.932     1.773     2.670     1.709     0.025    5.5    0.1
+          setup                                                             1.00     0.024     0.022     0.032     0.091     0.024     0.024    0.1    0.1
+          jax_scan_incl_transfer_and_sync                                   1.00    18.962    18.962    19.980    21.227    18.962    18.962   60.8   60.8
+          stack_to_torch                                                    1.00     0.032     0.031     0.048     0.191     0.032     0.032    0.1    0.1
+        rollout_pacejka                                                     1.00    19.038    19.040    20.053    21.313    19.038     0.021   61.0    0.1
+      rollout_dynamics                                                      1.00    19.044    19.046    20.060    21.319    19.044     0.006   61.1    0.0
+    rollout_of_samples                                                      1.00    19.192    19.192    20.219    21.468    19.192     0.148   61.5    0.5
+      _ensure_waypoints                                                     1.00     0.003     0.003     0.004     0.027     0.003     0.003    0.0    0.0
+    nearest_waypoint_index                                                  1.00     0.474     0.457     0.645     1.052     0.474     0.471    1.5    1.5
+    _ensure_waypoints                                                       1.00     0.001     0.001     0.002     0.016     0.001     0.001    0.0    0.0
+    jax_drive_costs                                                         1.00     3.055     2.909     3.595   170.972     3.055     3.055    9.8    9.8
+    softmax_weights_and_plan                                                1.00     0.038     0.034     0.057     0.244     0.038     0.038    0.1    0.1
+    _note_reward                                                            1.00     0.020     0.018     0.030     0.088     0.020     0.020    0.1    0.1
+          setup                                                             1.00     0.097     0.092     0.130     0.540     0.097     0.097    0.3    0.3
+          jax_scan_incl_transfer_and_sync                                   1.00     0.261     0.249     0.340     1.460     0.261     0.261    0.8    0.8
+          stack_to_torch                                                    1.00     0.010     0.010     0.014     0.056     0.010     0.010    0.0    0.0
+        rollout_pacejka                                                     1.00     0.383     0.369     0.494     1.593     0.383     0.015    1.2    0.0
+      rollout_dynamics                                                      1.00     0.388     0.374     0.500     1.597     0.388     0.005    1.2    0.0
+      wall.in_wall                                                          1.00     0.196     0.187     0.265     0.524     0.196     0.196    0.6    0.6
+    mean_action_sequence                                                    1.00     0.759     0.735     0.978     2.045     0.759     0.175    2.4    0.6
+      wall.distance_at                                                      1.00     0.171     0.159     0.240     0.767     0.171     0.171    0.5    0.5
+    window_update                                                           1.00     2.864     3.052     4.011     5.981     2.864     2.511    9.2    8.1
+    _publish_waypoint_display                                               0.05     0.198     0.181     0.286     0.371     0.009     0.009    0.0    0.0
+    _weighted_state_trajectory                                              1.00     0.220     0.205     0.333     0.704     0.220     0.220    0.7    0.7
+    _seed_from_states                                                       1.00     0.372     0.344     0.547     0.933     0.372     0.372    1.2    1.2
+  select_action                                                             1.00    31.121    31.017    33.312   198.983    31.121     1.554   99.8    5.0
+  _apply_normalized_action                                                  1.00     0.032     0.030     0.046     0.101     0.032     0.032    0.1    0.1
+  _record_step                                                              1.00     0.003     0.003     0.005     0.028     0.003     0.003    0.0    0.0
+process_observation                                                         1.00    31.186    31.079    33.374   199.040    31.186     0.027  100.0    0.1
+_ensure_waypoints                                                           1.00     0.002     0.001     0.002     0.008     0.002     0.002    0.0    0.0
+  _ensure_waypoints                                                         1.00     0.001     0.001     0.001     0.007     0.001     0.001    0.0    0.0
+nearest_waypoint_index                                                      1.00     0.295     0.273     0.417     0.910     0.295     0.294    0.9    0.9
+      _publish_waypoint_display                                             0.70     0.258     0.242     0.347     1.427     0.181     0.181    0.6    0.6
+
+Self time ranking (ms per control step):
+     18.962 ms   60.8%  process_observation > select_action > rollout_of_samples > rollout_dynamics > rollout_pacejka > jax_scan_incl_transfer_and_sync
+      3.055 ms    9.8%  process_observation > select_action > jax_drive_costs
+      2.511 ms    8.1%  process_observation > select_action > window_update
+      1.554 ms    5.0%  process_observation > select_action
+      1.238 ms    4.0%  process_observation > select_action > _sample_mpc_actions > temporal_correlation_loop
+      0.596 ms    1.9%  process_observation > select_action > _refresh_recovery
+      0.471 ms    1.5%  process_observation > select_action > nearest_waypoint_index
+      0.372 ms    1.2%  process_observation > select_action > _seed_from_states
+      0.370 ms    1.2%  process_observation > select_action > _sample_mpc_actions > noise_draw
+      0.294 ms    0.9%  nearest_waypoint_index
+      0.261 ms    0.8%  process_observation > select_action > mean_action_sequence > rollout_dynamics > rollout_pacejka > jax_scan_incl_transfer_and_sync
+      0.232 ms    0.7%  process_observation > select_action > _interpolated_waypoint_actions
+      0.220 ms    0.7%  process_observation > select_action > _weighted_state_trajectory
+      0.196 ms    0.6%  process_observation > select_action > mean_action_sequence > wall.in_wall
+      0.181 ms    0.6%  process_observation > select_action > window_update > _publish_waypoint_display
+      0.175 ms    0.6%  process_observation > select_action > mean_action_sequence
+      0.171 ms    0.5%  process_observation > select_action > window_update > wall.distance_at
+      0.148 ms    0.5%  process_observation > select_action > rollout_of_samples
+      0.097 ms    0.3%  process_observation > select_action > mean_action_sequence > rollout_dynamics > rollout_pacejka > setup
+      0.075 ms    0.2%  process_observation > select_action > _sample_mpc_actions > clamp
+      0.038 ms    0.1%  process_observation > select_action > softmax_weights_and_plan
+      0.032 ms    0.1%  process_observation > _apply_normalized_action
+      0.032 ms    0.1%  process_observation > select_action > rollout_of_samples > rollout_dynamics > rollout_pacejka > stack_to_torch
+      0.027 ms    0.1%  process_observation
+      0.025 ms    0.1%  process_observation > select_action > _sample_mpc_actions

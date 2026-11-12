@@ -1,0 +1,121 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi250_IPZ50_raceline_mu0.5_noiseoff_seed0",
+  "controller": "mppi",
+  "rollouts": 250,
+  "map": "IPZ50",
+  "wp": "raceline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 0,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 755.5081160068512,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 15.68,
+   "lap_time": 12.759999999999842,
+   "frozen": false
+  },
+  {
+   "t": 24.080000000000002,
+   "lap_time": 8.399999999999823,
+   "frozen": false
+  },
+  {
+   "t": 32.28,
+   "lap_time": 8.199999999999825,
+   "frozen": false
+  },
+  {
+   "t": 41.0,
+   "lap_time": 8.719999999999814,
+   "frozen": false
+  },
+  {
+   "t": 51.44,
+   "lap_time": 10.439999999999777,
+   "frozen": false
+  },
+  {
+   "t": 59.64,
+   "lap_time": 8.199999999999825,
+   "frozen": false
+  },
+  {
+   "t": 68.16,
+   "lap_time": 8.520000000000543,
+   "frozen": false
+  },
+  {
+   "t": 76.76,
+   "lap_time": 8.600000000001344,
+   "frozen": false
+  },
+  {
+   "t": 91.24,
+   "lap_time": 14.480000000002264,
+   "frozen": false
+  },
+  {
+   "t": 112.76,
+   "lap_time": 11.20000000000175,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [
+  {
+   "t": 2.88,
+   "frozen": false,
+   "reasons": [
+    "collision"
+   ]
+  },
+  {
+   "t": 101.52,
+   "frozen": false,
+   "reasons": [
+    "collision"
+   ]
+  }
+ ],
+ "collision_clusters": [
+  [
+   0
+  ],
+  [
+   1
+  ]
+ ],
+ "n_collisions": 2,
+ "n_collisions_raw": 2,
+ "sim_collision_steps": 2,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 10,
+  "min": 8.199999999999825,
+  "mean": 9.952000000000481,
+  "median": 8.66000000000058,
+  "max": 14.480000000002264,
+  "std": 2.2142809216543213
+ },
+ "device": "cpu"
+}

@@ -1,0 +1,15 @@
+{
+ "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05",
+ "maps": "RCA1,IPZ50,hangar3,icra2022",
+ "wps": "midline,raceline",
+ "mus": "0.5,0.9",
+ "noise": "on,off",
+ "seeds": "0,1,2,3,4",
+ "controllers": "hw:50,hw:200,mppi:50,mppi:250,mppi:500,mppi:1000,mppi:2000,rpgd",
+ "sim_seconds": 1000.0,
+ "workers": 24,
+ "timeout": 14400,
+ "gpu_controllers": "mppi:1000,mppi:2000",
+ "gpu_workers": 8,
+ "jax_cuda_path": "/home/emilio/projects/bachelor/benchmark_results/jax_cuda"
+}

@@ -1,0 +1,128 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/tune_noise_2026-11-08/runs/mppi50/IPZ50_raceline_mu0.9_noisehalf_seed4",
+  "controller": "mppi",
+  "rollouts": 50,
+  "map": "IPZ50",
+  "wp": "raceline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 4,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 191.7107799053192,
+ "error": null,
+ "noise_level_car_state": [
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 21.28,
+   "lap_time": 20.959999999999724,
+   "frozen": false
+  },
+  {
+   "t": 29.48,
+   "lap_time": 8.199999999999825,
+   "frozen": false
+  },
+  {
+   "t": 39.6,
+   "lap_time": 10.119999999999784,
+   "frozen": false
+  },
+  {
+   "t": 292.24,
+   "lap_time": 252.64000000000254,
+   "frozen": false
+  },
+  {
+   "t": 299.72,
+   "lap_time": 7.480000000003827,
+   "frozen": false
+  },
+  {
+   "t": 308.24,
+   "lap_time": 8.520000000004359,
+   "frozen": false
+  },
+  {
+   "t": 315.76,
+   "lap_time": 7.520000000003847,
+   "frozen": false
+  },
+  {
+   "t": 501.04,
+   "lap_time": 185.2800000000948,
+   "frozen": false
+  },
+  {
+   "t": 511.32,
+   "lap_time": 10.28000000000526,
+   "frozen": false
+  },
+  {
+   "t": 857.72,
+   "lap_time": 346.3999999996859,
+   "frozen": false
+  },
+  {
+   "t": 870.6800000000001,
+   "lap_time": 12.959999999988213,
+   "frozen": false
+  },
+  {
+   "t": 878.52,
+   "lap_time": 7.83999999999287,
+   "frozen": false
+  },
+  {
+   "t": 886.76,
+   "lap_time": 8.239999999992506,
+   "frozen": false
+  },
+  {
+   "t": 894.6800000000001,
+   "lap_time": 7.919999999992797,
+   "frozen": false
+  },
+  {
+   "t": 902.36,
+   "lap_time": 7.679999999993015,
+   "frozen": false
+  },
+  {
+   "t": 919.4,
+   "lap_time": 17.039999999984502,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 16,
+  "min": 7.480000000003827,
+  "mean": 57.44249999998399,
+  "median": 9.320000000002072,
+  "max": 346.3999999996859,
+  "std": 105.50307922831675
+ }
+}

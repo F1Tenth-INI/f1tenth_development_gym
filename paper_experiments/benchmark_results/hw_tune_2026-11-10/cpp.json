@@ -1,0 +1,3 @@
+{"cpp4": {"HWM_BACKEND": "cpp", "HWM_ROLLOUT_THREADS": 4},
+ "kern4": {"HWM_BACKEND": "cpp_kernels", "HWM_ROLLOUT_THREADS": 4},
+ "jax4": {"HWM_BACKEND": "jax", "HWM_ROLLOUT_THREADS": 4}}

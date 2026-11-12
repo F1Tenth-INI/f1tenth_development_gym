@@ -1,0 +1,354 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi250_icra2022_raceline_mu0.5_noiseoff_seed4",
+  "controller": "mppi",
+  "rollouts": 250,
+  "map": "icra2022",
+  "wp": "raceline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 4,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 582.1109533309937,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 16.240000000000002,
+   "lap_time": 16.199999999999832,
+   "frozen": false
+  },
+  {
+   "t": 31.080000000000002,
+   "lap_time": 14.839999999999684,
+   "frozen": false
+  },
+  {
+   "t": 45.76,
+   "lap_time": 14.679999999999687,
+   "frozen": false
+  },
+  {
+   "t": 60.72,
+   "lap_time": 14.959999999999681,
+   "frozen": false
+  },
+  {
+   "t": 80.48,
+   "lap_time": 19.760000000002492,
+   "frozen": false
+  },
+  {
+   "t": 96.0,
+   "lap_time": 15.520000000002426,
+   "frozen": false
+  },
+  {
+   "t": 111.0,
+   "lap_time": 15.000000000002345,
+   "frozen": false
+  },
+  {
+   "t": 125.88000000000001,
+   "lap_time": 14.880000000002326,
+   "frozen": false
+  },
+  {
+   "t": 141.4,
+   "lap_time": 15.51999999999768,
+   "frozen": false
+  },
+  {
+   "t": 157.88,
+   "lap_time": 16.47999999999672,
+   "frozen": false
+  },
+  {
+   "t": 175.4,
+   "lap_time": 17.519999999996514,
+   "frozen": false
+  },
+  {
+   "t": 190.56,
+   "lap_time": 15.159999999996984,
+   "frozen": false
+  },
+  {
+   "t": 206.52,
+   "lap_time": 15.959999999996825,
+   "frozen": false
+  },
+  {
+   "t": 221.28,
+   "lap_time": 14.759999999997063,
+   "frozen": false
+  },
+  {
+   "t": 236.24,
+   "lap_time": 14.959999999997024,
+   "frozen": false
+  },
+  {
+   "t": 259.44,
+   "lap_time": 23.1999999999978,
+   "frozen": false
+  },
+  {
+   "t": 274.36,
+   "lap_time": 14.920000000007633,
+   "frozen": false
+  },
+  {
+   "t": 290.64,
+   "lap_time": 16.28000000000833,
+   "frozen": false
+  },
+  {
+   "t": 305.40000000000003,
+   "lap_time": 14.760000000007551,
+   "frozen": false
+  },
+  {
+   "t": 320.56,
+   "lap_time": 15.160000000007756,
+   "frozen": false
+  },
+  {
+   "t": 336.04,
+   "lap_time": 15.48000000000792,
+   "frozen": false
+  },
+  {
+   "t": 356.76,
+   "lap_time": 20.7200000000106,
+   "frozen": false
+  },
+  {
+   "t": 371.64,
+   "lap_time": 14.880000000007612,
+   "frozen": false
+  },
+  {
+   "t": 386.6,
+   "lap_time": 14.960000000007653,
+   "frozen": false
+  },
+  {
+   "t": 401.36,
+   "lap_time": 14.760000000007551,
+   "frozen": false
+  },
+  {
+   "t": 416.48,
+   "lap_time": 15.120000000007735,
+   "frozen": false
+  },
+  {
+   "t": 435.72,
+   "lap_time": 19.240000000009843,
+   "frozen": false
+  },
+  {
+   "t": 452.12,
+   "lap_time": 16.40000000000839,
+   "frozen": false
+  },
+  {
+   "t": 468.40000000000003,
+   "lap_time": 16.28000000000833,
+   "frozen": false
+  },
+  {
+   "t": 483.44,
+   "lap_time": 15.040000000007694,
+   "frozen": false
+  },
+  {
+   "t": 500.56,
+   "lap_time": 17.12000000000876,
+   "frozen": false
+  },
+  {
+   "t": 515.64,
+   "lap_time": 15.080000000002542,
+   "frozen": false
+  },
+  {
+   "t": 530.76,
+   "lap_time": 15.119999999986248,
+   "frozen": false
+  },
+  {
+   "t": 549.2,
+   "lap_time": 18.43999999998323,
+   "frozen": false
+  },
+  {
+   "t": 565.76,
+   "lap_time": 16.55999999998494,
+   "frozen": false
+  },
+  {
+   "t": 583.76,
+   "lap_time": 17.99999999998363,
+   "frozen": false
+  },
+  {
+   "t": 599.64,
+   "lap_time": 15.879999999985557,
+   "frozen": false
+  },
+  {
+   "t": 617.16,
+   "lap_time": 17.519999999984066,
+   "frozen": false
+  },
+  {
+   "t": 633.36,
+   "lap_time": 16.199999999985266,
+   "frozen": false
+  },
+  {
+   "t": 648.16,
+   "lap_time": 14.79999999998654,
+   "frozen": false
+  },
+  {
+   "t": 665.72,
+   "lap_time": 17.55999999998403,
+   "frozen": false
+  },
+  {
+   "t": 680.4,
+   "lap_time": 14.679999999986649,
+   "frozen": false
+  },
+  {
+   "t": 696.64,
+   "lap_time": 16.23999999998523,
+   "frozen": false
+  },
+  {
+   "t": 713.28,
+   "lap_time": 16.639999999984866,
+   "frozen": false
+  },
+  {
+   "t": 729.72,
+   "lap_time": 16.439999999985048,
+   "frozen": false
+  },
+  {
+   "t": 746.28,
+   "lap_time": 16.55999999998494,
+   "frozen": false
+  },
+  {
+   "t": 762.48,
+   "lap_time": 16.199999999985266,
+   "frozen": false
+  },
+  {
+   "t": 777.6,
+   "lap_time": 15.119999999986248,
+   "frozen": false
+  },
+  {
+   "t": 792.48,
+   "lap_time": 14.879999999986467,
+   "frozen": false
+  },
+  {
+   "t": 809.2,
+   "lap_time": 16.719999999984793,
+   "frozen": false
+  },
+  {
+   "t": 826.2,
+   "lap_time": 16.99999999998454,
+   "frozen": false
+  },
+  {
+   "t": 840.84,
+   "lap_time": 14.639999999986685,
+   "frozen": false
+  },
+  {
+   "t": 855.76,
+   "lap_time": 14.91999999998643,
+   "frozen": false
+  },
+  {
+   "t": 873.08,
+   "lap_time": 17.319999999984248,
+   "frozen": false
+  },
+  {
+   "t": 887.8000000000001,
+   "lap_time": 14.719999999986612,
+   "frozen": false
+  },
+  {
+   "t": 905.32,
+   "lap_time": 17.519999999984066,
+   "frozen": false
+  },
+  {
+   "t": 924.16,
+   "lap_time": 18.839999999982865,
+   "frozen": false
+  },
+  {
+   "t": 942.04,
+   "lap_time": 17.87999999998374,
+   "frozen": false
+  },
+  {
+   "t": 959.32,
+   "lap_time": 17.279999999984284,
+   "frozen": false
+  },
+  {
+   "t": 976.08,
+   "lap_time": 16.759999999984757,
+   "frozen": false
+  },
+  {
+   "t": 991.32,
+   "lap_time": 15.23999999998614,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 61,
+  "min": 14.639999999986685,
+  "mean": 16.250491803273416,
+  "median": 15.959999999996825,
+  "max": 23.1999999999978,
+  "std": 1.663681085453181
+ },
+ "device": "cpu"
+}

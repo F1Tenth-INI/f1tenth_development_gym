@@ -1,0 +1,131 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/tune_noise_2026-11-08/runs/reuse/IPZ50_midline_mu0.9_noisehalf_seed1",
+  "controller": "hw",
+  "rollouts": 50,
+  "map": "IPZ50",
+  "wp": "midline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 1,
+  "sim_seconds": 600.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "HirarchicalPlanner",
+ "sim_seconds": 600.0,
+ "wall_seconds": 335.5669560432434,
+ "error": null,
+ "noise_level_car_state": [
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 33.0,
+   "lap_time": 27.079999999999472,
+   "frozen": false
+  },
+  {
+   "t": 158.88,
+   "lap_time": 98.16000000000379,
+   "frozen": false
+  },
+  {
+   "t": 282.56,
+   "lap_time": 123.67999999999424,
+   "frozen": false
+  },
+  {
+   "t": 316.2,
+   "lap_time": 33.64000000001721,
+   "frozen": false
+  },
+  {
+   "t": 377.96,
+   "lap_time": 61.760000000031596,
+   "frozen": false
+  },
+  {
+   "t": 443.36,
+   "lap_time": 65.40000000003346,
+   "frozen": false
+  },
+  {
+   "t": 461.0,
+   "lap_time": 17.640000000009024,
+   "frozen": false
+  },
+  {
+   "t": 558.16,
+   "lap_time": 97.15999999998411,
+   "frozen": false
+  },
+  {
+   "t": 580.6800000000001,
+   "lap_time": 22.519999999979518,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 9,
+  "min": 17.640000000009024,
+  "mean": 60.78222222222804,
+  "median": 61.760000000031596,
+  "max": 123.67999999999424,
+  "std": 38.56267683193527
+ },
+ "freeze_t": null,
+ "freeze_after_lap": null,
+ "before_freeze": {
+  "lap_times": [
+   27.079999999999472,
+   98.16000000000379,
+   123.67999999999424,
+   33.64000000001721,
+   61.760000000031596,
+   65.40000000003346,
+   17.640000000009024,
+   97.15999999998411,
+   22.519999999979518
+  ],
+  "lap_stats": {
+   "n": 9,
+   "min": 17.640000000009024,
+   "mean": 60.78222222222804,
+   "median": 61.760000000031596,
+   "max": 123.67999999999424,
+   "std": 38.56267683193527
+  },
+  "n_collisions": 0,
+  "n_collisions_raw": 0
+ },
+ "after_freeze": {
+  "lap_times": [],
+  "lap_stats": {
+   "n": 0,
+   "min": null,
+   "mean": null,
+   "median": null,
+   "max": null,
+   "std": null
+  },
+  "n_collisions": 0,
+  "n_collisions_raw": 0
+ }
+}

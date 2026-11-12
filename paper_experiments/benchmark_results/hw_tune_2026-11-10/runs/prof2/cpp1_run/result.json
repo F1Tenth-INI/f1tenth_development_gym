@@ -1,0 +1,119 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof2/cpp1_run",
+  "controller": "hw",
+  "rollouts": 1000,
+  "map": "icra2022",
+  "wp": "raceline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 0,
+  "sim_seconds": 120.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "HirarchicalPlanner",
+ "sim_seconds": 120.0,
+ "wall_seconds": 31.587911367416382,
+ "error": null,
+ "noise_level_car_state": [
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 22.6,
+   "lap_time": 22.559999999999697,
+   "frozen": false
+  },
+  {
+   "t": 40.24,
+   "lap_time": 17.639999999999624,
+   "frozen": false
+  },
+  {
+   "t": 56.24,
+   "lap_time": 15.999999999999659,
+   "frozen": false
+  },
+  {
+   "t": 71.16,
+   "lap_time": 14.92000000000094,
+   "frozen": false
+  },
+  {
+   "t": 85.56,
+   "lap_time": 14.400000000002251,
+   "frozen": false
+  },
+  {
+   "t": 99.24000000000001,
+   "lap_time": 13.680000000002138,
+   "frozen": false
+  },
+  {
+   "t": 112.52,
+   "lap_time": 13.280000000002076,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 7,
+  "min": 13.280000000002076,
+  "mean": 16.06857142857234,
+  "median": 14.92000000000094,
+  "max": 22.559999999999697,
+  "std": 3.2196657620072195
+ },
+ "freeze_t": null,
+ "freeze_after_lap": null,
+ "before_freeze": {
+  "lap_times": [
+   22.559999999999697,
+   17.639999999999624,
+   15.999999999999659,
+   14.92000000000094,
+   14.400000000002251,
+   13.680000000002138,
+   13.280000000002076
+  ],
+  "lap_stats": {
+   "n": 7,
+   "min": 13.280000000002076,
+   "mean": 16.06857142857234,
+   "median": 14.92000000000094,
+   "max": 22.559999999999697,
+   "std": 3.2196657620072195
+  },
+  "n_collisions": 0,
+  "n_collisions_raw": 0
+ },
+ "after_freeze": {
+  "lap_times": [],
+  "lap_stats": {
+   "n": 0,
+   "min": null,
+   "mean": null,
+   "median": null,
+   "max": null,
+   "std": null
+  },
+  "n_collisions": 0,
+  "n_collisions_raw": 0
+ }
+}

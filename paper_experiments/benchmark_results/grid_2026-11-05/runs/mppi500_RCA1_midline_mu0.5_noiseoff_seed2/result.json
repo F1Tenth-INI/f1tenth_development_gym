@@ -1,0 +1,229 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi500_RCA1_midline_mu0.5_noiseoff_seed2",
+  "controller": "mppi",
+  "rollouts": 500,
+  "map": "RCA1",
+  "wp": "midline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 2,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 1080.1520867347717,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 27.44,
+   "lap_time": 27.399999999999594,
+   "frozen": false
+  },
+  {
+   "t": 56.6,
+   "lap_time": 29.15999999999938,
+   "frozen": false
+  },
+  {
+   "t": 83.60000000000001,
+   "lap_time": 27.000000000002892,
+   "frozen": false
+  },
+  {
+   "t": 111.28,
+   "lap_time": 27.680000000004327,
+   "frozen": false
+  },
+  {
+   "t": 137.8,
+   "lap_time": 26.520000000000678,
+   "frozen": false
+  },
+  {
+   "t": 163.56,
+   "lap_time": 25.759999999994875,
+   "frozen": false
+  },
+  {
+   "t": 190.12,
+   "lap_time": 26.559999999994716,
+   "frozen": false
+  },
+  {
+   "t": 219.04,
+   "lap_time": 28.919999999994246,
+   "frozen": false
+  },
+  {
+   "t": 246.12,
+   "lap_time": 27.079999999994612,
+   "frozen": false
+  },
+  {
+   "t": 272.24,
+   "lap_time": 26.120000000006314,
+   "frozen": false
+  },
+  {
+   "t": 301.04,
+   "lap_time": 28.800000000014734,
+   "frozen": false
+  },
+  {
+   "t": 328.6,
+   "lap_time": 27.5600000000141,
+   "frozen": false
+  },
+  {
+   "t": 357.76,
+   "lap_time": 29.160000000014918,
+   "frozen": false
+  },
+  {
+   "t": 385.72,
+   "lap_time": 27.960000000014304,
+   "frozen": false
+  },
+  {
+   "t": 413.12,
+   "lap_time": 27.400000000014018,
+   "frozen": false
+  },
+  {
+   "t": 440.56,
+   "lap_time": 27.440000000014038,
+   "frozen": false
+  },
+  {
+   "t": 469.40000000000003,
+   "lap_time": 28.840000000014754,
+   "frozen": false
+  },
+  {
+   "t": 495.6,
+   "lap_time": 26.200000000013404,
+   "frozen": false
+  },
+  {
+   "t": 524.32,
+   "lap_time": 28.719999999997185,
+   "frozen": false
+  },
+  {
+   "t": 551.8000000000001,
+   "lap_time": 27.479999999975007,
+   "frozen": false
+  },
+  {
+   "t": 577.72,
+   "lap_time": 25.919999999976426,
+   "frozen": false
+  },
+  {
+   "t": 604.52,
+   "lap_time": 26.799999999975626,
+   "frozen": false
+  },
+  {
+   "t": 632.24,
+   "lap_time": 27.71999999997479,
+   "frozen": false
+  },
+  {
+   "t": 663.32,
+   "lap_time": 31.079999999971733,
+   "frozen": false
+  },
+  {
+   "t": 690.28,
+   "lap_time": 26.95999999997548,
+   "frozen": false
+  },
+  {
+   "t": 718.48,
+   "lap_time": 28.199999999974352,
+   "frozen": false
+  },
+  {
+   "t": 744.24,
+   "lap_time": 25.75999999997657,
+   "frozen": false
+  },
+  {
+   "t": 773.16,
+   "lap_time": 28.919999999973697,
+   "frozen": false
+  },
+  {
+   "t": 799.08,
+   "lap_time": 25.919999999976426,
+   "frozen": false
+  },
+  {
+   "t": 825.5600000000001,
+   "lap_time": 26.479999999975917,
+   "frozen": false
+  },
+  {
+   "t": 852.48,
+   "lap_time": 26.919999999975516,
+   "frozen": false
+  },
+  {
+   "t": 879.8000000000001,
+   "lap_time": 27.319999999975153,
+   "frozen": false
+  },
+  {
+   "t": 907.08,
+   "lap_time": 27.27999999997519,
+   "frozen": false
+  },
+  {
+   "t": 933.16,
+   "lap_time": 26.07999999997628,
+   "frozen": false
+  },
+  {
+   "t": 960.6800000000001,
+   "lap_time": 27.51999999997497,
+   "frozen": false
+  },
+  {
+   "t": 988.5600000000001,
+   "lap_time": 27.879999999974643,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 36,
+  "min": 25.75999999997657,
+  "mean": 27.458888888880026,
+  "median": 27.400000000006806,
+  "max": 31.079999999971733,
+  "std": 1.1879965795493297
+ },
+ "device": "cpu"
+}

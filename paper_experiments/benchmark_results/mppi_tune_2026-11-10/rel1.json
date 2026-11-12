@@ -1,0 +1,43 @@
+{
+ "base": {},
+ "ns_s02": {
+  "p:noise_std": [
+   0.2,
+   0.6
+  ]
+ },
+ "ns_s03": {
+  "p:noise_std": [
+   0.3,
+   0.6
+  ]
+ },
+ "ns_a03": {
+  "p:noise_std": [
+   0.1,
+   0.3
+  ]
+ },
+ "ns_a12": {
+  "p:noise_std": [
+   0.1,
+   1.2
+  ]
+ },
+ "T1": {
+  "w:temperature": 1.0
+ },
+ "T10": {
+  "w:temperature": 10.0
+ },
+ "h50": {
+  "p:horizon": 50,
+  "LOOK_AHEAD_STEPS": 40
+ },
+ "is4": {
+  "p:intermediate_steps": 4
+ },
+ "pf9": {
+  "p:plan_filter_window": 9
+ }
+}

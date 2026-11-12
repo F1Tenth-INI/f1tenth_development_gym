@@ -1,0 +1,5 @@
+{"cpp1": {"HWM_BACKEND": "cpp", "HWM_ROLLOUT_THREADS": 1, "HWM_PROFILE": true, "HWM_PROFILE_FILE": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof/cpp1", "HWM_PROFILE_SKIP_STEPS": 100},
+ "cpp2": {"HWM_BACKEND": "cpp", "HWM_ROLLOUT_THREADS": 2, "HWM_PROFILE": true, "HWM_PROFILE_FILE": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof/cpp2", "HWM_PROFILE_SKIP_STEPS": 100},
+ "cpp4": {"HWM_BACKEND": "cpp", "HWM_ROLLOUT_THREADS": 4, "HWM_PROFILE": true, "HWM_PROFILE_FILE": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof/cpp4", "HWM_PROFILE_SKIP_STEPS": 100},
+ "jax4": {"HWM_BACKEND": "jax", "HWM_ROLLOUT_THREADS": 4, "HWM_PROFILE": true, "HWM_PROFILE_FILE": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof/jax4", "HWM_PROFILE_SKIP_STEPS": 100},
+ "jax8": {"HWM_BACKEND": "jax", "HWM_ROLLOUT_THREADS": 8, "HWM_PROFILE": true, "HWM_PROFILE_FILE": "/home/emilio/projects/bachelor/benchmark_results/hw_tune_2026-11-10/runs/prof/jax8", "HWM_PROFILE_SKIP_STEPS": 100}}

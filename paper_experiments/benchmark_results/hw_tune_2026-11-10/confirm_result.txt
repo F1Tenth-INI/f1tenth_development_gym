@@ -1,0 +1,3 @@
+config                        medTail meanTail    best  coll  laps runs   wall
+base                           12.150   12.181  12.040     1   316    4   1799
+fz10_sh3                       12.220   12.240  12.080     3   314    4   1817

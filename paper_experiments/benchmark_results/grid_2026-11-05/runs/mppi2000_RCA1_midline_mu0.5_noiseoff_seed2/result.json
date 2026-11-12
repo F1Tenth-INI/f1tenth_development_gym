@@ -1,0 +1,234 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi2000_RCA1_midline_mu0.5_noiseoff_seed2",
+  "controller": "mppi",
+  "rollouts": 2000,
+  "map": "RCA1",
+  "wp": "midline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 2,
+  "sim_seconds": 1000.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 5284.05899477005,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 28.32,
+   "lap_time": 28.279999999999575,
+   "frozen": false
+  },
+  {
+   "t": 54.96,
+   "lap_time": 26.639999999999432,
+   "frozen": false
+  },
+  {
+   "t": 80.76,
+   "lap_time": 25.800000000002413,
+   "frozen": false
+  },
+  {
+   "t": 107.72,
+   "lap_time": 26.960000000004214,
+   "frozen": false
+  },
+  {
+   "t": 135.04,
+   "lap_time": 27.320000000001784,
+   "frozen": false
+  },
+  {
+   "t": 160.88,
+   "lap_time": 25.83999999999486,
+   "frozen": false
+  },
+  {
+   "t": 189.20000000000002,
+   "lap_time": 28.319999999994366,
+   "frozen": false
+  },
+  {
+   "t": 214.96,
+   "lap_time": 25.759999999994875,
+   "frozen": false
+  },
+  {
+   "t": 241.76,
+   "lap_time": 26.799999999994668,
+   "frozen": false
+  },
+  {
+   "t": 267.48,
+   "lap_time": 25.72000000000301,
+   "frozen": false
+  },
+  {
+   "t": 298.24,
+   "lap_time": 30.760000000015737,
+   "frozen": false
+  },
+  {
+   "t": 323.92,
+   "lap_time": 25.680000000013138,
+   "frozen": false
+  },
+  {
+   "t": 352.96,
+   "lap_time": 29.040000000014857,
+   "frozen": false
+  },
+  {
+   "t": 378.56,
+   "lap_time": 25.600000000013097,
+   "frozen": false
+  },
+  {
+   "t": 407.52,
+   "lap_time": 28.960000000014816,
+   "frozen": false
+  },
+  {
+   "t": 433.84000000000003,
+   "lap_time": 26.320000000013465,
+   "frozen": false
+  },
+  {
+   "t": 461.0,
+   "lap_time": 27.160000000013895,
+   "frozen": false
+  },
+  {
+   "t": 490.08,
+   "lap_time": 29.080000000014877,
+   "frozen": false
+  },
+  {
+   "t": 515.72,
+   "lap_time": 25.64000000000783,
+   "frozen": false
+  },
+  {
+   "t": 541.36,
+   "lap_time": 25.63999999997668,
+   "frozen": false
+  },
+  {
+   "t": 567.04,
+   "lap_time": 25.679999999976644,
+   "frozen": false
+  },
+  {
+   "t": 595.0,
+   "lap_time": 27.95999999997457,
+   "frozen": false
+  },
+  {
+   "t": 620.72,
+   "lap_time": 25.719999999976608,
+   "frozen": false
+  },
+  {
+   "t": 648.04,
+   "lap_time": 27.319999999975153,
+   "frozen": false
+  },
+  {
+   "t": 673.92,
+   "lap_time": 25.879999999976462,
+   "frozen": false
+  },
+  {
+   "t": 699.92,
+   "lap_time": 25.999999999976353,
+   "frozen": false
+  },
+  {
+   "t": 728.64,
+   "lap_time": 28.71999999997388,
+   "frozen": false
+  },
+  {
+   "t": 754.76,
+   "lap_time": 26.119999999976244,
+   "frozen": false
+  },
+  {
+   "t": 780.48,
+   "lap_time": 25.719999999976608,
+   "frozen": false
+  },
+  {
+   "t": 806.48,
+   "lap_time": 25.999999999976353,
+   "frozen": false
+  },
+  {
+   "t": 834.0,
+   "lap_time": 27.51999999997497,
+   "frozen": false
+  },
+  {
+   "t": 859.64,
+   "lap_time": 25.63999999997668,
+   "frozen": false
+  },
+  {
+   "t": 885.28,
+   "lap_time": 25.63999999997668,
+   "frozen": false
+  },
+  {
+   "t": 914.6,
+   "lap_time": 29.319999999973334,
+   "frozen": false
+  },
+  {
+   "t": 943.9200000000001,
+   "lap_time": 29.319999999973334,
+   "frozen": false
+  },
+  {
+   "t": 969.6,
+   "lap_time": 25.679999999976644,
+   "frozen": false
+  },
+  {
+   "t": 995.44,
+   "lap_time": 25.8399999999765,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 37,
+  "min": 25.600000000013097,
+  "mean": 26.902702702693908,
+  "median": 26.119999999976244,
+  "max": 30.760000000015737,
+  "std": 1.4383181703537011
+ },
+ "device": "gpu"
+}

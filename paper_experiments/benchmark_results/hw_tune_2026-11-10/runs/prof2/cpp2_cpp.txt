@@ -1,0 +1,11 @@
+HW planner, C++ control step: 2900 steps, 1000 samples, horizon 35, 2 threads
+step: mean 3.605 ms, median 3.560, p95 4.176, p99 4.618, max 6.374
+  recovery            0.005 ms
+  samples             0.673 ms
+  rollout             1.536 ms
+  costs               1.179 ms
+  plan                0.062 ms
+  window_update       0.083 ms
+  table_and_seed      0.038 ms
+  total               3.576 ms
+  steps            3000.000

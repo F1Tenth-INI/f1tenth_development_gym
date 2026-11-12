@@ -1,0 +1,6 @@
+{"hw_base": {"HWM_ROLLOUT_THREADS": 4},
+ "hw_dn_old": {"HWM_ROLLOUT_THREADS": 4, "MPC_DRIVE_NOISE": [0.08, 1.5]},
+ "hw_border02": {"HWM_ROLLOUT_THREADS": 4, "HWM_MIN_BORDER_DISTANCE": 0.2},
+ "hw_len50_ch35": {"HWM_ROLLOUT_THREADS": 4, "MPC_TRAJECTORY_LENGTH": 50, "MPC_FREE_TRAJECTORY_LENGTH": 50, "HWM_CRASH_HORIZON": 35},
+ "acados": {"_controller": "acados"},
+ "acados_nofilter": {"_controller": "acados", "env:SAFE_MPC_STATE_FILTER_GAIN": 1.0}}

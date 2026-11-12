@@ -1,0 +1,72 @@
+HWM control-step profile (2900 steps measured; dynamics=pacejka, samples=1000, horizon=35)
+controller step: mean 7.993 ms, median 7.950, p95 9.719, max 163.149, min 6.078
+full loop period (controller + simulator + render + anything else): mean 10.672 ms, median 10.529, p95 12.792, max 166.403  -> 93.7 control steps/s
+outside the controller (simulator, rendering, glue): 2.679 ms/step
+
+section                                                                calls/stp   mean ms    med ms    p95 ms    max ms   ms/step self/step  %step  self%
+  get_car_state                                                             1.00     0.002     0.002     0.003     0.012     0.002     0.002    0.0    0.0
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.001     0.009     0.001     0.001    0.0    0.0
+      _update_stall                                                         1.00     0.022     0.021     0.028     0.095     0.022     0.022    0.3    0.3
+      _update_recover_mode                                                  1.00     0.001     0.001     0.002     0.007     0.001     0.001    0.0    0.0
+    _refresh_recovery                                                       1.00     0.585     0.568     0.745     1.259     0.585     0.561    7.3    7.0
+    _interpolated_waypoint_actions                                          1.00     0.223     0.214     0.284     0.597     0.223     0.223    2.8    2.8
+      noise_draw                                                            2.00     0.125     0.186     0.252     0.631     0.251     0.251    3.1    3.1
+      cpp_correlated_samples                                                2.00     0.050     0.054     0.086     0.187     0.100     0.100    1.3    1.3
+    _sample_mpc_actions                                                     2.00     0.183     0.249     0.345     0.763     0.366     0.014    4.6    0.2
+          setup                                                             1.00     0.020     0.019     0.027     0.053     0.020     0.020    0.2    0.2
+          cpp_rollout                                                       1.00     0.896     0.879     1.024     1.525     0.896     0.896   11.2   11.2
+        rollout_pacejka                                                     1.00     0.923     0.905     1.054     1.549     0.923     0.007   11.5    0.1
+      rollout_dynamics                                                      1.00     0.927     0.909     1.059     1.552     0.927     0.004   11.6    0.0
+    rollout_of_samples                                                      1.00     1.035     1.014     1.186     1.652     1.035     0.108   12.9    1.4
+      _ensure_waypoints                                                     1.00     0.001     0.001     0.002     0.008     0.001     0.001    0.0    0.0
+    nearest_waypoint_index                                                  1.00     0.251     0.234     0.347     0.667     0.251     0.250    3.1    3.1
+    _ensure_waypoints                                                       1.00     0.001     0.001     0.001     0.010     0.001     0.001    0.0    0.0
+    cpp_drive_costs                                                         1.00     0.735     0.734     0.874     2.168     0.735     0.735    9.2    9.2
+    softmax_weights_and_plan                                                1.00     0.023     0.021     0.033     0.089     0.023     0.023    0.3    0.3
+    _note_reward                                                            1.00     0.013     0.012     0.021     0.203     0.013     0.013    0.2    0.2
+          setup                                                             1.00     0.060     0.056     0.078     0.393     0.060     0.060    0.8    0.8
+          cpp_rollout                                                       1.00     0.063     0.059     0.082     0.533     0.063     0.063    0.8    0.8
+        rollout_pacejka                                                     1.00     0.130     0.122     0.169     0.593     0.130     0.007    1.6    0.1
+      rollout_dynamics                                                      1.00     0.133     0.125     0.173     0.596     0.133     0.003    1.7    0.0
+      wall.in_wall                                                          1.00     0.143     0.134     0.193     0.532     0.143     0.143    1.8    1.8
+    mean_action_sequence                                                    1.00     0.390     0.367     0.513     0.965     0.390     0.113    4.9    1.4
+      wall.distance_at                                                      1.00     0.152     0.144     0.202     0.419     0.152     0.152    1.9    1.9
+      _publish_waypoint_display                                             0.67     0.297     0.195     0.358   154.816     0.200     0.200    2.5    2.5
+    window_update                                                           1.00     2.570     2.739     3.648   157.363     2.570     2.217   32.1   27.7
+    _publish_waypoint_display                                               0.05     0.181     0.169     0.243     0.553     0.008     0.008    0.1    0.1
+    _weighted_state_trajectory                                              1.00     0.134     0.123     0.210     0.428     0.134     0.134    1.7    1.7
+    _seed_from_states                                                       1.00     0.343     0.323     0.447     1.147     0.343     0.343    4.3    4.3
+  select_action                                                             1.00     7.937     7.898     9.660   163.041     7.937     1.260   99.3   15.8
+  _apply_normalized_action                                                  1.00     0.026     0.024     0.034     0.069     0.026     0.026    0.3    0.3
+  _record_step                                                              1.00     0.003     0.003     0.004     0.011     0.003     0.003    0.0    0.0
+process_observation                                                         1.00     7.989     7.946     9.715   163.144     7.989     0.022  100.0    0.3
+_ensure_waypoints                                                           1.00     0.001     0.001     0.002     0.010     0.001     0.001    0.0    0.0
+  _ensure_waypoints                                                         1.00     0.001     0.001     0.001     0.007     0.001     0.001    0.0    0.0
+nearest_waypoint_index                                                      1.00     0.270     0.256     0.349     0.682     0.270     0.270    3.4    3.4
+
+Self time ranking (ms per control step):
+      2.217 ms   27.7%  process_observation > select_action > window_update
+      1.260 ms   15.8%  process_observation > select_action
+      0.896 ms   11.2%  process_observation > select_action > rollout_of_samples > rollout_dynamics > rollout_pacejka > cpp_rollout
+      0.735 ms    9.2%  process_observation > select_action > cpp_drive_costs
+      0.561 ms    7.0%  process_observation > select_action > _refresh_recovery
+      0.343 ms    4.3%  process_observation > select_action > _seed_from_states
+      0.270 ms    3.4%  nearest_waypoint_index
+      0.251 ms    3.1%  process_observation > select_action > _sample_mpc_actions > noise_draw
+      0.250 ms    3.1%  process_observation > select_action > nearest_waypoint_index
+      0.223 ms    2.8%  process_observation > select_action > _interpolated_waypoint_actions
+      0.200 ms    2.5%  process_observation > select_action > window_update > _publish_waypoint_display
+      0.152 ms    1.9%  process_observation > select_action > window_update > wall.distance_at
+      0.143 ms    1.8%  process_observation > select_action > mean_action_sequence > wall.in_wall
+      0.134 ms    1.7%  process_observation > select_action > _weighted_state_trajectory
+      0.113 ms    1.4%  process_observation > select_action > mean_action_sequence
+      0.108 ms    1.4%  process_observation > select_action > rollout_of_samples
+      0.100 ms    1.3%  process_observation > select_action > _sample_mpc_actions > cpp_correlated_samples
+      0.063 ms    0.8%  process_observation > select_action > mean_action_sequence > rollout_dynamics > rollout_pacejka > cpp_rollout
+      0.060 ms    0.8%  process_observation > select_action > mean_action_sequence > rollout_dynamics > rollout_pacejka > setup
+      0.026 ms    0.3%  process_observation > _apply_normalized_action
+      0.023 ms    0.3%  process_observation > select_action > softmax_weights_and_plan
+      0.022 ms    0.3%  process_observation > select_action > _refresh_recovery > _update_stall
+      0.022 ms    0.3%  process_observation
+      0.020 ms    0.2%  process_observation > select_action > rollout_of_samples > rollout_dynamics > rollout_pacejka > setup
+      0.014 ms    0.2%  process_observation > select_action > _sample_mpc_actions

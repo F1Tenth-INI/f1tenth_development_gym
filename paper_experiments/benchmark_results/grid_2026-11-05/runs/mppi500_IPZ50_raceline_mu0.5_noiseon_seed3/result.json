@@ -1,0 +1,124 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi500_IPZ50_raceline_mu0.5_noiseon_seed3",
+  "controller": "mppi",
+  "rollouts": 500,
+  "map": "IPZ50",
+  "wp": "raceline",
+  "mu": 0.5,
+  "noise": "on",
+  "seed": 3,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 1194.014835357666,
+ "error": null,
+ "noise_level_car_state": [
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 9.8,
+   "lap_time": 9.759999999999968,
+   "frozen": false
+  },
+  {
+   "t": 19.240000000000002,
+   "lap_time": 9.4399999999998,
+   "frozen": false
+  },
+  {
+   "t": 28.0,
+   "lap_time": 8.759999999999813,
+   "frozen": false
+  },
+  {
+   "t": 36.56,
+   "lap_time": 8.559999999999818,
+   "frozen": false
+  },
+  {
+   "t": 44.76,
+   "lap_time": 8.199999999999825,
+   "frozen": false
+  },
+  {
+   "t": 53.160000000000004,
+   "lap_time": 8.399999999999821,
+   "frozen": false
+  },
+  {
+   "t": 61.36,
+   "lap_time": 8.199999999999825,
+   "frozen": false
+  },
+  {
+   "t": 70.12,
+   "lap_time": 8.760000000000886,
+   "frozen": false
+  },
+  {
+   "t": 78.36,
+   "lap_time": 8.240000000001288,
+   "frozen": false
+  },
+  {
+   "t": 86.64,
+   "lap_time": 8.280000000001294,
+   "frozen": false
+  },
+  {
+   "t": 95.0,
+   "lap_time": 8.360000000001307,
+   "frozen": false
+  },
+  {
+   "t": 104.28,
+   "lap_time": 9.28000000000145,
+   "frozen": false
+  },
+  {
+   "t": 112.8,
+   "lap_time": 8.520000000001332,
+   "frozen": false
+  },
+  {
+   "t": 121.24000000000001,
+   "lap_time": 8.44000000000132,
+   "frozen": false
+  },
+  {
+   "t": 129.44,
+   "lap_time": 8.200000000000784,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 15,
+  "min": 8.199999999999825,
+  "mean": 8.626666666667235,
+  "median": 8.44000000000132,
+  "max": 9.759999999999968,
+  "std": 0.4926120853841565
+ },
+ "device": "cpu"
+}

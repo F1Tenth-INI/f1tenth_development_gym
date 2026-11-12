@@ -1,0 +1,249 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi2000_RCA1_midline_mu0.9_noiseon_seed0",
+  "controller": "mppi",
+  "rollouts": 2000,
+  "map": "RCA1",
+  "wp": "midline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 0,
+  "sim_seconds": 1000.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 920.7476165294647,
+ "error": null,
+ "noise_level_car_state": [
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 27.48,
+   "lap_time": 27.199999999999594,
+   "frozen": false
+  },
+  {
+   "t": 50.76,
+   "lap_time": 23.279999999999504,
+   "frozen": false
+  },
+  {
+   "t": 80.84,
+   "lap_time": 30.080000000002336,
+   "frozen": false
+  },
+  {
+   "t": 107.28,
+   "lap_time": 26.440000000004133,
+   "frozen": false
+  },
+  {
+   "t": 130.2,
+   "lap_time": 22.920000000002815,
+   "frozen": false
+  },
+  {
+   "t": 155.12,
+   "lap_time": 24.919999999995042,
+   "frozen": false
+  },
+  {
+   "t": 185.56,
+   "lap_time": 30.439999999993944,
+   "frozen": false
+  },
+  {
+   "t": 213.16,
+   "lap_time": 27.59999999999451,
+   "frozen": false
+  },
+  {
+   "t": 236.28,
+   "lap_time": 23.1199999999954,
+   "frozen": false
+  },
+  {
+   "t": 259.36,
+   "lap_time": 23.079999999997767,
+   "frozen": false
+  },
+  {
+   "t": 282.36,
+   "lap_time": 23.000000000011767,
+   "frozen": false
+  },
+  {
+   "t": 305.52,
+   "lap_time": 23.16000000001185,
+   "frozen": false
+  },
+  {
+   "t": 328.68,
+   "lap_time": 23.16000000001185,
+   "frozen": false
+  },
+  {
+   "t": 351.96,
+   "lap_time": 23.28000000001191,
+   "frozen": false
+  },
+  {
+   "t": 375.0,
+   "lap_time": 23.000000000011767,
+   "frozen": false
+  },
+  {
+   "t": 403.48,
+   "lap_time": 28.48000000001457,
+   "frozen": false
+  },
+  {
+   "t": 426.36,
+   "lap_time": 22.880000000011705,
+   "frozen": false
+  },
+  {
+   "t": 459.44,
+   "lap_time": 33.08000000001692,
+   "frozen": false
+  },
+  {
+   "t": 482.48,
+   "lap_time": 23.040000000011787,
+   "frozen": false
+  },
+  {
+   "t": 505.48,
+   "lap_time": 23.000000000011767,
+   "frozen": false
+  },
+  {
+   "t": 530.24,
+   "lap_time": 24.759999999986746,
+   "frozen": false
+  },
+  {
+   "t": 553.4,
+   "lap_time": 23.159999999978936,
+   "frozen": false
+  },
+  {
+   "t": 578.88,
+   "lap_time": 25.479999999976826,
+   "frozen": false
+  },
+  {
+   "t": 603.52,
+   "lap_time": 24.63999999997759,
+   "frozen": false
+  },
+  {
+   "t": 629.24,
+   "lap_time": 25.719999999976608,
+   "frozen": false
+  },
+  {
+   "t": 654.0,
+   "lap_time": 24.75999999997748,
+   "frozen": false
+  },
+  {
+   "t": 676.92,
+   "lap_time": 22.919999999979154,
+   "frozen": false
+  },
+  {
+   "t": 700.52,
+   "lap_time": 23.599999999978536,
+   "frozen": false
+  },
+  {
+   "t": 725.72,
+   "lap_time": 25.19999999997708,
+   "frozen": false
+  },
+  {
+   "t": 748.84,
+   "lap_time": 23.119999999978972,
+   "frozen": false
+  },
+  {
+   "t": 776.08,
+   "lap_time": 27.239999999975225,
+   "frozen": false
+  },
+  {
+   "t": 806.5600000000001,
+   "lap_time": 30.47999999997228,
+   "frozen": false
+  },
+  {
+   "t": 829.6,
+   "lap_time": 23.039999999979045,
+   "frozen": false
+  },
+  {
+   "t": 852.64,
+   "lap_time": 23.039999999979045,
+   "frozen": false
+  },
+  {
+   "t": 875.72,
+   "lap_time": 23.07999999997901,
+   "frozen": false
+  },
+  {
+   "t": 903.44,
+   "lap_time": 27.71999999997479,
+   "frozen": false
+  },
+  {
+   "t": 926.5600000000001,
+   "lap_time": 23.119999999978972,
+   "frozen": false
+  },
+  {
+   "t": 951.5600000000001,
+   "lap_time": 24.999999999977263,
+   "frozen": false
+  },
+  {
+   "t": 975.76,
+   "lap_time": 24.19999999997799,
+   "frozen": false
+  },
+  {
+   "t": 999.16,
+   "lap_time": 23.399999999978718,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 40,
+  "min": 22.880000000011705,
+  "mean": 24.97099999999178,
+  "median": 23.499999999978627,
+  "max": 33.08000000001692,
+  "std": 2.6106525365641953
+ },
+ "device": "gpu"
+}

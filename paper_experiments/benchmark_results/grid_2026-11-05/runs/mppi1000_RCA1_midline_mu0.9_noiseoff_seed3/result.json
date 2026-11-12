@@ -1,0 +1,239 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi1000_RCA1_midline_mu0.9_noiseoff_seed3",
+  "controller": "mppi",
+  "rollouts": 1000,
+  "map": "RCA1",
+  "wp": "midline",
+  "mu": 0.9,
+  "noise": "off",
+  "seed": 3,
+  "sim_seconds": 1000.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 898.8432137966156,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 27.48,
+   "lap_time": 27.439999999999593,
+   "frozen": false
+  },
+  {
+   "t": 53.2,
+   "lap_time": 25.71999999999945,
+   "frozen": false
+  },
+  {
+   "t": 79.24,
+   "lap_time": 26.040000000002138,
+   "frozen": false
+  },
+  {
+   "t": 104.08,
+   "lap_time": 24.840000000003883,
+   "frozen": false
+  },
+  {
+   "t": 134.56,
+   "lap_time": 30.48000000000245,
+   "frozen": false
+  },
+  {
+   "t": 158.16,
+   "lap_time": 23.599999999995305,
+   "frozen": false
+  },
+  {
+   "t": 181.32,
+   "lap_time": 23.159999999995392,
+   "frozen": false
+  },
+  {
+   "t": 204.72,
+   "lap_time": 23.399999999995345,
+   "frozen": false
+  },
+  {
+   "t": 232.56,
+   "lap_time": 27.83999999999446,
+   "frozen": false
+  },
+  {
+   "t": 259.36,
+   "lap_time": 26.799999999997027,
+   "frozen": false
+  },
+  {
+   "t": 288.2,
+   "lap_time": 28.840000000014754,
+   "frozen": false
+  },
+  {
+   "t": 315.40000000000003,
+   "lap_time": 27.200000000013915,
+   "frozen": false
+  },
+  {
+   "t": 340.84000000000003,
+   "lap_time": 25.440000000013015,
+   "frozen": false
+  },
+  {
+   "t": 369.04,
+   "lap_time": 28.200000000014427,
+   "frozen": false
+  },
+  {
+   "t": 392.6,
+   "lap_time": 23.560000000012053,
+   "frozen": false
+  },
+  {
+   "t": 419.24,
+   "lap_time": 26.64000000001363,
+   "frozen": false
+  },
+  {
+   "t": 442.68,
+   "lap_time": 23.44000000001199,
+   "frozen": false
+  },
+  {
+   "t": 468.8,
+   "lap_time": 26.120000000013363,
+   "frozen": false
+  },
+  {
+   "t": 492.2,
+   "lap_time": 23.40000000001197,
+   "frozen": false
+  },
+  {
+   "t": 523.6,
+   "lap_time": 31.39999999999958,
+   "frozen": false
+  },
+  {
+   "t": 551.76,
+   "lap_time": 28.15999999997439,
+   "frozen": false
+  },
+  {
+   "t": 574.88,
+   "lap_time": 23.119999999978972,
+   "frozen": false
+  },
+  {
+   "t": 599.96,
+   "lap_time": 25.07999999997719,
+   "frozen": false
+  },
+  {
+   "t": 624.2,
+   "lap_time": 24.239999999977954,
+   "frozen": false
+  },
+  {
+   "t": 647.36,
+   "lap_time": 23.159999999978936,
+   "frozen": false
+  },
+  {
+   "t": 675.16,
+   "lap_time": 27.799999999974716,
+   "frozen": false
+  },
+  {
+   "t": 698.32,
+   "lap_time": 23.159999999978936,
+   "frozen": false
+  },
+  {
+   "t": 721.5600000000001,
+   "lap_time": 23.239999999978863,
+   "frozen": false
+  },
+  {
+   "t": 747.08,
+   "lap_time": 25.51999999997679,
+   "frozen": false
+  },
+  {
+   "t": 778.12,
+   "lap_time": 31.03999999997177,
+   "frozen": false
+  },
+  {
+   "t": 804.72,
+   "lap_time": 26.599999999975807,
+   "frozen": false
+  },
+  {
+   "t": 828.12,
+   "lap_time": 23.399999999978718,
+   "frozen": false
+  },
+  {
+   "t": 853.6800000000001,
+   "lap_time": 25.559999999976753,
+   "frozen": false
+  },
+  {
+   "t": 885.9200000000001,
+   "lap_time": 32.23999999997068,
+   "frozen": false
+  },
+  {
+   "t": 910.36,
+   "lap_time": 24.439999999977772,
+   "frozen": false
+  },
+  {
+   "t": 935.64,
+   "lap_time": 25.279999999977008,
+   "frozen": false
+  },
+  {
+   "t": 958.84,
+   "lap_time": 23.1999999999789,
+   "frozen": false
+  },
+  {
+   "t": 982.04,
+   "lap_time": 23.1999999999789,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 38,
+  "min": 23.119999999978972,
+  "mean": 25.84210526314965,
+  "median": 25.479999999994902,
+  "max": 32.23999999997068,
+  "std": 2.5740484023836734
+ },
+ "device": "gpu"
+}

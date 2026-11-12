@@ -1,0 +1,32 @@
+--- a/TrainingLite/hwm/hirarchical_planner.py
++++ b/TrainingLite/hwm/hirarchical_planner.py
+@@ -1697,6 +1697,9 @@
+             # it is MPC_TRAJECTORY_LENGTH, the same length as a window-update sample.
+             nominal = None if self.recover_mode else self._interpolated_waypoint_actions(state)
+             horizon = int(Settings.MPC_TRAJECTORY_LENGTH if nominal is not None else Settings.MPC_FREE_TRAJECTORY_LENGTH)
++            if (nominal is not None and getattr(Settings, "MPC_DRIVE_HORIZON", None)
++                    and (not getattr(Settings, "MPC_DRIVE_HORIZON_AFTER_FREEZE", False) or self._permanently_frozen())):
++                horizon = int(Settings.MPC_DRIVE_HORIZON)  # drive samples only; windows and stored sequences keep theirs
+             self.action_buffer = self._fit_horizon(self.action_buffer, horizon)
+             if nominal is not None:
+                 nominal = self._fit_horizon(nominal, horizon)
+@@ -1753,7 +1756,7 @@
+                 for window, states_of_window in zip(windows, window_states if windows else []):
+                     self._window_update(window, states_of_window)
+             self._record_driven(state, action_seq[0].detach())
+-            self._fill_passed_waypoints(state, action_seq.detach())
++            self._fill_passed_waypoints(state, self._fit_horizon(action_seq.detach(), Settings.MPC_TRAJECTORY_LENGTH))
+             # Next step's seed: the stored first actions at the waypoints around each averaged state
+             # (the state the next step's action k starts from is state k + 1 of this plan).
+             horizon = int(action_seq.shape[0])
+--- a/utilities/Settings.py
++++ b/utilities/Settings.py
+@@ -419,6 +419,8 @@
+     HWM_JAX_REWARDS = True  # the drive samples' waypoint matching, matched-waypoint costs and wall terms run compiled in JAX, on the rollout threads. Same terms as the torch code in float32 (the torch wall lookup is float64), so near-ties can differ. False: torch
+     MPC_NUM_OF_TRAJECTORIES = 50
+     MPC_TRAJECTORY_LENGTH = 35 # control steps rolled out when the car is on track and the plan is seeded from the waypoints' stored actions. Window-update samples are rolled out for this many steps too, and a stored action sequence is this long.
++    MPC_DRIVE_HORIZON_AFTER_FREEZE = False  # MPC_DRIVE_HORIZON only once the memory is frozen; before, everything uses MPC_TRAJECTORY_LENGTH
++    MPC_DRIVE_HORIZON = None  # control steps of the drive samples on stored plans; None: MPC_TRAJECTORY_LENGTH
+     MPC_FREE_TRAJECTORY_LENGTH = 35 # control steps rolled out when driving without those priors: recovery, and until a stored sequence exists (the first lap)
+     MPC_ACTION_CORRELATION = 0.8  # weight of the previous action in the next one. 0: independent around the plan. 1: the first action is held for the whole sequence
+     MPC_TEMPERATURE = 0.25   # temperature for the softmax function. Low: the best sample dominates the average, so opposing steers do not cancel into a straight line at a wall

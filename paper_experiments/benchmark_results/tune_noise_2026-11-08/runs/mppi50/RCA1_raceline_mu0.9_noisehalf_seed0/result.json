@@ -1,0 +1,243 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/tune_noise_2026-11-08/runs/mppi50/RCA1_raceline_mu0.9_noisehalf_seed0",
+  "controller": "mppi",
+  "rollouts": 50,
+  "map": "RCA1",
+  "wp": "raceline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 0,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 311.6808285713196,
+ "error": null,
+ "noise_level_car_state": [
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025,
+  0.025
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 24.8,
+   "lap_time": 24.75999999999965,
+   "frozen": false
+  },
+  {
+   "t": 46.92,
+   "lap_time": 22.11999999999953,
+   "frozen": false
+  },
+  {
+   "t": 69.24,
+   "lap_time": 22.32000000000044,
+   "frozen": false
+  },
+  {
+   "t": 92.88,
+   "lap_time": 23.640000000003695,
+   "frozen": false
+  },
+  {
+   "t": 114.52,
+   "lap_time": 21.640000000003383,
+   "frozen": false
+  },
+  {
+   "t": 137.28,
+   "lap_time": 22.760000000000275,
+   "frozen": false
+  },
+  {
+   "t": 160.04,
+   "lap_time": 22.759999999995472,
+   "frozen": false
+  },
+  {
+   "t": 182.4,
+   "lap_time": 22.35999999999555,
+   "frozen": false
+  },
+  {
+   "t": 205.04,
+   "lap_time": 22.639999999995496,
+   "frozen": false
+  },
+  {
+   "t": 229.52,
+   "lap_time": 24.47999999999513,
+   "frozen": false
+  },
+  {
+   "t": 251.8,
+   "lap_time": 22.279999999995567,
+   "frozen": false
+  },
+  {
+   "t": 273.16,
+   "lap_time": 21.360000000007915,
+   "frozen": false
+  },
+  {
+   "t": 295.56,
+   "lap_time": 22.40000000001146,
+   "frozen": false
+  },
+  {
+   "t": 317.56,
+   "lap_time": 22.000000000011255,
+   "frozen": false
+  },
+  {
+   "t": 452.8,
+   "lap_time": 135.2400000000692,
+   "frozen": false
+  },
+  {
+   "t": 475.76,
+   "lap_time": 22.960000000011746,
+   "frozen": false
+  },
+  {
+   "t": 498.08,
+   "lap_time": 22.32000000001142,
+   "frozen": false
+  },
+  {
+   "t": 519.84,
+   "lap_time": 21.75999999999999,
+   "frozen": false
+  },
+  {
+   "t": 542.6,
+   "lap_time": 22.7599999999793,
+   "frozen": false
+  },
+  {
+   "t": 564.92,
+   "lap_time": 22.3199999999797,
+   "frozen": false
+  },
+  {
+   "t": 586.76,
+   "lap_time": 21.839999999980137,
+   "frozen": false
+  },
+  {
+   "t": 608.76,
+   "lap_time": 21.99999999997999,
+   "frozen": false
+  },
+  {
+   "t": 631.08,
+   "lap_time": 22.3199999999797,
+   "frozen": false
+  },
+  {
+   "t": 653.04,
+   "lap_time": 21.959999999980027,
+   "frozen": false
+  },
+  {
+   "t": 674.72,
+   "lap_time": 21.679999999980282,
+   "frozen": false
+  },
+  {
+   "t": 696.64,
+   "lap_time": 21.919999999980064,
+   "frozen": false
+  },
+  {
+   "t": 718.72,
+   "lap_time": 22.07999999997992,
+   "frozen": false
+  },
+  {
+   "t": 740.64,
+   "lap_time": 21.919999999980064,
+   "frozen": false
+  },
+  {
+   "t": 762.72,
+   "lap_time": 22.07999999997992,
+   "frozen": false
+  },
+  {
+   "t": 785.72,
+   "lap_time": 22.99999999997908,
+   "frozen": false
+  },
+  {
+   "t": 807.36,
+   "lap_time": 21.63999999998032,
+   "frozen": false
+  },
+  {
+   "t": 828.96,
+   "lap_time": 21.599999999980355,
+   "frozen": false
+  },
+  {
+   "t": 850.96,
+   "lap_time": 21.99999999997999,
+   "frozen": false
+  },
+  {
+   "t": 872.8000000000001,
+   "lap_time": 21.839999999980137,
+   "frozen": false
+  },
+  {
+   "t": 895.32,
+   "lap_time": 22.519999999979518,
+   "frozen": false
+  },
+  {
+   "t": 916.84,
+   "lap_time": 21.519999999980428,
+   "frozen": false
+  },
+  {
+   "t": 939.24,
+   "lap_time": 22.399999999979627,
+   "frozen": false
+  },
+  {
+   "t": 961.32,
+   "lap_time": 22.07999999997992,
+   "frozen": false
+  },
+  {
+   "t": 983.16,
+   "lap_time": 21.839999999980137,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 39,
+  "min": 21.360000000007915,
+  "mean": 25.208205128197072,
+  "median": 22.11999999999953,
+  "max": 135.2400000000692,
+  "std": 18.096932405344134
+ }
+}

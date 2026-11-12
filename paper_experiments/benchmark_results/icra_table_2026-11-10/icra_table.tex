@@ -1,0 +1,17 @@
+\begin{table}[t]
+  \centering
+  \caption{icra2022, $\mu=0.9$, state noise and \SI{80}{ms} control delay: lap times and collisions over 4 runs of \SI{1000}{s} each. Auto-Tuning MPPI laps after the permanent freeze, all others every lap but the first. Collisions: whole run / laps scored (for Auto-Tuning MPPI, after the freeze).}
+  \label{tab:icra_comparison}
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Controller & Rollouts & Mean (s) & Median (s) & Best (s) & Std (s) & \multicolumn{2}{c}{Collisions} \\
+    \cmidrule(lr){7-8}
+    & & & & & & all / laps & scored laps \\
+    \midrule
+    Auto-Tuning MPPI & 50 & 12.80 & 12.60 & 12.12 & 0.87 & 14 / 294 & 8 \\
+    Auto-Tuning MPPI & 1000 & 12.18 & 12.16 & 12.04 & 0.13 & 1 / 316 & 0 \\
+    MPPI & 2000 & 13.12 & 13.12 & 12.96 & 0.09 & 0 / 301 & 0 \\
+    MPC (acados) & -- & \textbf{12.13} & 12.12 & 12.04 & 0.06 & 0 / 328 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

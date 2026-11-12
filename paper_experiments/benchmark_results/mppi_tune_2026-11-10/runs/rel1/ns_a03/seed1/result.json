@@ -1,0 +1,133 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/mppi_tune_2026-11-10/runs/rel1/ns_a03/seed1",
+  "controller": "mppi",
+  "rollouts": 2000,
+  "map": "icra2022",
+  "wp": "raceline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 1,
+  "sim_seconds": 400.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 400.0,
+ "wall_seconds": 646.6750826835632,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 21.64,
+   "lap_time": 21.599999999999717,
+   "frozen": false
+  },
+  {
+   "t": 46.68,
+   "lap_time": 25.039999999999466,
+   "frozen": false
+  },
+  {
+   "t": 61.800000000000004,
+   "lap_time": 15.119999999999678,
+   "frozen": false
+  },
+  {
+   "t": 77.8,
+   "lap_time": 16.000000000002096,
+   "frozen": false
+  },
+  {
+   "t": 93.60000000000001,
+   "lap_time": 15.80000000000247,
+   "frozen": false
+  },
+  {
+   "t": 108.84,
+   "lap_time": 15.240000000002382,
+   "frozen": false
+  },
+  {
+   "t": 131.72,
+   "lap_time": 22.88000000000227,
+   "frozen": false
+  },
+  {
+   "t": 153.4,
+   "lap_time": 21.679999999995687,
+   "frozen": false
+  },
+  {
+   "t": 172.6,
+   "lap_time": 19.19999999999618,
+   "frozen": false
+  },
+  {
+   "t": 198.84,
+   "lap_time": 26.23999999999478,
+   "frozen": false
+  },
+  {
+   "t": 217.52,
+   "lap_time": 18.679999999996284,
+   "frozen": false
+  },
+  {
+   "t": 260.96,
+   "lap_time": 43.43999999999485,
+   "frozen": false
+  },
+  {
+   "t": 282.72,
+   "lap_time": 21.760000000011132,
+   "frozen": false
+  },
+  {
+   "t": 308.12,
+   "lap_time": 25.400000000012994,
+   "frozen": false
+  },
+  {
+   "t": 345.92,
+   "lap_time": 37.80000000001934,
+   "frozen": false
+  },
+  {
+   "t": 360.96,
+   "lap_time": 15.040000000007694,
+   "frozen": false
+  },
+  {
+   "t": 376.16,
+   "lap_time": 15.200000000007776,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 17,
+  "min": 15.040000000007694,
+  "mean": 22.124705882355578,
+  "median": 21.599999999999717,
+  "max": 43.43999999999485,
+  "std": 8.02316499086233
+ }
+}

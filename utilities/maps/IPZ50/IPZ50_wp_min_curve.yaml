@@ -1,0 +1,10 @@
+free_thresh: 0.25
+image: IPZ50_wp_min_curve.png
+mode: trinary
+negate: 0
+occupied_thresh: 0.65
+origin:
+- -7.09
+- -11.7
+- 0
+resolution: 0.05

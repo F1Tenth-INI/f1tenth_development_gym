@@ -1,0 +1,4 @@
+config                        medTail meanTail    best  coll  laps runs   wall
+s2000_len35                    12.160   12.508  12.000     9    84    2   2837
+s2000_len50_ch35               12.740   12.825  12.440     3    85    2   3548
+s2000_len50                    13.050   13.192  12.760     1    85    2   3371

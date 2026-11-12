@@ -1,0 +1,229 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi500_RCA1_midline_mu0.5_noiseoff_seed4",
+  "controller": "mppi",
+  "rollouts": 500,
+  "map": "RCA1",
+  "wp": "midline",
+  "mu": 0.5,
+  "noise": "off",
+  "seed": 4,
+  "sim_seconds": 1000.0,
+  "gpu": false,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 1063.8430144786835,
+ "error": null,
+ "noise_level_car_state": [
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0,
+  0.0
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 28.76,
+   "lap_time": 28.719999999999565,
+   "frozen": false
+  },
+  {
+   "t": 54.72,
+   "lap_time": 25.959999999999447,
+   "frozen": false
+  },
+  {
+   "t": 83.76,
+   "lap_time": 29.040000000002877,
+   "frozen": false
+  },
+  {
+   "t": 110.68,
+   "lap_time": 26.920000000004208,
+   "frozen": false
+  },
+  {
+   "t": 139.52,
+   "lap_time": 28.84000000000043,
+   "frozen": false
+  },
+  {
+   "t": 168.88,
+   "lap_time": 29.35999999999416,
+   "frozen": false
+  },
+  {
+   "t": 196.4,
+   "lap_time": 27.519999999994525,
+   "frozen": false
+  },
+  {
+   "t": 223.72,
+   "lap_time": 27.319999999994565,
+   "frozen": false
+  },
+  {
+   "t": 249.52,
+   "lap_time": 25.799999999994867,
+   "frozen": false
+  },
+  {
+   "t": 278.28000000000003,
+   "lap_time": 28.76000000001008,
+   "frozen": false
+  },
+  {
+   "t": 309.64,
+   "lap_time": 31.360000000016043,
+   "frozen": false
+  },
+  {
+   "t": 335.8,
+   "lap_time": 26.160000000013383,
+   "frozen": false
+  },
+  {
+   "t": 362.36,
+   "lap_time": 26.560000000013588,
+   "frozen": false
+  },
+  {
+   "t": 389.40000000000003,
+   "lap_time": 27.040000000013833,
+   "frozen": false
+  },
+  {
+   "t": 415.28000000000003,
+   "lap_time": 25.88000000001324,
+   "frozen": false
+  },
+  {
+   "t": 442.6,
+   "lap_time": 27.320000000013977,
+   "frozen": false
+  },
+  {
+   "t": 471.8,
+   "lap_time": 29.20000000001494,
+   "frozen": false
+  },
+  {
+   "t": 497.76,
+   "lap_time": 25.96000000001328,
+   "frozen": false
+  },
+  {
+   "t": 524.0,
+   "lap_time": 26.23999999999637,
+   "frozen": false
+  },
+  {
+   "t": 551.92,
+   "lap_time": 27.919999999974607,
+   "frozen": false
+  },
+  {
+   "t": 580.96,
+   "lap_time": 29.03999999997359,
+   "frozen": false
+  },
+  {
+   "t": 608.36,
+   "lap_time": 27.39999999997508,
+   "frozen": false
+  },
+  {
+   "t": 634.4,
+   "lap_time": 26.039999999976317,
+   "frozen": false
+  },
+  {
+   "t": 662.0,
+   "lap_time": 27.599999999974898,
+   "frozen": false
+  },
+  {
+   "t": 691.16,
+   "lap_time": 29.15999999997348,
+   "frozen": false
+  },
+  {
+   "t": 717.4,
+   "lap_time": 26.239999999976135,
+   "frozen": false
+  },
+  {
+   "t": 744.84,
+   "lap_time": 27.439999999975043,
+   "frozen": false
+  },
+  {
+   "t": 773.96,
+   "lap_time": 29.119999999973516,
+   "frozen": false
+  },
+  {
+   "t": 801.5600000000001,
+   "lap_time": 27.599999999974898,
+   "frozen": false
+  },
+  {
+   "t": 828.72,
+   "lap_time": 27.159999999975298,
+   "frozen": false
+  },
+  {
+   "t": 856.6800000000001,
+   "lap_time": 27.95999999997457,
+   "frozen": false
+  },
+  {
+   "t": 882.6800000000001,
+   "lap_time": 25.999999999976353,
+   "frozen": false
+  },
+  {
+   "t": 908.6800000000001,
+   "lap_time": 25.999999999976353,
+   "frozen": false
+  },
+  {
+   "t": 935.04,
+   "lap_time": 26.359999999976026,
+   "frozen": false
+  },
+  {
+   "t": 960.9200000000001,
+   "lap_time": 25.879999999976462,
+   "frozen": false
+  },
+  {
+   "t": 987.08,
+   "lap_time": 26.159999999976208,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 36,
+  "min": 25.799999999994867,
+  "mean": 27.41777777776895,
+  "median": 27.32000000000427,
+  "max": 31.360000000016043,
+  "std": 1.3691939466332537
+ },
+ "device": "cpu"
+}

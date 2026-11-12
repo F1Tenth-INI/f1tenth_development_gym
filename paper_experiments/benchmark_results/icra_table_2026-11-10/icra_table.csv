@@ -1,0 +1,5 @@
+controller,rollouts,runs,laps_scored,mean_s,median_s,best_s,std_s,collisions,collisions_scored_laps,laps_total,collisions_per_100_laps,freeze_after_lap
+Auto-Tuning MPPI,50,4,200,12.804,12.600,12.120,0.873,14,8,294,4.76,23.5
+Auto-Tuning MPPI,1000,4,225,12.179,12.160,12.040,0.133,1,0,316,0.32,22.8
+MPPI,2000,4,297,13.123,13.120,12.960,0.085,0,0,301,0.00,
+MPC (acados),--,4,324,12.131,12.120,12.040,0.058,0,0,328,0.00,

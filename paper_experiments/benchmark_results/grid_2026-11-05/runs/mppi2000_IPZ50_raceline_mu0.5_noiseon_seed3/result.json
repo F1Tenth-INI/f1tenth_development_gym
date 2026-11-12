@@ -1,0 +1,126 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/grid_2026-11-05/runs/mppi2000_IPZ50_raceline_mu0.5_noiseon_seed3",
+  "controller": "mppi",
+  "rollouts": 2000,
+  "map": "IPZ50",
+  "wp": "raceline",
+  "mu": 0.5,
+  "noise": "on",
+  "seed": 3,
+  "sim_seconds": 1000.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 1000.0,
+ "wall_seconds": 928.8543848991394,
+ "error": null,
+ "noise_level_car_state": [
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05
+ ],
+ "surface_friction": 0.5,
+ "laps": [
+  {
+   "t": 9.84,
+   "lap_time": 8.599999999999966,
+   "frozen": false
+  },
+  {
+   "t": 18.04,
+   "lap_time": 8.199999999999827,
+   "frozen": false
+  },
+  {
+   "t": 26.400000000000002,
+   "lap_time": 8.359999999999822,
+   "frozen": false
+  },
+  {
+   "t": 34.68,
+   "lap_time": 8.279999999999824,
+   "frozen": false
+  },
+  {
+   "t": 43.480000000000004,
+   "lap_time": 8.799999999999812,
+   "frozen": false
+  },
+  {
+   "t": 54.32,
+   "lap_time": 9.999999999999787,
+   "frozen": false
+  },
+  {
+   "t": 62.6,
+   "lap_time": 8.279999999999824,
+   "frozen": false
+  },
+  {
+   "t": 71.08,
+   "lap_time": 8.480000000001063,
+   "frozen": false
+  },
+  {
+   "t": 890.72,
+   "lap_time": 813.039999999769,
+   "frozen": false
+  },
+  {
+   "t": 898.88,
+   "lap_time": 8.159999999992579,
+   "frozen": false
+  },
+  {
+   "t": 907.32,
+   "lap_time": 8.439999999992324,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [
+  {
+   "t": 44.28,
+   "frozen": false,
+   "reasons": [
+    "collision"
+   ]
+  },
+  {
+   "t": 77.64,
+   "frozen": false,
+   "reasons": [
+    "collision"
+   ]
+  }
+ ],
+ "collision_clusters": [
+  [
+   0
+  ],
+  [
+   1
+  ]
+ ],
+ "n_collisions": 2,
+ "n_collisions_raw": 2,
+ "sim_collision_steps": 2,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 11,
+  "min": 8.159999999992579,
+  "mean": 81.69454545452307,
+  "median": 8.439999999992324,
+  "max": 813.039999999769,
+  "std": 242.5603906808347
+ },
+ "device": "gpu"
+}

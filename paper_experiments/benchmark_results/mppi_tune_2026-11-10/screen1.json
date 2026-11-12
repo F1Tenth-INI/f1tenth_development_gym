@@ -1,0 +1,120 @@
+{
+ "base": {},
+ "A": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9
+ },
+ "A_T10": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "w:temperature": 10.0
+ },
+ "A_T1": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "w:temperature": 1.0
+ },
+ "A_sdot25": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 25.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9
+ },
+ "A_sdot10": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 10.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9
+ },
+ "A_lat3": {
+  "w:lateral": 3.0,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9
+ },
+ "A_lat15": {
+  "w:lateral": 15.0,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9
+ },
+ "A_border50": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "w:border": 50.0
+ },
+ "A_bm0": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "w:border_margin": 0.0
+ },
+ "A_wm02": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "w:wall_margin": 0.2
+ },
+ "A_tsf1": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 1.0
+ },
+ "A_noise": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:noise_std": [
+   0.15,
+   0.8
+  ]
+ }
+}

@@ -1,0 +1,133 @@
+{
+ "F": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2
+ },
+ "F_cm01": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:crash_margin": 0.1
+ },
+ "F_wm02": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:wall_margin": 0.2
+ },
+ "F_T10": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:temperature": 10.0
+ },
+ "F_T1": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:temperature": 1.0
+ },
+ "F_sdot25": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 25.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2
+ },
+ "F_lat3": {
+  "w:lateral": 3.0,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2
+ },
+ "F_bm0": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:border_margin": 0.0
+ },
+ "F_border50": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:border": 50.0
+ },
+ "F_tsf1": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 1.0,
+  "p:state_filter_gain": 0.2
+ },
+ "F_sm02": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "w:angular_smoothness": 0.2
+ },
+ "F_ns_s": {
+  "w:lateral": 7.5,
+  "w:heading": 0.0,
+  "w:progress": 0.0,
+  "w:progress_sdot": 15.0,
+  "w:terminal_lateral": 37.5,
+  "w:terminal_heading": 0.0,
+  "w:terminal_speed_factor": 0.9,
+  "p:state_filter_gain": 0.2,
+  "p:noise_std": [
+   0.07,
+   0.5
+  ]
+ }
+}

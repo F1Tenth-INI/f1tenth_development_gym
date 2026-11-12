@@ -1,0 +1,68 @@
+{
+ "config": {
+  "out": "/home/emilio/projects/bachelor/benchmark_results/mppi_tune_2026-11-10/runs/smoke/base/seed0",
+  "controller": "mppi",
+  "rollouts": 2000,
+  "map": "icra2022",
+  "wp": "raceline",
+  "mu": 0.9,
+  "noise": "on",
+  "seed": 0,
+  "sim_seconds": 60.0,
+  "gpu": true,
+  "initial_svg_only": false
+ },
+ "controller_name": "mppi-lite-jax",
+ "sim_seconds": 60.0,
+ "wall_seconds": 37.12680768966675,
+ "error": null,
+ "noise_level_car_state": [
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05,
+  0.05
+ ],
+ "surface_friction": 0.9,
+ "laps": [
+  {
+   "t": 16.88,
+   "lap_time": 16.83999999999982,
+   "frozen": false
+  },
+  {
+   "t": 29.88,
+   "lap_time": 12.999999999999723,
+   "frozen": false
+  },
+  {
+   "t": 42.92,
+   "lap_time": 13.039999999999722,
+   "frozen": false
+  },
+  {
+   "t": 56.0,
+   "lap_time": 13.079999999999721,
+   "frozen": false
+  }
+ ],
+ "collisions_raw": [],
+ "collision_clusters": [],
+ "n_collisions": 0,
+ "n_collisions_raw": 0,
+ "sim_collision_steps": 0,
+ "sim_collision_steps_without_reset": 0,
+ "lap_stats": {
+  "n": 4,
+  "min": 12.999999999999723,
+  "mean": 13.989999999999746,
+  "median": 13.059999999999722,
+  "max": 16.83999999999982,
+  "std": 1.900280681022372
+ }
+}
