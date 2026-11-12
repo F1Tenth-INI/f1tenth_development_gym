@@ -150,7 +150,9 @@ drive horizon 30/25/20/17 after the freeze, `af*`; `opt25` = stored sequences an
 `hsweep_maps.json` (the same on RCA1/IPZ50/hangar3 with `HW_MAP`). MPPI: `mppi_tune_2026-11-10/hsweep.json`
 (`p:horizon` 50/35/30/25/20/17). Summaries: `python reports/hsweep_report.py`, `reports/maps_report.py`.
 
-Result so far (3 seeds, ATMPPI 50; 2 seeds, MPPI 2000): ATMPPI keeps or improves lap time and crash rate down
+Result (3 seeds, ATMPPI 50; 2 seeds, MPPI 2000): ATMPPI keeps or improves lap time and crash rate down
 to a drive horizon of 25 after the freeze (14.06 s vs 14.28 s at 35); 20 is unreliable, 17 fails. MPPI 2000
-needs 35: 30 and below crash 10 to 22 times per run, 50 is 0.5 s slower. Runs that were still going when
-this branch was made are missing from `runs/`.
+needs 35: 30 and below crash 10 to 22 times per run, 50 is 0.5 s slower. Drive horizon 25 after the freeze
+also helps on the other tracks (raceline, mu 0.5): RCA1 21.52 -> 21.13 s, IPZ50 8.37 -> 8.01 s, hangar3
+6.24 -> 6.15 s, all without crashes. Shortening the stored sequences and window updates to 25 as well
+(`opt25`) is slower on icra2022, RCA1 and hangar3, and crashes a lot on icra2022.
