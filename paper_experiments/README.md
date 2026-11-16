@@ -31,7 +31,7 @@ Figure names in the paper vs. here:
 | Fig. 2 (`icra_laptimes.pdf` in the paper) | `icra_laptimes_rollouts_v2.pdf` | `make_icra_laptimes_rollouts_v2.py` |
 | Fig. 3 (`all_tracks.pdf`) | `all_tracks.pdf` | `make_all_tracks.py` |
 | Appendix overlay (`icra_overlay.pdf`) | `icra_overlay.pdf` | `make_sim_figures.py` |
-| Method overview (Fig. 1, `method_overview_new.pdf` in the paper) | `method_overview.pdf` (older version) | `method_overview/` (`capture.py`, `make_figure.py`) |
+| Method overview (Fig. 1, `method_overview_new.pdf` in the paper) | `method_overview.pdf` (byte-identical to the paper's file) | `method_overview/make_figure.py` (step 2604, lap 6) from the steps saved by `method_overview/capture.py` |
 
 **Do not run `make_sim_figures.py` to update Fig. 2 or Fig. 3.** Its `main()` rewrites `icra_laptimes.pdf`
 with an older single-run plot and copies over `all_tracks.pdf`. Use the scripts in the table; they write only

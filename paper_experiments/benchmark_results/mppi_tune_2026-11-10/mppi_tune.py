@@ -42,6 +42,11 @@ def run_one(cfg_file, name, seed, sim_s, out, gpu):
         setattr(Settings, k, v)
 
     import numpy as np
+    # Set the map before the planner is imported: WaypointUtils.__init__ takes Settings.MAP_NAME / MAP_PATH as
+    # default arguments, which Python evaluates at import time. Otherwise the planner keeps the Settings
+    # default map (icra2022) on any other --map, and the car cannot follow the waypoints.
+    Settings.MAP_NAME = os.environ.get("MPPI_MAP", "icra2022")
+    Settings.recalculate_paths()
     from Control_Toolkit_ASF.Controllers.MPPILite import mppi_lite_jax_planner as mp
     mp.DEFAULT_COST_WEIGHTS.update(weights)
     original_precompile = mp.MPPILitePlanner._precompile_functions
@@ -56,7 +61,7 @@ def run_one(cfg_file, name, seed, sim_s, out, gpu):
 
     mp.MPPILitePlanner._precompile_functions = precompile
     print("TUNE", name, overrides, flush=True)
-    sys.argv = ["bench_run.py", "--out", out, "--controller", "mppi", "--rollouts", ROLLOUTS, "--map", "icra2022",
+    sys.argv = ["bench_run.py", "--out", out, "--controller", "mppi", "--rollouts", ROLLOUTS, "--map", os.environ.get("MPPI_MAP", "icra2022"),
                 "--wp", "raceline", "--mu", os.environ.get("MPPI_MU", "0.9"), "--noise", os.environ.get("MPPI_NOISE", "on"), "--seed", str(seed),
                 "--sim-seconds", str(sim_s)] + (["--gpu"] if gpu else [])
     import bench_run

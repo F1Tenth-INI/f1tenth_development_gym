@@ -14,7 +14,7 @@ import make_sim_figures as sf
 from make_icra_laptimes_rollouts import BLUES, MPPI_RUN, RUNS, Y_MAX, Y_MIN, mp
 
 
-def main(runs=RUNS, mppi_run=MPPI_RUN, name="icra_laptimes_rollouts_v2", y_max=Y_MAX):
+def main(runs=RUNS, mppi_run=MPPI_RUN, name="icra_laptimes_rollouts_v2", y_max=Y_MAX, mppi_rollouts=2000):
     Y_MAX = y_max
 
     def clipped(lt):
@@ -33,7 +33,7 @@ def main(runs=RUNS, mppi_run=MPPI_RUN, name="icra_laptimes_rollouts_v2", y_max=Y
     med = np.median(mppi_lt[1:])
     ax.plot(n, y, "-", color=mp.MPPI_COLOR, lw=0.9, alpha=0.6, zorder=2)
     ax.plot(n[~above], y[~above], "o", color=mp.MPPI_COLOR, ms=3, zorder=2,
-            label=f"MPPI, 2000 rollouts ({med:.2f} s)" + (f", {mppi['n_collisions']} coll." if mppi["n_collisions"] else ""))
+            label=f"MPPI, {mppi_rollouts} rollouts ({med:.2f} s)" + (f", {mppi['n_collisions']} coll." if mppi["n_collisions"] else ""))
     ax.hlines(med, 2, len(mppi_lt), color=mp.MPPI_COLOR, lw=0.8, ls="--", alpha=0.8, zorder=1)
     if above.any():
         first_above.append("MPPI " + ", ".join(f"{t:.1f}" for t in mppi_lt[above]))

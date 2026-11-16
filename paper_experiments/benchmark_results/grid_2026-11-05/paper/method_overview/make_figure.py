@@ -24,13 +24,17 @@ from matplotlib.lines import Line2D
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CODE = os.path.join(HERE, "..", "..", "..", "tune_noise_2026-11-08", "code")
+# Env overrides (defaults: the original layout): FIG1_CODE = code snapshot with utilities/ and the maps (the
+# tune_noise_2026-11-08 snapshot, e.g. ../snapshot_aac2064a), FIG1_STEPS = folder of step_<n>.npz,
+# FIG1_OUT = output folder.
+CODE = os.environ.get("FIG1_CODE", os.path.join(HERE, "..", "..", "..", "tune_noise_2026-11-08", "code"))
+STEPS = os.environ.get("FIG1_STEPS", os.path.join(HERE, "steps"))
 sys.path.insert(0, CODE)
 from utilities.state_utilities import POSE_X_IDX, POSE_Y_IDX, POSE_THETA_IDX  # noqa: E402
 
 STEP = int(sys.argv[1]) if len(sys.argv) > 1 else 2604  # lap 6
 MAP = "icra2022"
-OUT = os.path.join(HERE, "..", "figures")
+OUT = os.environ.get("FIG1_OUT", os.path.join(HERE, "..", "figures"))
 # Settings of the run (utilities/Settings.py)
 LAG, SPAN, DOWN, BEHIND, AHEAD = 20, 5, 10, 50, 5
 H, DT, ETA = 35, 0.04, 0.8
@@ -107,7 +111,7 @@ def square_box(points, pad, aspect):
 
 
 def main():
-    d = np.load(os.path.join(HERE, "steps", f"step_{STEP}.npz"))
+    d = np.load(os.path.join(STEPS, f"step_{STEP}.npz"))
     img, extent = load_map()
     n = len(d["anchor"])
     state, w, it = d["state"], int(d["w"]), int(d["car_waypoint"])

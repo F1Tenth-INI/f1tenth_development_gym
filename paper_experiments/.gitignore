@@ -1,0 +1,19 @@
+# Per-run artefacts that are not kept (the committed runs hold result.json and the *_raceline.npz only):
+# run logs and launcher logs (run.log, collect*.log, sweep*.log) and the waypoint-table drawings that
+# bench_run.py writes next to result.json (initial_raceline.svg, final_raceline.svg).
+*.log
+benchmark_results/**/runs*/**/*.svg
+
+# Run data of the 2026-11-12 experiments is kept local (regenerate with the scripts in those folders).
+benchmark_results/fig2_repro_2026-11-12/runs/
+benchmark_results/horizon_sweep_2026-11-12/runs*/
+benchmark_results/horizon_sweep_2026-11-12/configs/
+benchmark_results/fig1_repro_2026-11-12/steps/
+benchmark_results/fig1_repro_2026-11-12/run/
+benchmark_results/fig3_repro_2026-11-12/runs*/
+benchmark_results/fig3_repro_2026-11-12/runs_noise/
+benchmark_results/hw50_tune_2026-11-10/runs/hsweep_seeds5to14/
+benchmark_results/horizon_sweep_2026-11-12/runs_noisehalf/
+benchmark_results/hw50_tune_2026-11-10/runs/hsweep_n100/
+benchmark_results/fig1_repro_2026-11-12/capture_long/
+benchmark_results/horizon_sweep_2026-11-12/runs_RCA1_noisehalf/

@@ -21,9 +21,11 @@ import numpy as np
 os.environ.update(JAX_PLATFORMS="cpu", CUDA_VISIBLE_DEVICES="", OMP_NUM_THREADS="1", TQDM_DISABLE="1")
 HERE = os.path.dirname(os.path.abspath(__file__))
 TUNE = os.path.join(HERE, "..", "..", "..", "tune_noise_2026-11-08")
-OUT = os.path.join(HERE, "steps")
+# CAPTURE_DIR: where steps/ and run/ go (default: this folder). CODE_DIR (read by tune_run.py): the code to run.
+DIR = os.environ.get("CAPTURE_DIR", HERE)
+OUT = os.path.join(DIR, "steps")
 FIRST, LAST = (int(a) for a in sys.argv[1:3]) if len(sys.argv) > 2 else (2400, 3300)
-sys.argv = ["tune_run.py", "soft25w02", "--out", os.path.join(HERE, "run"), "--controller", "hw", "--rollouts", "50",
+sys.argv = ["tune_run.py", "soft25w02", "--out", os.path.join(DIR, "run"), "--controller", "hw", "--rollouts", "50",
             "--map", "icra2022", "--wp", "raceline", "--mu", "0.5", "--noise", "off", "--seed", "1",
             "--sim-seconds", str((LAST + 50) * 0.04)]
 os.makedirs(OUT, exist_ok=True)
